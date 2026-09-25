@@ -42,7 +42,12 @@ The trusted execution workflow runs the candidate command in a job with no signi
 second job on the protected `devgov-attestation` environment receives only the execution record and
 signs it with `DEVGOV_ATTESTATION_PRIVATE_KEY_PEM`. The producer can request verification but must not
 possess that credential or write the verifier-controlled trust policy. The workflow must live on and
-be dispatched from the protected default branch.
+be dispatched from the protected default branch. `devgov-v0-gate.yml` and `devgov-v0-orchestrate.yml`
+are both triggered exclusively by `repository_dispatch` (not `workflow_dispatch`): its REST payload
+carries no `ref`/branch selector, so GitHub always resolves and runs the copy of each file committed
+on the default branch, and manual dispatch is `gh api --method POST
+repos/<owner>/<repo>/dispatches -f event_type=<type> -F client_payload[...]=...` rather than
+`gh workflow run … --ref`.
 
 The verifier supplies a trust policy outside the producer's write domain. `evidence-gate` never
 accepts a trust-policy path or trust-policy bytes from CLI input or the candidate checkout. The
