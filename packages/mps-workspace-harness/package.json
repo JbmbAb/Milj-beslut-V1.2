@@ -1,0 +1,20 @@
+{
+  "name": "@miljobeslut/mps-workspace-harness",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@miljobeslut/mps-canonical": "0.1.0",
+    "@miljobeslut/mps-workspace-observer": "0.1.0",
+    "@miljobeslut/mps-workspace-classifier": "0.1.0"
+  }
+}

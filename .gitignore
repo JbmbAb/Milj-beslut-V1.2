@@ -56,6 +56,12 @@ tmp-mimers/
 # not a local artifact: without it in the checkout, P3LuVerdictTypeBoundary.test.ts cannot run
 # and the boundary reverts to being enforced only at runtime.
 !tsconfig.lu-verdict.json
+# WORKSPACE-LIFECYCLE-CONTROLLER-V1 — the digest artifact, its test vectors and the vocabulary
+# mapping are DELIVERABLES the spec requires to be published (B6, A30, Del D items 10 and 18), and
+# the tests read them back to prove the code and the artifact have not drifted. Without these
+# negations the blanket *.json rule above silently drops all three from the candidate, and the
+# freeze would ship a handoff that cites artifacts the checkout does not contain.
+!packages/mps-workspace-observer/contracts/*.json
 !.prettierrc.json
 !stitch.json
 !figma-raw.json
