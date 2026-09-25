@@ -22,6 +22,15 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(JSON.stringify(attest)).toContain('persist-credentials');
   });
 
+  it('exposes no standalone dispatch entry point -- workflow_call is the only trigger', () => {
+    const source = readFileSync(workflowPath, 'utf8');
+    const workflow = parse(source);
+
+    expect(workflow.on.workflow_call).toBeTruthy();
+    expect(workflow.on.workflow_dispatch).toBeUndefined();
+    expect(Object.keys(workflow.on)).toEqual(['workflow_call']);
+  });
+
   it('runs candidate code under a separate OS identity that cannot rewrite the raw record', () => {
     const source = readFileSync(workflowPath, 'utf8');
 
