@@ -20,7 +20,7 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     );
 
     expect(workflow.on.workflow_call).toBeTruthy();
-    expect(workflow.on.workflow_dispatch).toBeTruthy();
+    expect(workflow.on.workflow_dispatch).toBeUndefined();
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.execute.environment).toBeUndefined();
     expect(workflow.jobs.attest.environment).toBe('devgov-attestation');
