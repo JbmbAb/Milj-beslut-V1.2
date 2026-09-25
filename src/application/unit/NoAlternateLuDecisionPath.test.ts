@@ -67,6 +67,34 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
   /** A bare zero is the forbidden fail-open verdict fallback; governed fractions are valid. */
   const BARE_ZERO_PERMIT_PROBABILITY = /permitProbability\s*:\s*0\s*[,}]/;
 
+  /**
+   * NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1 — a fabricated 200 m distance-to-water
+   * fallback, in its call-site form (`?? 200` / `|| 200`) or its default-parameter form
+   * (`: number = 200`).
+   *
+   * `REBUILD-GATE-STATUS.md` bans this explicitly: "legacy fallback = 200 m ← DO NOT
+   * REINTRODUCE as spatial semantics". 200 m sits just outside the < 100 m Strandskydd
+   * threshold in `evaluate-compliance-rules.usecase.ts`, so a fabricated 200 m does not read
+   * as "unknown" — it reads as "verified clear" and silently suppresses a Strandskydd flag
+   * that should have stayed unresolved. An unknown distance must reach the compliance engine
+   * as `null` (its new default), in every mode — there is no mode in which a fabricated
+   * distance is an honest input to a legal compliance determination.
+   *
+   * Scoped to the three files that actually carry this value end to end (the usecase call
+   * site and the two engine entrypoints), read directly rather than swept in via LU_SURFACE:
+   * the engine files define/re-export `evaluateComplianceRules` themselves, so folding them
+   * into the content-sniffed LU_SURFACE set would make the "no second verdict authority" scan
+   * above trip on their own internal delegation call — a false positive, not a regression.
+   */
+  const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?|\|\|)\s*200\b/;
+  const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT = /distanceToWater\s*(?::\s*number)?\s*=\s*200\b/;
+  const WATER_DISTANCE_ENGINE_FILES = [
+    "src/application/generate-localization-report.usecase.ts",
+    "src/application/evaluate-compliance-rules.usecase.ts",
+    "server/services/complianceRuleEngine.ts",
+  ];
+
   function sourceFiles(): string[] {
     const found: string[] = [];
     const walk = (dir: string) => {
@@ -168,6 +196,26 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
     ).toEqual([]);
   });
 
+  // ------------------------------------------- 2b. no fabricated water-distance fallback
+
+  it("no fabricated 200 m water-distance fallback anywhere in the usecase or the compliance engine", () => {
+    const violations: string[] = [];
+    for (const relPath of WATER_DISTANCE_ENGINE_FILES) {
+      const src = stripComments(readFileSync(join(REPO_ROOT, ...relPath.split("/")), "utf8"));
+      const callsiteHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE)?.[0];
+      const defaultHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT)?.[0];
+      if (callsiteHit) violations.push(`${relPath}: ${callsiteHit}`);
+      if (defaultHit) violations.push(`${relPath}: ${defaultHit}`);
+    }
+
+    expect(
+      violations,
+      "An unknown distance to water must reach the compliance engine as null, never as a " +
+        "fabricated 200 m — that value sits just outside the < 100 m Strandskydd threshold and " +
+        "silently reads as 'verified clear' instead of 'unverified'.",
+    ).toEqual([]);
+  });
+
   // ------------------------------------------- 3. the strip point cannot be removed
 
   it("the canonical usecase retains its single verdict strip point", () => {
@@ -244,6 +292,21 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         code: `confidence: analysis?.complianceAnalysis?.permitProbability\n  ? Math.round(analysis.complianceAnalysis.permitProbability * 100)\n  : 85,`,
         rule: VERDICT_NUMERIC_TERNARY,
       },
+      {
+        name: "fabricated 200 m water-distance fallback at the call site (the actual regression)",
+        code: `distanceForCompliance ?? 200,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m water-distance fallback via ||",
+        code: `const d = spatialAudit.distanceToWaterMeters || 200;`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m water-distance default parameter",
+        code: `distanceToWater: number = 200,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
     ];
 
     for (const { name, code, rule } of fixtures) {
@@ -258,6 +321,17 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
     ];
     for (const code of compliant) {
       expect(VERDICT_PLACEHOLDER.test(code), `compliant form must pass: ${code}`).toBe(false);
+    }
+
+    // POSITIVE CONTROL — the actual post-fix shape (pass the real value through, default to
+    // null) must NOT trip the water-distance guard.
+    const compliantDistance = [`distanceToWaterMeters,`, `distanceToWater: number | null = null,`];
+    for (const code of compliantDistance) {
+      expect(
+        FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE.test(code) ||
+          FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT.test(code),
+        `compliant distance form must pass: ${code}`,
+      ).toBe(false);
     }
   });
 

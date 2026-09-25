@@ -533,7 +533,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     expect(sgu?.status).toBe('degraded');
   });
 
-  it('distanceForCompliance=null i strict-läge när vatten ej tillgängligt', async () => {
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: unavailable water distance in strict mode reaches the compliance engine as null, never fabricates Strandskydd', async () => {
+    // Re-authored: this test previously asserted a strict-mode-only warning message that
+    // W1 deliberately removed (mechanical-only fix, no new policy text — see
+    // MIMER-PARALLEL-WORK-BOARD.md W1 card, OD-01). The scenario itself (strict mode, water
+    // distance genuinely unavailable) is still worth covering end to end; the assertion now
+    // targets the actual mechanical guarantee instead of a specific warning string.
     process.env.LOCALIZATION_STRICT_SOURCES = 'true';
     const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
     (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -552,6 +557,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
       siteAlternatives: [SITE],
     });
 
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(true);
+    // The real measured value (null) passes through unmolested — never a fabricated 200.
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    // No fabricated Strandskydd finding for a distance the system never actually measured.
+    expect(report.siteAnalyses[0].complianceAnalysis.restrictions).not.toContain('Strandskydd');
+    expect(
+      report.siteAnalyses[0].complianceAnalysis.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND'),
+    ).toBeUndefined();
   });
 });

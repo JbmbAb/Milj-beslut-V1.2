@@ -34,7 +34,7 @@ export function evaluateComplianceRules(
   protectedAreas: ProtectedArea[],
   geological: GeologicalData,
   monuments: Monument[],
-  distanceToWater: number = 200,
+  distanceToWater: number | null = null,
 ): SiteAnalysis {
   return useCase.evaluateComplianceRules(
     observations,

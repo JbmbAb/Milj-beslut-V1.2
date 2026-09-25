@@ -102,10 +102,56 @@ describe('evaluateComplianceRules', () => {
       const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, 200);
       expect(result.restrictions).not.toContain('Strandskydd');
     });
+  });
 
-    it('defaults distanceToWater to 200 m (no strandskydd)', () => {
+  describe('strandskydd — unknown distance (NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1)', () => {
+    // REBUILD-GATE-STATUS.md: "legacy fallback = 200 m ← DO NOT REINTRODUCE as spatial
+    // semantics". A fabricated 200 m default does not read as "unknown" — it sits just outside
+    // the < 100 m threshold above and so reads as "verified clear", silently suppressing a
+    // Strandskydd flag that should have stayed unresolved. This unit is MECHANICAL ONLY: an
+    // unknown distance must produce exactly main's un-flagged behaviour for this dimension —
+    // no new rule, no new restriction string, no risk tier, no permitProbability change. What
+    // "unknown" should actively communicate is a separate, later policy unit (W2).
+
+    it('defaults distanceToWater to null (unknown), never to a numeric distance', () => {
       const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments);
       expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+    });
+
+    it('does NOT fire the Strandskydd rule when distance is explicitly null', () => {
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, null);
+      expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+    });
+
+    it('does NOT fire the Strandskydd rule when distance is NaN (JS: NaN < 100 is false, but guard explicitly, do not rely on it)', () => {
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, NaN);
+      expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+    });
+
+    it('does NOT fabricate any distance-dependent text when distance is null', () => {
+      // Guards against `Avstand till vatten ar null m` — the JS pitfall where a naive
+      // `null < 100` comparison is `true` (null coerces to 0) and would fabricate a HIGH
+      // Strandskydd finding with a nonsensical "null m" description.
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, null);
+      expect(result.rules.some((r) => r.description.includes('null'))).toBe(false);
+      expect(result.overallRisk).toBe('LOW');
+      expect(result.permitProbability).toBe(0.95);
+    });
+
+    it('an unknown distance does not change overallRisk/permitProbability/restrictions/rules at all relative to main (mechanical parity)', () => {
+      // With a CONFIRMED restriction present (Naturreservat), an unknown water distance must
+      // not add, remove, or alter anything else in the result — mechanical-only means zero
+      // observable difference outside the Strandskydd dimension itself.
+      const reservat: ProtectedArea[] = [{ type: 'Naturreservat', name: 'X', id: 'res-unknown-dist' }];
+      const withKnownFar = evaluateComplianceRules(noObs, reservat, emptyGeo, noMonuments, 500);
+      const withUnknown = evaluateComplianceRules(noObs, reservat, emptyGeo, noMonuments, null);
+      expect(withUnknown.overallRisk).toBe(withKnownFar.overallRisk);
+      expect(withUnknown.permitProbability).toBe(withKnownFar.permitProbability);
+      expect(withUnknown.restrictions).toEqual(withKnownFar.restrictions);
+      expect(withUnknown.rules.map((r) => r.ruleId)).toEqual(withKnownFar.rules.map((r) => r.ruleId));
     });
   });
 
