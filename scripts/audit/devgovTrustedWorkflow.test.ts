@@ -87,13 +87,33 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
       'run_isolation_command freeze-execution-mode sudo chmod -R a-w "$execution_root"',
       'run_isolation_command restore-node-modules-owner sudo chown -R devgov-candidate:devgov-candidate "$execution_root/node_modules"',
       'run_isolation_command restore-node-modules-mode sudo chmod -R u+w "$execution_root/node_modules"',
-      'run_isolation_command safe-directory-candidate sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"',
-      'run_isolation_command safe-directory-execution sudo git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"',
+      'run_isolation_command safe-directory-candidate sudo -H -u devgov-candidate git config --global --add safe.directory "$GITHUB_WORKSPACE/candidate"',
+      'run_isolation_command safe-directory-execution sudo -H -u devgov-candidate git config --global --add safe.directory "$GITHUB_WORKSPACE/execution"',
       'run_isolation_command create-controller-dir sudo install -d -m 0700 -o root -g root "$RUNNER_TEMP/devgov-controller"',
       'run_isolation_command create-export-dir install -d -m 0700 "$RUNNER_TEMP/devgov-export"',
     ]) {
       expect(prepare.run).toContain(invocation);
     }
+  });
+
+  it('configures Git safe.directory for the proof OS identity, never root-only', () => {
+    const workflow = parse(readFileSync(workflowPath, 'utf8'));
+    const prepare = workflow.jobs.execute.steps.find(
+      (step) => step.name === 'Prepare isolated proof OS identity',
+    );
+
+    expect(prepare.run).toContain(
+      'safe-directory-candidate sudo -H -u devgov-candidate git config --global --add safe.directory',
+    );
+    expect(prepare.run).toContain(
+      'safe-directory-execution sudo -H -u devgov-candidate git config --global --add safe.directory',
+    );
+    expect(prepare.run).not.toContain(
+      'safe-directory-candidate sudo git config --global --add safe.directory',
+    );
+    expect(prepare.run).not.toContain(
+      'safe-directory-execution sudo git config --global --add safe.directory',
+    );
   });
 
   it('reports parent-directory traversal without changing the fail-closed command', () => {

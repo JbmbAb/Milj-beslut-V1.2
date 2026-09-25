@@ -1,0 +1,88 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-CANDIDATE-SAFE-DIRECTORY-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-candidate-safe-directory-v1",
+  "base_sha": "b3d1a93bb4b1f7142dc3263ace694768973b0122",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    "scripts/audit/devgovTrustedWorkflow.test.ts",
+    "governance/devgov/units/devgov-candidate-safe-directory-v1.json",
+    "docs/architecture/audits/DEVGOV-CANDIDATE-SAFE-DIRECTORY-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-gate.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    ".github/workflows/devgov-v0.yml",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**",
+    "services/**",
+    "integrations/**",
+    "prisma/**",
+    "scripts/ops/**",
+    "scripts/import/**"
+  ],
+  "required_red": [
+    {
+      "id": "candidate-safe-directory-user-binding",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');\nconst V=m=>{console.error('DEVGOV_CANDIDATE_SAFE_DIRECTORY_V1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('DEVGOV_CANDIDATE_SAFE_DIRECTORY_V1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const p='.github/workflows/devgov-v0-attest.yml';\n if(!fs.existsSync(p))H('attest workflow missing');\n const s=fs.readFileSync(p,'utf8');\n for(const q of ['useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate','freeze-execution-owner sudo chown -R root:root \"$execution_root\"','--run-as-home /home/devgov-candidate'])if(!s.includes(q))H('positive control missing: '+q);\n const good=[\n  'safe-directory-candidate sudo -H -u devgov-candidate git config --global --add safe.directory \"$GITHUB_WORKSPACE/candidate\"',\n  'safe-directory-execution sudo -H -u devgov-candidate git config --global --add safe.directory \"$GITHUB_WORKSPACE/execution\"'\n ];\n const bad=[\n  'safe-directory-candidate sudo git config --global --add safe.directory \"$GITHUB_WORKSPACE/candidate\"',\n  'safe-directory-execution sudo git config --global --add safe.directory \"$GITHUB_WORKSPACE/execution\"'\n ];\n const missing=good.filter(x=>!s.includes(x));\n const rootOnly=bad.filter(x=>s.includes(x));\n if(missing.length||rootOnly.length)V('safe.directory is not bound to devgov-candidate; missing='+missing.length+' root_only='+rootOnly.length);\n console.log('DEVGOV_CANDIDATE_SAFE_DIRECTORY_V1_OK');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "candidate-safe-directory-user-binding",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');\nconst V=m=>{console.error('DEVGOV_CANDIDATE_SAFE_DIRECTORY_V1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('DEVGOV_CANDIDATE_SAFE_DIRECTORY_V1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const p='.github/workflows/devgov-v0-attest.yml';\n if(!fs.existsSync(p))H('attest workflow missing');\n const s=fs.readFileSync(p,'utf8');\n for(const q of ['useradd --system --create-home --shell /usr/sbin/nologin devgov-candidate','freeze-execution-owner sudo chown -R root:root \"$execution_root\"','--run-as-home /home/devgov-candidate'])if(!s.includes(q))H('positive control missing: '+q);\n const good=[\n  'safe-directory-candidate sudo -H -u devgov-candidate git config --global --add safe.directory \"$GITHUB_WORKSPACE/candidate\"',\n  'safe-directory-execution sudo -H -u devgov-candidate git config --global --add safe.directory \"$GITHUB_WORKSPACE/execution\"'\n ];\n const bad=[\n  'safe-directory-candidate sudo git config --global --add safe.directory \"$GITHUB_WORKSPACE/candidate\"',\n  'safe-directory-execution sudo git config --global --add safe.directory \"$GITHUB_WORKSPACE/execution\"'\n ];\n const missing=good.filter(x=>!s.includes(x));\n const rootOnly=bad.filter(x=>s.includes(x));\n if(missing.length||rootOnly.length)V('safe.directory is not bound to devgov-candidate; missing='+missing.length+' root_only='+rootOnly.length);\n console.log('DEVGOV_CANDIDATE_SAFE_DIRECTORY_V1_OK');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "candidate-safe-directory-regression-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "const cp=require('node:child_process');\nconst H=m=>{console.error('HARNESS: '+m);process.exit(2)};\nconst V=m=>{console.error('VIOLATION: '+m);process.exit(1)};\nconst win=process.platform==='win32';const cmd=win?'npx.cmd':'npx';\nconst r=cp.spawnSync(cmd,['vitest','run','--config','scripts/devgov/vitest.config.mjs','scripts/audit/devgovTrustedWorkflow.test.ts'],{stdio:'inherit',shell:win,timeout:180000});\nif(r.error||r.status===null)H(r.error?r.error.message:'signal '+r.signal);\nif(r.status!==0)V('trusted workflow tests exit '+r.status);\nconsole.log('DEVGOV_CANDIDATE_SAFE_DIRECTORY_TESTS_OK');\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-candidate-safe-directory-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
