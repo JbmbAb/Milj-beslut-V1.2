@@ -1,0 +1,160 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-protected-controller-dispatch-v1",
+  "base_sha": "b3d1a93bb4b1f7142dc3263ace694768973b0122",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-gate.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    "governance/devgov/units/README.md",
+    "scripts/audit/devgovOrchestration.test.ts",
+    "scripts/audit/devgovTrustedWorkflow.test.ts",
+    "governance/devgov/units/devgov-protected-controller-dispatch-v1.json",
+    "docs/architecture/audits/DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0.yml",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**",
+    "services/**",
+    "integrations/**",
+    "prisma/**",
+    "scripts/ops/**",
+    "scripts/import/**"
+  ],
+  "required_red": [
+    {
+      "id": "dispatch-trigger-surface-exact",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nfunction isolateOnBlock(src) {\n  const lines = src.split('\\n');\n  const onIdx = lines.findIndex((l) => /^on:\\s*$/.test(l));\n  if (onIdx === -1) return null;\n  let end = lines.length;\n  for (let i = onIdx + 1; i < lines.length; i++) { if (/^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(onIdx, end).join('\\n');\n}\ntry {\n  const files = { gate: '.github/workflows/devgov-v0-gate.yml', orchestrate: '.github/workflows/devgov-v0-orchestrate.yml' };\n  for (const [label, p] of Object.entries(files)) {\n    if (!fs.existsSync(p)) H(`${label} workflow file missing: ${p}`);\n    const src = fs.readFileSync(p, 'utf8');\n    if (!/^on:\\s*$/m.test(src)) H(`${label}: no on: block found (positive control failed)`);\n    const onBlock = isolateOnBlock(src);\n    if (onBlock === null) H(`${label}: on: block index not found`);\n    const positiveControlSample = '  repository_dispatch:\\n    types: [x]';\n    if (!/^  repository_dispatch:\\s*$/m.test(positiveControlSample)) H(`${label}: positive control sample itself failed to match repository_dispatch regex -- harness broken`);\n    const hasRepositoryDispatch = /^  repository_dispatch:\\s*$/m.test(onBlock);\n    const hasWorkflowDispatch = /^  workflow_dispatch:\\s*$/m.test(onBlock);\n    if (!hasRepositoryDispatch) V(`${label}: on: block does not declare repository_dispatch as a direct child key`);\n    if (hasWorkflowDispatch) V(`${label}: on: block still declares workflow_dispatch alongside/instead of repository_dispatch`);\n  }\n  console.log('DGL_OK: both gate.yml and orchestrate.yml declare repository_dispatch with no coexisting workflow_dispatch');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-no-ref-selection-surface",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nconst REF_SELECTING_KEYS = ['ref', 'branch', 'sha', 'branches', 'branches-ignore', 'tags', 'tags-ignore', 'paths', 'paths-ignore'];\nfunction isolateOnBlock(src) {\n  const lines = src.split('\\n');\n  const onIdx = lines.findIndex((l) => /^on:\\s*$/.test(l));\n  if (onIdx === -1) return null;\n  let end = lines.length;\n  for (let i = onIdx + 1; i < lines.length; i++) { if (/^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(onIdx, end).join('\\n');\n}\nfunction isolateRepoDispatchBlock(onBlock) {\n  const lines = onBlock.split('\\n');\n  const idx = lines.findIndex((l) => /^  repository_dispatch:\\s*$/.test(l));\n  if (idx === -1) return null;\n  let end = lines.length;\n  for (let i = idx + 1; i < lines.length; i++) { if (/^  \\S/.test(lines[i]) || /^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(idx + 1, end);\n}\ntry {\n  const files = { gate: '.github/workflows/devgov-v0-gate.yml', orchestrate: '.github/workflows/devgov-v0-orchestrate.yml' };\n  for (const [label, p] of Object.entries(files)) {\n    if (!fs.existsSync(p)) H(`${label} workflow file missing: ${p}`);\n    const src = fs.readFileSync(p, 'utf8');\n    const onBlock = isolateOnBlock(src);\n    if (onBlock === null) H(`${label}: on: block index not found`);\n    const body = isolateRepoDispatchBlock(onBlock);\n    if (body === null) V(`${label}: repository_dispatch: is not a direct child of on: (cannot enumerate its keys)`);\n    const directChildKeys = [];\n    for (const line of body) { const m = /^    ([A-Za-z0-9_-]+):/.exec(line); if (m) directChildKeys.push(m[1]); }\n    if (directChildKeys.length === 0) H(`${label}: repository_dispatch: has no direct child keys at all (positive control failed -- expected at least \"types\")`);\n    const unexpected = directChildKeys.filter((k) => k !== 'types');\n    if (unexpected.length > 0) V(`${label}: repository_dispatch: declares unexpected key(s) beyond \"types\": ${unexpected.join(', ')}`);\n    const typesLine = body.find((l) => /^    types:/.test(l));\n    if (!typesLine) V(`${label}: repository_dispatch.types is not declared`);\n    const typesMatch = /^    types:\\s*\\[([^\\]]*)\\]\\s*$/.exec(typesLine);\n    if (!typesMatch) H(`${label}: could not parse repository_dispatch.types as an inline flow-sequence array: ${JSON.stringify(typesLine)}`);\n    const typesArr = typesMatch[1].length === 0 ? [] : typesMatch[1].split(',').map((s) => { const trimmed = s.trim(); const unquoted = /^(['\"])(.*)\\1$/.exec(trimmed); return unquoted ? unquoted[2] : trimmed; });\n    if (!Array.isArray(typesArr) || typesArr.length === 0) V(`${label}: repository_dispatch.types did not parse to a non-empty array`);\n    for (const t of typesArr) {\n      if (typeof t !== 'string') V(`${label}: repository_dispatch.types contains a non-string entry`);\n      if (/[./]|refs\\//.test(t)) V(`${label}: repository_dispatch.types entry \"${t}\" looks like a ref/path selector (contains '.', '/', or 'refs/'), not an opaque event-type label`);\n    }\n    const bodyText = body.join('\\n');\n    for (const key of REF_SELECTING_KEYS) {\n      const re = new RegExp('^\\\\s*' + key.replace(/-/g, '\\\\-') + ':', 'm');\n      if (re.test(bodyText)) V(`${label}: repository_dispatch block contains a ref/branch-selecting key \"${key}\", which has no meaning in the documented repository_dispatch payload schema and should not be present`);\n    }\n  }\n  console.log('DGL_OK: repository_dispatch triggers on both files expose only an opaque \"types\" key -- no ref/branch selector exists in the trigger declaration for either workflow');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-attest-uses-pinned-ref",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nconst PINNED = 'JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main';\nconst RELATIVE = './.github/workflows/devgov-v0-attest.yml';\nfunction isolateJobBlock(lines, jobNameLine) {\n  const idx = lines.findIndex((l) => l === jobNameLine);\n  if (idx === -1) return null;\n  let end = lines.length;\n  for (let i = idx + 1; i < lines.length; i++) { if (/^  \\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(idx, end).join('\\n');\n}\ntry {\n  const p = '.github/workflows/devgov-v0-orchestrate.yml';\n  if (!fs.existsSync(p)) H('orchestrate workflow file missing: ' + p);\n  const src = fs.readFileSync(p, 'utf8');\n  const lines = src.split('\\n');\n  if (!/^  red:\\s*$/m.test(src)) H('positive control failed: no top-level \"red:\" job found');\n  if (!/^  green:\\s*$/m.test(src)) H('positive control failed: no top-level \"green:\" job found');\n  const redBlock = isolateJobBlock(lines, '  red:');\n  const greenBlock = isolateJobBlock(lines, '  green:');\n  if (!redBlock) H('could not isolate red: job block');\n  if (!greenBlock) H('could not isolate green: job block');\n  const usesIn = (block, label) => { const m = /^\\s*uses:\\s*(\\S+)\\s*$/m.exec(block); if (!m) V(`${label}: job block has no \"uses:\" key`); return m[1]; };\n  const redUses = usesIn(redBlock, 'red');\n  const greenUses = usesIn(greenBlock, 'green');\n  if (redUses !== PINNED) V(`red job's uses: is \"${redUses}\", not the pinned explicit form \"${PINNED}\"`);\n  if (greenUses !== PINNED) V(`green job's uses: is \"${greenUses}\", not the pinned explicit form \"${PINNED}\"`);\n  if (src.includes(RELATIVE)) V(`file still contains the relative uses: form \"${RELATIVE}\" somewhere (regression guard)`);\n  const pinnedCount = (src.match(new RegExp(PINNED.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g')) || []).length;\n  if (pinnedCount !== 2) V(`expected exactly 2 occurrences of the pinned uses: form, found ${pinnedCount}`);\n  console.log('DGL_OK: both red and green jobs pin uses: to the explicit @main form; no relative form remains');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "dispatch-trigger-surface-exact",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nfunction isolateOnBlock(src) {\n  const lines = src.split('\\n');\n  const onIdx = lines.findIndex((l) => /^on:\\s*$/.test(l));\n  if (onIdx === -1) return null;\n  let end = lines.length;\n  for (let i = onIdx + 1; i < lines.length; i++) { if (/^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(onIdx, end).join('\\n');\n}\ntry {\n  const files = { gate: '.github/workflows/devgov-v0-gate.yml', orchestrate: '.github/workflows/devgov-v0-orchestrate.yml' };\n  for (const [label, p] of Object.entries(files)) {\n    if (!fs.existsSync(p)) H(`${label} workflow file missing: ${p}`);\n    const src = fs.readFileSync(p, 'utf8');\n    if (!/^on:\\s*$/m.test(src)) H(`${label}: no on: block found (positive control failed)`);\n    const onBlock = isolateOnBlock(src);\n    if (onBlock === null) H(`${label}: on: block index not found`);\n    const positiveControlSample = '  repository_dispatch:\\n    types: [x]';\n    if (!/^  repository_dispatch:\\s*$/m.test(positiveControlSample)) H(`${label}: positive control sample itself failed to match repository_dispatch regex -- harness broken`);\n    const hasRepositoryDispatch = /^  repository_dispatch:\\s*$/m.test(onBlock);\n    const hasWorkflowDispatch = /^  workflow_dispatch:\\s*$/m.test(onBlock);\n    if (!hasRepositoryDispatch) V(`${label}: on: block does not declare repository_dispatch as a direct child key`);\n    if (hasWorkflowDispatch) V(`${label}: on: block still declares workflow_dispatch alongside/instead of repository_dispatch`);\n  }\n  console.log('DGL_OK: both gate.yml and orchestrate.yml declare repository_dispatch with no coexisting workflow_dispatch');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-no-ref-selection-surface",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nconst REF_SELECTING_KEYS = ['ref', 'branch', 'sha', 'branches', 'branches-ignore', 'tags', 'tags-ignore', 'paths', 'paths-ignore'];\nfunction isolateOnBlock(src) {\n  const lines = src.split('\\n');\n  const onIdx = lines.findIndex((l) => /^on:\\s*$/.test(l));\n  if (onIdx === -1) return null;\n  let end = lines.length;\n  for (let i = onIdx + 1; i < lines.length; i++) { if (/^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(onIdx, end).join('\\n');\n}\nfunction isolateRepoDispatchBlock(onBlock) {\n  const lines = onBlock.split('\\n');\n  const idx = lines.findIndex((l) => /^  repository_dispatch:\\s*$/.test(l));\n  if (idx === -1) return null;\n  let end = lines.length;\n  for (let i = idx + 1; i < lines.length; i++) { if (/^  \\S/.test(lines[i]) || /^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(idx + 1, end);\n}\ntry {\n  const files = { gate: '.github/workflows/devgov-v0-gate.yml', orchestrate: '.github/workflows/devgov-v0-orchestrate.yml' };\n  for (const [label, p] of Object.entries(files)) {\n    if (!fs.existsSync(p)) H(`${label} workflow file missing: ${p}`);\n    const src = fs.readFileSync(p, 'utf8');\n    const onBlock = isolateOnBlock(src);\n    if (onBlock === null) H(`${label}: on: block index not found`);\n    const body = isolateRepoDispatchBlock(onBlock);\n    if (body === null) V(`${label}: repository_dispatch: is not a direct child of on: (cannot enumerate its keys)`);\n    const directChildKeys = [];\n    for (const line of body) { const m = /^    ([A-Za-z0-9_-]+):/.exec(line); if (m) directChildKeys.push(m[1]); }\n    if (directChildKeys.length === 0) H(`${label}: repository_dispatch: has no direct child keys at all (positive control failed -- expected at least \"types\")`);\n    const unexpected = directChildKeys.filter((k) => k !== 'types');\n    if (unexpected.length > 0) V(`${label}: repository_dispatch: declares unexpected key(s) beyond \"types\": ${unexpected.join(', ')}`);\n    const typesLine = body.find((l) => /^    types:/.test(l));\n    if (!typesLine) V(`${label}: repository_dispatch.types is not declared`);\n    const typesMatch = /^    types:\\s*\\[([^\\]]*)\\]\\s*$/.exec(typesLine);\n    if (!typesMatch) H(`${label}: could not parse repository_dispatch.types as an inline flow-sequence array: ${JSON.stringify(typesLine)}`);\n    const typesArr = typesMatch[1].length === 0 ? [] : typesMatch[1].split(',').map((s) => { const trimmed = s.trim(); const unquoted = /^(['\"])(.*)\\1$/.exec(trimmed); return unquoted ? unquoted[2] : trimmed; });\n    if (!Array.isArray(typesArr) || typesArr.length === 0) V(`${label}: repository_dispatch.types did not parse to a non-empty array`);\n    for (const t of typesArr) {\n      if (typeof t !== 'string') V(`${label}: repository_dispatch.types contains a non-string entry`);\n      if (/[./]|refs\\//.test(t)) V(`${label}: repository_dispatch.types entry \"${t}\" looks like a ref/path selector (contains '.', '/', or 'refs/'), not an opaque event-type label`);\n    }\n    const bodyText = body.join('\\n');\n    for (const key of REF_SELECTING_KEYS) {\n      const re = new RegExp('^\\\\s*' + key.replace(/-/g, '\\\\-') + ':', 'm');\n      if (re.test(bodyText)) V(`${label}: repository_dispatch block contains a ref/branch-selecting key \"${key}\", which has no meaning in the documented repository_dispatch payload schema and should not be present`);\n    }\n  }\n  console.log('DGL_OK: repository_dispatch triggers on both files expose only an opaque \"types\" key -- no ref/branch selector exists in the trigger declaration for either workflow');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-attest-uses-pinned-ref",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nconst PINNED = 'JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main';\nconst RELATIVE = './.github/workflows/devgov-v0-attest.yml';\nfunction isolateJobBlock(lines, jobNameLine) {\n  const idx = lines.findIndex((l) => l === jobNameLine);\n  if (idx === -1) return null;\n  let end = lines.length;\n  for (let i = idx + 1; i < lines.length; i++) { if (/^  \\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(idx, end).join('\\n');\n}\ntry {\n  const p = '.github/workflows/devgov-v0-orchestrate.yml';\n  if (!fs.existsSync(p)) H('orchestrate workflow file missing: ' + p);\n  const src = fs.readFileSync(p, 'utf8');\n  const lines = src.split('\\n');\n  if (!/^  red:\\s*$/m.test(src)) H('positive control failed: no top-level \"red:\" job found');\n  if (!/^  green:\\s*$/m.test(src)) H('positive control failed: no top-level \"green:\" job found');\n  const redBlock = isolateJobBlock(lines, '  red:');\n  const greenBlock = isolateJobBlock(lines, '  green:');\n  if (!redBlock) H('could not isolate red: job block');\n  if (!greenBlock) H('could not isolate green: job block');\n  const usesIn = (block, label) => { const m = /^\\s*uses:\\s*(\\S+)\\s*$/m.exec(block); if (!m) V(`${label}: job block has no \"uses:\" key`); return m[1]; };\n  const redUses = usesIn(redBlock, 'red');\n  const greenUses = usesIn(greenBlock, 'green');\n  if (redUses !== PINNED) V(`red job's uses: is \"${redUses}\", not the pinned explicit form \"${PINNED}\"`);\n  if (greenUses !== PINNED) V(`green job's uses: is \"${greenUses}\", not the pinned explicit form \"${PINNED}\"`);\n  if (src.includes(RELATIVE)) V(`file still contains the relative uses: form \"${RELATIVE}\" somewhere (regression guard)`);\n  const pinnedCount = (src.match(new RegExp(PINNED.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'g')) || []).length;\n  if (pinnedCount !== 2) V(`expected exactly 2 occurrences of the pinned uses: form, found ${pinnedCount}`);\n  console.log('DGL_OK: both red and green jobs pin uses: to the explicit @main form; no relative form remains');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-mutated-copy-inert-off-default-branch",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst os = require('node:os');\nconst path = require('node:path');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nfunction isolateOnBlock(src) {\n  const lines = src.split('\\n');\n  const onIdx = lines.findIndex((l) => /^on:\\s*$/.test(l));\n  if (onIdx === -1) return null;\n  let end = lines.length;\n  for (let i = onIdx + 1; i < lines.length; i++) { if (/^\\S/.test(lines[i])) { end = i; break; } }\n  return lines.slice(onIdx, end).join('\\n');\n}\nfunction detect(src) {\n  const onBlock = isolateOnBlock(src);\n  if (onBlock === null) return null;\n  return { hasRepositoryDispatch: /^  repository_dispatch:\\s*$/m.test(onBlock), hasWorkflowDispatch: /^  workflow_dispatch:\\s*$/m.test(onBlock) };\n}\nfunction stripGuardSteps(src) {\n  const lines = src.split('\\n');\n  const out = [];\n  let i = 0; let removed = 0;\n  while (i < lines.length) {\n    const line = lines[i];\n    const m = /^(\\s*)- name:\\s*Require protected default-branch/.exec(line);\n    if (m) {\n      const indent = m[1];\n      i += 1;\n      while (i < lines.length) {\n        const l = lines[i];\n        if (l.trim() === '') { i += 1; continue; }\n        const isDeeper = new RegExp('^' + indent + '\\\\s').test(l) && !new RegExp('^' + indent + '-\\\\s').test(l);\n        if (isDeeper) { i += 1; continue; }\n        break;\n      }\n      removed += 1;\n      continue;\n    }\n    out.push(line);\n    i += 1;\n  }\n  return { mutated: out.join('\\n'), removed };\n}\ntry {\n  const files = { gate: '.github/workflows/devgov-v0-gate.yml', orchestrate: '.github/workflows/devgov-v0-orchestrate.yml' };\n  const fixture = ['name: FIXTURE only -- not a real workflow file, used to prove Check 1 detects the bad pattern', '', 'on:', '  workflow_dispatch:', '    inputs:', '      x:', '        required: true', '        type: string', '', 'jobs:', '  execute:', '    runs-on: ubuntu-latest', '    steps:', '      - run: echo hi', ''].join('\\n');\n  const fixtureResult = detect(fixture);\n  if (!fixtureResult) H('positive control: could not isolate on: block from the synthetic fixture');\n  if (fixtureResult.hasWorkflowDispatch !== true) V('positive control failed: the detection logic did NOT flag a synthetic workflow_dispatch-triggered fixture as hasWorkflowDispatch === true -- the checks in this unit cannot be trusted to catch the real vulnerability pattern');\n  if (fixtureResult.hasRepositoryDispatch !== false) H('positive control: synthetic fixture unexpectedly registered as repository_dispatch-triggered');\n  for (const [label, p] of Object.entries(files)) {\n    if (!fs.existsSync(p)) H(`${label} workflow file missing: ${p}`);\n    const original = fs.readFileSync(p, 'utf8');\n    const before = detect(original);\n    if (!before) H(`${label}: could not isolate on: block from the real candidate file`);\n    if (!before.hasRepositoryDispatch || before.hasWorkflowDispatch) V(`${label}: candidate file itself does not have the expected repository_dispatch-only trigger surface (checked by Check 1 too; Check 4 refuses to reason about a mutation on top of an already-broken base)`);\n    const { mutated, removed } = stripGuardSteps(original);\n    if (removed === 0) V(`${label}: found no \"Require protected default-branch\" guard step to strip -- cannot model the guard-deletion attack (has the step been renamed?)`);\n    if (mutated === original) H(`${label}: guard-step stripping made no textual change to the file -- mutation did not apply`);\n    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devgov-mutated-copy-'));\n    const tmpPath = path.join(tmpDir, path.basename(p));\n    let after;\n    let readError = null;\n    try {\n      fs.writeFileSync(tmpPath, mutated);\n      after = detect(fs.readFileSync(tmpPath, 'utf8'));\n    } catch (e) {\n      readError = e;\n    }\n    // Clean up the sandbox BEFORE any exit path (V/H call process.exit(), which would skip any\n    // deferred cleanup declared after it) -- this ordering never leaks the temp directory.\n    fs.rmSync(tmpDir, { recursive: true, force: true });\n    if (readError) H(`${label}: unexpected error writing/reading the mutated throwaway copy: ${readError.message}`);\n    if (!after) H(`${label}: could not isolate on: block from the mutated throwaway copy`);\n    if (after.hasRepositoryDispatch !== before.hasRepositoryDispatch || after.hasWorkflowDispatch !== before.hasWorkflowDispatch) V(`${label}: deleting the internal guard step(s) changed the mutated copy's trigger surface (repositoryDispatch ${before.hasRepositoryDispatch}->${after.hasRepositoryDispatch}, workflowDispatch ${before.hasWorkflowDispatch}->${after.hasWorkflowDispatch}) -- guard-step deletion and the on: block are expected to be syntactically disjoint`);\n    console.log(`DGL_NOTE: ${label}: removed ${removed} guard step(s) in a throwaway copy (now cleaned up); on: block unchanged (repository_dispatch=${after.hasRepositoryDispatch}, workflow_dispatch=${after.hasWorkflowDispatch}); this copy is inert because repository_dispatch has no ref selector for GitHub to resolve it from, independent of guard-step presence`);\n  }\n  console.log('DGL_OK: guard-step deletion in throwaway mutated copies leaves the on: trigger surface unchanged, and is therefore inert given repository_dispatch\\'s ref-less payload; detection logic independently proven capable of flagging the real vulnerability pattern via a positive-control fixture');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-workflow-regression-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "// CHECK 5 -- dispatch-workflow-regression-tests (GREEN-only)\nconst cp = require('node:child_process');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const win = process.platform === 'win32';\n  const cmd = win ? 'npx.cmd' : 'npx';\n  const args = ['vitest', 'run', '--config', 'scripts/devgov/vitest.config.mjs', 'scripts/audit/devgovOrchestration.test.ts', 'scripts/audit/devgovTrustedWorkflow.test.ts'];\n  const r = cp.spawnSync(cmd, args, { stdio: 'inherit', shell: win, timeout: 180000 });\n  if (r.error || r.status === null) H('vitest could not execute: ' + (r.error ? r.error.message : 'signal ' + r.signal));\n  if (r.status !== 0) V('dispatch workflow regression tests failed with exit ' + r.status);\n  console.log('DGL_OK: devgovOrchestration.test.ts and devgovTrustedWorkflow.test.ts both pass at this head');\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-protected-controller-dispatch-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
