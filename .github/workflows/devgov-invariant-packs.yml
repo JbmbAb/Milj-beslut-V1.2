@@ -2,6 +2,8 @@ name: DEV-GOV-V0 Invariant Packs
 
 on:
   pull_request_target:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -11,6 +13,14 @@ jobs:
     name: DEV-GOV-V0 / invariant-packs
     runs-on: ubuntu-latest
     steps:
+      - name: Require protected default-branch base
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "$DEFAULT_BRANCH"
+
       - name: Checkout protected base controller
         uses: actions/checkout@v4
         with:

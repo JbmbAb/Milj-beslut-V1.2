@@ -6,6 +6,17 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 
 const REGISTRY_REL = 'governance/devgov/invariant-packs/registry-v1.json';
 
+const REQUIRED_V1_INVARIANT_IDS = Object.freeze([
+  'DG-IP-001-PROTECTED-CONTROLLER-SEPARATION',
+  'DG-IP-002-SIGNER-ISOLATION',
+  'DG-IP-003-EXACT-CANDIDATE-BINDING',
+  'DG-IP-004-VERIFIER-OWNED-TRUST',
+  'DG-IP-005-PACKS-LOAD-BEARING',
+  'DG-IP-006-ALL-PACKS-NO-CANDIDATE-SELECTION',
+  'DG-IP-007-PR-PROTECTED-BASE',
+  'DG-IP-008-POST-MERGE-ACTIVATION',
+]);
+
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -311,6 +322,16 @@ export function evaluateInvariantPacks(options = {}) {
       return { id, result: 'FAIL', detail: error instanceof Error ? error.message : String(error) };
     }
   });
+  const missingCanonicalIds = REQUIRED_V1_INVARIANT_IDS.filter((id) => !ids.includes(id));
+  results.push({
+    id: 'DG-IP-000-CANONICAL-SET-COMPLETE',
+    result: missingCanonicalIds.length === 0 ? 'PASS' : 'FAIL',
+    detail:
+      missingCanonicalIds.length === 0
+        ? 'active pack set is a superset of the canonical V1 invariant IDs'
+        : `missing canonical V1 invariant ids: ${missingCanonicalIds.join(' | ')}`,
+  });
+
   const packDigests = packs.map((pack) => ({
     path: pack.path,
     sha256: sha256(pack.raw),
