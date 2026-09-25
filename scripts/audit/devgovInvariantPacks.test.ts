@@ -62,7 +62,7 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     expect(report.registry_version).toBe(1);
     expect(report.pack_set_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(report.active_packs).toHaveLength(1);
-    expect(report.invariants).toHaveLength(8);
+    expect(report.invariants).toHaveLength(9);
     expect(report.failed_invariants).toEqual([]);
   });
 
@@ -186,5 +186,27 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     const report = evaluate(root);
     expect(report.result).toBe('FAIL');
     expect(report.failed_invariants).toContain('DG-IP-002-SIGNER-ISOLATION');
+  });
+
+  // Regression coverage for F-12 (DG-IP-000-CANONICAL-SET-COMPLETE): active_packs is always
+  // resolved from controllerRoot, never targetRoot (see the anti-self-bootstrap test above), so
+  // this must supply the fixture as BOTH controllerRoot and targetRoot to actually exercise a
+  // controller-owned pack that silently drops a canonical V1 invariant id.
+  it('fails DG-IP-000 if the controller-owned pack set drops one of the canonical V1 invariant ids', () => {
+    const root = targetFixture();
+    const packPath = join(root, 'governance/devgov/invariant-packs/devgov-controller-core-v1.json');
+    const pack = JSON.parse(readFileSync(packPath, 'utf8'));
+    pack.invariants = pack.invariants.filter((id: string) => id !== 'DG-IP-008-POST-MERGE-ACTIVATION');
+    writeFileSync(packPath, `${JSON.stringify(pack, null, 2)}\n`);
+
+    const report = evaluateInvariantPacks({
+      controllerRoot: root,
+      targetRoot: root,
+      controllerSha: 'd'.repeat(40),
+      candidateSha: 'c'.repeat(40),
+    });
+
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-000-CANONICAL-SET-COMPLETE');
   });
 });
