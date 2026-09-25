@@ -69,8 +69,7 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
 
   /**
    * NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1 — a fabricated 200 m distance-to-water
-   * fallback, in its call-site form (`?? 200` / `|| 200`) or its default-parameter form
-   * (`: number = 200`).
+   * fallback.
    *
    * `REBUILD-GATE-STATUS.md` bans this explicitly: "legacy fallback = 200 m ← DO NOT
    * REINTRODUCE as spatial semantics". 200 m sits just outside the < 100 m Strandskydd
@@ -81,17 +80,37 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * distance is an honest input to a legal compliance determination.
    *
    * Scanned over the FULL production source surface (`sourceFiles()` — every non-test
-   * .ts/.tsx under src/server/packages/components), not just the three files the fix
-   * currently touches: the original three-file list only proved today's transport chain is
-   * clean, not that a future fourth file (a new wrapper, an alternate call site) couldn't
-   * reintroduce the pattern undetected. The regex itself is specific enough (an identifier
-   * literally named `distanceToWater*`/`distanceForCompliance` defaulted or coalesced to
-   * exactly `200`) that a repo-wide production sweep carries negligible false-positive risk,
-   * unlike the content-sniffed LU_SURFACE set used elsewhere in this file.
+   * .ts/.tsx under src/server/packages/components, 1702 files as of this writing), not just
+   * the three files the fix currently touches: the original three-file list only proved
+   * today's transport chain is clean, not that a future fourth file (a new wrapper, an
+   * alternate call site) couldn't reintroduce the pattern undetected.
+   *
+   * Three named syntactic forms are covered, each independently verified (empirically, not
+   * just by inspection) to produce zero false positives across all 1702 production files:
+   *   1. CALLSITE  — `identifier ?? 200` / `identifier || 200` (the original defect).
+   *   2. DEFAULT    — `distanceToWater<suffix>: number = 200` / `= 200` (a default parameter
+   *      or declaration), matched with a `\w*` suffix so it also catches the real field name
+   *      `distanceToWaterMeters`, not only the bare parameter name `distanceToWater`.
+   *   3. TERNARY    — a bounded-window scan for a `?` occurring between the identifier and a
+   *      bare `200`, catching both `identifier ?? (cond ? null : 200)` (200 in a nested
+   *      ternary's false branch, reached via `??`) and `identifier == null ? 200 : identifier`
+   *      (200 in the ternary's own true branch) without needing two separate hand-tuned
+   *      ternary-direction patterns.
+   *
+   * HONEST LIMIT (do not read this guard as broader than it is): this is a text-pattern scan,
+   * not a dataflow/semantic analysis. It cannot and does not prove the absence of an
+   * indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
+   * FALLBACK_M`, a helper function returning 200, or a value computed elsewhere and imported.
+   * If such an indirection is ever suspected, it requires a manual code-review pass or a real
+   * AST/type-aware lint rule, not an extension of this regex set. The three forms above are
+   * exactly the syntactic regressions this guard is proven to catch — no broader claim is made.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
     /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?|\|\|)\s*200\b/;
-  const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT = /distanceToWater\s*(?::\s*number)?\s*=\s*200\b/;
+  const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT =
+    /\bdistanceToWater\w*\s*(?::\s*number(?:\s*\|\s*null)?)?\s*=\s*200\b/;
+  const FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY =
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b[\s\S]{0,120}?\?[\s\S]{0,120}?\b200\b/;
 
   function sourceFiles(): string[] {
     const found: string[] = [];
@@ -217,8 +236,10 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
       const src = stripComments(readFileSync(file, "utf8"));
       const callsiteHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE)?.[0];
       const defaultHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT)?.[0];
+      const ternaryHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY)?.[0];
       if (callsiteHit) violations.push(`${relPath}: ${callsiteHit}`);
       if (defaultHit) violations.push(`${relPath}: ${defaultHit}`);
+      if (ternaryHit) violations.push(`${relPath}: ${ternaryHit.replace(/\s+/g, " ").slice(0, 160)}`);
     }
 
     expect(
@@ -322,6 +343,27 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         code: `distanceToWater: number = 200,`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
       },
+      {
+        // Cold-review bypass #1: the real field name carries a suffix ("Meters") the bare
+        // "distanceToWater" default-pattern (without a \w* suffix) previously missed entirely.
+        name: "fabricated 200 m default parameter using the real field name (distanceToWaterMeters, not distanceToWater)",
+        code: `distanceToWaterMeters: number = 200,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
+      {
+        // Cold-review bypass #2: 200 is not directly adjacent to `??` — it is the false branch
+        // of a ternary nested inside the coalescing expression's right-hand side.
+        name: "fabricated 200 m fallback via a ternary nested inside ??",
+        code: `distanceToWaterMeters ?? (strict && !available ? null : 200)`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
+      {
+        // Cold-review bypass #3: 200 is the ternary's TRUE branch (not the FALSE branch the
+        // permitProbability-style pattern elsewhere in this file was written to catch).
+        name: "fabricated 200 m fallback via a standalone null-check ternary",
+        code: `distanceToWaterMeters == null ? 200 : distanceToWaterMeters`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
     ];
 
     for (const { name, code, rule } of fixtures) {
@@ -339,12 +381,19 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
     }
 
     // POSITIVE CONTROL — the actual post-fix shape (pass the real value through, default to
-    // null) must NOT trip the water-distance guard.
-    const compliantDistance = [`distanceToWaterMeters,`, `distanceToWater: number | null = null,`];
+    // null) must NOT trip the water-distance guard, including its ternary form: a ternary
+    // that merely tests the identifier, with no literal 200 anywhere nearby, is legitimate
+    // code (e.g. a null-guard branching to something other than a fabricated distance).
+    const compliantDistance = [
+      `distanceToWaterMeters,`,
+      `distanceToWater: number | null = null,`,
+      `distanceToWaterMeters == null ? warn('unknown') : distanceToWaterMeters,`,
+    ];
     for (const code of compliantDistance) {
       expect(
         FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE.test(code) ||
-          FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT.test(code),
+          FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT.test(code) ||
+          FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY.test(code),
         `compliant distance form must pass: ${code}`,
       ).toBe(false);
     }
