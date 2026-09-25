@@ -117,4 +117,3 @@ still running and were not used as authority for this promotion.
 The candidate-controlled workflow-selection path identified as F-11 is closed on protected `main`.
 The adapter compatibility companion unit remains separate, after which Step 5 can be reconciled
 onto the new protected main and all F-01–F-14 attacks rerun.
-
