@@ -63,6 +63,26 @@ function block(source, start, end) {
   return b < 0 ? source.slice(a) : source.slice(a, b);
 }
 
+// F-10 fix: strip only genuine line comments (# starting a line, or preceded by whitespace) so a
+// decoy comment cannot satisfy a hasAll() needle check. Bash `${#var}` length-expansion (# preceded
+// by `{`) and any other non-comment `#` usage is left untouched.
+function stripLineComments(source) {
+  return source.replace(/(^|[ \t])#.*$/gm, '$1');
+}
+
+// F-10 fix: a `node` invocation whose target script is a shell variable, quoted variable, or
+// command substitution (rather than a literal path) is exactly the exploited pattern
+// (`node "$SIGNER_SCRIPT" attest-execution`). Verified not to match legitimate literal invocations
+// (`node controller/scripts/devgov/devgov.mjs ...`, `node -e "..."`) nor incidental substrings
+// (`node-version:`, `actions/setup-node@v4`, `node_modules`).
+function noDynamicNodeInvocation(source) {
+  const pass = !/\bnode\s+["'`]*[$`]/.test(source);
+  return {
+    pass,
+    detail: pass ? 'no dynamic node invocation target' : 'dynamic node invocation target detected',
+  };
+}
+
 // DG-IP-006 self-check note (anti-self-bootstrap): the checks below must never inspect the
 // literal text of THIS switch-case (evaluateInvariant), because that text is itself part of
 // `source` when `source` is the runner's own file content. A needle quoted inside this function
@@ -96,17 +116,26 @@ function evaluateInvariant(id, targetRoot) {
   switch (id) {
     case 'DG-IP-001-PROTECTED-CONTROLLER-SEPARATION': {
       const source = attest();
+      const execute = stripLineComments(block(source, '  execute:', '\n  attest:'));
+      const signing = stripLineComments(block(source, '  attest:', null));
+      const checkoutBindings = [
+        'ref: ${{ github.sha }}',
+        'path: controller',
+        'ref: ${{ inputs.candidate_sha }}',
+        'path: candidate',
+      ];
+      const forbidden = ['node candidate/scripts/devgov/', 'node execution/scripts/devgov/'];
       return combine(
-        hasAll(source, [
-          'ref: ${{ github.sha }}',
-          'path: controller',
-          'ref: ${{ inputs.candidate_sha }}',
-          'path: candidate',
+        hasAll(execute, [
+          ...checkoutBindings,
           'node controller/scripts/devgov/devgov.mjs resolve-execution-sha',
           'node controller/scripts/devgov/devgov.mjs execute-proof',
-          'node controller/scripts/devgov/devgov.mjs attest-execution',
         ]),
-        hasNone(source, ['node candidate/scripts/devgov/', 'node execution/scripts/devgov/']),
+        hasAll(signing, [...checkoutBindings, 'node controller/scripts/devgov/devgov.mjs attest-execution']),
+        hasNone(execute, forbidden),
+        hasNone(signing, forbidden),
+        noDynamicNodeInvocation(execute),
+        noDynamicNodeInvocation(signing),
       );
     }
     case 'DG-IP-002-SIGNER-ISOLATION': {

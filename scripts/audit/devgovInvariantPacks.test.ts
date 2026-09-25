@@ -100,6 +100,40 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
   });
 
+  // Regression coverage for F-10: a candidate can obfuscate a redirected attest-execution
+  // invocation behind a decoy comment (satisfying the old bare hasAll() text check) plus a
+  // dynamically-assembled `node "$SIGNER_SCRIPT" attest-execution` that is what actually executes.
+  it('fails DG-IP-001 if a candidate redirects attest-execution via a decoy comment and a dynamically-assembled node target', () => {
+    const root = targetFixture();
+    mutate(
+      root,
+      '.github/workflows/devgov-v0-attest.yml',
+      '          node controller/scripts/devgov/devgov.mjs attest-execution \\',
+      '          # decoy (never executed, satisfies textual audit): node controller/scripts/devgov/devgov.mjs attest-execution\n          P1="cand"; P2="idate"; SIGNER_SCRIPT="${P1}${P2}/scripts/devgov/devgov.mjs"\n          node "$SIGNER_SCRIPT" attest-execution \\',
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
+  });
+
+  // Regression coverage for F-10, defense-in-depth layer: the dynamic-target class must be caught
+  // even with no decoy comment at all, proving noDynamicNodeInvocation alone closes the gap
+  // independent of comment-stripping.
+  it('fails DG-IP-001 if a candidate redirects attest-execution via a dynamically-assembled node target with no decoy comment', () => {
+    const root = targetFixture();
+    mutate(
+      root,
+      '.github/workflows/devgov-v0-attest.yml',
+      '          node controller/scripts/devgov/devgov.mjs attest-execution \\',
+      '          SIGNER_SCRIPT="controller/scripts/devgov/devgov.mjs"\n          node "$SIGNER_SCRIPT" attest-execution \\',
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
+  });
+
   it('fails if canonical gate stops running the controller-owned pack set', () => {
     const root = targetFixture();
     mutate(
