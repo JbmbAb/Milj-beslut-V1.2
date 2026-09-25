@@ -1,0 +1,71 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/devgov-protected-controller-dispatch-proven",
+  "base_sha": "45ede2f1a5d814429ebccd01d30b63fc462e38ab",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1-PROVEN.md",
+    "governance/devgov/units/devgov-protected-controller-dispatch-v1-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "docs/architecture/audits/DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1.md",
+    "governance/devgov/units/devgov-protected-controller-dispatch-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-protected-controller-dispatch-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('PROTECTED_DISPATCH_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('PROTECTED_DISPATCH_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('PROTECTED_DISPATCH_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"65e3a0cdcfa9884f95fc59bfdc12718add5df57f\",\"45ede2f1a5d814429ebccd01d30b63fc462e38ab\",\"b3d1a93bb4b1f7142dc3263ace694768973b0122\",\"671ca17c4491a8550e07e69ff35442db502c8691\",\"36184550371\",\"36193521449\",\"#176\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"proof_status: PROVEN\",\"dispatch-trigger-surface-exact\",\"dispatch-no-ref-selection-surface\",\"dispatch-attest-uses-pinned-ref\",\"dispatch-mutated-copy-inert-off-default-branch\",\"dispatch-workflow-regression-tests\",\"repository_dispatch\",\"DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1\",\"DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-protected-controller-dispatch-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('PROTECTED_DISPATCH_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('PROTECTED_DISPATCH_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('PROTECTED_DISPATCH_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"65e3a0cdcfa9884f95fc59bfdc12718add5df57f\",\"45ede2f1a5d814429ebccd01d30b63fc462e38ab\",\"b3d1a93bb4b1f7142dc3263ace694768973b0122\",\"671ca17c4491a8550e07e69ff35442db502c8691\",\"36184550371\",\"36193521449\",\"#176\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"proof_status: PROVEN\",\"dispatch-trigger-surface-exact\",\"dispatch-no-ref-selection-surface\",\"dispatch-attest-uses-pinned-ref\",\"dispatch-mutated-copy-inert-off-default-branch\",\"dispatch-workflow-regression-tests\",\"repository_dispatch\",\"DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1\",\"DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/devgov-protected-controller-dispatch-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
