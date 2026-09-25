@@ -80,20 +80,18 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * as `null` (its new default), in every mode — there is no mode in which a fabricated
    * distance is an honest input to a legal compliance determination.
    *
-   * Scoped to the three files that actually carry this value end to end (the usecase call
-   * site and the two engine entrypoints), read directly rather than swept in via LU_SURFACE:
-   * the engine files define/re-export `evaluateComplianceRules` themselves, so folding them
-   * into the content-sniffed LU_SURFACE set would make the "no second verdict authority" scan
-   * above trip on their own internal delegation call — a false positive, not a regression.
+   * Scanned over the FULL production source surface (`sourceFiles()` — every non-test
+   * .ts/.tsx under src/server/packages/components), not just the three files the fix
+   * currently touches: the original three-file list only proved today's transport chain is
+   * clean, not that a future fourth file (a new wrapper, an alternate call site) couldn't
+   * reintroduce the pattern undetected. The regex itself is specific enough (an identifier
+   * literally named `distanceToWater*`/`distanceForCompliance` defaulted or coalesced to
+   * exactly `200`) that a repo-wide production sweep carries negligible false-positive risk,
+   * unlike the content-sniffed LU_SURFACE set used elsewhere in this file.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
     /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?|\|\|)\s*200\b/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT = /distanceToWater\s*(?::\s*number)?\s*=\s*200\b/;
-  const WATER_DISTANCE_ENGINE_FILES = [
-    "src/application/generate-localization-report.usecase.ts",
-    "src/application/evaluate-compliance-rules.usecase.ts",
-    "server/services/complianceRuleEngine.ts",
-  ];
 
   function sourceFiles(): string[] {
     const found: string[] = [];
@@ -198,10 +196,25 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
 
   // ------------------------------------------- 2b. no fabricated water-distance fallback
 
-  it("no fabricated 200 m water-distance fallback anywhere in the usecase or the compliance engine", () => {
+  it("no fabricated 200 m water-distance fallback anywhere in the production LU source surface", () => {
+    // Sanity check the scan is not vacuous: the walker must still reach the three files known
+    // to carry this value end to end, or a broken SCANNED_ROOTS/SKIP_DIRS change could make
+    // this whole guard silently pass on an empty or wrong file set.
+    const knownRelevantFiles = [
+      "src/application/generate-localization-report.usecase.ts",
+      "src/application/evaluate-compliance-rules.usecase.ts",
+      "server/services/complianceRuleEngine.ts",
+    ];
+    const allFiles = sourceFiles().map((f) => rel(f));
+    expect(allFiles.length, "the production source scan must not be empty").toBeGreaterThan(100);
+    for (const known of knownRelevantFiles) {
+      expect(allFiles, `production scan must still reach ${known}`).toContain(known);
+    }
+
     const violations: string[] = [];
-    for (const relPath of WATER_DISTANCE_ENGINE_FILES) {
-      const src = stripComments(readFileSync(join(REPO_ROOT, ...relPath.split("/")), "utf8"));
+    for (const file of sourceFiles()) {
+      const relPath = rel(file);
+      const src = stripComments(readFileSync(file, "utf8"));
       const callsiteHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE)?.[0];
       const defaultHit = src.match(FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT)?.[0];
       if (callsiteHit) violations.push(`${relPath}: ${callsiteHit}`);
@@ -212,7 +225,9 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
       violations,
       "An unknown distance to water must reach the compliance engine as null, never as a " +
         "fabricated 200 m — that value sits just outside the < 100 m Strandskydd threshold and " +
-        "silently reads as 'verified clear' instead of 'unverified'.",
+        "silently reads as 'verified clear' instead of 'unverified'. Scanned across the full " +
+        "production source surface, not just the three files W1 touched, so a future wrapper " +
+        "elsewhere cannot reintroduce this undetected.",
     ).toEqual([]);
   });
 

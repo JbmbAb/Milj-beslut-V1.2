@@ -533,12 +533,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     expect(sgu?.status).toBe('degraded');
   });
 
-  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: unavailable water distance in strict mode reaches the compliance engine as null, never fabricates Strandskydd', async () => {
-    // Re-authored: this test previously asserted a strict-mode-only warning message that
-    // W1 deliberately removed (mechanical-only fix, no new policy text — see
-    // MIMER-PARALLEL-WORK-BOARD.md W1 card, OD-01). The scenario itself (strict mode, water
-    // distance genuinely unavailable) is still worth covering end to end; the assertion now
-    // targets the actual mechanical guarantee instead of a specific warning string.
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: unavailable water distance in strict mode reaches the compliance engine as null, never fabricates Strandskydd, and preserves the existing strict-mode warning', async () => {
+    // Re-authored: this test previously asserted the strict-mode warning without also
+    // covering the mechanical guarantee. W1's cold review found the warning had been
+    // over-removed along with the numeric fallback — they are independent: the warning is
+    // pre-existing user-facing communication ("we don't know, no default was assumed"), the
+    // fallback was a fabricated number silently fed into a legal rule. Both are now covered.
     process.env.LOCALIZATION_STRICT_SOURCES = 'true';
     const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
     (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -564,5 +564,62 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     expect(
       report.siteAnalyses[0].complianceAnalysis.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND'),
     ).toBeUndefined();
+    // The pre-existing strict-mode warning is preserved for the genuinely-unavailable case.
+    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(true);
+  });
+
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: a successful query finding no water within range must NOT warn — "beyond search radius" is not "unavailable"', async () => {
+    // The producer (spatialAuditService.ts) returns distanceToWaterMeters=null in TWO
+    // distinct situations: the query genuinely failed (distanceToWaterAvailable=false), or
+    // the query succeeded and simply found nothing within its search radius
+    // (distanceToWaterAvailable=true). Conflating these would warn on ordinary,
+    // far-from-water sites — ordinary sites are not a data gap. This is a strict-mode case
+    // specifically because the warning is strict-mode-only; the conflation risk is the same
+    // regardless of mode.
+    process.env.LOCALIZATION_STRICT_SOURCES = 'true';
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      protectedAreaHits: [],
+      protectedAreaAvailable: true,
+      isProtected: false,
+      sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+      distanceToWaterMeters: null,
+      distanceToWaterAvailable: true,
+      text: 'OK',
+      sources: [],
+    });
+
+    const report = await generateLocalizationReport({
+      projectId: 'proj-strict-beyond-range',
+      siteAlternatives: [SITE],
+    });
+
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    expect(report.siteAnalyses[0].complianceAnalysis.restrictions).not.toContain('Strandskydd');
+    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+  });
+
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: unavailable water distance outside strict mode must not warn (warning is strict-mode-only, unchanged from main)', async () => {
+    delete process.env.LOCALIZATION_STRICT_SOURCES;
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      protectedAreaHits: [],
+      protectedAreaAvailable: true,
+      isProtected: false,
+      sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+      distanceToWaterMeters: null,
+      distanceToWaterAvailable: false,
+      text: 'OK',
+      sources: [],
+    });
+
+    const report = await generateLocalizationReport({
+      projectId: 'proj-nonstrict-nowater',
+      siteAlternatives: [SITE],
+    });
+
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    expect(report.siteAnalyses[0].complianceAnalysis.restrictions).not.toContain('Strandskydd');
+    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
   });
 });
