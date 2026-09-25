@@ -131,6 +131,48 @@ describe('evaluateComplianceRules', () => {
       expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
     });
 
+    it('does NOT fire the Strandskydd rule when distance is +Infinity (non-finite is not a measured distance)', () => {
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, Infinity);
+      expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+      expect(result.rules.some((r) => r.description.includes('Infinity'))).toBe(false);
+      expect(result.overallRisk).toBe('LOW');
+      expect(result.permitProbability).toBe(0.95);
+    });
+
+    it('does NOT fire the Strandskydd rule when distance is -Infinity (JS: -Infinity < 100 is true — the guard must reject it before the comparison, not rely on the comparison)', () => {
+      // Same failure mode as the `null < 100` pitfall, different value: on a naive
+      // pass-through, -Infinity satisfies the < 100 threshold directly (no coercion needed)
+      // and would fabricate a HIGH Strandskydd finding reading "Avstand till vatten ar
+      // -Infinity m". Number.isFinite() rejects both null and ±Infinity at the same guard,
+      // before the comparison is ever reached.
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, -Infinity);
+      expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+      expect(result.rules.some((r) => r.description.includes('Infinity'))).toBe(false);
+      expect(result.overallRisk).toBe('LOW');
+      expect(result.permitProbability).toBe(0.95);
+    });
+
+    it('treats an explicitly passed undefined exactly like an omitted argument (default null, never a numeric distance)', () => {
+      // JS default-parameter semantics only substitute the default for undefined, never for
+      // other falsy values — proving this explicitly rather than trusting the language spec,
+      // since it is exactly the kind of assumption a future refactor could quietly break.
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, undefined);
+      expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+      expect(result.overallRisk).toBe('LOW');
+      expect(result.permitProbability).toBe(0.95);
+    });
+
+    it('positive control: a finite measured 150 m is still evaluated by the threshold unchanged (the fix touches only the unknown/non-finite path)', () => {
+      const result = evaluateComplianceRules(noObs, noAreas, emptyGeo, noMonuments, 150);
+      expect(result.restrictions).not.toContain('Strandskydd');
+      expect(result.rules.find((r) => r.ruleId === 'MB_7_KAP_STRAND')).toBeUndefined();
+      expect(result.overallRisk).toBe('LOW');
+      expect(result.permitProbability).toBe(0.95);
+    });
+
     it('does NOT fabricate any distance-dependent text when distance is null', () => {
       // Guards against `Avstand till vatten ar null m` — the JS pitfall where a naive
       // `null < 100` comparison is `true` (null coerces to 0) and would fabricate a HIGH

@@ -68,49 +68,60 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
   const BARE_ZERO_PERMIT_PROBABILITY = /permitProbability\s*:\s*0\s*[,}]/;
 
   /**
-   * NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1 — a fabricated 200 m distance-to-water
-   * fallback.
+   * NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1 — a fabricated numeric distance-to-water
+   * fallback, in any of three shapes, for ANY numeric literal — not only `200`. The W1-owner
+   * invariant is "unknown must never become a fabricated measured value"; `200` was the
+   * literal main happened to use, but `?? 150` or `|| 0` fabricate a measurement just as
+   * dishonestly. Widening from "exactly 200" to "any bare numeric literal" is a direct
+   * consequence of the invariant as stated, not scope creep.
    *
-   * `REBUILD-GATE-STATUS.md` bans this explicitly: "legacy fallback = 200 m ← DO NOT
-   * REINTRODUCE as spatial semantics". 200 m sits just outside the < 100 m Strandskydd
-   * threshold in `evaluate-compliance-rules.usecase.ts`, so a fabricated 200 m does not read
-   * as "unknown" — it reads as "verified clear" and silently suppresses a Strandskydd flag
+   * `REBUILD-GATE-STATUS.md` bans the specific historical case explicitly: "legacy fallback
+   * = 200 m ← DO NOT REINTRODUCE as spatial semantics". 200 m sits just outside the < 100 m
+   * Strandskydd threshold in `evaluate-compliance-rules.usecase.ts`, so a fabricated 200 m
+   * does not read as "unknown" — it reads as "verified clear" and silently suppresses a flag
    * that should have stayed unresolved. An unknown distance must reach the compliance engine
-   * as `null` (its new default), in every mode — there is no mode in which a fabricated
-   * distance is an honest input to a legal compliance determination.
+   * as `null` (its new default), in every mode.
    *
    * Scanned over the FULL production source surface (`sourceFiles()` — every non-test
    * .ts/.tsx under src/server/packages/components, 1702 files as of this writing), not just
-   * the three files the fix currently touches: the original three-file list only proved
-   * today's transport chain is clean, not that a future fourth file (a new wrapper, an
-   * alternate call site) couldn't reintroduce the pattern undetected.
+   * the three files the fix currently touches: a three-file list only proves today's
+   * transport chain is clean, not that a future fourth file (a new wrapper, an alternate
+   * call site) couldn't reintroduce the pattern undetected.
    *
-   * Three named syntactic forms are covered, each independently verified (empirically, not
-   * just by inspection) to produce zero false positives across all 1702 production files:
-   *   1. CALLSITE  — `identifier ?? 200` / `identifier || 200` (the original defect).
-   *   2. DEFAULT    — `distanceToWater<suffix>: number = 200` / `= 200` (a default parameter
-   *      or declaration), matched with a `\w*` suffix so it also catches the real field name
-   *      `distanceToWaterMeters`, not only the bare parameter name `distanceToWater`.
-   *   3. TERNARY    — a bounded-window scan for a `?` occurring between the identifier and a
-   *      bare `200`, catching both `identifier ?? (cond ? null : 200)` (200 in a nested
-   *      ternary's false branch, reached via `??`) and `identifier == null ? 200 : identifier`
-   *      (200 in the ternary's own true branch) without needing two separate hand-tuned
-   *      ternary-direction patterns.
+   * Three named syntactic forms, each independently verified — empirically, against real
+   * fixtures and against the full 1702-file production surface, not just by inspection — to
+   * fire on every named bypass and produce zero false positives:
+   *   1. CALLSITE — `identifier ?? N` / `identifier || N` directly (the original defect).
+   *   2. DEFAULT  — `identifier<suffix><any type annotation> = N` (a default parameter or
+   *      declaration). The type-annotation group matches any non-separator text up to the
+   *      `=`, not only a bare `number`, so `number | null = N` or any other union/alias
+   *      cannot slip past a regex that only expected the single word "number".
+   *   3. TERNARY  — two concrete structural shapes, matched precisely rather than via a loose
+   *      bounded-window "a `?` appears somewhere near a number": (a) `identifier ??
+   *      (cond ? null/undefined : N)` or `(cond ? N : null/undefined)` — a coalesce into a
+   *      parenthesised conditional with the fallback on either branch; (b) a standalone
+   *      `identifier == null ? N : ...` / `identifier != null ? ... : N` null-check ternary,
+   *      fallback on either side of `:`. Anchoring to real ternary syntax (rather than any
+   *      `?` within N characters) keeps false-positive risk low while still catching every
+   *      named case — comparisons (`=== 200`, `>= 200`), `?? null`, an object-literal value
+   *      (`{ distanceToWaterMeters: 200 }`), and a plain non-null ternary (`x == null ? null
+   *      : x`) are deliberately NOT matched; see the positive controls below.
    *
    * HONEST LIMIT (do not read this guard as broader than it is): this is a text-pattern scan,
    * not a dataflow/semantic analysis. It cannot and does not prove the absence of an
    * indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
-   * FALLBACK_M`, a helper function returning 200, or a value computed elsewhere and imported.
-   * If such an indirection is ever suspected, it requires a manual code-review pass or a real
-   * AST/type-aware lint rule, not an extension of this regex set. The three forms above are
-   * exactly the syntactic regressions this guard is proven to catch — no broader claim is made.
+   * FALLBACK_M`, a helper function returning a number, or a value computed elsewhere and
+   * imported. If such an indirection is ever suspected, it requires a manual code-review pass
+   * or a real AST/type-aware lint rule, not an extension of this regex set. The three named
+   * forms above are exactly the syntactic regressions this guard is proven to catch — no
+   * broader claim is made.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?|\|\|)\s*200\b/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?|\|\|)\s*\d+(?:\.\d+)?\b/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT =
-    /\bdistanceToWater\w*\s*(?::\s*number(?:\s*\|\s*null)?)?\s*=\s*200\b/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?::\s*[^=,;)\n]+?)?\s*=\s*\d+(?:\.\d+)?\b/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b[\s\S]{0,120}?\?[\s\S]{0,120}?\b200\b/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:(?:\?\?|\|\|)\s*\([^)]*\?\s*(?:(?:null|undefined)\s*:\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*:\s*(?:null|undefined))\b|[!=]==?\s*(?:null|undefined)\s*\?\s*(?:\d+(?:\.\d+)?\s*:|[^:;\n'"`]*:\s*\d+(?:\.\d+)?\b))/;
 
   function sourceFiles(): string[] {
     const found: string[] = [];
@@ -215,7 +226,7 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
 
   // ------------------------------------------- 2b. no fabricated water-distance fallback
 
-  it("no fabricated 200 m water-distance fallback anywhere in the production LU source surface", () => {
+  it("no fabricated numeric water-distance fallback (200 or any other literal; call-site, default-parameter, or ternary form) anywhere in the production source surface", () => {
     // Sanity check the scan is not vacuous: the walker must still reach the three files known
     // to carry this value end to end, or a broken SCANNED_ROOTS/SKIP_DIRS change could make
     // this whole guard silently pass on an empty or wrong file set.
@@ -245,10 +256,12 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
     expect(
       violations,
       "An unknown distance to water must reach the compliance engine as null, never as a " +
-        "fabricated 200 m — that value sits just outside the < 100 m Strandskydd threshold and " +
-        "silently reads as 'verified clear' instead of 'unverified'. Scanned across the full " +
-        "production source surface, not just the three files W1 touched, so a future wrapper " +
-        "elsewhere cannot reintroduce this undetected.",
+        "fabricated number — 200 m sits just outside the < 100 m Strandskydd threshold and " +
+        "silently reads as 'verified clear' instead of 'unverified'; any other literal is a " +
+        "measurement the system never made. Scanned across the full production source " +
+        "surface, not just the three files W1 touched, so a future wrapper elsewhere cannot " +
+        "reintroduce this undetected in any of its shapes (?? N, || N, = N default, a " +
+        "ternary with a numeric branch).",
     ).toEqual([]);
   });
 
@@ -364,6 +377,34 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         code: `distanceToWaterMeters == null ? 200 : distanceToWaterMeters`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
       },
+      {
+        // The invariant is "never a fabricated measured value", not "never exactly 200" — a
+        // second cold-falsification pass confirmed the CALLSITE/DEFAULT regexes only ever
+        // matched the literal 200, so any other number was a silent bypass.
+        name: "fabricated non-200 water-distance fallback at the call site (any literal is a fabrication)",
+        code: `spatialAudit.distanceToWaterMeters ?? 150`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated zero water-distance fallback via || (0 m would read as 'on the shoreline', the opposite fabrication)",
+        code: `const d = distanceToWaterMeters || 0;`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m default parameter behind a union type annotation (DEFAULT previously only recognised bare 'number')",
+        code: `distanceToWater: number | null = 200,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
+      {
+        name: "coalesce-ternary with the numeric branch first instead of last",
+        code: `distanceToWaterMeters || (strict ? 200 : undefined)`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
+      {
+        name: "standalone null-check ternary with the fallback in the else-branch instead of the then-branch",
+        code: `const d = distanceToWaterMeters !== null ? distanceToWaterMeters : 200;`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
     ];
 
     for (const { name, code, rule } of fixtures) {
@@ -380,14 +421,29 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
       expect(VERDICT_PLACEHOLDER.test(code), `compliant form must pass: ${code}`).toBe(false);
     }
 
-    // POSITIVE CONTROL — the actual post-fix shape (pass the real value through, default to
-    // null) must NOT trip the water-distance guard, including its ternary form: a ternary
-    // that merely tests the identifier, with no literal 200 anywhere nearby, is legitimate
-    // code (e.g. a null-guard branching to something other than a fabricated distance).
+    // POSITIVE CONTROL — the actual post-fix shapes (pass the real value through, default to
+    // null, the restored strict-mode warning condition) must NOT trip any of the three
+    // water-distance rules. Also pinned: a ternary with no literal number anywhere nearby,
+    // honest comparisons, `?? null`, an object-literal value, and a test assertion on the
+    // same identifiers — none of these are fabrications, and the generalisation from "only
+    // 200" to "any numeric literal" must not start flagging legitimate code that merely
+    // mentions distanceToWater near an unrelated number.
     const compliantDistance = [
       `distanceToWaterMeters,`,
       `distanceToWater: number | null = null,`,
       `distanceToWaterMeters == null ? warn('unknown') : distanceToWaterMeters,`,
+      // The actual restored warning condition from generate-localization-report.usecase.ts —
+      // the single most important self-check: the owner's own new code must not trip its own
+      // guard.
+      `if (distanceToWaterMeters == null && strict && !spatialAudit.distanceToWaterAvailable) {`,
+      // The actual producer shape from spatialAuditService.ts.
+      `const distanceToWaterMeters = distanceResult.ok ? distanceResult.distance : null;`,
+      `distanceToWaterMeters == null ? null : distanceToWaterMeters`,
+      `distanceToWaterMeters ?? null`,
+      `distanceToWaterMeters === 200`,
+      `distanceToWaterMeters >= 200`,
+      `expect(result.distanceToWaterMeters).toBe(200)`,
+      `{ distanceToWaterMeters: 200 }`,
     ];
     for (const code of compliantDistance) {
       expect(
