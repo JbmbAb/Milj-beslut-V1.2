@@ -3,14 +3,16 @@
 Status: OWNER-APPROVED / FROZEN DECISIONS
 Owner: Jimmy Bruce
 Approved: 2026-09-26
-Base: protected main 7ec4b1b262e30fe3ff18ecba6d11133c98cb7384
+Tracking base: protected main b6511b972ca48fb37c4ec996e43194246e58a1c3
+Original owner-decision commit: c2cc7f19e91d00b7920d08809c2f856e86703c7d (created on earlier protected main 7ec4b1b262e30fe3ff18ecba6d11133c98cb7384)
 Source decision batch: DECISION-BATCH-2026-09-26.md
-Source batch SHA-256: C1A7E7AEFA7931C6AE8E37C0A44751B648056E65E0641A6B676A6EAFEC989A47
+Approved substantive batch SHA-256: C1A7E7AEFA7931C6AE8E37C0A44751B648056E65E0641A6B676A6EAFEC989A47
+Current source artifact SHA-256 after approval/provenance labelling: 51C117355E556D3F8E928781AF9AC1ED8C107DC146DC66F9C4F6D62FA7BAEC1E
 
 ## 0. Authority and scope
 
 Jimmy explicitly approved batch 1–10 in the conversation on 2026-09-26.
-This ADR addendum records those owner decisions. It does not claim that implementation, migration, proof, staging, legal review, SYSTEM-PROVEN, PRODUCT-PROVEN, Step 5 finalization or W1 finalization is complete.
+This ADR addendum records those owner decisions. It does not by itself claim that implementation, migration, proof, staging, legal review, SYSTEM-PROVEN, PRODUCT-PROVEN or W1 finalization is complete. Step 5 was finalized separately before this reconciled tracking candidate was created.
 
 Where a decision opens implementation work, the implementation remains OPEN until its own governed unit and closure evidence exist.
 External legal/licensing authority remains EXTERNAL even where an internal interim policy is frozen here.
@@ -206,4 +208,4 @@ No node becomes PROVEN merely because this ADR exists.
 This approval does not authorize a second writer for Step 5 or W1.
 It does not supersede one-writer-per-unit rules.
 It does not authorize implementation in an active unit owned by another lane.
-It does not change Step 5's current MERGED / NOT FINALIZED state.
+It does not reopen or alter the separately finalized Step 5 record on protected main.
