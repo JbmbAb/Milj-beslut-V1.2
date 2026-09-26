@@ -69,10 +69,13 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
 
   /**
    * NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1 — a fabricated numeric distance-to-water
-   * fallback, in any of three shapes, for ANY numeric literal — not only `200`. The W1-owner
+   * fallback, in any of three shapes, for almost any numeric literal — not only `200`, and not
+   * only decimal. "Almost": two specific ECMAScript numeric spellings (BigInt, and a literal
+   * nested more than one level deep in parentheses) are named, owner-accepted exceptions —
+   * see HONEST LIMIT below, not "ANY numeric literal" without qualification. The W1-owner
    * invariant is "unknown must never become a fabricated measured value"; `200` was the
    * literal main happened to use, but `?? 150` or `|| 0` fabricate a measurement just as
-   * dishonestly. Widening from "exactly 200" to "any bare numeric literal" is a direct
+   * dishonestly. Widening from "exactly 200" to "almost any bare numeric literal" is a direct
    * consequence of the invariant as stated, not scope creep.
    *
    * `REBUILD-GATE-STATUS.md` bans the specific historical case explicitly: "legacy fallback
@@ -83,10 +86,15 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * as `null` (its new default), in every mode.
    *
    * Scanned over the FULL production source surface (`sourceFiles()` — every non-test
-   * .ts/.tsx under src/server/packages/components, 1702 files as of this writing), not just
-   * the three files the fix currently touches: a three-file list only proves today's
-   * transport chain is clean, not that a future fourth file (a new wrapper, an alternate
-   * call site) couldn't reintroduce the pattern undetected.
+   * .ts/.tsx under src/server/packages/components; well over a thousand files). The exact
+   * count is deliberately NOT pinned here as a fixed number — a hardcoded count in a comment
+   * goes stale the moment a file is added or removed, which is exactly the kind of overclaim
+   * this unit has already had to correct once. "the scan is not vacuous" below is the actual,
+   * runtime-verified guarantee (reaches >100 files and still contains the three known ones),
+   * not a docstring count. Scanning the full surface, not just the three files the fix
+   * currently touches, matters because a three-file list only proves today's transport chain
+   * is clean, not that a future fourth file (a new wrapper, an alternate call site) couldn't
+   * reintroduce the pattern undetected.
    *
    * A fabricated numeric literal is matched in one of these forms — signed or unsigned;
    * decimal, exponent/scientific notation, hexadecimal, binary, or octal; with or without
@@ -118,8 +126,9 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * what is knowingly left, and the closure note this unit's history records once frozen.
    *
    * Three named syntactic forms, each independently verified — empirically, against real
-   * fixtures and against the full 1702-file production surface, not just by inspection — to
-   * fire on every named bypass and produce zero false positives:
+   * fixtures and against the full production source surface (well over a thousand files; see
+   * above for why no fixed count is restated here), not just by inspection — to fire on every
+   * named bypass and produce zero false positives:
    *   1. CALLSITE — `identifier ?? NUM` / `identifier || NUM` directly (the original defect),
    *      and the compound-assignment spellings `identifier ??= NUM` / `identifier ||= NUM`.
    *      The compound-assignment operators are not a separate bypass class conceptually —
@@ -144,31 +153,33 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    *      plain non-null ternary (`x == null ? null : x`) are deliberately NOT matched; see the
    *      positive controls below.
    *
-   * HONEST LIMIT (do not read this guard as broader than it is — this list has grown across
-   * three rounds already, so it is kept deliberately explicit rather than summarised away):
-   *   - Not a dataflow/semantic analysis. It cannot and does not prove the absence of an
-   *     indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
-   *     FALLBACK_M`, a helper function returning a number, or a value computed elsewhere and
-   *     imported. Requires a manual code-review pass or a real AST/type-aware lint rule.
-   *   - A ternary where NEITHER branch is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`,
-   *     fabricating one of two numbers either way) is not detected — the TERNARY rule's
-   *     structural anchor is "one branch is the honest null/undefined case", by design.
-   *   - A BigInt literal (`200n`) is not matched. Deliberately not fixed: BigInt is not a
-   *     valid runtime value where this codebase expects `number | null`, so a BigInt fallback
-   *     would already fail elsewhere (a type error or a runtime coercion bug) independently of
-   *     this guard — chasing it here would be effort spent on a form that cannot actually reach
-   *     production as a working fabrication.
-   *   - Only one level of parenthesis-wrapping is unwrapped (`(200)`, not `((200))`).
-   *     Deliberately not fixed: unbounded nesting is a job for a real parser, not another
-   *     regex layer; regex-matching balanced/nested parentheses to arbitrary depth is not
-   *     something this pattern family should be stretched to do.
-   * These two "deliberately not fixed" items were named explicitly by cold review as
-   * acceptable to leave as documented limitations rather than pursued as a fourth round — this
-   * guard is regex-based text matching, not a parser, and is frozen at this coverage level.
+   * HONEST LIMIT — GUARD FROZEN as of this commit. Four rounds of cold review widened this
+   * guard's numeric-literal coverage; the owner then named exactly three remaining gaps as
+   * acceptable to leave as permanent, documented limitations rather than chase with a fourth
+   * regex round (this guard is regex-based text matching, not a parser):
+   *   1. Dataflow / alias indirection. Not a dataflow/semantic analysis: it cannot and does
+   *      not prove the absence of an indirection that defeats pattern matching — e.g.
+   *      `const FALLBACK_M = 200; ... ?? FALLBACK_M`, a helper function returning a number, or
+   *      a value computed elsewhere and imported. Requires a manual code-review pass or a real
+   *      AST/type-aware lint rule.
+   *   2. A BigInt literal (`200n`). Not matched. BigInt is not a valid runtime value where
+   *      this codebase expects `number | null`, so a BigInt fallback would already fail
+   *      elsewhere (a type error or a runtime coercion bug) independently of this guard —
+   *      chasing it here would be effort spent on a form that cannot actually reach production
+   *      as a working fabrication.
+   *   3. Unbounded parenthesis nesting. Only one level is unwrapped (`(200)`, not `((200))`).
+   *      Matching balanced/nested parentheses to arbitrary depth is a job for a real parser,
+   *      not another regex layer.
+   * A fourth limitation, found independently and predating the owner's list of three, is also
+   * left open rather than folded silently into the three above: a ternary where NEITHER branch
+   * is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`, fabricating one of two numbers either
+   * way) is not detected — the TERNARY rule's structural anchor is "one branch is the honest
+   * null/undefined case", by design.
    * The named forms above (including their compound-assignment spellings and the full NUM
    * family: signed, decimal, exponent, hex, binary, octal, and numeric separators within any
    * of those digit runs) are exactly the syntactic regressions this guard is proven to catch —
-   * no broader claim is made.
+   * no broader claim is made, and none of the four items above is expected to be revisited
+   * without a new, separately-authorized unit.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE =
     "[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|\\d(?:_?\\d)*(?:\\.\\d(?:_?\\d)*)?(?:[eE][+-]?\\d(?:_?\\d)*)?)";
@@ -319,8 +330,10 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         "silently reads as 'verified clear' instead of 'unverified'; any other literal is a " +
         "measurement the system never made. Scanned across the full production source " +
         "surface, not just the three files W1 touched, so a future wrapper elsewhere cannot " +
-        "reintroduce this undetected in any of its shapes (?? N, || N, = N default, a " +
-        "ternary with a numeric branch).",
+        "reintroduce any of the NAMED syntactic shapes (?? N, || N, = N default, a ternary " +
+        "with a numeric branch) undetected. This does not cover every conceivable form — see " +
+        "this guard's docstring HONEST LIMIT for the four accepted exceptions (alias/dataflow " +
+        "indirection, BigInt, nested parentheses, a ternary with no null/undefined branch).",
     ).toEqual([]);
   });
 
