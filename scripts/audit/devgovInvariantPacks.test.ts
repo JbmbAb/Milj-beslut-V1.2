@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -32,6 +40,7 @@ function targetFixture() {
     const dst = join(root, rel);
     mkdirSync(dirname(dst), { recursive: true });
     copyFileSync(join(REPO_ROOT, rel), dst);
+    chmodSync(dst, 0o600);
   }
   return root;
 }
@@ -54,7 +63,12 @@ function evaluate(root: string) {
 
 describe('DEV-GOV controller-owned invariant packs', () => {
   it('passes the live controller tree and binds controller/candidate/pack-set identity', () => {
-    const report = evaluateInvariantPacks({ controllerRoot: REPO_ROOT, targetRoot: REPO_ROOT });
+    const report = evaluateInvariantPacks({
+      controllerRoot: REPO_ROOT,
+      targetRoot: REPO_ROOT,
+      controllerSha: 'd'.repeat(40),
+      candidateSha: 'c'.repeat(40),
+    });
 
     expect(report.result).toBe('PASS');
     expect(report.controller_sha).toMatch(/^[0-9a-f]{40}$/);
