@@ -103,8 +103,14 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * (`?? 2_00`, `?? 0b11001000`, `?? 0o310`) — round 3 (this one) closes those, including
    * separators inside hex/binary/octal digit runs, not only decimal. "Any numeric literal" was
    * always true of the *value space* the guard was designed to protect but repeatedly narrower
-   * than what its regexes actually matched; NUM is applied consistently across all three
-   * syntactic positions below, independently fixture-tested in each, not assumed from one.
+   * than what its regexes actually matched. The shared NUM_SOURCE string (defined once, just
+   * below) is used identically, byte-for-byte, by all three regexes — that identity is what
+   * the correctness argument rests on, not per-form exhaustion. The fixture list below
+   * exercises CALLSITE, DEFAULT, and TERNARY each with representative cases (including at
+   * least one separator/binary/octal case per position), not every new spelling crossed with
+   * every position — that would be 10 forms × 3 positions, and the fixture list is smaller
+   * than that on purpose. Do not read "verified across all three positions" as "every fixture
+   * exists in triplicate"; a prior draft of this comment overclaimed exactly that.
    *
    * This is deliberately the LAST round of numeric-form widening this guard will get. Chasing
    * every remaining ECMAScript numeric spelling (BigInt, unbounded paren nesting) with more
@@ -512,8 +518,9 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
       },
       {
-        // The NUM family applies to all three syntactic positions, not only CALLSITE where the
-        // cold review illustrated it — confirmed independently for DEFAULT and TERNARY too.
+        // The NUM family applies identically to all three syntactic positions via the one
+        // shared pattern, not only CALLSITE where the cold review illustrated it. Below are
+        // representative DEFAULT/TERNARY cases, not every round-2 form repeated in both.
         name: "fabricated negative default parameter",
         code: `distanceToWaterMeters: number = -1,`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
@@ -566,8 +573,9 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
       },
       {
-        // Confirmed independently for DEFAULT and TERNARY too, matching the round-2 pattern of
-        // not assuming a CALLSITE fixture proves the other two positions.
+        // Representative DEFAULT/TERNARY coverage below (not every new spelling repeated in
+        // every position — CALLSITE, DEFAULT, and TERNARY all consume the one shared
+        // NUM_SOURCE string, so a representative case per position stands in for exhaustion).
         name: "fabricated numeric-separator default parameter",
         code: `distanceToWaterMeters: number = 2_00,`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
