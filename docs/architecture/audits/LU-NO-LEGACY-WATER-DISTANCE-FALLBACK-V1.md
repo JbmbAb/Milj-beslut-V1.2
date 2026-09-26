@@ -68,12 +68,29 @@ This unit's implementation and hardening spans the following commits, all on
     exception; remove a hardcoded "1702 files" count (a stale-prone claim) in favor of the
     runtime-verified vacuity check; correct an overclaiming test-failure message.
 
-This packaging commit (on top of `a56cc21f`) adds no further behavior change: it (a) documents
-three additional limitations found by a further independent cold-review pass and empirically
-confirmed against this exact frozen candidate (TERNARY never unwraps parentheses; a line-broken
-standalone null-check ternary; a coalesce condition containing its own parenthesised
-sub-expression) — corrected as documentation only, the regex is unchanged and none of these three
-was fixed — and (b) adds this Dev-Gov unit definition and this audit document.
+11. `fde8398d` — packaging: adds no further behavior change. Documents three additional
+    limitations found by a further independent cold-review pass and empirically confirmed
+    against this exact frozen candidate (TERNARY never unwraps parentheses; a line-broken
+    standalone null-check ternary; a coalesce condition containing its own parenthesised
+    sub-expression) — documentation only, the regex is unchanged and none of these three was
+    fixed. Adds this Dev-Gov unit definition and this audit document, both first drafts.
+12. This commit — corrects an overclaim found by a further independent cold review of the
+    exact `fde8398d` candidate: the unit definition's `w1-targeted-format` GREEN check declared
+    `expected_classification: "PASS"` for `prettier --check` on the six W1 files, but that check
+    actually exits 1 on this candidate — 3 of the 6 files (both production usecase files and the
+    guard test file) are not Prettier-conformant, and **the same 3 files are equally
+    non-conformant on base `b6511b97`**: pre-existing formatting debt, not something introduced
+    by W1. The claim traced back to a one-time PASS run against an earlier, narrower 3-file
+    draft of this unit that did not include these 3 files; when the unit broadened to 6 files,
+    the PASS claim was carried forward without re-running the check. Decision (delegated,
+    reasoned as not overridden by the owner's active correction of a prior wording draft):
+    do not reformat the files to make the probe pass — doing so would change bytes in a
+    mechanical unit outside its stated purpose, force a full re-verification, and pull main's
+    pre-existing 127-file formatting debt into W1's scope. Removed the `w1-targeted-format`
+    GREEN entry entirely instead (now 4 GREEN checks, not 5); corrected this document and the
+    PR description accordingly; added the three genuinely-unrealistic literal spellings this
+    guard also does not match (`.5`, `-(200)`, `200.` immediately before `:`) as a documentation-
+    only HONEST LIMIT addition, no regex change.
 
 ## Local verification
 
@@ -89,7 +106,12 @@ was fixed — and (b) adds this Dev-Gov unit definition and this audit document.
 - Downstream-consumer regression: `bankComplianceService.test.ts` and
   `geminiBiodiversityService.test.ts` (both import/mock `complianceRuleEngine`'s exports) —
   **10/10 PASS**.
-- Targeted Prettier on the six W1 files: PASS.
+- `prettier --check` on the six W1 files exits **1** on this candidate — 3 of the 6 (both
+  production usecase files and the guard test file) are not Prettier-conformant. **The same 3
+  files are equally non-conformant on base `b6511b97`** (confirmed by running the check against
+  `origin/main`'s copies of the same files): pre-existing formatting debt, not introduced by
+  W1. Formatting is explicitly **not part of this unit's GREEN evidence** (see commit 12 above)
+  — it is not required, and this candidate makes no claim about it either way beyond this note.
 - Zero false positives for the guard's regexes across the full production source surface.
 
 ## RED
@@ -112,9 +134,12 @@ there) and confirmed to fail exactly as designed before being written into the u
 ## GREEN
 
 Required at `candidate_sha`: both RED probes inverted (now PASS), the three W1 test files
-(75/75), the two downstream-consumer regression files (10/10), and targeted Prettier on the six
-W1 files. All five were run manually against this exact candidate and confirmed passing before
-being written into the unit definition.
+(75/75), and the two downstream-consumer regression files (10/10) — **four GREEN checks, not
+five.** An earlier draft of this unit also required targeted Prettier on the six W1 files; that
+entry was removed (see commit 12 above) once it was found to fail on this candidate for reasons
+pre-existing on base `b6511b97` and unrelated to W1's own change. All four checks were run
+manually against this exact candidate and confirmed passing before being written into the unit
+definition.
 
 ## Non-claims
 

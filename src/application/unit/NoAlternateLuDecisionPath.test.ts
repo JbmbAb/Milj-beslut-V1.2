@@ -202,6 +202,10 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * being accepted here; none of them changes the regex, so no RED/GREEN cycle applies to this
    * addition — it is a documentation-only acknowledgment of an already-frozen candidate's actual
    * behavior.
+   *
+   * Unrealistic literal spellings are also not matched and are not claimed: `.5` (no leading
+   * digit), `-(200)` (negated parenthesised literal), and `200.` (trailing dot) immediately
+   * before `:` in a ternary.
    * The named forms above (including their compound-assignment spellings and the full NUM
    * family: signed, decimal, exponent, hex, binary, octal, and numeric separators within any
    * of those digit runs) are exactly the syntactic regressions this guard is proven to catch —
