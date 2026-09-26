@@ -1,0 +1,70 @@
+{
+    "schema_version":  "dev-gov-v1-unit-definition",
+    "unit":  "DEVGOV-INVARIANT-PACKS-V1-PROVEN-DOC-V1",
+    "role":  "producer",
+    "mode":  "writer",
+    "branch":  "docs/devgov-invariant-packs-v1-proven",
+    "base_sha":  "7ec4b1b262e30fe3ff18ecba6d11133c98cb7384",
+    "ancestry_policy":  "descendant_of_base",
+    "allowed_paths":  [
+                          "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1-PROVEN.md",
+                          "governance/devgov/units/devgov-invariant-packs-v1-proven-doc-v1.json"
+                      ],
+    "forbidden_paths":  [
+                            ".github/**",
+                            "scripts/**",
+                            "governance/devgov/schema/**",
+                            "governance/devgov/invariant-packs/**",
+                            "prisma/**",
+                            "packages/**",
+                            "server/**",
+                            "src/**",
+                            "tests/**",
+                            "components/**",
+                            "governance/devgov/units/devgov-invariant-packs-v1.json"
+                        ],
+    "required_red":  [
+                         {
+                             "id":  "proven-record-binds-invariant-packs-evidence",
+                             "command":  "node",
+                             "args":  [
+                                          "-e",
+                                          "\nconst fs=require(\u0027node:fs\u0027);\nconst p=\u0027docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1-PROVEN.md\u0027;\nconst V=m=\u003e{console.error(\u0027INVARIANT_PACKS_PROVEN_VIOLATION: \u0027+m);process.exit(1)};\nconst H=m=\u003e{console.error(\u0027INVARIANT_PACKS_PROVEN_HARNESS_ERROR: \u0027+m);process.exit(2)};\ntry{\n let s; try{s=fs.readFileSync(p,\u0027utf8\u0027)}catch(e){if(e\u0026\u0026e.code===\u0027ENOENT\u0027)V(\u0027PROVEN record absent\u0027);H(String(e))}\n const req=process.argv[1].split(\u0027||\u0027); const missing=req.filter(x=\u003e!s.includes(x)); if(missing.length)V(\u0027missing bindings: \u0027+missing.join(\u0027 | \u0027));\n const g=l=\u003e{const m=new RegExp(\u0027\\\\*\\\\*\u0027+l+\u0027:\\\\*\\\\* `([0-9a-f]{40})`\u0027).exec(s);return m\u0026\u0026m[1]};\n const mt=g(\u0027Merge tree\u0027),ct=g(\u0027Candidate tree\u0027); if(!mt||!ct)V(\u0027tree bindings absent\u0027); if(mt!==ct)V(\u0027merge tree differs from candidate tree\u0027);\n console.log(\u0027INVARIANT_PACKS_PROVEN_OK\u0027);\n}catch(e){H(e\u0026\u0026e.stack?e.stack:String(e))}\n",
+                                          "**Final state:** PROVEN||65ae1487eb7327bc85f80655bacbded84bd09df7||7ec4b1b262e30fe3ff18ecba6d11133c98cb7384||30f2f10686df370d06b56cb6da3b7a8e6ef74152||36230319826||36230861086||#178||proof_status: PROVEN||DEV-GOV-V0 / trusted-execution = success||36231285735||36231606577||SHA_VERIFICATION_DENIED||DEVGOV-INVARIANT-PACKS-V1 = PROVEN"
+                                      ],
+                             "blocked_exit_codes":  [
+                                                        2
+                                                    ],
+                             "timeout_ms":  30000,
+                             "expected_classification":  "FAIL",
+                             "required_head":  "base_sha"
+                         }
+                     ],
+    "required_green":  [
+                           {
+                               "id":  "proven-record-binds-invariant-packs-evidence",
+                               "command":  "node",
+                               "args":  [
+                                            "-e",
+                                            "\nconst fs=require(\u0027node:fs\u0027);\nconst p=\u0027docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1-PROVEN.md\u0027;\nconst V=m=\u003e{console.error(\u0027INVARIANT_PACKS_PROVEN_VIOLATION: \u0027+m);process.exit(1)};\nconst H=m=\u003e{console.error(\u0027INVARIANT_PACKS_PROVEN_HARNESS_ERROR: \u0027+m);process.exit(2)};\ntry{\n let s; try{s=fs.readFileSync(p,\u0027utf8\u0027)}catch(e){if(e\u0026\u0026e.code===\u0027ENOENT\u0027)V(\u0027PROVEN record absent\u0027);H(String(e))}\n const req=process.argv[1].split(\u0027||\u0027); const missing=req.filter(x=\u003e!s.includes(x)); if(missing.length)V(\u0027missing bindings: \u0027+missing.join(\u0027 | \u0027));\n const g=l=\u003e{const m=new RegExp(\u0027\\\\*\\\\*\u0027+l+\u0027:\\\\*\\\\* `([0-9a-f]{40})`\u0027).exec(s);return m\u0026\u0026m[1]};\n const mt=g(\u0027Merge tree\u0027),ct=g(\u0027Candidate tree\u0027); if(!mt||!ct)V(\u0027tree bindings absent\u0027); if(mt!==ct)V(\u0027merge tree differs from candidate tree\u0027);\n console.log(\u0027INVARIANT_PACKS_PROVEN_OK\u0027);\n}catch(e){H(e\u0026\u0026e.stack?e.stack:String(e))}\n",
+                                            "**Final state:** PROVEN||65ae1487eb7327bc85f80655bacbded84bd09df7||7ec4b1b262e30fe3ff18ecba6d11133c98cb7384||30f2f10686df370d06b56cb6da3b7a8e6ef74152||36230319826||36230861086||#178||proof_status: PROVEN||DEV-GOV-V0 / trusted-execution = success||36231285735||36231606577||SHA_VERIFICATION_DENIED||DEVGOV-INVARIANT-PACKS-V1 = PROVEN"
+                                        ],
+                               "blocked_exit_codes":  [
+                                                          2
+                                                      ],
+                               "timeout_ms":  30000,
+                               "expected_classification":  "PASS",
+                               "required_head":  "candidate_sha"
+                           }
+                       ],
+    "trusted_execution":  {
+                              "issuer":  "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+                              "key_id":  "devgov-ci-ed25519-v1"
+                          },
+    "remote":  {
+                   "name":  "origin",
+                   "branch":  "docs/devgov-invariant-packs-v1-proven",
+                   "push_policy":  "no_force",
+                   "absent_policy":  "deny_absent"
+               }
+}
