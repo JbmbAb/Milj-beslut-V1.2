@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "worktree-w1-no-legacy-water-distance-fallback-mechanical",
-  "base_sha": "b6511b972ca48fb37c4ec996e43194246e58a1c3",
+  "base_sha": "6b10f5cf729c5fb814582e30f5e0be81ced6b19c",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "src/application/generate-localization-report.usecase.ts",

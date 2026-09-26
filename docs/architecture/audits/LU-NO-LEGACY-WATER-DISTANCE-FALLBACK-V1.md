@@ -1,7 +1,8 @@
 # LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1 — CANDIDATE
 
 **Status:** CANDIDATE / NOT YET PROVEN
-**Frozen base:** `b6511b972ca48fb37c4ec996e43194246e58a1c3`
+**Base at implementation time:** `b6511b972ca48fb37c4ec996e43194246e58a1c3`
+**Current base (after merge, see lineage item 14):** `6b10f5cf729c5fb814582e30f5e0be81ced6b19c`
 **Frozen implementation candidate:** `a56cc21f90c263570a115d3c70afc92eca651b62`
 **Unit:** `LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1`
 
@@ -113,6 +114,34 @@ This unit's implementation and hardening spans the following commits, all on
     same arithmetic R1 uses). Rejected: mocking Prisma in the test file, since that changes the
     candidate's test bytes and hides the dependency rather than accounting for it. No test or
     production code changed; the fix lives entirely in the unit definition's proof command.
+14. This commit — brings the branch up to date with `main` after ADR-28A (PR #181, an unrelated
+    docs-only unit) advanced `main` to `6b10f5cf729c5fb814582e30f5e0be81ced6b19c` while
+    `c192d8f8` was mid-dispatch. Owner's run `36276952909` on `c192d8f8` had already passed every
+    RED/GREEN probe, every signing, and the gate — `DEV-GOV-V0 / trusted-execution` = success on
+    `c192d8f8` is real, standing evidence that the K-15 Prisma fix works on the actual trusted
+    runner — but with `strict=true` branch protection, PR #180 became BEHIND once `main` moved,
+    and GitHub requires the branch be brought up to date before merge. Merged `6b10f5cf` into the
+    branch (**merge, not rebase** — an earlier draft of this update mistakenly rebased, which
+    would have required a force-push; this unit's own `remote.push_policy` is `no_force`, and a
+    rebase rewrites the 12 commits run `36276952909` proved. The unrelated `main` commit is the
+    one moving here, not this unit's own history. `main` does not require linear history, so a
+    merge commit in this branch is fine). The merge was clean, no conflicts — ADR-28A is
+    docs-only and touched none of this unit's files. Verified: the 8 files this unit's
+    `allowed_paths` names are byte-identical between `c192d8f8` and this merged tip; the diff
+    against `6b10f5cf` is exactly those 8 files.
+
+    Updated the unit definition's `base_sha` to `6b10f5cf` in the same commit — required, because
+    the controller diffs candidate against `base_sha` to enforce scope, and left at the old
+    `b6511b97` the ADR files newly inherited from `main` would show up in that diff outside
+    `allowed_paths` and fail containment. RED still correctly fails at the new base — ADR-28A
+    touched no application code, so the 200 m fallback is still present at `6b10f5cf`.
+
+    Run `36276952909`'s success on `c192d8f8` remains valid historical evidence of the K-15 fix;
+    it is not reused or re-cited as this merged candidate's own trusted-execution status, which
+    requires its own fresh dispatch. The abandoned rebase attempt (commit `737d9978`, on top of a
+    since-discarded `d7324984`) is kept in the local object store as evidence that its content
+    was independently verified correct before the transport mechanism was corrected — it was
+    never pushed and is not part of this branch's history.
 
 ## Local verification
 
