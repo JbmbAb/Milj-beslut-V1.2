@@ -187,7 +187,7 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
       source.indexOf('Obtain protected gate identity'),
     );
     expect(source).toContain('Upload invariant-pack report');
-    expect(source).toContain('devgov-invariant-packs-${{ inputs.candidate_sha }}');
+    expect(source).toContain('devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}');
   });
 
   it('checks out the exact candidate without executing candidate-controlled code', () => {

@@ -86,7 +86,7 @@ jobs:
       - name: Verify controller-owned invariant packs
         id: invariant_packs
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
           set -uo pipefail
           report_path="$RUNNER_TEMP/devgov-invariant-pack-report.json"
@@ -118,7 +118,7 @@ jobs:
       - name: Upload invariant-pack report
         uses: actions/upload-artifact@v4
         with:
-          name: devgov-invariant-packs-${{ inputs.candidate_sha }}
+          name: devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}
           path: ${{ runner.temp }}/devgov-invariant-pack-report.json
           if-no-files-found: error
           retention-days: 90

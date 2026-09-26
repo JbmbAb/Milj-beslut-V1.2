@@ -1,4 +1,4 @@
-﻿import { readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -111,10 +111,10 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(packs['runs-on']).toBe('ubuntu-latest');
     expect(packs.permissions).toEqual({ contents: 'read' });
     expect(source).toContain('ref: ${{ github.sha }}');
-    expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
+    expect(source).toContain('ref: ${{ github.event.client_payload.candidate_sha }}');
     expect(source).toContain('node controller/scripts/devgov/invariant-packs.mjs');
     expect(source).toContain('--target candidate');
-    expect(source).toContain('devgov-invariant-packs-${{ inputs.candidate_sha }}');
+    expect(source).toContain('devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}');
     expect(source).not.toContain('--pack ');
   });
 

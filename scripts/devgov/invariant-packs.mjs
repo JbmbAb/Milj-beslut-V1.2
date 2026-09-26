@@ -153,7 +153,7 @@ function evaluateInvariant(id, targetRoot) {
     case 'DG-IP-003-EXACT-CANDIDATE-BINDING': {
       return combine(
         hasAll(orchestrator(), [
-          'ref: ${{ inputs.candidate_sha }}',
+          'ref: ${{ github.event.client_payload.candidate_sha }}',
           'test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"',
         ]),
         hasAll(attest(), [
@@ -161,7 +161,7 @@ function evaluateInvariant(id, targetRoot) {
           'test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"',
         ]),
         hasAll(gate(), [
-          'ref: ${{ inputs.candidate_sha }}',
+          'ref: ${{ github.event.client_payload.candidate_sha }}',
           'test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"',
         ]),
       );
