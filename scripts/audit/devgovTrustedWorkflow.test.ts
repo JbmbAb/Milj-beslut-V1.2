@@ -180,6 +180,14 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
     expect(source).toContain('audience="devgov-v0-gate:$policy_sha:$CANDIDATE_SHA"');
     expect(source).toContain('printf \'%s\' "$DEVGOV_VERIFIER_TRUST_POLICY_JSON" | sha256sum');
     expect(source).not.toContain('--trust-policy');
+    expect(source).toContain('Verify controller-owned invariant packs');
+    expect(source).toContain('node controller/scripts/devgov/invariant-packs.mjs');
+    expect(source).toContain('--target candidate');
+    expect(source.indexOf('Verify controller-owned invariant packs')).toBeLessThan(
+      source.indexOf('Obtain protected gate identity'),
+    );
+    expect(source).toContain('Upload invariant-pack report');
+    expect(source).toContain('devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}');
   });
 
   it('checks out the exact candidate without executing candidate-controlled code', () => {

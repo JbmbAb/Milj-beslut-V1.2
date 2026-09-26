@@ -9,6 +9,8 @@ on:
       - '.github/workflows/devgov-v0.yml'
       - '.github/workflows/devgov-v0-attest.yml'
       - '.github/workflows/devgov-v0-gate.yml'
+      - '.github/workflows/devgov-v0-orchestrate.yml'
+      - '.github/workflows/devgov-invariant-packs.yml'
 
 permissions:
   contents: read
