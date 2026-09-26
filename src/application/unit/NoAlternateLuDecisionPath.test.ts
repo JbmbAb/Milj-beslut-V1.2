@@ -91,37 +91,49 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * Three named syntactic forms, each independently verified — empirically, against real
    * fixtures and against the full 1702-file production surface, not just by inspection — to
    * fire on every named bypass and produce zero false positives:
-   *   1. CALLSITE — `identifier ?? N` / `identifier || N` directly (the original defect).
+   *   1. CALLSITE — `identifier ?? N` / `identifier || N` directly (the original defect), and
+   *      the compound-assignment spellings `identifier ??= N` / `identifier ||= N`. The
+   *      compound-assignment operators are not a separate bypass class conceptually — `x ??=
+   *      200` is the exact same fabrication as `x = x ?? 200`, only spelled as one operator —
+   *      but the plain `\?\?|\|\|` alternation does not match the operator's own `=`, so a
+   *      regex that only recognised `??`/`||` let `??=`/`||=` through undetected. A cold
+   *      review found this; it is realistic modern JS/TS, not a contrived form.
    *   2. DEFAULT  — `identifier<suffix><any type annotation> = N` (a default parameter or
    *      declaration). The type-annotation group matches any non-separator text up to the
    *      `=`, not only a bare `number`, so `number | null = N` or any other union/alias
    *      cannot slip past a regex that only expected the single word "number".
    *   3. TERNARY  — two concrete structural shapes, matched precisely rather than via a loose
-   *      bounded-window "a `?` appears somewhere near a number": (a) `identifier ??
-   *      (cond ? null/undefined : N)` or `(cond ? N : null/undefined)` — a coalesce into a
-   *      parenthesised conditional with the fallback on either branch; (b) a standalone
-   *      `identifier == null ? N : ...` / `identifier != null ? ... : N` null-check ternary,
-   *      fallback on either side of `:`. Anchoring to real ternary syntax (rather than any
-   *      `?` within N characters) keeps false-positive risk low while still catching every
-   *      named case — comparisons (`=== 200`, `>= 200`), `?? null`, an object-literal value
-   *      (`{ distanceToWaterMeters: 200 }`), and a plain non-null ternary (`x == null ? null
-   *      : x`) are deliberately NOT matched; see the positive controls below.
+   *      bounded-window "a `?` appears somewhere near a number": (a) `identifier ?? (cond ?
+   *      null/undefined : N)` or `(cond ? N : null/undefined)` — a coalesce (including its
+   *      `??=`/`||=` compound-assignment spelling) into a parenthesised conditional with the
+   *      fallback on either branch; (b) a standalone `identifier == null ? N : ...` /
+   *      `identifier != null ? ... : N` null-check ternary, fallback on either side of `:`.
+   *      Anchoring to real ternary syntax (rather than any `?` within N characters) keeps
+   *      false-positive risk low while still catching every named case — comparisons (`===
+   *      200`, `>= 200`), `?? null`, an object-literal value (`{ distanceToWaterMeters: 200
+   *      }`), and a plain non-null ternary (`x == null ? null : x`) are deliberately NOT
+   *      matched; see the positive controls below.
    *
    * HONEST LIMIT (do not read this guard as broader than it is): this is a text-pattern scan,
    * not a dataflow/semantic analysis. It cannot and does not prove the absence of an
    * indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
    * FALLBACK_M`, a helper function returning a number, or a value computed elsewhere and
    * imported. If such an indirection is ever suspected, it requires a manual code-review pass
-   * or a real AST/type-aware lint rule, not an extension of this regex set. The three named
-   * forms above are exactly the syntactic regressions this guard is proven to catch — no
-   * broader claim is made.
+   * or a real AST/type-aware lint rule, not an extension of this regex set. Also NOT detected:
+   * a ternary where NEITHER branch is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`,
+   * fabricating one of two numbers either way) — the TERNARY rule's structural anchor is "one
+   * branch is the honest null/undefined case", by design, so a ternary that fabricates on both
+   * branches falls outside what it was built to recognise; this is a pre-existing limitation
+   * of the ternary detector, not something introduced or fixed by the `??=`/`||=` change. The
+   * named forms above (including their compound-assignment spellings) are exactly the
+   * syntactic regressions this guard is proven to catch — no broader claim is made.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?|\|\|)\s*\d+(?:\.\d+)?\b/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?=?|\|\|=?)\s*\d+(?:\.\d+)?\b/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT =
     /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?::\s*[^=,;)\n]+?)?\s*=\s*\d+(?:\.\d+)?\b/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:(?:\?\?|\|\|)\s*\([^)]*\?\s*(?:(?:null|undefined)\s*:\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*:\s*(?:null|undefined))\b|[!=]==?\s*(?:null|undefined)\s*\?\s*(?:\d+(?:\.\d+)?\s*:|[^:;\n'"`]*:\s*\d+(?:\.\d+)?\b))/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:(?:\?\?=?|\|\|=?)\s*\([^)]*\?\s*(?:(?:null|undefined)\s*:\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*:\s*(?:null|undefined))\b|[!=]==?\s*(?:null|undefined)\s*\?\s*(?:\d+(?:\.\d+)?\s*:|[^:;\n'"`]*:\s*\d+(?:\.\d+)?\b))/;
 
   function sourceFiles(): string[] {
     const found: string[] = [];
@@ -405,6 +417,32 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         code: `const d = distanceToWaterMeters !== null ? distanceToWaterMeters : 200;`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
       },
+      {
+        // Cold-review bypass #4: `x ??= 200` is the exact same fabrication as `x = x ?? 200`
+        // — same semantics, different spelling — but the plain `??`/`||` alternation does not
+        // match the operator's own trailing `=`, so this compound-assignment spelling reached
+        // production undetected.
+        name: "fabricated 200 m fallback via the compound nullish-assignment operator (??=)",
+        code: `distanceToWaterMeters ??= 200;`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback via the compound logical-or-assignment operator (||=)",
+        code: `distanceForCompliance ||= 200;`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "compound nullish-assignment with no surrounding whitespace",
+        code: `distanceToWaterMeters??=200`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        // The ternary rule's compound-assignment spelling, for the same realistic shape it
+        // already covers for plain `??` (one branch null/undefined, the other a fabricated N).
+        name: "fabricated 200 m fallback via ??= into a parenthesised null-check ternary",
+        code: `distanceToWaterMeters ??= (strict ? null : 200);`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
     ];
 
     for (const { name, code, rule } of fixtures) {
@@ -444,6 +482,12 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
       `distanceToWaterMeters >= 200`,
       `expect(result.distanceToWaterMeters).toBe(200)`,
       `{ distanceToWaterMeters: 200 }`,
+      // The compound-assignment operator itself is not the violation — assigning null/
+      // undefined/a variable via ??=/||= is the honest, intended idiom for "fill in only if
+      // still unknown"; only a literal-number right-hand side fabricates a measurement.
+      `distanceToWaterMeters ??= null;`,
+      `distanceToWaterMeters ||= undefined;`,
+      `distanceToWaterMeters ??= measuredFallback;`,
     ];
     for (const code of compliantDistance) {
       expect(
