@@ -97,15 +97,16 @@
       "id": "w1-focused-tests",
       "command": "node",
       "args": [
+        "--input-type=module",
         "-e",
-        "\nconst cp=require('node:child_process');\nconst V=m=>{console.error('W1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('W1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const win=process.platform==='win32'; const cmd=win?'npx.cmd':'npx';\n const files=['tests/unit/complianceRuleEngine.test.ts','tests/unit/services/localizationReportService.test.ts','src/application/unit/NoAlternateLuDecisionPath.test.ts'];\n const r=cp.spawnSync(cmd,['vitest','run','--config','vitest.config.ts','--project','unit',...files],{stdio:'inherit',shell:win,timeout:180000});\n if(r.error||r.status===null)H('vitest could not execute: '+(r.error?r.error.message:'signal '+r.signal));\n if(r.status!==0)V('W1 focused tests failed with exit '+r.status);\n console.log('W1_OK: focused tests passed');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+        "\nconst V = (m) => { console.error('W1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst cpx = await import('node:child_process');\nconst winx = process.platform === 'win32';\nconst gen = cpx.spawnSync(winx ? 'npx.cmd' : 'npx', ['prisma', 'generate'], { env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || 'postgresql://localhost:5432/devgov_dummy' }, encoding: 'utf8', shell: winx, timeout: 240000 });\nif (gen.error || gen.status !== 0) H('prisma generate failed (the trusted environment runs no lifecycle scripts): ' + (gen.error ? gen.error.message : String(gen.stderr).slice(0, 400)));\n\nconst files = ['tests/unit/complianceRuleEngine.test.ts', 'tests/unit/services/localizationReportService.test.ts', 'src/application/unit/NoAlternateLuDecisionPath.test.ts'];\nconst r = cpx.spawnSync(winx ? 'npx.cmd' : 'npx', ['vitest', 'run', '--config', 'vitest.config.ts', '--project', 'unit', ...files], { stdio: 'inherit', shell: winx, timeout: 180000 });\nif (r.error || r.status === null) H('vitest could not execute: ' + (r.error ? r.error.message : 'signal ' + r.signal));\nif (r.status !== 0) V('W1 focused tests failed with exit ' + r.status);\nconsole.log('W1_OK: focused tests passed');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
       ],
       "expected_classification": "PASS",
       "required_head": "candidate_sha",
       "blocked_exit_codes": [
         2
       ],
-      "timeout_ms": 240000
+      "timeout_ms": 420000
     },
     {
       "id": "w1-downstream-consumer-regression",

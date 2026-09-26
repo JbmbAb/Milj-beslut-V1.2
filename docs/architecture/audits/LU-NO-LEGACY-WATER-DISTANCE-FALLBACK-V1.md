@@ -91,6 +91,28 @@ This unit's implementation and hardening spans the following commits, all on
     PR description accordingly; added the three genuinely-unrealistic literal spellings this
     guard also does not match (`.5`, `-(200)`, `200.` immediately before `:`) as a documentation-
     only HONEST LIMIT addition, no regex change.
+13. This commit — fixes a real trusted-runner failure. `e411d7e7` was dispatched
+    (`devgov-v0-orchestrate` run `36272387886`); both RED probes executed and signed correctly,
+    but GREEN `w1-focused-tests` failed on the trusted runner with exit 1 after ~3.6s — too fast
+    to be real test failures, and the run stopped there (RED 2/2 signed, GREEN 3/4 passed,
+    `w1-focused-tests` blocked signing, no gate, no false promotion). Root cause, independently
+    confirmed by reproducing locally with the generated Prisma client hidden: the trusted
+    environment installs with `npm ci --ignore-scripts`, so `@prisma/client`'s generated output
+    never exists; `localizationReportService.test.ts` reaches it through an unmocked import
+    chain and crashes at collection with `Cannot find module '.prisma/client/default'` before a
+    single test runs — exactly matching the fast exit and the R1 precedent's own documented
+    reason for its `prisma generate` preamble (this candidate's own local runs, and the owner's,
+    always had a generated client already, which is why this was invisible until the real
+    trusted run). The database-globalSetup hypothesis was checked and ruled out first: that
+    globalSetup belongs only to vitest's separate "integration" project, not "unit". Fix, per
+    the R1 precedent exactly: added an `npx prisma generate` preamble (dummy
+    `DATABASE_URL=postgresql://localhost:5432/devgov_dummy`, matching R1's own probes byte-for-
+    byte in structure) to the `w1-focused-tests` GREEN command only — not
+    `w1-downstream-consumer-regression`, which passed on the runner and does not need it — and
+    raised that probe's own `timeout_ms` from 240000 to 420000 (240s generate + 180s test run,
+    same arithmetic R1 uses). Rejected: mocking Prisma in the test file, since that changes the
+    candidate's test bytes and hides the dependency rather than accounting for it. No test or
+    production code changed; the fix lives entirely in the unit definition's proof command.
 
 ## Local verification
 
@@ -113,6 +135,12 @@ This unit's implementation and hardening spans the following commits, all on
   W1. Formatting is explicitly **not part of this unit's GREEN evidence** (see commit 12 above)
   — it is not required, and this candidate makes no claim about it either way beyond this note.
 - Zero false positives for the guard's regexes across the full production source surface.
+- Caveat on the 75/75 figure above: every local run of it in this unit's history, including
+  this one, ran with a generated Prisma client already present (via a normal `npm install`).
+  That masked the trusted-runner-only failure described in commit 13 — the actual proof that
+  `w1-focused-tests` now survives a client-less environment is the `npx prisma generate`
+  preamble itself (verified to run and succeed standalone) plus the next real dispatch on this
+  SHA, not a local vitest run.
 
 ## RED
 
