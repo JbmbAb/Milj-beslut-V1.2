@@ -1,0 +1,96 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-ATTEST-STANDALONE-DISPATCH-CLOSURE-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-attest-standalone-dispatch-closure-v1",
+  "base_sha": "9b3605c2f008983c93f89ef441165b35b37d6703",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    "scripts/audit/devgovTrustedWorkflow.test.ts",
+    "scripts/audit/devgovOrchestration.test.ts",
+    "governance/devgov/units/devgov-attest-standalone-dispatch-closure-v1.json",
+    "docs/architecture/audits/DEVGOV-ATTEST-STANDALONE-DISPATCH-CLOSURE-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-gate.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    ".github/workflows/devgov-v0.yml",
+    "scripts/devgov/devgov.mjs",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**",
+    "services/**",
+    "integrations/**",
+    "prisma/**",
+    "scripts/ops/**",
+    "scripts/import/**"
+  ],
+  "required_red": [
+    {
+      "id": "attest-workflow-call-only-trigger",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs');\nconst V=m=>{console.error('DGL_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('DGL_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const p='.github/workflows/devgov-v0-attest.yml';\n if(!fs.existsSync(p))H('protected attest workflow file missing');\n const src=fs.readFileSync(p,'utf8');\n if(!/^on:\\s*$/m.test(src))H('no on: block found (positive control failed)');\n if(!/^  workflow_call:\\s*$/m.test(src))H('workflow_call trigger missing (positive control failed)');\n const lines=src.split('\\n');\n const onIdx=lines.findIndex(l=>/^on:\\s*$/.test(l));\n if(onIdx===-1)H('on: block index not found');\n let end=lines.length;\n for(let i=onIdx+1;i<lines.length;i++){if(/^\\S/.test(lines[i])){end=i;break}}\n const onBlock=lines.slice(onIdx,end).join('\\n');\n const hasDispatch=/^  workflow_dispatch:\\s*$/m.test(onBlock);\n if(hasDispatch)V('standalone workflow_dispatch trigger coexists with workflow_call in on:');\n console.log('DGL_OK: workflow_call is the sole trigger on devgov-v0-attest.yml');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "attest-workflow-call-only-trigger",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs');\nconst V=m=>{console.error('DGL_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('DGL_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const p='.github/workflows/devgov-v0-attest.yml';\n if(!fs.existsSync(p))H('protected attest workflow file missing');\n const src=fs.readFileSync(p,'utf8');\n if(!/^on:\\s*$/m.test(src))H('no on: block found (positive control failed)');\n if(!/^  workflow_call:\\s*$/m.test(src))H('workflow_call trigger missing (positive control failed)');\n const lines=src.split('\\n');\n const onIdx=lines.findIndex(l=>/^on:\\s*$/.test(l));\n if(onIdx===-1)H('on: block index not found');\n let end=lines.length;\n for(let i=onIdx+1;i<lines.length;i++){if(/^\\S/.test(lines[i])){end=i;break}}\n const onBlock=lines.slice(onIdx,end).join('\\n');\n const hasDispatch=/^  workflow_dispatch:\\s*$/m.test(onBlock);\n if(hasDispatch)V('standalone workflow_dispatch trigger coexists with workflow_call in on:');\n console.log('DGL_OK: workflow_call is the sole trigger on devgov-v0-attest.yml');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "attest-workflow-call-caller-not-lost",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs');\nconst V=m=>{console.error('DGL_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('DGL_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const attestPath='.github/workflows/devgov-v0-attest.yml';\n const orchestratePath='.github/workflows/devgov-v0-orchestrate.yml';\n const orchTestPath='scripts/audit/devgovOrchestration.test.ts';\n const trustedTestPath='scripts/audit/devgovTrustedWorkflow.test.ts';\n for(const p of [attestPath,orchestratePath,orchTestPath,trustedTestPath]){if(!fs.existsSync(p))H('expected file missing: '+p)}\n const attestSrc=fs.readFileSync(attestPath,'utf8');\n if(!/^  workflow_call:\\s*$/m.test(attestSrc))V('reusable workflow_call trigger lost on attest workflow (positive control failed)');\n const orchSrc=fs.readFileSync(orchestratePath,'utf8');\n const callerCount=(orchSrc.match(/uses:\\s*\\.\\/\\.github\\/workflows\\/devgov-v0-attest\\.yml/g)||[]).length;\n if(callerCount<2)V('orchestrator lost its workflow_call reference to the attest workflow (found '+callerCount+')');\n const trustedTestSrc=fs.readFileSync(trustedTestPath,'utf8');\n if(!trustedTestSrc.includes(\"expect(workflow.on.workflow_dispatch).toBeUndefined();\"))V('devgovTrustedWorkflow.test.ts is missing the standalone-dispatch regression assertion');\n if(!trustedTestSrc.includes(\"expect(Object.keys(workflow.on)).toEqual(['workflow_call']);\"))V('devgovTrustedWorkflow.test.ts no longer pins workflow_call as the sole trigger');\n const orchTestSrc=fs.readFileSync(orchTestPath,'utf8');\n if(!orchTestSrc.includes(\"expect(workflow.on.workflow_dispatch).toBeUndefined();\"))V('devgovOrchestration.test.ts still expects a standalone dispatch trigger on the attest workflow');\n console.log('DGL_OK: workflow_call caller intact, no test still expects the removed workflow_dispatch entry point');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "attest-workflow-regression-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp=require('node:child_process');\nconst V=m=>{console.error('DGL_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('DGL_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const win=process.platform==='win32'; const cmd=win?'npx.cmd':'npx';\n const args=['vitest','run','--config','scripts/devgov/vitest.config.mjs','scripts/audit/devgovTrustedWorkflow.test.ts','scripts/audit/devgovOrchestration.test.ts','-t','standalone dispatch entry point|keeps the attestation workflow reusable'];\n const r=cp.spawnSync(cmd,args,{stdio:'inherit',shell:win,timeout:180000});\n if(r.error||r.status===null)H('vitest could not execute: '+(r.error?r.error.message:'signal '+r.signal));\n if(r.status!==0)V('attest-workflow regression tests failed with exit '+r.status);\n console.log('DGL_OK: attest-workflow regression tests passed');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 240000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-attest-standalone-dispatch-closure-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

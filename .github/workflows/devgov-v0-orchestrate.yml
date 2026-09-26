@@ -1,16 +1,14 @@
-name: DEV-GOV-V0 Proof Orchestrator
+﻿name: DEV-GOV-V0 Proof Orchestrator
 
+# repository_dispatch has no per-key required/type/description metadata (unlike workflow_dispatch
+# inputs) and, unlike workflow_dispatch, its REST payload carries no ref/branch selector at all --
+# GitHub always resolves and runs this file's copy from the default branch. Expected
+# github.event.client_payload keys:
+#   candidate_sha          (string, required) - exact candidate SHA to prove
+#   unit_definition_path   (string, required) - repository-relative DEV-GOV V1 unit definition path
 on:
-  workflow_dispatch:
-    inputs:
-      candidate_sha:
-        description: Exact candidate SHA to prove
-        required: true
-        type: string
-      unit_definition_path:
-        description: Repository-relative DEV-GOV V1 unit definition path
-        required: true
-        type: string
+  repository_dispatch:
+    types: [devgov-v0-orchestrate]
 
 permissions:
   contents: read
@@ -34,14 +32,14 @@ jobs:
 
       - name: Validate candidate SHA shape
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
           echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
 
       - name: Checkout exact candidate without executing candidate code
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_sha }}
+          ref: ${{ github.event.client_payload.candidate_sha }}
           path: candidate
           fetch-depth: 0
           persist-credentials: false
@@ -49,8 +47,8 @@ jobs:
       - name: Resolve proof IDs from candidate-owned unit definition
         id: plan
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
         run: |
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
@@ -94,51 +92,10 @@ jobs:
           fs.appendFileSync(process.argv[3], `green_count=${greenIds.length}\n`);
           NODE
 
-  red:
-    name: RED / ${{ matrix.test_id }}
-    needs: plan
-    strategy:
-      fail-fast: false
-      matrix:
-        test_id: ${{ fromJSON(needs.plan.outputs.red_ids) }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/devgov-v0-attest.yml
-    with:
-      candidate_sha: ${{ inputs.candidate_sha }}
-      unit_definition_path: ${{ inputs.unit_definition_path }}
-      proof_kind: RED
-      test_id: ${{ matrix.test_id }}
-    secrets: inherit
-
-  green:
-    name: GREEN / ${{ matrix.test_id }}
-    needs:
-      - plan
-      - red
-    strategy:
-      fail-fast: false
-      matrix:
-        test_id: ${{ fromJSON(needs.plan.outputs.green_ids) }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/devgov-v0-attest.yml
-    with:
-      candidate_sha: ${{ inputs.candidate_sha }}
-      unit_definition_path: ${{ inputs.unit_definition_path }}
-      proof_kind: GREEN
-      test_id: ${{ matrix.test_id }}
-    secrets: inherit
-
-  gate:
-    name: Dispatch canonical trusted evidence gate
-    needs:
-      - plan
-      - red
-      - green
+  invariant-packs:
+    name: Controller-owned invariant packs
     runs-on: ubuntu-latest
     permissions:
-      actions: write
       contents: read
     steps:
       - name: Require protected default-branch orchestrator
@@ -148,33 +105,132 @@ jobs:
         run: |
           test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
 
-      - name: Dispatch canonical gate as its own protected workflow run
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact candidate as invariant target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate target
         env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
-          ATTESTATION_RUN_ID: ${{ github.run_id }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
           set -euo pipefail
-          gh workflow run devgov-v0-gate.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$DEFAULT_BRANCH" \
-            -f candidate_sha="$CANDIDATE_SHA" \
-            -f unit_definition_path="$UNIT_DEFINITION_PATH" \
-            -f attestation_run_id="$ATTESTATION_RUN_ID"
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C controller status --porcelain)"
+          test -z "$(git -C candidate status --porcelain)"
+
+      - name: Run all controller-owned invariant packs
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node controller/scripts/devgov/invariant-packs.mjs \
+            --target candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/devgov-invariant-pack-report.json"
+
+      - name: Upload invariant-pack report
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-invariant-pack-report.json
+          if-no-files-found: error
+          retention-days: 90
+
+  red:
+    name: RED / ${{ matrix.test_id }}
+    needs:
+      - plan
+      - invariant-packs
+    strategy:
+      fail-fast: false
+      matrix:
+        test_id: ${{ fromJSON(needs.plan.outputs.red_ids) }}
+    permissions:
+      contents: read
+    uses: JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main
+    with:
+      candidate_sha: ${{ github.event.client_payload.candidate_sha }}
+      unit_definition_path: ${{ github.event.client_payload.unit_definition_path }}
+      proof_kind: RED
+      test_id: ${{ matrix.test_id }}
+    secrets: inherit
+
+  green:
+    name: GREEN / ${{ matrix.test_id }}
+    needs:
+      - plan
+      - invariant-packs
+      - red
+    strategy:
+      fail-fast: false
+      matrix:
+        test_id: ${{ fromJSON(needs.plan.outputs.green_ids) }}
+    permissions:
+      contents: read
+    uses: JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main
+    with:
+      candidate_sha: ${{ github.event.client_payload.candidate_sha }}
+      unit_definition_path: ${{ github.event.client_payload.unit_definition_path }}
+      proof_kind: GREEN
+      test_id: ${{ matrix.test_id }}
+    secrets: inherit
+
+  gate:
+    name: Dispatch canonical trusted evidence gate
+    needs:
+      - plan
+      - invariant-packs
+      - red
+      - green
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Dispatch canonical gate via repository_dispatch (no candidate-selectable ref)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+          ATTESTATION_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" \
+            -f event_type='devgov-v0-gate' \
+            -F "client_payload[candidate_sha]=$CANDIDATE_SHA" \
+            -F "client_payload[unit_definition_path]=$UNIT_DEFINITION_PATH" \
+            -F "client_payload[attestation_run_id]=$ATTESTATION_RUN_ID"
 
       - name: Resolve and wait for the exact canonical gate run
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           ATTESTATION_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           expected_title="DEV-GOV gate $CANDIDATE_SHA orchestration=$ATTESTATION_RUN_ID"
           gate_run_id=""
           for _ in $(seq 1 60); do
-            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/devgov-v0-gate.yml/runs?event=workflow_dispatch&per_page=50")"
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/devgov-v0-gate.yml/runs?event=repository_dispatch&per_page=50")"
             gate_run_id="$(printf '%s' "$runs" | node -e "
               let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
                 const body=JSON.parse(s);
@@ -193,6 +249,7 @@ jobs:
     name: Publish machine-readable handoff
     needs:
       - plan
+      - invariant-packs
       - red
       - green
       - gate
@@ -202,8 +259,8 @@ jobs:
     steps:
       - name: Write orchestration state
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          UNIT_DEFINITION_PATH: ${{ inputs.unit_definition_path }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
           RED_IDS: ${{ needs.plan.outputs.red_ids }}
           GREEN_IDS: ${{ needs.plan.outputs.green_ids }}
           RUN_ID: ${{ github.run_id }}
@@ -227,7 +284,7 @@ jobs:
       - name: Upload orchestration handoff artifact
         uses: actions/upload-artifact@v4
         with:
-          name: devgov-orchestration-${{ inputs.candidate_sha }}
+          name: devgov-orchestration-${{ github.event.client_payload.candidate_sha }}
           path: devgov-orchestration-state.json
           if-no-files-found: error
           retention-days: 90

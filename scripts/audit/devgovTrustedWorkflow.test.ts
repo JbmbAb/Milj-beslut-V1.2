@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 
 const workflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-attest.yml');
 const gateWorkflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-gate.yml');
+const orchestratorWorkflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-orchestrate.yml');
 
 describe('DEV-GOV-V0 protected execution workflow', () => {
   it('keeps execution and signing authority on separate runner jobs', () => {
@@ -20,6 +21,15 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(JSON.stringify(attest)).toContain('secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
     expect(JSON.stringify(execute)).toContain('persist-credentials');
     expect(JSON.stringify(attest)).toContain('persist-credentials');
+  });
+
+  it('exposes no standalone dispatch entry point -- workflow_call is the only trigger', () => {
+    const source = readFileSync(workflowPath, 'utf8');
+    const workflow = parse(source);
+
+    expect(workflow.on.workflow_call).toBeTruthy();
+    expect(workflow.on.workflow_dispatch).toBeUndefined();
+    expect(Object.keys(workflow.on)).toEqual(['workflow_call']);
   });
 
   it('runs candidate code under a separate OS identity that cannot rewrite the raw record', () => {
@@ -170,13 +180,21 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
     expect(source).toContain('audience="devgov-v0-gate:$policy_sha:$CANDIDATE_SHA"');
     expect(source).toContain('printf \'%s\' "$DEVGOV_VERIFIER_TRUST_POLICY_JSON" | sha256sum');
     expect(source).not.toContain('--trust-policy');
+    expect(source).toContain('Verify controller-owned invariant packs');
+    expect(source).toContain('node controller/scripts/devgov/invariant-packs.mjs');
+    expect(source).toContain('--target candidate');
+    expect(source.indexOf('Verify controller-owned invariant packs')).toBeLessThan(
+      source.indexOf('Obtain protected gate identity'),
+    );
+    expect(source).toContain('Upload invariant-pack report');
+    expect(source).toContain('devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}');
   });
 
   it('checks out the exact candidate without executing candidate-controlled code', () => {
     const source = readFileSync(gateWorkflowPath, 'utf8');
 
     expect(source).toContain('ref: ${{ github.sha }}');
-    expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
+    expect(source).toContain('ref: ${{ github.event.client_payload.candidate_sha }}');
     expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs evidence-gate');
     expect(source).toContain('--definition "candidate/$UNIT_DEFINITION_PATH"');
@@ -191,13 +209,26 @@ describe('DEV-GOV-V0 verifier-owned evidence gate workflow', () => {
   it('uses protected attestation artifacts and publishes a status for the exact candidate SHA', () => {
     const source = readFileSync(gateWorkflowPath, 'utf8');
 
-    expect(source).toContain('run-id: ${{ inputs.red_run_id }}');
-    expect(source).toContain('run-id: ${{ inputs.green_run_id }}');
+    expect(source).toContain('run-id: ${{ github.event.client_payload.red_run_id }}');
+    expect(source).toContain('run-id: ${{ github.event.client_payload.green_run_id }}');
     expect(source).toContain('pattern: devgov-attestation-RED-*');
     expect(source).toContain('pattern: devgov-attestation-GREEN-*');
     expect(source).toContain('repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA');
     expect(source).toContain("context='DEV-GOV-V0 / trusted-execution'");
     expect(source).toContain('continue-on-error: true');
     expect(source).toContain('test "$GATE_OUTCOME" = success');
+  });
+
+  it('exposes no candidate-selectable dispatch entry point on the protected controller workflows', () => {
+    const gateWorkflow = parse(readFileSync(gateWorkflowPath, 'utf8'));
+    const orchestratorWorkflow = parse(readFileSync(orchestratorWorkflowPath, 'utf8'));
+
+    expect(gateWorkflow.on.workflow_dispatch).toBeUndefined();
+    expect(gateWorkflow.on.repository_dispatch).toBeTruthy();
+    expect(Object.keys(gateWorkflow.on)).toEqual(['repository_dispatch']);
+
+    expect(orchestratorWorkflow.on.workflow_dispatch).toBeUndefined();
+    expect(orchestratorWorkflow.on.repository_dispatch).toBeTruthy();
+    expect(Object.keys(orchestratorWorkflow.on)).toEqual(['repository_dispatch']);
   });
 });

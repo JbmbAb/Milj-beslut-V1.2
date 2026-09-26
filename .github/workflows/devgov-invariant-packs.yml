@@ -1,0 +1,67 @@
+name: DEV-GOV-V0 Invariant Packs
+
+on:
+  pull_request_target:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  invariant-packs:
+    name: DEV-GOV-V0 / invariant-packs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require protected default-branch base
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "$DEFAULT_BRANCH"
+
+      - name: Checkout protected base controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact PR head as read-only target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact base and candidate SHAs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C controller rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C controller status --porcelain)"
+          test -z "$(git -C candidate status --porcelain)"
+
+      - name: Run all controller-owned invariant packs
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node controller/scripts/devgov/invariant-packs.mjs \
+            --target candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/devgov-invariant-pack-report.json"
+
+      - name: Upload invariant-pack report
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-invariant-packs-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/devgov-invariant-pack-report.json
+          if-no-files-found: error
+          retention-days: 30

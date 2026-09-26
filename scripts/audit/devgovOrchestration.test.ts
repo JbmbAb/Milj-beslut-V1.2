@@ -20,7 +20,7 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     );
 
     expect(workflow.on.workflow_call).toBeTruthy();
-    expect(workflow.on.workflow_dispatch).toBeTruthy();
+    expect(workflow.on.workflow_dispatch).toBeUndefined();
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.execute.environment).toBeUndefined();
     expect(workflow.jobs.attest.environment).toBe('devgov-attestation');
@@ -45,11 +45,13 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     );
 
     expect(workflow.on.workflow_call).toBeUndefined();
-    expect(workflow.on.workflow_dispatch).toBeTruthy();
+    expect(workflow.on.workflow_dispatch).toBeUndefined();
+    expect(workflow.on.repository_dispatch).toBeTruthy();
+    expect(workflow.on.repository_dispatch.types).toEqual(['devgov-v0-gate']);
     expect(gate.environment).toBe('devgov-attestation');
     expect(source).toContain('attestation_run_id');
     expect(source).toContain('attestation_run_ids');
-    expect(source).toContain('run-id: ${{ inputs.attestation_run_id }}');
+    expect(source).toContain('run-id: ${{ github.event.client_payload.attestation_run_id }}');
     expect(source).toContain('Download trusted attestations from explicit run set');
     expect(source).toContain('gh run download "$run_id"');
     expect(source).toContain('pattern: devgov-attestation-RED-*');
@@ -64,14 +66,20 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
-    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+    expect(Object.keys(workflow.on)).toEqual(['repository_dispatch']);
+    expect(workflow.on.repository_dispatch.types).toEqual(['devgov-v0-orchestrate']);
     expect(workflow.permissions).toEqual({ contents: 'read' });
-    expect(workflow.jobs.red.uses).toBe('./.github/workflows/devgov-v0-attest.yml');
-    expect(workflow.jobs.green.uses).toBe('./.github/workflows/devgov-v0-attest.yml');
+    expect(workflow.jobs.red.uses).toBe(
+      'JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main',
+    );
+    expect(workflow.jobs.green.uses).toBe(
+      'JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main',
+    );
     expect(workflow.jobs.red.secrets).toBe('inherit');
     expect(workflow.jobs.green.secrets).toBe('inherit');
-    expect(workflow.jobs.green.needs).toEqual(['plan', 'red']);
-    expect(workflow.jobs.gate.needs).toEqual(['plan', 'red', 'green']);
+    expect(workflow.jobs.red.needs).toEqual(['plan', 'invariant-packs']);
+    expect(workflow.jobs.green.needs).toEqual(['plan', 'invariant-packs', 'red']);
+    expect(workflow.jobs.gate.needs).toEqual(['plan', 'invariant-packs', 'red', 'green']);
     expect(workflow.jobs.gate['runs-on']).toBe('ubuntu-latest');
     expect(JSON.stringify(workflow.jobs.red.strategy.matrix)).toContain('needs.plan.outputs.red_ids');
     expect(JSON.stringify(workflow.jobs.green.strategy.matrix)).toContain('needs.plan.outputs.green_ids');
@@ -82,11 +90,32 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     const workflow = parse(source);
     const gate = workflow.jobs.gate;
 
-    expect(gate.permissions).toEqual({ actions: 'write', contents: 'read' });
-    expect(source).toContain('gh workflow run devgov-v0-gate.yml');
-    expect(source).toContain('-f attestation_run_id="$ATTESTATION_RUN_ID"');
-    expect(source).toContain('gh run watch "$gate_run_id" --exit-status');
+    expect(gate.permissions).toEqual({ actions: 'read', contents: 'write' });
+    expect(source).toContain('repos/$GITHUB_REPOSITORY/dispatches');
+    expect(source).toContain("-f event_type='devgov-v0-gate'");
+    expect(source).toContain('client_payload[attestation_run_id]=$ATTESTATION_RUN_ID');
+    expect(source).not.toContain('gh workflow run devgov-v0-gate.yml');
+    expect(source).toContain(
+      'repos/$GITHUB_REPOSITORY/actions/workflows/devgov-v0-gate.yml/runs?event=repository_dispatch',
+    );
+    expect(source).not.toContain('event=workflow_dispatch');
+    expect(source).toContain('gh run watch "$gate_run_id" --repo "$GITHUB_REPOSITORY" --exit-status');
     expect(source).not.toContain('uses: ./.github/workflows/devgov-v0-gate.yml');
+  });
+
+  it('runs the complete controller-owned invariant pack set before declared unit proofs', () => {
+    const source = readFileSync(orchestratorPath, 'utf8');
+    const workflow = parse(source);
+    const packs = workflow.jobs['invariant-packs'];
+
+    expect(packs['runs-on']).toBe('ubuntu-latest');
+    expect(packs.permissions).toEqual({ contents: 'read' });
+    expect(source).toContain('ref: ${{ github.sha }}');
+    expect(source).toContain('ref: ${{ github.event.client_payload.candidate_sha }}');
+    expect(source).toContain('node controller/scripts/devgov/invariant-packs.mjs');
+    expect(source).toContain('--target candidate');
+    expect(source).toContain('devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}');
+    expect(source).not.toContain('--pack ');
   });
 
   it('does not give the orchestrator signer or promoter credentials', () => {
@@ -105,9 +134,9 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
-    expect(workflow.jobs.state.needs).toEqual(['plan', 'red', 'green', 'gate']);
+    expect(workflow.jobs.state.needs).toEqual(['plan', 'invariant-packs', 'red', 'green', 'gate']);
     expect(source).toContain("schema_version: 'dev-gov-orchestration-state-v1'");
     expect(source).toContain("state: 'GATE_PASSED'");
-    expect(source).toContain('devgov-orchestration-${{ inputs.candidate_sha }}');
+    expect(source).toContain('devgov-orchestration-${{ github.event.client_payload.candidate_sha }}');
   });
 });
