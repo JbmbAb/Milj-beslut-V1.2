@@ -98,8 +98,13 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    *
    * A fabricated numeric literal is matched in one of these forms — signed or unsigned;
    * decimal, exponent/scientific notation, hexadecimal, binary, or octal; with or without
-   * ES2021 numeric-literal separators (`_`) between digits; optionally wrapped in one level of
-   * parentheses (`NUM` below stands for this whole family, not just `\d+` — see its literal
+   * ES2021 numeric-literal separators (`_`) between digits. Parenthesis-unwrapping is NOT
+   * uniform across the three positions: CALLSITE and DEFAULT each optionally unwrap one level
+   * of parentheses around NUM; TERNARY unwraps ZERO levels — a parenthesised literal inside a
+   * TERNARY branch (`x ?? (cond ? null : (200))`) is not detected there. This asymmetry was
+   * missed in an earlier draft of this comment, which claimed one-level unwrapping applied
+   * generally; see HONEST LIMIT below for this and two related TERNARY gaps found the same way
+   * (`NUM` below stands for this whole numeric family, not just `\d+` — see its literal
    * definition where the three regex constants are declared, a few lines below this comment):
    *   NUM = sign? · (hex | binary | octal | decimal(.decimal)?(exponent)?)
    *         — each digit run allows a single `_` between digits, matching real ES2021 syntax
@@ -175,11 +180,33 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`, fabricating one of two numbers either
    * way) is not detected — the TERNARY rule's structural anchor is "one branch is the honest
    * null/undefined case", by design.
+   *
+   * A fifth, sixth, and seventh limitation were found by a further independent cold-review pass
+   * against this exact frozen candidate and confirmed empirically before being accepted as
+   * permanent (not fixed — the regex itself stays exactly as it was; TERNARY's own design is
+   * unchanged, only newly and honestly documented):
+   *   5. TERNARY never unwraps parentheses (zero levels), unlike CALLSITE/DEFAULT's one level.
+   *      `x ?? (cond ? null : (200))` is not detected — the parenthesised `200` inside the
+   *      ternary's own branch is invisible to NUM there, even though `x ?? (200)` at a bare
+   *      call site is caught.
+   *   6. A standalone null-check ternary whose then-branch is written across a line break
+   *      (`x != null\n  ? x\n  : 200`, a realistic Prettier-formatted shape for a long
+   *      expression) is not detected. The rule's else-branch content class explicitly excludes
+   *      `\n` to keep the regex bounded, so a newline between `?` and `:` breaks the match.
+   *   7. A coalesce condition containing its own parenthesised sub-expression (most commonly a
+   *      function call, e.g. `x ?? (isStrict(mode) ? null : 200)`) is not detected. The
+   *      coalesce-nested-ternary branch scans the condition with a "no `)` allowed" character
+   *      class, so any `)` inside the condition itself — not just the outer wrapping — ends the
+   *      scan early.
+   * All three were verified to actually miss (not caught by any of the three regexes) before
+   * being accepted here; none of them changes the regex, so no RED/GREEN cycle applies to this
+   * addition — it is a documentation-only acknowledgment of an already-frozen candidate's actual
+   * behavior.
    * The named forms above (including their compound-assignment spellings and the full NUM
    * family: signed, decimal, exponent, hex, binary, octal, and numeric separators within any
    * of those digit runs) are exactly the syntactic regressions this guard is proven to catch —
-   * no broader claim is made, and none of the four items above is expected to be revisited
-   * without a new, separately-authorized unit.
+   * no broader claim is made, and none of the seven limitations above is expected to be
+   * revisited without a new, separately-authorized unit.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE =
     "[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|\\d(?:_?\\d)*(?:\\.\\d(?:_?\\d)*)?(?:[eE][+-]?\\d(?:_?\\d)*)?)";
