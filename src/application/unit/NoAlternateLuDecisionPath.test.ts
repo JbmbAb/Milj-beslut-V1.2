@@ -88,52 +88,68 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * transport chain is clean, not that a future fourth file (a new wrapper, an alternate
    * call site) couldn't reintroduce the pattern undetected.
    *
+   * A fabricated numeric literal is matched in one of these forms — signed or unsigned,
+   * decimal, exponent/scientific notation, or hexadecimal, optionally wrapped in one level of
+   * parentheses (`NUM` below stands for this whole family, not just `\d+`):
+   *   NUM = `[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)`
+   * A second cold-review pass found that the first version of this guard only matched bare
+   * unsigned decimals (`200`, `150.5`) — `?? -1`, `?? +200`, `?? 1e3`, `?? 0xC8` and
+   * `?? (200)` all reached production undetected. "Any numeric literal" was true of the
+   * *value space* the guard was designed to protect but false of what its regexes actually
+   * matched; NUM closes that gap for the forms named above, applied consistently across all
+   * three syntactic positions below, not just the call site where it was first found.
+   *
    * Three named syntactic forms, each independently verified — empirically, against real
    * fixtures and against the full 1702-file production surface, not just by inspection — to
    * fire on every named bypass and produce zero false positives:
-   *   1. CALLSITE — `identifier ?? N` / `identifier || N` directly (the original defect), and
-   *      the compound-assignment spellings `identifier ??= N` / `identifier ||= N`. The
-   *      compound-assignment operators are not a separate bypass class conceptually — `x ??=
-   *      200` is the exact same fabrication as `x = x ?? 200`, only spelled as one operator —
-   *      but the plain `\?\?|\|\|` alternation does not match the operator's own `=`, so a
-   *      regex that only recognised `??`/`||` let `??=`/`||=` through undetected. A cold
-   *      review found this; it is realistic modern JS/TS, not a contrived form.
-   *   2. DEFAULT  — `identifier<suffix><any type annotation> = N` (a default parameter or
+   *   1. CALLSITE — `identifier ?? NUM` / `identifier || NUM` directly (the original defect),
+   *      and the compound-assignment spellings `identifier ??= NUM` / `identifier ||= NUM`.
+   *      The compound-assignment operators are not a separate bypass class conceptually —
+   *      `x ??= 200` is the exact same fabrication as `x = x ?? 200`, only spelled as one
+   *      operator — but the plain `\?\?|\|\|` alternation does not match the operator's own
+   *      `=`, so a regex that only recognised `??`/`||` let `??=`/`||=` through undetected.
+   *   2. DEFAULT  — `identifier<suffix><any type annotation> = NUM` (a default parameter or
    *      declaration). The type-annotation group matches any non-separator text up to the
-   *      `=`, not only a bare `number`, so `number | null = N` or any other union/alias
+   *      `=`, not only a bare `number`, so `number | null = NUM` or any other union/alias
    *      cannot slip past a regex that only expected the single word "number".
    *   3. TERNARY  — two concrete structural shapes, matched precisely rather than via a loose
    *      bounded-window "a `?` appears somewhere near a number": (a) `identifier ?? (cond ?
-   *      null/undefined : N)` or `(cond ? N : null/undefined)` — a coalesce (including its
+   *      null/undefined : NUM)` or `(cond ? NUM : null/undefined)` — a coalesce (including its
    *      `??=`/`||=` compound-assignment spelling) into a parenthesised conditional with the
-   *      fallback on either branch; (b) a standalone `identifier == null ? N : ...` /
-   *      `identifier != null ? ... : N` null-check ternary, fallback on either side of `:`.
+   *      fallback on either branch; (b) a standalone `identifier == null ? NUM : ...` /
+   *      `identifier != null ? ... : NUM` null-check ternary, fallback on either side of `:`.
    *      Anchoring to real ternary syntax (rather than any `?` within N characters) keeps
    *      false-positive risk low while still catching every named case — comparisons (`===
-   *      200`, `>= 200`), `?? null`, an object-literal value (`{ distanceToWaterMeters: 200
-   *      }`), and a plain non-null ternary (`x == null ? null : x`) are deliberately NOT
-   *      matched; see the positive controls below.
+   *      200`, `>= 200`, `>= -1`), `?? null`, an object-literal value (`{ distanceToWaterMeters:
+   *      200 }` / `{ distanceToWaterMeters: -1 }`), a subtraction expression (`?? (baseline -
+   *      offset)`), `?? -Infinity` (a global identifier, not a numeric-literal token), and a
+   *      plain non-null ternary (`x == null ? null : x`) are deliberately NOT matched; see the
+   *      positive controls below.
    *
-   * HONEST LIMIT (do not read this guard as broader than it is): this is a text-pattern scan,
-   * not a dataflow/semantic analysis. It cannot and does not prove the absence of an
-   * indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
-   * FALLBACK_M`, a helper function returning a number, or a value computed elsewhere and
-   * imported. If such an indirection is ever suspected, it requires a manual code-review pass
-   * or a real AST/type-aware lint rule, not an extension of this regex set. Also NOT detected:
-   * a ternary where NEITHER branch is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`,
-   * fabricating one of two numbers either way) — the TERNARY rule's structural anchor is "one
-   * branch is the honest null/undefined case", by design, so a ternary that fabricates on both
-   * branches falls outside what it was built to recognise; this is a pre-existing limitation
-   * of the ternary detector, not something introduced or fixed by the `??=`/`||=` change. The
-   * named forms above (including their compound-assignment spellings) are exactly the
-   * syntactic regressions this guard is proven to catch — no broader claim is made.
+   * HONEST LIMIT (do not read this guard as broader than it is — this list grew once already
+   * from an overclaim, so it is kept deliberately explicit rather than summarised away):
+   *   - Not a dataflow/semantic analysis. It cannot and does not prove the absence of an
+   *     indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
+   *     FALLBACK_M`, a helper function returning a number, or a value computed elsewhere and
+   *     imported. Requires a manual code-review pass or a real AST/type-aware lint rule.
+   *   - A ternary where NEITHER branch is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`,
+   *     fabricating one of two numbers either way) is not detected — the TERNARY rule's
+   *     structural anchor is "one branch is the honest null/undefined case", by design.
+   *   - NUM does not cover every ECMAScript numeric-literal spelling: numeric separators
+   *     (`2_00`), octal (`0o310`) or binary (`0b11001000`) literal prefixes, and a BigInt
+   *     suffix (`200n`) all still bypass every regex below. These are the same class of gap
+   *     as the signed/exponent/hex forms this round fixed, just not yet covered.
+   *   - Only one level of parenthesis-wrapping is unwrapped (`(200)`, not `((200))`).
+   * The named forms above (including their compound-assignment spellings and the NUM family)
+   * are exactly the syntactic regressions this guard is proven to catch — no broader claim is
+   * made.
    */
   const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?=?|\|\|=?)\s*\d+(?:\.\d+)?\b/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?=?|\|\|=?)\s*(?:\(\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*\)|[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b)/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?::\s*[^=,;)\n]+?)?\s*=\s*\d+(?:\.\d+)?\b/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?::\s*[^=,;)\n]+?)?\s*=\s*(?:\(\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*\)|[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b)/;
   const FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:(?:\?\?=?|\|\|=?)\s*\([^)]*\?\s*(?:(?:null|undefined)\s*:\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*:\s*(?:null|undefined))\b|[!=]==?\s*(?:null|undefined)\s*\?\s*(?:\d+(?:\.\d+)?\s*:|[^:;\n'"`]*:\s*\d+(?:\.\d+)?\b))/;
+    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:(?:\?\?=?|\|\|=?)\s*\([^)]*\?\s*(?:(?:null|undefined)\s*:\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*:\s*(?:null|undefined))\b|[!=]==?\s*(?:null|undefined)\s*\?\s*(?:[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*:|[^:;\n'"`]*:\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b))/;
 
   function sourceFiles(): string[] {
     const found: string[] = [];
@@ -443,6 +459,55 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         code: `distanceToWaterMeters ??= (strict ? null : 200);`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
       },
+      {
+        // Cold-review bypass #5 (round 2): the first NUM fix only ever matched an unsigned
+        // decimal (`200`, `150.5`) — a signed literal was a silent bypass.
+        name: "fabricated negative water-distance fallback (a '-1 means unknown' sentinel is still a fabrication)",
+        code: `distanceToWaterMeters ?? -1`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback with an explicit unary plus",
+        code: `distanceToWaterMeters ?? +200`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback via exponent/scientific notation (1e3 === 1000, but 1e2 === 100 — either way a specific fabricated measurement)",
+        code: `distanceToWaterMeters ?? 1e3`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback via a hexadecimal literal (0xC8 === 200)",
+        code: `distanceToWaterMeters ?? 0xC8`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback wrapped in parentheses",
+        code: `distanceToWaterMeters ?? (200)`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        // The NUM family applies to all three syntactic positions, not only CALLSITE where the
+        // cold review illustrated it — confirmed independently for DEFAULT and TERNARY too.
+        name: "fabricated negative default parameter",
+        code: `distanceToWaterMeters: number = -1,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
+      {
+        name: "fabricated hex-literal default parameter",
+        code: `distanceToWaterMeters: number = 0xC8,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
+      {
+        name: "fabricated hex-literal fallback inside a coalesce-nested ternary",
+        code: `distanceToWaterMeters ?? (strict ? null : 0xC8)`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
+      {
+        name: "fabricated negative fallback inside a standalone null-check ternary",
+        code: `distanceToWaterMeters == null ? -1 : distanceToWaterMeters`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
     ];
 
     for (const { name, code, rule } of fixtures) {
@@ -488,6 +553,17 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
       `distanceToWaterMeters ??= null;`,
       `distanceToWaterMeters ||= undefined;`,
       `distanceToWaterMeters ??= measuredFallback;`,
+      // Round-2 positive controls: the NUM widening (signed/exponent/hex/parenthesised) must
+      // not start flagging honest comparisons, data, or expressions that merely contain one of
+      // these numeric spellings near the identifier without fabricating a fallback.
+      `distanceToWaterMeters >= -1`,
+      `{ distanceToWaterMeters: -1 }`,
+      // A computed expression, not a bare literal — NUM intentionally does not reach inside an
+      // arithmetic expression.
+      `distanceToWaterMeters ?? (baseline - offset)`,
+      // Infinity/-Infinity are global identifiers, not numeric-literal tokens; already proven
+      // elsewhere (complianceRuleEngine.test.ts) not to fabricate a Strandskydd trigger.
+      `distanceToWaterMeters ?? -Infinity`,
     ];
     for (const code of compliantDistance) {
       expect(
