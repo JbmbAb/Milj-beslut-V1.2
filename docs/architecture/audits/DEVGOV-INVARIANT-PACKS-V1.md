@@ -1,8 +1,8 @@
 # DEVGOV-INVARIANT-PACKS-V1 — CANDIDATE
 
 **Status:** CANDIDATE / NOT YET PROVEN  
-**Frozen base:** `b3d1a93bb4b1f7142dc3263ace694768973b0122`
-**Implementation head before packaging:** `1a5628567bf216d2ad69095acb5683d86b464aea`
+**Frozen base:** `c822854574c2eb0182a5fdf470b39135b1348e68`
+**Implementation head before packaging:** `83c60ed45e20ab775882396e76a2305f2d8cc4b3`
 **Unit:** `DEVGOV-INVARIANT-PACKS-V1`
 
 ## Purpose
@@ -40,7 +40,7 @@ only after merge to the protected controller. Pack changes must remain separate 
 
 ## Implementation
 
-Implementation head `1a5628567bf216d2ad69095acb5683d86b464aea` changes only DEV-GOV
+Implementation head `83c60ed45e20ab775882396e76a2305f2d8cc4b3` changes only DEV-GOV
 controller/workflow/audit files plus the invariant-pack registry. It changes no LU/product runtime.
 
 The implementation consists of ten paths:

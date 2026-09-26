@@ -3,8 +3,8 @@
   "unit": "DEVGOV-INVARIANT-PACKS-V1",
   "role": "producer",
   "mode": "writer",
-  "branch": "governance/devgov-invariant-packs-v1-r2",
-  "base_sha": "b3d1a93bb4b1f7142dc3263ace694768973b0122",
+  "branch": "governance/devgov-invariant-packs-v1-r3",
+  "base_sha": "c822854574c2eb0182a5fdf470b39135b1348e68",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     ".github/workflows/devgov-invariant-packs.yml",
@@ -144,7 +144,7 @@
   },
   "remote": {
     "name": "origin",
-    "branch": "governance/devgov-invariant-packs-v1-r2",
+    "branch": "governance/devgov-invariant-packs-v1-r3",
     "push_policy": "no_force",
     "absent_policy": "deny_absent"
   }
