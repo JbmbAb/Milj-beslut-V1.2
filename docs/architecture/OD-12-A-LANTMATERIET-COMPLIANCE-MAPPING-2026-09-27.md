@@ -27,15 +27,26 @@ The current valuable-dataset terms for products containing personal data also st
 Lantmäteriet's current product-support page states that Fastighetsregister data with personal data is subject to purpose assessment under FRL.
 ## 3. Product inventory actually observed in Mimer
 
-| Product/channel | Observed Mimer use | Runtime role | Official product signal | Outcome |
-| --- | --- | --- | --- | --- |
-| Fastighetsindelning Nedladdning, vektor / STAC | National GeoPackage harvest, merge and import to `env.registerenhetsomradesytor`, then materialization to `core.property_unit` | Source/import channel | Product page: no fee, legal purpose assessment, special terms; current terms class used by product is valuable datasets containing personal data | tolkningsfråga |
-| Fastighetsindelning Direkt / OGC API Features | Harvest/lookup code exists; current integration registry says UI uses local PostGIS and live LM is rejected for UI | Source/verification channel, not LU UI authority | Product page: no fee, legal purpose assessment, special terms; OAPIF endpoint | tolkningsfråga |
-| Belägenhetsadress | STAC/import registry entry exists as a separate LM dataset | Tier-2 source channel; not frozen LU-v1 mandatory layer | Product documentation says legal purpose assessment and special terms | tolkningsfråga |
-| Fastighet och samfällighet Direkt | Alternative/legacy lookup path referenced by service code; not the current local PostGIS LU path | Non-authoritative alternative path | Product documentation says fee, legal purpose assessment and licence terms | tolkningsfråga |
-| FAPI v1 | Code explicitly states the tenant FAPI surface is for registration actions, not property designation GET lookup | Not a property-data source for current LU lookup | No OD-12 data-use conclusion drawn from subscription name alone | förenligt enligt villkorstext |
+Owner-supplied account fact for K-16a: current Lantmäteriet applications/subscriptions are held under Jimmy's sole proprietorship. Exact registered licensee name, application dates and submitted purpose texts have not yet been captured into this evidence bundle. They are therefore recorded as `ej inhämtat`, not inferred.
+
+| Product/channel | Observed Mimer use | Runtime role | Official product signal | Licenstagare / juridisk person | Ansökningsdatum | Inlämnad ändamålstext | Prövningsstatus | Outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Fastighetsindelning Nedladdning, vektor / STAC | National GeoPackage harvest, merge and import to `env.registerenhetsomradesytor`, then materialization to `core.property_unit` | Source/import channel | Product page: no fee, legal purpose assessment, special terms; current terms class used by product is valuable datasets containing personal data | Jimmys enskilda firma; exakt registrerat namn/org.nr ej inhämtat | ej inhämtat | ej inhämtat | ej inhämtat | tolkningsfråga |
+| Fastighetsindelning Direkt / OGC API Features | Harvest/lookup code exists; current integration registry says UI uses local PostGIS and live LM is rejected for UI | Source/verification channel, not LU UI authority | Product page: no fee, legal purpose assessment, special terms; OAPIF endpoint | Jimmys enskilda firma; exakt registrerat namn/org.nr ej inhämtat | ej inhämtat | ej inhämtat | ej inhämtat | tolkningsfråga |
+| Belägenhetsadress | STAC/import registry entry exists as a separate LM dataset | Tier-2 source channel; not frozen LU-v1 mandatory layer | Product documentation says legal purpose assessment and special terms | Jimmys enskilda firma; exakt registrerat namn/org.nr ej inhämtat | ej inhämtat | ej inhämtat | ej inhämtat | tolkningsfråga |
+| Fastighet och samfällighet Direkt | Alternative/legacy lookup path referenced by service code; not the current local PostGIS LU path | Non-authoritative alternative path | Product documentation says fee, legal purpose assessment and licence terms | Jimmys enskilda firma; exakt registrerat namn/org.nr ej inhämtat | ej inhämtat | ej inhämtat | ej inhämtat | tolkningsfråga |
+| FAPI v1 | Code explicitly states the tenant FAPI surface is for registration actions, not property designation GET lookup | Not a property-data source for current LU lookup | No OD-12 data-use conclusion drawn from subscription name alone | Jimmys enskilda firma; exakt registrerat namn/org.nr ej inhämtat | ej inhämtat | ej inhämtat | ej inhämtat | tolkningsfråga |
+| Hydrografi Nedladdning | Intended hydrografi source for later water/hydrology work; hydrografi/ytvatten remains a declared LU-v1 gap and is not required for W1-W3 | Future source/import channel; not current LU-v1 runtime | Current LM terms snapshot is product-specific; current fee document states 0 kr and särskild prövning is required | Jimmys enskilda firma; exact registered name/org.nr ej inhämtat | ej inhämtat | ej inhämtat | ändamålsprövning pågår hos Lantmäteriets jurister | tolkningsfråga |
 
 The API-portal subscription name alone is not treated as evidence of permitted product use. Product documentation, terms and the actual LM account decision/purpose text are the relevant evidence sources.
+
+### 3.1 Licensee transition and admission identity
+
+K-16a requires the current applications/subscriptions to be replaced with applications in Mimer's name before external exposure. This record does not perform that change. For Source Registry/admission, the licensee identity under which source bytes were obtained must remain attached to those bytes.
+
+A change from the current sole-proprietorship account to Mimer is handled forward-only: new application per affected product, new purpose/decision evidence, and a new admission record for data obtained under the new licensee. Historical admission identity is not rewritten.
+
+Hydrografi Nedladdning remains **EXTERNAL** while its purpose assessment is pending. That pending assessment does not alter the frozen LU-v1 layer list: hydrografi/surface water remains explicitly not analysed where source basis is unavailable.
 
 ## 4. Fastighetsindelning — field-level mapping
 
