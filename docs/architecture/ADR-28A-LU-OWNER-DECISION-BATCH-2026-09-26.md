@@ -6,16 +6,17 @@ Approved: 2026-09-26
 Tracking base: protected main b6511b972ca48fb37c4ec996e43194246e58a1c3
 Original owner-decision commit: c2cc7f19e91d00b7920d08809c2f856e86703c7d (created on earlier protected main 7ec4b1b262e30fe3ff18ecba6d11133c98cb7384)
 Source decision batch: DECISION-BATCH-2026-09-26.md
-Approved substantive batch SHA-256: C1A7E7AEFA7931C6AE8E37C0A44751B648056E65E0641A6B676A6EAFEC989A47
-Current source artifact SHA-256 after approval/provenance labelling: 51C117355E556D3F8E928781AF9AC1ED8C107DC146DC66F9C4F6D62FA7BAEC1E
+Historical approved substantive batch SHA-256: C1A7E7AEFA7931C6AE8E37C0A44751B648056E65E0641A6B676A6EAFEC989A47
+Current owner-approved authority source SHA-256: 51C117355E556D3F8E928781AF9AC1ED8C107DC146DC66F9C4F6D62FA7BAEC1E
+Owner re-approval of current authority bytes: 2026-09-26
 
 ## 0. Authority and scope
 
-Jimmy explicitly approved batch 1–10 in the conversation on 2026-09-26.
+Jimmy explicitly approved batch 1–10 in the conversation on 2026-09-26 and subsequently re-approved the current source artifact bytes identified by SHA-256 51C117355E556D3F8E928781AF9AC1ED8C107DC146DC66F9C4F6D62FA7BAEC1E as the binding authority source for ADR-28A.
 This ADR addendum records those owner decisions. It does not by itself claim that implementation, migration, proof, staging, legal review, SYSTEM-PROVEN, PRODUCT-PROVEN or W1 finalization is complete. Step 5 was finalized separately before this reconciled tracking candidate was created.
 
 Where a decision opens implementation work, the implementation remains OPEN until its own governed unit and closure evidence exist.
-External legal/licensing authority remains EXTERNAL even where an internal interim policy is frozen here.
+External legal/licensing authority remains EXTERNAL. No interim OD-12 authorization policy is frozen by this ADR.
 
 ## 1. Semantic authority
 
@@ -24,7 +25,7 @@ The system SHALL distinguish "checked and absent" from "could not be checked".
 UNKNOWN/NOT_CHECKED is a non-severity state. Technical unavailability SHALL NOT be converted to exists=false.
 
 ### SEM-2
-The legacy compliance engine MAY remain temporarily as an explicitly labelled observation layer.
+The legacy compliance engine is retained temporarily as an explicitly labelled observation layer.
 It SHALL NOT determine the governed LU verdict or be presented as an equivalent authoritative assessment.
 Legacy rules are migrated one-by-one into governed semantics or retired.
 
@@ -35,7 +36,7 @@ Legacy text is supplementary observation only and must be labelled as such or re
 ### OD-03 / OD-04 / OD-17
 Unknown water distance means UNKNOWN, never "safe" or "beyond range" by omission.
 No permit/risk number may be derived solely from a null/unmeasured water distance.
-OD-04 is explicitly decided: bank-compliance and Gemini-derived outputs MAY change where they currently yield LOW/0.95 by omission.
+OD-04 is explicitly decided: bank-compliance and Gemini-derived outputs SHALL change where they currently yield LOW/0.95 by omission. This change is implemented in a separate unit after W1; W1 itself leaves these paths unchanged.
 W3 scope includes all non-LU paths that currently fail-open on unknown water state.
 
 ## 2. LU v1 layer set
@@ -95,7 +96,7 @@ Order: landslide first, then wells.
 
 ### D-9
 The wells validator shall use the four-value fingerprint set with documented recipes:
-identifier set, geometry, Tier-1 attributes and Tier-2 attributes.
+identifier set, geometry, Tier-1 attributes and Tier-2 attributes. The rounding recipe and its fragility must be documented.
 
 ### D-12 / OD-08
 Keep wells admission 2b4b514f unless a separately governed Admit unit proves a replacement.
@@ -147,7 +148,7 @@ PRODUCT-PROVEN requires production-like server-side authentication with dev-logi
 An admin-password flow is acceptable for internal staging if it uses the production server-side auth path.
 BankID is required only if it is a product requirement, not merely as a proof mechanism.
 ### D-P5-5
-The legacy PDF route is not the PRODUCT-PROVEN path.
+The legacy PDF route is retired as a product path and is not the PRODUCT-PROVEN path.
 The staging proof shall exercise the governed PDF path.
 If the legacy route remains, it must be labelled legacy/observation.
 
@@ -188,7 +189,7 @@ ADR-24-21 remains the revocation-semantics authority until an owner-adopted ADR 
 ## 7. External and deferred authority
 
 OD-12 Lantmäteriet licensing remains EXTERNAL for final license meaning.
-Until that external basis is resolved, externally reachable Lantmäteriet-derived surfaces may be auth-gated as an interim internal policy.
+No interim auth-gating policy for OD-12 is decided by this ADR; the corresponding MAP-3 interim-gate question remains DECISION NEEDED.
 
 External legal review of legal citations, licensing and relevant privacy questions remains EXTERNAL.
 
