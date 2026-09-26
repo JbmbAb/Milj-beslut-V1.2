@@ -1,0 +1,135 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "worktree-w1-no-legacy-water-distance-fallback-mechanical",
+  "base_sha": "b6511b972ca48fb37c4ec996e43194246e58a1c3",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "src/application/generate-localization-report.usecase.ts",
+    "src/application/evaluate-compliance-rules.usecase.ts",
+    "server/services/complianceRuleEngine.ts",
+    "src/application/unit/NoAlternateLuDecisionPath.test.ts",
+    "tests/unit/complianceRuleEngine.test.ts",
+    "tests/unit/services/localizationReportService.test.ts",
+    "governance/devgov/units/lu-no-legacy-water-distance-fallback-v1.json",
+    "docs/architecture/audits/LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "components/**",
+    "integrations/**",
+    "services/**",
+    "server/modules/**",
+    "server/routes/**"
+  ],
+  "required_red": [
+    {
+      "id": "legacy-200-fallback-text-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs');\nconst V=m=>{console.error('W1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('W1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const files=['src/application/generate-localization-report.usecase.ts','src/application/evaluate-compliance-rules.usecase.ts','server/services/complianceRuleEngine.ts'];\n const pattern=/distanceToWater\\w*\\s*(?:\\?\\?|\\|\\|)\\s*200\\b|distanceToWater\\w*\\s*:\\s*number\\s*=\\s*200\\b|distanceForCompliance\\s*(?:\\?\\?|\\|\\|)\\s*200\\b/;\n const hits=[];\n for(const f of files){\n  if(!fs.existsSync(f))H('expected production file missing on this tree: '+f);\n  const src=fs.readFileSync(f,'utf8');\n  if(pattern.test(src))hits.push(f);\n }\n if(hits.length===0)H('positive control failed: base_sha does not carry the known legacy fallback text in any of: '+files.join(', '));\n console.log('W1_FALLBACK_PRESENT: '+hits.join(', '));\n process.exit(1);\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "null-distance-fabricates-strandskydd",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('W1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst mod = await import('./server/services/complianceRuleEngine.ts');\nif (typeof mod.evaluateComplianceRules !== 'function') H('evaluateComplianceRules not found on the checked-out tree');\nconst result = mod.evaluateComplianceRules([], [], {}, [], null);\nif (!result || !Array.isArray(result.restrictions)) H('unexpected return shape from evaluateComplianceRules: ' + JSON.stringify(result));\nif (!result.restrictions.includes('Strandskydd')) H('positive control failed: base_sha did not fabricate Strandskydd from an explicit null distance (expected the pre-fix null-coercion behavior)');\nconsole.log('W1_FALLBACK_FABRICATED: ' + JSON.stringify(result.restrictions));\nprocess.exit(1);\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "legacy-200-fallback-text-absent",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs');\nconst V=m=>{console.error('W1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('W1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const files=['src/application/generate-localization-report.usecase.ts','src/application/evaluate-compliance-rules.usecase.ts','server/services/complianceRuleEngine.ts'];\n const pattern=/distanceToWater\\w*\\s*(?:\\?\\?|\\|\\|)\\s*200\\b|distanceToWater\\w*\\s*:\\s*number\\s*=\\s*200\\b|distanceForCompliance\\s*(?:\\?\\?|\\|\\|)\\s*200\\b/;\n const hits=[];\n for(const f of files){\n  if(!fs.existsSync(f))H('expected production file missing on this tree: '+f);\n  const src=fs.readFileSync(f,'utf8');\n  if(pattern.test(src))hits.push(f);\n }\n if(hits.length>0){console.log('W1_FALLBACK_PRESENT: '+hits.join(', '));process.exit(1)}\n console.log('W1_OK: no legacy 200m fallback text found');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "null-distance-does-not-fabricate-strandskydd",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('W1_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W1_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst mod = await import('./server/services/complianceRuleEngine.ts');\nif (typeof mod.evaluateComplianceRules !== 'function') H('evaluateComplianceRules not found on the checked-out tree');\nconst result = mod.evaluateComplianceRules([], [], {}, [], null);\nif (!result || !Array.isArray(result.restrictions)) H('unexpected return shape from evaluateComplianceRules: ' + JSON.stringify(result));\nif (result.restrictions.includes('Strandskydd')) V('an explicitly null (unmeasured) water distance fabricated a Strandskydd finding: ' + JSON.stringify(result));\nconsole.log('W1_OK: null water distance does not fabricate Strandskydd');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "w1-focused-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp=require('node:child_process');\nconst V=m=>{console.error('W1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('W1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const win=process.platform==='win32'; const cmd=win?'npx.cmd':'npx';\n const files=['tests/unit/complianceRuleEngine.test.ts','tests/unit/services/localizationReportService.test.ts','src/application/unit/NoAlternateLuDecisionPath.test.ts'];\n const r=cp.spawnSync(cmd,['vitest','run','--config','vitest.config.ts','--project','unit',...files],{stdio:'inherit',shell:win,timeout:180000});\n if(r.error||r.status===null)H('vitest could not execute: '+(r.error?r.error.message:'signal '+r.signal));\n if(r.status!==0)V('W1 focused tests failed with exit '+r.status);\n console.log('W1_OK: focused tests passed');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    },
+    {
+      "id": "w1-downstream-consumer-regression",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp=require('node:child_process');\nconst V=m=>{console.error('W1_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('W1_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const win=process.platform==='win32'; const cmd=win?'npx.cmd':'npx';\n const files=['tests/unit/bankComplianceService.test.ts','tests/unit/geminiBiodiversityService.test.ts'];\n const r=cp.spawnSync(cmd,['vitest','run','--config','vitest.config.ts','--project','unit',...files],{stdio:'inherit',shell:win,timeout:180000});\n if(r.error||r.status===null)H('vitest could not execute: '+(r.error?r.error.message:'signal '+r.signal));\n if(r.status!==0)V('bank/gemini downstream-consumer regression tests failed with exit '+r.status);\n console.log('W1_OK: bank/gemini downstream-consumer tests passed');\n}catch(e){H('unexpected: '+(e&&e.stack?e.stack:e))}\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "worktree-w1-no-legacy-water-distance-fallback-mechanical",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
