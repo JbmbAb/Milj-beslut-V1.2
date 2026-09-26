@@ -88,16 +88,28 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    * transport chain is clean, not that a future fourth file (a new wrapper, an alternate
    * call site) couldn't reintroduce the pattern undetected.
    *
-   * A fabricated numeric literal is matched in one of these forms — signed or unsigned,
-   * decimal, exponent/scientific notation, or hexadecimal, optionally wrapped in one level of
-   * parentheses (`NUM` below stands for this whole family, not just `\d+`):
-   *   NUM = `[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)`
-   * A second cold-review pass found that the first version of this guard only matched bare
-   * unsigned decimals (`200`, `150.5`) — `?? -1`, `?? +200`, `?? 1e3`, `?? 0xC8` and
-   * `?? (200)` all reached production undetected. "Any numeric literal" was true of the
-   * *value space* the guard was designed to protect but false of what its regexes actually
-   * matched; NUM closes that gap for the forms named above, applied consistently across all
-   * three syntactic positions below, not just the call site where it was first found.
+   * A fabricated numeric literal is matched in one of these forms — signed or unsigned;
+   * decimal, exponent/scientific notation, hexadecimal, binary, or octal; with or without
+   * ES2021 numeric-literal separators (`_`) between digits; optionally wrapped in one level of
+   * parentheses (`NUM` below stands for this whole family, not just `\d+` — see its literal
+   * definition where the three regex constants are declared, a few lines below this comment):
+   *   NUM = sign? · (hex | binary | octal | decimal(.decimal)?(exponent)?)
+   *         — each digit run allows a single `_` between digits, matching real ES2021 syntax
+   *         closely enough to catch realistic fabrications without being a full JS parser.
+   * Two cold-review passes found this guard's numeric matching narrower than its own claim:
+   * round 1 shipped only a bare unsigned decimal (`200`, `150.5`); round 2 added signed,
+   * exponent, hex, and single-paren-wrapped forms (`?? -1`, `?? +200`, `?? 1e3`, `?? 0xC8`,
+   * `?? (200)`) but still missed numeric separators and the binary/octal radix prefixes
+   * (`?? 2_00`, `?? 0b11001000`, `?? 0o310`) — round 3 (this one) closes those, including
+   * separators inside hex/binary/octal digit runs, not only decimal. "Any numeric literal" was
+   * always true of the *value space* the guard was designed to protect but repeatedly narrower
+   * than what its regexes actually matched; NUM is applied consistently across all three
+   * syntactic positions below, independently fixture-tested in each, not assumed from one.
+   *
+   * This is deliberately the LAST round of numeric-form widening this guard will get. Chasing
+   * every remaining ECMAScript numeric spelling (BigInt, unbounded paren nesting) with more
+   * regex alternation is diminishing return against a real parser; see HONEST LIMIT below for
+   * what is knowingly left, and the closure note this unit's history records once frozen.
    *
    * Three named syntactic forms, each independently verified — empirically, against real
    * fixtures and against the full 1702-file production surface, not just by inspection — to
@@ -126,8 +138,8 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    *      plain non-null ternary (`x == null ? null : x`) are deliberately NOT matched; see the
    *      positive controls below.
    *
-   * HONEST LIMIT (do not read this guard as broader than it is — this list grew once already
-   * from an overclaim, so it is kept deliberately explicit rather than summarised away):
+   * HONEST LIMIT (do not read this guard as broader than it is — this list has grown across
+   * three rounds already, so it is kept deliberately explicit rather than summarised away):
    *   - Not a dataflow/semantic analysis. It cannot and does not prove the absence of an
    *     indirection that defeats pattern matching — e.g. `const FALLBACK_M = 200; ... ??
    *     FALLBACK_M`, a helper function returning a number, or a value computed elsewhere and
@@ -135,21 +147,34 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
    *   - A ternary where NEITHER branch is `null`/`undefined` (e.g. `x ??= (cond ? 200 : 0)`,
    *     fabricating one of two numbers either way) is not detected — the TERNARY rule's
    *     structural anchor is "one branch is the honest null/undefined case", by design.
-   *   - NUM does not cover every ECMAScript numeric-literal spelling: numeric separators
-   *     (`2_00`), octal (`0o310`) or binary (`0b11001000`) literal prefixes, and a BigInt
-   *     suffix (`200n`) all still bypass every regex below. These are the same class of gap
-   *     as the signed/exponent/hex forms this round fixed, just not yet covered.
+   *   - A BigInt literal (`200n`) is not matched. Deliberately not fixed: BigInt is not a
+   *     valid runtime value where this codebase expects `number | null`, so a BigInt fallback
+   *     would already fail elsewhere (a type error or a runtime coercion bug) independently of
+   *     this guard — chasing it here would be effort spent on a form that cannot actually reach
+   *     production as a working fabrication.
    *   - Only one level of parenthesis-wrapping is unwrapped (`(200)`, not `((200))`).
-   * The named forms above (including their compound-assignment spellings and the NUM family)
-   * are exactly the syntactic regressions this guard is proven to catch — no broader claim is
-   * made.
+   *     Deliberately not fixed: unbounded nesting is a job for a real parser, not another
+   *     regex layer; regex-matching balanced/nested parentheses to arbitrary depth is not
+   *     something this pattern family should be stretched to do.
+   * These two "deliberately not fixed" items were named explicitly by cold review as
+   * acceptable to leave as documented limitations rather than pursued as a fourth round — this
+   * guard is regex-based text matching, not a parser, and is frozen at this coverage level.
+   * The named forms above (including their compound-assignment spellings and the full NUM
+   * family: signed, decimal, exponent, hex, binary, octal, and numeric separators within any
+   * of those digit runs) are exactly the syntactic regressions this guard is proven to catch —
+   * no broader claim is made.
    */
-  const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:\?\?=?|\|\|=?)\s*(?:\(\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*\)|[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b)/;
-  const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?::\s*[^=,;)\n]+?)?\s*=\s*(?:\(\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*\)|[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b)/;
-  const FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY =
-    /\b(?:distanceToWater\w*|distanceForCompliance)\b\s*(?:(?:\?\?=?|\|\|=?)\s*\([^)]*\?\s*(?:(?:null|undefined)\s*:\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*:\s*(?:null|undefined))\b|[!=]==?\s*(?:null|undefined)\s*\?\s*(?:[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*:|[^:;\n'"`]*:\s*[+-]?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b))/;
+  const FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE =
+    "[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|\\d(?:_?\\d)*(?:\\.\\d(?:_?\\d)*)?(?:[eE][+-]?\\d(?:_?\\d)*)?)";
+  const FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE = new RegExp(
+    `\\b(?:distanceToWater\\w*|distanceForCompliance)\\b\\s*(?:\\?\\?=?|\\|\\|=?)\\s*(?:\\(\\s*${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\s*\\)|${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\b)`,
+  );
+  const FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT = new RegExp(
+    `\\b(?:distanceToWater\\w*|distanceForCompliance)\\b\\s*(?::\\s*[^=,;)\\n]+?)?\\s*=\\s*(?:\\(\\s*${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\s*\\)|${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\b)`,
+  );
+  const FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY = new RegExp(
+    `\\b(?:distanceToWater\\w*|distanceForCompliance)\\b\\s*(?:(?:\\?\\?=?|\\|\\|=?)\\s*\\([^)]*\\?\\s*(?:(?:null|undefined)\\s*:\\s*${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}|${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\s*:\\s*(?:null|undefined))\\b|[!=]==?\\s*(?:null|undefined)\\s*\\?\\s*(?:${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\s*:|[^:;\\n'"\`]*:\\s*${FABRICATED_WATER_DISTANCE_FALLBACK_NUM_SOURCE}\\b))`,
+  );
 
   function sourceFiles(): string[] {
     const found: string[] = [];
@@ -508,6 +533,60 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
         code: `distanceToWaterMeters == null ? -1 : distanceToWaterMeters`,
         rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
       },
+      {
+        // Round 3: an ES2021 numeric separator makes 200 visually "2_00" but it is the exact
+        // same runtime value and the exact same fabrication.
+        name: "fabricated 200 m fallback written with a numeric separator (2_00 === 200)",
+        code: `distanceToWaterMeters ?? 2_00`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback via a binary literal (0b11001000 === 200)",
+        code: `distanceToWaterMeters ?? 0b11001000`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "fabricated 200 m fallback via an octal literal (0o310 === 200)",
+        code: `distanceToWaterMeters ?? 0o310`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "numeric separator inside a binary literal (0b1100_1000 === 200)",
+        code: `distanceToWaterMeters ?? 0b1100_1000`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "numeric separator inside an octal literal (0o3_10 === 200)",
+        code: `distanceToWaterMeters ?? 0o3_10`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        name: "numeric separator inside a hex literal (0xC_8 === 200)",
+        code: `distanceToWaterMeters ?? 0xC_8`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_CALLSITE,
+      },
+      {
+        // Confirmed independently for DEFAULT and TERNARY too, matching the round-2 pattern of
+        // not assuming a CALLSITE fixture proves the other two positions.
+        name: "fabricated numeric-separator default parameter",
+        code: `distanceToWaterMeters: number = 2_00,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
+      {
+        name: "fabricated binary-literal default parameter",
+        code: `distanceToWaterMeters: number = 0b11001000,`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_DEFAULT,
+      },
+      {
+        name: "fabricated octal-literal fallback inside a coalesce-nested ternary",
+        code: `distanceToWaterMeters ?? (strict ? null : 0o310)`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
+      {
+        name: "fabricated binary-literal fallback inside a standalone null-check ternary",
+        code: `distanceToWaterMeters == null ? 0b11001000 : distanceToWaterMeters`,
+        rule: FABRICATED_WATER_DISTANCE_FALLBACK_TERNARY,
+      },
     ];
 
     for (const { name, code, rule } of fixtures) {
@@ -564,6 +643,11 @@ describe("NO_ALTERNATE_LU_DECISION_PATH_V1", () => {
       // Infinity/-Infinity are global identifiers, not numeric-literal tokens; already proven
       // elsewhere (complianceRuleEngine.test.ts) not to fabricate a Strandskydd trigger.
       `distanceToWaterMeters ?? -Infinity`,
+      // Round-3 positive controls: an underscore-bearing IDENTIFIER (a named constant) must
+      // not be confused with the new numeric-separator support — the separator pattern only
+      // ever starts matching from a leading digit, never a letter.
+      `distanceToWaterMeters ?? MAX_DISTANCE`,
+      `distanceToWaterMeters: number = FALLBACK_METERS,`,
     ];
     for (const code of compliantDistance) {
       expect(
