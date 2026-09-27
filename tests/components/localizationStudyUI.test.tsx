@@ -174,4 +174,69 @@ describe('LocalizationStudyUI', () => {
       );
     });
   });
+
+  it('W2b: a SEM-1 NOT_CHECKED assessment (permitProbability: null) never renders a fabricated "0% Godkänd"', async () => {
+    mockGeodataFetch(
+      () =>
+        ({
+          ok: true,
+          json: async () => ({ type: 'FeatureCollection', features: [], meta: { available: true } }),
+        }) as Response,
+    );
+
+    apiMocks.fetchPropertyInfo.mockResolvedValue({
+      designation: 'NACKA BOO 1:2',
+      municipality: 'Nacka',
+      centroid: { lat: 59.33, lng: 18.07 },
+    });
+
+    apiMocks.callApi.mockImplementation(async (path: string) => {
+      if (path === '/api/localization/generate-report') {
+        return {
+          ok: true,
+          projectId: 'project-1',
+          generatedAt: new Date().toISOString(),
+          siteAnalyses: [
+            {
+              site: { id: 'FASTIGHET', lat: 59.33, lng: 18.07 },
+              complianceAnalysis: {
+                overallRisk: 'LOW',
+                // SEM-1 (W2): an incomplete assessment -- permitProbability is null, never a
+                // fabricated number. This is the exact regression the fix guards against: the
+                // old `!== undefined` check let null through and rendered
+                // `Math.round(null * 100)` = "0% Godkänd".
+                permitProbability: null,
+                unresolvedChecks: [{ rule_id: 'LU-WATER-001', finding_id: 'finding-notchecked-water' }],
+                requiredActions: [],
+                notes: [],
+              },
+            },
+          ],
+          humanInTheLoop: 'Granska rapporten manuellt innan beslut.',
+        };
+      }
+      throw new Error(`Unexpected callApi path: ${path}`);
+    });
+
+    render(<LocalizationStudyUI isProjectSetupProp />);
+
+    await user.type(screen.getByPlaceholderText(/VÄRMDÖ STACKMORA/i), 'NACKA BOO 1:2');
+    await user.click(screen.getByRole('button', { name: /^Hämta$/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.fetchPropertyInfo).toHaveBeenCalledWith('NACKA BOO 1:2', 'project-1');
+    });
+
+    await user.click(screen.getByRole('button', { name: /Generera underlag/i }));
+    await waitFor(() => {
+      expect(apiMocks.callApi).toHaveBeenCalledWith(
+        '/api/localization/generate-report',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
+    expect(await screen.findByText(/Ej utredd/i)).toBeInTheDocument();
+    expect(screen.queryByText(/0% Godkänd/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/NaN% Godkänd/i)).not.toBeInTheDocument();
+  });
 });
