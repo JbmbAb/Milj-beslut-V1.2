@@ -211,6 +211,8 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
 
       <section className="mb-6 rounded border border-slate-200 bg-white p-4">
         <h2 className="mb-3 text-base font-semibold">Ärende (användarens uppgifter)</h2>
+        {/* Read-only while approved: typing into a locked case would look like a change but go nowhere. */}
+        <fieldset disabled={locked} className="m-0 min-w-0 border-0 p-0" data-testid="case-fields">
         <label className="mb-3 block text-sm">
           Fastighetsbeteckning
           <input
@@ -263,6 +265,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
           <input type="checkbox" checked={input.placeholder} onChange={(e) => setInput({ ...input, placeholder: e.target.checked })} />
           Uppgifterna är platshållare (underlaget är inte ifyllt)
         </label>
+        </fieldset>
         {locked && (
           <div className="mt-3 rounded border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-900" data-testid="locked">
             Ärendet är godkänt och låst. Ändringar kräver att godkännandet upphävs; det tidigare frysta förslaget och dess PDF:er ligger kvar.
