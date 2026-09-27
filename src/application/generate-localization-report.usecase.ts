@@ -135,17 +135,27 @@ export interface ExecutionMotorMeta {
  *
  * Proven by src/application/types/LuVerdictTypeBoundary.type-proof.ts.
  */
-export type GovernedVerdictAnalysis = SiteAnalysis & {
+export type GovernedVerdictAnalysis = Omit<SiteAnalysis, 'permitProbability'> & {
   assessment_status: 'ASSESSED';
+  /**
+   * SEM-1/OD-03 (W2), corrected per cold review (K-35 M5): `null` -- never a fabricated number --
+   * exactly when `unresolvedChecks` is non-empty and no completed check reached HIGH/MEDIUM.
+   * ADR-28A section 1 / OD-03: "no permit/risk number may be derived solely from a null/unmeasured
+   * [signal]"; an incomplete assessment is exactly that signal, and 0.5 here would repeat the
+   * fabricated MEDIUM/0.5 unknown-distance stand-in ADR-28A's SEM-1/OD-03 decision itself retired
+   * from the legacy engine. `null` may occur ONLY together with a non-empty `unresolvedChecks` --
+   * proven in LuVerdictTypeBoundary.type-proof.ts (T6). A site with a null permitProbability is
+   * excluded from the ranking population by `isAssessed` below, same as a non-verdict result.
+   */
+  permitProbability: number | null;
   /**
    * SEM-1 (W2) -- ADR-28A section 1: "no permit/risk number may be derived solely from a
    * null/unmeasured [signal]" generalizes here to every governed rule, not only water distance.
    * Non-empty exactly when at least one governed rule's required evidence could not be
-   * technically checked (a `NOT_CHECKED` finding was produced). `overallRisk`/`permitProbability`
-   * above are added to `SiteAnalysis` (the legacy engine's own type, untouched by this unit) and
-   * describe severity among the checks that DID complete; they must never be read alone as "all
-   * checks passed" when this array is non-empty -- see `governedVerdictFromFindings` below, which
-   * lowers `permitProbability` and states this explicitly in `summary` whenever it is non-empty.
+   * technically checked (a `NOT_CHECKED` finding was produced). `overallRisk` above is added to
+   * `SiteAnalysis` (the legacy engine's own type, untouched by this unit) and describes severity
+   * among the checks that DID complete; it must never be read alone as "all checks passed" when
+   * this array is non-empty -- see `governedVerdictFromFindings` below.
    */
   unresolvedChecks: readonly { readonly rule_id: string; readonly finding_id: string }[];
 };
@@ -212,12 +222,14 @@ export function governedVerdictFromFindings(
   }
   if (unresolvedChecks.length > 0) {
     // Not HIGH/MEDIUM among the checks that DID complete, but at least one governed check did
-    // NOT complete -- this is explicitly not the same claim as "LOW risk, nothing found".
-    // permitProbability is lowered to the MEDIUM-tier value to avoid presenting the same
-    // confidence as a fully-completed clean result.
+    // NOT complete. Corrected per K-35 M5: permitProbability is null, not a fabricated 0.5 --
+    // OD-03/J-2 forbid deriving a permit/risk number from an unmeasured/incomplete state, and a
+    // real number here (even one that "isn't 0.95") would repeat exactly the fabricated
+    // MEDIUM/0.5 unknown-distance stand-in ADR-28A's own SEM-1/OD-03 decision retired from the
+    // legacy engine.
     return {
       overallRisk: 'LOW',
-      permitProbability: 0.5,
+      permitProbability: null,
       summary:
         'Governed LU assessment did not complete all checks; the completed checks found no ' +
         'HIGH/MEDIUM risk, but this is not a clean result.' + unresolvedNote,
@@ -1000,18 +1012,28 @@ function withoutVerdict(
 }
 
 /**
- * A site may enter the ranking population only if a governed assessment backs it.
+ * A site may enter the ranking population only if a governed assessment backs it AND that
+ * assessment reached a real, non-null permitProbability.
+ *
+ * SEM-1 (W2): a site with `unresolvedChecks` and a `null` permitProbability carries a real
+ * governed verdict (`assessment_status === 'ASSESSED'`) but no number an ordering could honestly
+ * use -- ranking it (even last, even at a floor value) would still be inventing a comparison
+ * ADR-28A/OD-03/J-2 forbid. Such a site is excluded from the ranking population here, the same
+ * way a non-verdict result is, even though its own status is technically 'ASSESSED'.
  *
  * Narrows `complianceAnalysis` as well as testing it: the return type is what lets
  * `rankedProbability` and the reasoning string reach the verdict fields at all.
  */
 function isAssessed(
   analysis: SiteAnalysisResult,
-): analysis is SiteAnalysisResult & { complianceAnalysis: GovernedVerdictAnalysis } {
+): analysis is SiteAnalysisResult & {
+  complianceAnalysis: GovernedVerdictAnalysis & { permitProbability: number };
+} {
   return (
     analysis.executionMotor?.assessment_status === 'ASSESSED' &&
     analysis.executionMotor?.assessment_artifact_id != null &&
-    isGovernedVerdict(analysis.complianceAnalysis)
+    isGovernedVerdict(analysis.complianceAnalysis) &&
+    analysis.complianceAnalysis.permitProbability !== null
   );
 }
 
@@ -1019,8 +1041,8 @@ function isAssessed(
  * The ranking value for an assessed site.
  *
  * Throws rather than defaulting. `?? 0` here would be a silent fail-open: if `isAssessed` ever
- * weakened, an unassessed site would enter the ranking at probability 0 — a verdict — instead
- * of the population being wrong loudly.
+ * weakened, an unassessed site (or one with a null, SEM-1 permitProbability) would enter the
+ * ranking at probability 0 — a fabricated verdict — instead of the population being wrong loudly.
  *
  * The compiler now also refuses the un-narrowed read (LU_VERDICT_TYPE_BOUNDARY_V1), but this
  * check stays: the type says what the shape is, not that the ranking filter agrees with the
@@ -1028,11 +1050,11 @@ function isAssessed(
  */
 function rankedProbability(analysis: SiteAnalysisResult): number {
   const { complianceAnalysis } = analysis;
-  if (!isGovernedVerdict(complianceAnalysis)) {
+  if (!isGovernedVerdict(complianceAnalysis) || complianceAnalysis.permitProbability === null) {
     throw new Error(
       `LU_VERDICT_AUTHORITY_V1: site '${analysis.site.id}' entered the ranking population ` +
-        'without a governed permitProbability. The ranking filter and the verdict strip point ' +
-        'have diverged.',
+        'without a governed, non-null permitProbability. The ranking filter and the verdict ' +
+        'strip point have diverged.',
     );
   }
   return complianceAnalysis.permitProbability;

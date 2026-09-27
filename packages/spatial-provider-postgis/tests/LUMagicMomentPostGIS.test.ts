@@ -193,7 +193,9 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "magic-site",
       deterministic_seed: "seed:postgis-magic-moment",
-      evidence: spatialEvidence,
+      // SpatialQueryOutcomeV2.evidence is readonly (SEM-1/W2); LuKernelRunInput.evidence predates
+      // that contract and still declares a mutable array.
+      evidence: [...spatialEvidence],
     });
     
     expect(kernelResult.admitted).toBe(true);

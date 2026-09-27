@@ -110,7 +110,9 @@ describe("LU Domain - Enforcement and Replay", () => {
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "enforce-site",
       deterministic_seed: "seed:enforcement",
-      evidence: spatialEvidence,
+      // SpatialQueryOutcomeV2.evidence is readonly (SEM-1/W2); LuKernelRunInput.evidence predates
+      // that contract and still declares a mutable array.
+      evidence: [...spatialEvidence],
     });
 
     expect(kernelResult.admitted).toBe(true);
@@ -163,7 +165,9 @@ describe("LU Domain - Enforcement and Replay", () => {
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "enforce-site-2",
       deterministic_seed: "seed:tampering",
-      evidence: spatialEvidence,
+      // SpatialQueryOutcomeV2.evidence is readonly (SEM-1/W2); LuKernelRunInput.evidence predates
+      // that contract and still declares a mutable array.
+      evidence: [...spatialEvidence],
     });
 
     expect(kernelResult.admitted).toBe(true);

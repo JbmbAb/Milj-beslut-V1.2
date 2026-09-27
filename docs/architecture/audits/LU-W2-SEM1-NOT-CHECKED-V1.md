@@ -3,7 +3,9 @@
 **Status:** CANDIDATE (not yet frozen, not yet dispatched)
 **Unit:** `governance/devgov/units/lu-w2-sem1-not-checked-v1.json`
 **Base:** `038286ede85f7826995a0be3b3e612547e36914d` (live main after W1 PROVEN, PR #183)
-**Design authority:** K-28 (`W2-DESIGN-DECISION-2026-09-27.md`), K-30 (`W2-UNIT-REVIEW-1fbb5112.md`)
+**Design authority:** K-28 (`W2-DESIGN-DECISION-2026-09-27.md`), K-30 (`W2-UNIT-REVIEW-1fbb5112.md`),
+K-35 (`W2-COLD-REVIEW-d27d240a.md`) -- candidate `d27d240a` was NOT_VERIFIED; M5/M6 below are the
+corrections made in response, on top of `d27d240a`.
 
 ## 1. Scope
 
@@ -71,22 +73,43 @@ only. Ytvatten/strandskydd has no governed layer or rule at all; this unit does 
   this one call site is the minimal, in-scope fix -- widening `LuKernelRunInput.evidence`'s own
   type would touch every existing caller/test of `runLuAssessmentViaKernel`, none of which are in
   this unit's `allowed_paths`.
-- **Verdict consequence** (K-28 point 3 / K-30 M3): `GovernedVerdictAnalysis` gained a new
-  required field, `unresolvedChecks: readonly {rule_id, finding_id}[]`, added to the local
-  intersection type (not to `SiteAnalysis` itself, which lives in the legacy engine's file and is
-  out of this unit's scope). `governedVerdictFromFindings` now:
+- **Verdict consequence** (K-28 point 3 / K-30 M3, corrected per K-35 M5): `GovernedVerdictAnalysis`
+  gained a new required field, `unresolvedChecks: readonly {rule_id, finding_id}[]`, and its
+  `permitProbability` was widened from `SiteAnalysis`'s plain `number` to `number | null` --
+  `Omit<SiteAnalysis, 'permitProbability'> & { permitProbability: number | null, ... }`, since a
+  plain intersection with the legacy `SiteAnalysis`'s `number` would have collapsed back to
+  `number`. Both changes are to the local intersection type, not to `SiteAnalysis` itself (the
+  legacy engine's own file, out of this unit's scope). `governedVerdictFromFindings` now:
   1. always populates `unresolvedChecks` from any `NOT_CHECKED` findings;
-  2. still grades `overallRisk` HIGH/MEDIUM from completed checks exactly as before (NOT_CHECKED
-     never raises severity by itself -- it is a non-severity state);
-  3. when nothing HIGH/MEDIUM was found but `unresolvedChecks` is non-empty, returns
-     `overallRisk: 'LOW'` with `permitProbability: 0.5` (not `0.95`) and a `summary` that states
-     the assessment did not complete all checks -- never the same clean-result numbers/text as a
-     genuinely complete LOW case.
+  2. still grades `overallRisk`/`permitProbability` HIGH (0.2) or MEDIUM (0.5) from completed
+     checks exactly as before (NOT_CHECKED never raises severity by itself -- it is a
+     non-severity state);
+  3. when nothing HIGH/MEDIUM was found but `unresolvedChecks` is non-empty: `overallRisk: 'LOW'`
+     (nothing severe was found among the checks that DID complete) but **`permitProbability:
+     null`** -- not a number. The first candidate (`d27d240a`) used `0.5` here; cold review (K-35
+     M5) correctly identified this as a second fabrication of exactly the kind ADR-28A/OD-03
+     retired from the legacy engine ("no permit/risk number may be derived solely from a
+     null/unmeasured [signal]"; J-2 forbids presenting an uncalibrated number as a probability at
+     all). `summary` states the assessment did not complete all checks.
+  `null` occurs **only** together with a non-empty `unresolvedChecks` -- this is a runtime
+  invariant of `governedVerdictFromFindings`, proven directly across seven representative
+  finding-combinations in `generateLocalizationReportVerdictNotChecked.test.ts`, not a structural
+  constraint expressible on two independent object fields at the type level (this repository's
+  `tsconfig.json` has `strictNullChecks` off, so `null` is unconditionally assignable to `number`
+  regardless of narrowing -- confirmed directly: an attempted `@ts-expect-error` on an unguarded
+  `number | null -> number` read produced TS2578 "Unused '@ts-expect-error' directive", i.e. the
+  read compiles fine either way. See `LuVerdictTypeBoundary.type-proof.ts`'s T6 comment for the
+  full reasoning).
   `LU_VERDICT_AUTHORITY_V1`'s frozen identity (verdict fields present only when
   `assessment_status === 'ASSESSED'`) is unbroken: `unresolvedChecks` follows the same
-  presence/absence rule as `overallRisk`/`permitProbability`, proven by three new cases added to
-  `LuVerdictTypeBoundary.type-proof.ts` (T2c, T4/T4b extended, T5e) -- run for real via
+  presence/absence rule as `overallRisk`/`permitProbability`, proven by four new cases added to
+  `LuVerdictTypeBoundary.type-proof.ts` (T2c, T4/T4b extended, T5e, T6) -- run for real via
   `P3LuVerdictTypeBoundary.test.ts`'s own `tsc -p tsconfig.lu-verdict.json` gate (see Non-claims).
+  `isAssessed`/`rankedProbability` (the report's ranking-population filter) were extended to
+  exclude a site with `permitProbability: null` from ranking/comparison, the same way a
+  non-verdict site is excluded, even though its `assessment_status` is technically `'ASSESSED'` --
+  ranking such a site (even at a floor value) would still be inventing a comparison ADR-28A/OD-03
+  forbid.
 - REQ-8 prose neutralized at the site that previously called the `{null, available:true}` case a
   "genuine 'beyond range' result" (an interpretation OD-03 does not make): now states only that
   the producer returns null with available=true when the bounded query found nothing, and that
@@ -110,12 +133,16 @@ only. Ytvatten/strandskydd has no governed layer or rule at all; this unit does 
 - `tests/unit/spatialAuditServiceExtended.test.ts`: three new tests proving the OD-03 trichotomy
   directly against the producer (technical failure / checked-and-absent / measured), using the
   file's existing `$queryRaw` mock -- no production code change was needed for these to pass.
-- `tests/unit/generateLocalizationReportVerdictNotChecked.test.ts` (new): seven tests against
-  `governedVerdictFromFindings` directly (exported for this reason) proving the verdict-consequence
-  claim. Not run through the full DB-dependent governed pipeline -- see Non-claims.
-- `src/application/types/LuVerdictTypeBoundary.type-proof.ts`: three additions (T2c, T4/T4b
-  extended, T5e) proving `unresolvedChecks` participates in the verdict/non-verdict type boundary
-  the same way `overallRisk`/`permitProbability` do.
+- `tests/unit/generateLocalizationReportVerdictNotChecked.test.ts` (new, extended per K-35 M5):
+  eight tests against `governedVerdictFromFindings` directly (exported for this reason) proving
+  the verdict-consequence claim, including the `permitProbability: null` correction and a
+  dedicated runtime-invariant test across seven finding-combinations proving `null` occurs only
+  together with a non-empty `unresolvedChecks`. Not run through the full DB-dependent governed
+  pipeline -- see Non-claims.
+- `src/application/types/LuVerdictTypeBoundary.type-proof.ts`: four additions (T2c, T4/T4b
+  extended, T5e, T6) proving `unresolvedChecks` participates in the verdict/non-verdict type
+  boundary the same way `overallRisk`/`permitProbability` do, and that `permitProbability` itself
+  now admits `null`.
 - Nine further test files updated only because their `ISpatialProvider` fakes returned a bare
   array (`query: vi.fn().mockResolvedValue([])`/`async () => []`) or destructured a real
   provider's result as an array (`const [evidence] = await provider.query(...)`), which no longer
@@ -126,6 +153,12 @@ only. Ytvatten/strandskydd has no governed layer or rule at all; this unit does 
   `P3LuVerdictAuthority.red.test.ts`, `localizationGeometryDrawingProofs.test.ts`,
   `localizationGeometryProductProofs.test.ts`, `luExecutionIdentityScopeV2ProductWiring.test.ts`
   (fake-provider fix, `{evidence: [], unavailable_layers: []}` in place of `[]`).
+- `LUEnforcement.test.ts` and `LUMagicMomentPostGIS.test.ts` needed a *second*, distinct fix
+  (K-35 M6): the mechanical destructuring fix above left `evidence` typed as `readonly
+  SpatialEvidenceArtifact[]`, and each file then passed it straight into
+  `runLuAssessmentViaKernel({..., evidence})`, whose `LuKernelRunInput.evidence` still declares a
+  mutable array (`TS4104`). Fixed the same way as the one production call site: `evidence:
+  [...spatialEvidence]`.
 
 ## 4. Verified evidence
 
@@ -140,36 +173,75 @@ semantic reason (not a harness/file-missing error):
 
 **GREEN**, run against the current candidate tree:
 - All three RED probes' identical commands pass (candidate has the fix).
-- `w2-focused-tests` (real, with the K-15 `prisma generate` preamble): 5 files, 68 tests, exit 0 --
+- `w2-focused-tests` (real, with the K-15 `prisma generate` preamble): 5 files, 69 tests, exit 0 --
   `LURuleEngine.test.ts`, `SpatialProviderPostGISLayerIsolation.test.ts`,
   `spatialAuditServiceExtended.test.ts`, `localizationReportService.test.ts`,
   `generateLocalizationReportVerdictNotChecked.test.ts`.
 
-**Additional manual verification, not wired into the unit's own GREEN set:**
-- `P3LuVerdictTypeBoundary.test.ts` (the real `tsc -p tsconfig.lu-verdict.json` gate): this test
-  cannot currently pass in absolute terms -- both its assertions were already failing on the clean
-  base, before any change in this unit, due to 6 pre-existing TypeScript errors in
-  `luGeometrySupersessionProvisioning.ts`, `CanonicalPropertyArtifacts.ts` and
-  `ProductLuContextArtifacts.ts`, none of which this unit touches. Verified by running the gate
-  twice against byte-identical states (stash/apply around the implementation), confirming: this
-  candidate introduces exactly **zero new errors**, in-surface or out-of-surface, versus that same
-  pre-existing baseline. Not claimed as "passes"; claimed only as "introduces no new errors" --
-  the honest, verifiable claim.
-- The nine test files listed above whose `ISpatialProvider` fakes/destructuring needed fixing for
-  type compatibility: of these, `HM1BRealGovernedDocumentChain.test.ts`,
-  `HM1CGovernedAssessmentPersistence.test.ts`, `localizationGeometryProductProofs.test.ts` and
-  `luExecutionIdentityScopeV2ProductWiring.test.ts` have some cases that need a live Postgres/
-  Prisma connection and signing-key environment this session does not have available (Docker was
-  paused for disk compaction during this unit's work). Verified, in each case, by running the
-  identical test against the untouched base tree and finding the identical failure (same error,
-  same assertion, same line) -- confirming the failure is pre-existing and unrelated to this unit,
-  not a regression it introduces. The other five files (`LUEnforcement.test.ts`,
+**Root `tsc -p tsconfig.json --noEmit` (K-35 M6)** -- the check the cold review actually used, not
+the narrower `tsconfig.lu-verdict.json`. Run against base `038286ed` and this candidate with the
+*same* node_modules setup (this worktree's junction-repaired tree, both times):
+- Base: **87** `error TS` lines. Candidate (before M6): **90** -- exactly 3 new, all `TS4104`
+  (`readonly SpatialEvidenceArtifact[]` assigned to a mutable `SpatialEvidenceArtifact[]`) at
+  `LUEnforcement.test.ts(113,7)`, `LUEnforcement.test.ts(166,7)`,
+  `LUMagicMomentPostGIS.test.ts(196,7)` -- matching K-35's finding exactly (the review's own
+  absolute count, 97/100, differed because it used a real `npm ci`, but the *differential* was
+  identical: +3, same three lines). Fixed with `[...spatialEvidence]` at each of the three call
+  sites (the same pattern already used for the production call site in
+  `generate-localization-report.usecase.ts`).
+- Candidate (after M6): **87** -- equal to base. Diffed the full error lists with line numbers
+  stripped (so a line shifted by an added comment doesn't register as a difference): **zero**
+  textual difference. This is the corrected version of the claim `d27d240a`'s audit doc made too
+  narrowly (against `tsconfig.lu-verdict.json` only, which does not even cover the two files the
+  3 new errors were in).
+- `P3LuVerdictTypeBoundary.test.ts` itself (the narrower `tsconfig.lu-verdict.json` gate) still
+  cannot pass in absolute terms: both its assertions were already failing on the clean base, before
+  any change in this unit, on 6 pre-existing errors in `luGeometrySupersessionProvisioning.ts`,
+  `CanonicalPropertyArtifacts.ts` and `ProductLuContextArtifacts.ts`, none of which this unit
+  touches. Re-verified after M5/M6: still exactly those same 6, zero new. Not claimed as "passes";
+  claimed only as "introduces no new errors."
+
+**The four DB-dependent `ISpatialProvider`-fake test files, run for real (K-35: Docker is up)**:
+against the real `miljobeslut-postgres` container (`localhost:5432`, credentials read from the
+container's own env, not the repo's `.env.example` template, which is stale), both on the
+untouched base and on this candidate:
+- `localizationGeometryProductProofs.test.ts` and `luExecutionIdentityScopeV2ProductWiring.test.ts`:
+  identical failure on both trees -- the same `executionMotor.admitted` assertion fails, same
+  assertions, same lines. Not a regression.
+- `HM1BRealGovernedDocumentChain.test.ts` and `HM1CGovernedAssessmentPersistence.test.ts`: **not a
+  clean comparison.** These tests write real rows (organisations, project bindings, artifacts) to
+  `miljobeslut-postgres`, which is a live, shared, NOT reset-between-runs database -- re-running
+  the same file twice in a row (once with a wrong password, once correct, while diagnosing
+  credentials) produced *different* failing sub-tests and different error messages each time, on
+  **both** the base tree and this candidate. Total pass/fail count matched on both (3 passed / 4
+  failed across the two files, each run), but the specific failure signature is not deterministic
+  against this database, so "identical to base" cannot be claimed with the same confidence as for
+  the other two files. I did not continue re-running against the live shared database to chase a
+  clean signal, to avoid compounding state changes to it further. This is a pre-existing
+  characteristic of these two tests against this specific database, not something this candidate
+  introduces -- but it is a genuine testing gap, not a clean pass.
+- The other five `ISpatialProvider`-touching files (`LUEnforcement.test.ts`,
   `LUMagicMomentE2E.chain.test.ts`, `LUMagicMomentPostGIS.test.ts`, `SpatialProviderPostGIS.test.ts`,
-  `SpatialProviderPostGISV3NumericBoundary.test.ts` needing no change,
-  `SpatialEvidenceQueryContractV2.test.ts`) are also DB-dependent integration tests and were not
-  executed; the destructuring/mock-shape fixes were verified by direct code reading against each
-  call site, and `SpatialEvidenceQueryContractV2.test.ts` specifically (mocks the pg pool
-  directly, no live DB needed) was run and passed, 12/12.
+  `SpatialProviderPostGISV3NumericBoundary.test.ts` needing no change) are also DB-dependent
+  integration tests and were not executed against the live database; verified by direct code
+  reading against each call site instead. `SpatialEvidenceQueryContractV2.test.ts` (mocks the pg
+  pool directly, no live DB needed) was run and passed, 12/12.
+
+**A real, unresolved risk found while checking `permitProbability` consumers (K-35 M5's own
+instruction), outside this unit's `allowed_paths`, not fixed here**:
+`components/LocalizationStudyUI.tsx:1154-1160` checks `permitProbability !== undefined` (not
+`typeof permitProbability === 'number'`) before rendering it. A `null` value passes that check,
+`null >= 0.8` evaluates `false`, and `Math.round(null * 100)` evaluates to `0` -- the UI would
+render **"0% Godkänd"** for a site whose assessment is actually incomplete, which is exactly the
+silent-fabrication failure mode this whole unit exists to eliminate, just moved one layer up the
+stack. `server/services/localizationPdfService.ts:45,128` assigns the same now-nullable value into
+its own `permitProbability?: number` field; this compiles without error (confirmed by the M6 tsc
+diff: zero new errors) only because this repository's `strictNullChecks` is off, and I did not
+trace how its own PDF template renders `undefined`/`null` there. `components/app/lu/LuWorkspace.tsx`
+and the test-only `components/TechnicalSluExpert.tsx` both guard with `typeof ... === 'number'`,
+which correctly excludes `null`. **This needs a follow-up unit before any of these three UI/PDF
+surfaces reaches a user with a real NOT_CHECKED-only site**; flagging it here rather than silently
+leaving it for someone to discover in production.
 
 **Infrastructure finding, incidental to this unit but affecting its testability**: this worktree's
 `node_modules` was set up per K-29 via `robocopy` from `wt-w1-proven` rather than `npm install`.
@@ -197,9 +269,16 @@ This unit does **not**:
 - claim the verdict-consequence tests were run through the full DB-dependent governed pipeline
   (ExecutionKernel, ProjectContextBinding persistence, Prisma) -- they test
   `governedVerdictFromFindings` directly, which is the entire surface the claim is about.
-- claim the four DB/Prisma-dependent `ISpatialProvider`-fake test files were verified beyond "the
-  same pre-existing failure occurs on the untouched base" -- real runtime verification of those
-  four needs a live Postgres and signing-key setup this session did not have available.
+- claim the four DB/Prisma-dependent `ISpatialProvider`-fake test files were cleanly re-verified.
+  Two (`localizationGeometryProductProofs.test.ts`, `luExecutionIdentityScopeV2ProductWiring.test.ts`)
+  showed the identical failure on base and candidate against the real database. The other two
+  (`HM1BRealGovernedDocumentChain.test.ts`, `HM1CGovernedAssessmentPersistence.test.ts`) write real
+  rows to a live, shared, not-reset database and produced non-deterministic specific failures
+  across runs on *both* trees; only the total pass/fail count matched. Not claimed as verified
+  beyond that.
+- claim `permitProbability`'s consumers outside this unit's `allowed_paths` handle `null` safely.
+  `components/LocalizationStudyUI.tsx` does not (see the finding in section 4) and needs a
+  follow-up unit before a NOT_CHECKED-only site can safely reach that UI surface.
 
 ## 6. Final disposition
 

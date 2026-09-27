@@ -8,6 +8,16 @@
  * reflected in `overallRisk`/`permitProbability` exactly as if the NOT_CHECKED finding were not
  * there.
  *
+ * Corrected per cold review (K-35 M5): a NOT_CHECKED-only case's `permitProbability` is `null`,
+ * not a fabricated `0.5` -- ADR-28A section 1 / OD-03 forbid deriving a permit/risk number from
+ * an unmeasured/incomplete state, and `0.5` would repeat exactly the fabricated MEDIUM/0.5
+ * unknown-distance stand-in this same owner decision retired from the legacy engine. `null`
+ * occurs ONLY together with a non-empty `unresolvedChecks` -- proven directly below, since this
+ * is a runtime invariant of `governedVerdictFromFindings`, not a structural one two independent
+ * object fields can express at the type level (see `LuVerdictTypeBoundary.type-proof.ts`'s T6 for
+ * why: this repository's `strictNullChecks` is off, so `null` is unconditionally assignable to
+ * `number` there regardless of narrowing).
+ *
  * This tests `governedVerdictFromFindings` directly rather than through the full DB-dependent
  * governed pipeline (ExecutionKernel, ProjectContextBinding, Prisma) that `generate-localization-
  * report.usecase.ts` normally calls it from: that pipeline needs a live Postgres this environment
@@ -41,8 +51,10 @@ describe('SEM-1 (W2): governedVerdictFromFindings never presents a NOT_CHECKED c
     const verdict = governedVerdictFromFindings([finding('LU-WATER-001', 'NOT_CHECKED')]);
     expect(verdict.unresolvedChecks).toHaveLength(1);
     expect(verdict.unresolvedChecks[0]).toEqual({ rule_id: 'LU-WATER-001', finding_id: 'finding-LU-WATER-001' });
-    // The exact SEM-1 regression this guards against: silently reusing the clean-result numbers.
-    expect(verdict.permitProbability).not.toBe(0.95);
+    // K-35 M5: null, never a fabricated number -- the exact SEM-1/OD-03 regression this guards
+    // against is silently reusing the clean-result numbers OR inventing a different one (0.5 was
+    // itself a fabrication, caught by cold review).
+    expect(verdict.permitProbability).toBeNull();
     expect(verdict.summary).not.toBe('Governed LU assessment findings establish LOW risk.');
   });
 
@@ -90,5 +102,28 @@ describe('SEM-1 (W2): governedVerdictFromFindings never presents a NOT_CHECKED c
     expect(verdict.overallRisk).toBe('LOW');
     expect(verdict.permitProbability).toBe(0.95);
     expect(verdict.unresolvedChecks).toEqual([]);
+  });
+
+  it('K-35 M5 runtime invariant: permitProbability is null if and only if unresolvedChecks is non-empty AND no completed check reached HIGH/MEDIUM', () => {
+    const cases: readonly AssessmentFinding[][] = [
+      [],
+      [finding('LU-WATER-001', 'NOT_CHECKED')],
+      [finding('LU-WATER-001', 'NOT_CHECKED'), finding('LU-EBH-001', 'NOT_CHECKED')],
+      [finding('LU-EBH-001', 'HIGH'), finding('LU-WATER-001', 'NOT_CHECKED')],
+      [finding('LU-PROTECTED-001', 'MEDIUM'), finding('LU-WATER-001', 'NOT_CHECKED')],
+      [finding('LU-EBH-001', 'HIGH')],
+      [finding('LU-PROTECTED-001', 'MEDIUM')],
+    ];
+    for (const findings of cases) {
+      const verdict = governedVerdictFromFindings(findings);
+      const hasCompletedSeverity = findings.some(
+        (f) => f.risk_level === 'HIGH' || f.risk_level === 'MEDIUM',
+      );
+      const expectNull = verdict.unresolvedChecks.length > 0 && !hasCompletedSeverity;
+      expect(verdict.permitProbability === null).toBe(expectNull);
+      if (verdict.permitProbability === null) {
+        expect(verdict.unresolvedChecks.length).toBeGreaterThan(0);
+      }
+    }
   });
 });
