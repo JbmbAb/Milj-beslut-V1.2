@@ -94,6 +94,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
   const [error, setError] = useState<string | null>(null);
   // An approved case is locked; changing it is an explicit, confirmed reopen (audited server-side).
   const [reopened, setReopened] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
   const [audit, setAudit] = useState<Array<{ id: string; timestamp: string; action: string; description: string }>>([]);
 
   useEffect(() => {
@@ -269,12 +270,23 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
         {locked && (
           <div className="mt-3 rounded border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-900" data-testid="locked">
             Ärendet är godkänt och låst. Ändringar kräver att godkännandet upphävs; det tidigare frysta förslaget och dess PDF:er ligger kvar.
-            <button type="button" className="ml-2 underline" data-testid="reopen"
-              onClick={() => {
-                if (window.confirm('Upphäva godkännandet för att ändra ärendet? Det frysta förslaget och audit-posten ligger kvar, men ett nytt godkännande krävs.')) setReopened(true);
-              }}>
-              Ändra ärendet (upphäver godkännandet)
-            </button>
+            {/* In-page confirmation: window.confirm is suppressed in some embedded browsers. */}
+            {!confirmReopen ? (
+              <button type="button" className="ml-2 underline" data-testid="reopen" onClick={() => setConfirmReopen(true)}>
+                Ändra ärendet (upphäver godkännandet)
+              </button>
+            ) : (
+              <span className="mt-2 block" data-testid="reopen-confirm">
+                Upphäva godkännandet? Det frysta förslaget, dess PDF:er och audit-posten ligger kvar, men ett nytt godkännande krävs.
+                <button type="button" className="ml-2" style={primaryBtn('#b91c1c')} data-testid="reopen-yes"
+                  onClick={() => { setReopened(true); setConfirmReopen(false); }}>
+                  Ja, upphäv godkännandet
+                </button>
+                <button type="button" className="ml-2 underline" data-testid="reopen-no" onClick={() => setConfirmReopen(false)}>
+                  Avbryt
+                </button>
+              </span>
+            )}
           </div>
         )}
         <div className="mt-3 flex gap-2">

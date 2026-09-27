@@ -72,13 +72,15 @@ describe('CAnmalanDemoView', () => {
     expect((screen.getByTestId('case-fields') as HTMLFieldSetElement).disabled).toBe(true);
     expect((screen.getByText('Spara ändrade uppgifter') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByText('Ta fram förslag') as HTMLButtonElement).disabled).toBe(true);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirm = vi.spyOn(window, 'confirm');
     fireEvent.click(screen.getByTestId('reopen'));
+    fireEvent.click(screen.getByTestId('reopen-no'));
     expect((screen.getByText('Spara ändrade uppgifter') as HTMLButtonElement).disabled).toBe(true);
-    confirm.mockReturnValue(true);
     fireEvent.click(screen.getByTestId('reopen'));
+    fireEvent.click(screen.getByTestId('reopen-yes'));
     expect((screen.getByText('Spara ändrade uppgifter') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId('case-fields') as HTMLFieldSetElement).disabled).toBe(false);
+    expect(confirm).not.toHaveBeenCalled(); // no native dialog
     confirm.mockRestore();
     expect(screen.queryByText(/skicka in|lämna in/i)).toBeNull();
   });
