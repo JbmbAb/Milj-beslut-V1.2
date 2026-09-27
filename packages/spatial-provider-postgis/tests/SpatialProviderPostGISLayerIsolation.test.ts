@@ -4,7 +4,7 @@ import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/Execut
 import type { SpatialQueryRequest } from "@miljobeslut/mps-lu/src/services/SpatialQueryContract";
 
 /**
- * SEM-1 / W2 — RED/GREEN probe for per-layer isolation in SpatialProviderPostGIS.query().
+ * SEM-1 / W2 -- RED/GREEN probe for per-layer isolation in SpatialProviderPostGIS.query().
  *
  * Registered LU layers and their real PostGIS tables (SpatialLayerRegistry.ts), so this fixture
  * can distinguish "the failing layer's own ST_DWithin query" from every other layer's query and
@@ -15,6 +15,12 @@ const REGISTRY: Record<string, { table: string; version_hash: string }> = {
   ebh: { table: "env.ebh_potentiellt_fororenade_omraden", version_hash: "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186" },
   protected_area: { table: "env.protected_area", version_hash: "983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae" },
 };
+
+const REQUEST_LAYERS = [
+  { name: "water", version_hash: "v1.0" },
+  { name: "ebh", version_hash: "v1.0" },
+  { name: "protected_area", version_hash: "v1.0" },
+] as const;
 
 const PROPERTY_ARTIFACT: LUPropertyContextArtifact = {
   artifact_id: "prop-layer-isolation-fixture",
@@ -66,12 +72,45 @@ function makeFakePool(failingTable: string) {
   };
 }
 
+/**
+ * A pool fake for the identity/admission mirror test: `mismatchedTable`'s PostgisImportBatch
+ * lookup returns a WRONG content_bundle_sha256, so `verifySpatialLayerRuntimeBinding` throws
+ * `SpatialLayerRuntimeBindingError` before any ST_DWithin query runs for that layer. This is
+ * categorically different from a query-execution failure and must never be caught/converted
+ * into a per-layer `unavailable_layers` entry -- it must still deny the whole batch.
+ */
+function makeFakePoolWithBindingMismatch(mismatchedTable: string) {
+  return {
+    query: vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("PostgisImportBatch")) {
+        const [schema, table] = params as [string, string];
+        const qualified = `${schema}.${table}`;
+        if (qualified === mismatchedTable) {
+          return { rows: [{ content_bundle_sha256: "WRONG_HASH_SIMULATED_MISMATCH", dataset_version: null }] };
+        }
+        const entry = Object.values(REGISTRY).find((r) => r.table === qualified);
+        if (!entry) {
+          throw new Error(`FIXTURE GAP: no registry entry for ${qualified}`);
+        }
+        return { rows: [{ content_bundle_sha256: entry.version_hash, dataset_version: null }] };
+      }
+      for (const entry of Object.values(REGISTRY)) {
+        if (sql.includes(`FROM ${entry.table}`)) {
+          return { rows: [], rowCount: 0 };
+        }
+      }
+      throw new Error(`FIXTURE GAP: unrecognized query: ${sql}`);
+    }),
+    end: vi.fn(async () => {}),
+  };
+}
+
 const FAKE_REPO: ArtifactRepositoryPort = {
   resolve: vi.fn(async (ref: { artifact_id: string }) => {
     if (ref.artifact_id === PROPERTY_ARTIFACT.artifact_id) {
       return PROPERTY_ARTIFACT;
     }
-    throw new Error("not present — continue to first-write");
+    throw new Error("not present -- continue to first-write");
   }),
   put: vi.fn(async () => {}),
 } as unknown as ArtifactRepositoryPort;
@@ -108,11 +147,7 @@ describe("SEM-1 W2: SpatialProviderPostGIS per-layer isolation", () => {
 
       const request: SpatialQueryRequest = {
         property_ref: { artifact_id: PROPERTY_ARTIFACT.artifact_id, artifact_type: PROPERTY_ARTIFACT.artifact_type },
-        layers: [
-          { name: "water", version_hash: "v1.0" },
-          { name: "ebh", version_hash: "v1.0" },
-          { name: "protected_area", version_hash: "v1.0" },
-        ],
+        layers: REQUEST_LAYERS,
       } as SpatialQueryRequest;
 
       // Desired, fixed behavior (this is what must be true on the candidate). On base
@@ -130,6 +165,57 @@ describe("SEM-1 W2: SpatialProviderPostGIS per-layer isolation", () => {
       expect(outcome.evidence).toHaveLength(2);
       const datasets = outcome.evidence.map((e) => e.payload.source_metadata.dataset).sort();
       expect(datasets).toEqual(["protected_area", "water"]);
+    },
+  );
+
+  it(
+    "M4 mirror (1/2): an identity/admission failure (PostgisImportBatch mismatch) must still " +
+      "deny the whole batch, exactly as today -- this is NOT a per-layer technical failure and " +
+      "must never become an unavailable_layers entry; PASSES on base and candidate alike " +
+      "(regression guard, not a RED probe)",
+    async () => {
+      (globalThis as any).__FAKE_PG_POOL__ = makeFakePoolWithBindingMismatch(REGISTRY.ebh.table);
+
+      const { SpatialProviderPostGIS } = await import("../src/SpatialProviderPostGIS");
+      const provider = new SpatialProviderPostGIS("postgresql://fixture", FAKE_REPO);
+
+      const request: SpatialQueryRequest = {
+        property_ref: { artifact_id: PROPERTY_ARTIFACT.artifact_id, artifact_type: PROPERTY_ARTIFACT.artifact_type },
+        layers: REQUEST_LAYERS,
+      } as SpatialQueryRequest;
+
+      await expect(provider.query(request)).rejects.toThrow(
+        /PostgisImportBatch\.content_bundle_sha256/,
+      );
+    },
+  );
+
+  it(
+    "M4 mirror (2/2): a failed layer must never appear in evidence with exists:false, or at " +
+      "all -- structural guard against silently downgrading a technical failure into a " +
+      "fabricated negative result; holds whether query() rejects entirely (today) or resolves " +
+      "with partial evidence (once fixed), so it PASSES on base and candidate alike",
+    async () => {
+      (globalThis as any).__FAKE_PG_POOL__ = makeFakePool(REGISTRY.ebh.table);
+
+      const { SpatialProviderPostGIS } = await import("../src/SpatialProviderPostGIS");
+      const provider = new SpatialProviderPostGIS("postgresql://fixture", FAKE_REPO);
+
+      const request: SpatialQueryRequest = {
+        property_ref: { artifact_id: PROPERTY_ARTIFACT.artifact_id, artifact_type: PROPERTY_ARTIFACT.artifact_type },
+        layers: REQUEST_LAYERS,
+      } as SpatialQueryRequest;
+
+      let outcome: Awaited<ReturnType<typeof provider.query>> | undefined;
+      try {
+        outcome = await provider.query(request);
+      } catch {
+        // Rejecting entirely (today's behavior, pre-fix) trivially satisfies "never exists:false
+        // for the failed layer" -- there is no evidence array to inspect.
+        return;
+      }
+      const ebhEntries = outcome.evidence.filter((e) => e.payload.source_metadata.dataset === "ebh");
+      expect(ebhEntries).toHaveLength(0);
     },
   );
 });
