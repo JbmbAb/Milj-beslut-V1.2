@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "docs/lu-no-legacy-water-distance-fallback-proven",
-  "base_sha": "6b10f5cf729c5fb814582e30f5e0be81ced6b19c",
+  "base_sha": "59823b7ce4b009b517a94837e743e36999f6037c",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "docs/architecture/audits/LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1-PROVEN.md",

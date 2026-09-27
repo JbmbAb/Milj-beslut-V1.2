@@ -22,18 +22,24 @@ The candidate record's own lineage (`LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1.md`
 full 14-item implementation and hardening history in detail, from `7bb6cfef` (remove the
 fabricated 200 m fallback) through four independent cold-review hardening rounds, the Dev-Gov
 packaging commits, the K-15 Prisma-generate fix proven on the real trusted runner at `c192d8f8`,
-and the K-18 merge (not rebase, per this unit's own `no_force` remote policy) that brought the
+and the K-18 merge (not rebase, per that unit's own `no_force` remote policy) that brought the
 branch up to date with `main` after ADR-28A — producing the final gated candidate `fc2bf12f`. The
-delta between the gated candidate and the pre-merge base is exactly the eight files declared in
-the unit's `allowed_paths`: the three production/test source files, the guard test file, and this
-unit's own two governance files (unit JSON + audit doc) plus the two governance files ADR-28A
-itself had already added to `main`.
+delta between `fc2bf12f` and the pre-merge base `6b10f5cf` is exactly the eight files declared in
+`LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1`'s own `allowed_paths`: three production files, three
+test files (including the guard test), and that unit's own two governance files (its unit JSON
+and its audit doc). The two ADR-28A files are present identically on both sides of that diff and
+are not part of it.
+
+This PROVEN-doc unit is a separate, later unit with its own base and its own two-file
+`allowed_paths` (this record and its own unit JSON) — its own delta is exactly those two files
+against its base, the W1 merge commit `59823b7ce4b009b517a94837e743e36999f6037c` itself (not
+`6b10f5cf`), so none of W1's eight files appear in it.
 
 ## Trusted execution evidence
 
 - Protected Dev-Gov orchestration run: `36283036831`
 - Canonical trusted evidence gate: `36283498781`
-- Gate verdict: `PASS`, `proof_status: PROVEN`, 6 proof ids (2 RED + 4 GREEN)
+- Gate result: `proof_status: PROVEN` (job conclusion: `success`), 6 proof ids (2 RED + 4 GREEN)
 - Gate trust-policy digest: `2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5`
 - Gate OIDC audience bound to the exact candidate SHA:
   `devgov-v0-gate:2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5:fc2bf12f61d117894059c70563f406096428c1b6`
