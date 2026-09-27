@@ -99,7 +99,7 @@ describe("LU Domain - Enforcement and Replay", () => {
 
     const propRef: ArtifactReference = { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type };
     
-    const spatialEvidence = await provider.query({
+    const { evidence: spatialEvidence } = await provider.query({
       property_ref: propRef,
       buffer_distance_meters: 100,
       layers: [{ name: "water", version_hash: "v1.0" }]
@@ -110,7 +110,9 @@ describe("LU Domain - Enforcement and Replay", () => {
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "enforce-site",
       deterministic_seed: "seed:enforcement",
-      evidence: spatialEvidence,
+      // SpatialQueryOutcomeV2.evidence is readonly (SEM-1/W2); LuKernelRunInput.evidence predates
+      // that contract and still declares a mutable array.
+      evidence: [...spatialEvidence],
     });
 
     expect(kernelResult.admitted).toBe(true);
@@ -152,7 +154,7 @@ describe("LU Domain - Enforcement and Replay", () => {
     });
 
     const propRef: ArtifactReference = { artifact_id: "art_prop_enforce2", artifact_type: "LU_PROPERTY_CONTEXT" };
-    const spatialEvidence = await provider.query({
+    const { evidence: spatialEvidence } = await provider.query({
       property_ref: propRef,
       buffer_distance_meters: 150,
       layers: [{ name: "ebh", version_hash: "v1.0" }]
@@ -163,7 +165,9 @@ describe("LU Domain - Enforcement and Replay", () => {
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: "enforce-site-2",
       deterministic_seed: "seed:tampering",
-      evidence: spatialEvidence,
+      // SpatialQueryOutcomeV2.evidence is readonly (SEM-1/W2); LuKernelRunInput.evidence predates
+      // that contract and still declares a mutable array.
+      evidence: [...spatialEvidence],
     });
 
     expect(kernelResult.admitted).toBe(true);

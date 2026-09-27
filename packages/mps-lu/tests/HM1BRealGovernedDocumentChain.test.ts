@@ -89,7 +89,8 @@ function documentEvidence(id: string, title: string, propertyId: string): Docume
 
 function runtime(repository: InMemoryArtifactRepository): LocalizationSpatialRuntime {
   const provider: ISpatialProvider = {
-    query: vi.fn().mockResolvedValue([]),
+    // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
+    query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }),
   };
   return {
     artifactRepository: repository,

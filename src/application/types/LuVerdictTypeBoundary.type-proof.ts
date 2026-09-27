@@ -41,11 +41,21 @@ void nonVerdict.overallRisk;
 // @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: permitProbability is verdict-only.
 void nonVerdict.permitProbability;
 
+/*
+ * T2c — SEM-1 (W2): a non-verdict result has no `unresolvedChecks` either. It is meaningful
+ * only alongside a real verdict (which checks were left out of THIS risk grade); a result with
+ * no verdict at all has nothing for it to qualify.
+ */
+// @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: unresolvedChecks is verdict-only.
+void nonVerdict.unresolvedChecks;
+
 /* T3 — the union cannot be read for verdict fields before the discriminant is narrowed. */
 // @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: narrow on assessment_status first.
 void anyAnalysis.overallRisk;
 // @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: narrow on assessment_status first.
 void anyAnalysis.permitProbability;
+// @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: narrow on assessment_status first.
+void anyAnalysis.unresolvedChecks;
 
 /*
  * T3b — the same, reached through the shape consumers actually hold. This is the access the
@@ -59,17 +69,23 @@ void result.complianceAnalysis.permitProbability;
 /* T4 — after narrowing on the discriminant, the verdict fields are present and typed. */
 if (anyAnalysis.assessment_status === 'ASSESSED') {
   const risk: GovernedVerdictAnalysis['overallRisk'] = anyAnalysis.overallRisk;
-  const probability: number = anyAnalysis.permitProbability;
+  // permitProbability is `number | null` (SEM-1, K-35 M5) -- not a bare `number` -- so this reads
+  // as its own declared type, not as `number` directly (that narrower assignment is T6 below).
+  const probability: GovernedVerdictAnalysis['permitProbability'] = anyAnalysis.permitProbability;
+  const checks: GovernedVerdictAnalysis['unresolvedChecks'] = anyAnalysis.unresolvedChecks;
   void risk;
   void probability;
+  void checks;
 }
 
 /* T4b — the same narrowing through the published type guard. */
 if (isGovernedVerdict(anyAnalysis)) {
   const risk: GovernedVerdictAnalysis['overallRisk'] = anyAnalysis.overallRisk;
-  const probability: number = anyAnalysis.permitProbability;
+  const probability: GovernedVerdictAnalysis['permitProbability'] = anyAnalysis.permitProbability;
+  const checks: GovernedVerdictAnalysis['unresolvedChecks'] = anyAnalysis.unresolvedChecks;
   void risk;
   void probability;
+  void checks;
 }
 
 /* T5 — every non-verdict branch stays constructible without supplying verdict fields. */
@@ -128,3 +144,48 @@ const hollow: GovernedVerdictAnalysis = {
   summary: '',
 };
 void hollow;
+
+/*
+ * T5e — SEM-1 (W2): a governed verdict cannot be built without `unresolvedChecks` specifically,
+ * even when `overallRisk`/`permitProbability` are both present. Isolates the new field from the
+ * other two so a future edit cannot make it silently optional while T5d still passes.
+ */
+// @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: unresolvedChecks is required on a governed verdict.
+const missingUnresolvedChecks: GovernedVerdictAnalysis = {
+  assessment_status: 'ASSESSED',
+  restrictions: [],
+  rules: [],
+  summary: '',
+  overallRisk: 'LOW',
+  permitProbability: 0.95,
+};
+void missingUnresolvedChecks;
+
+/*
+ * T6 — SEM-1 (W2), K-35 M5: `permitProbability` admits `null` (an incomplete assessment: at
+ * least one governed check is unresolved) -- it is `number | null`, not a bare `number`.
+ *
+ * This is a WEAKER claim than the rest of this file's `@ts-expect-error` proofs, and
+ * deliberately so: this repository's tsconfig has `strictNullChecks` off (see this file's own
+ * header), under which `null` is assignable to `number` unconditionally -- reading
+ * `incompleteVerdict.permitProbability` into a `number` slot compiles with or without narrowing,
+ * so no `@ts-expect-error` here would ever be genuine (confirmed: writing one produces TS2578
+ * "Unused '@ts-expect-error' directive", not the intended protection). Under this compiler
+ * configuration, a discriminated union on a literal tag is the only mechanism this codebase has
+ * that actually blocks an unguarded read (that is what the rest of this file tests) -- a nullable
+ * *value* on a single variant does not. The real protection for this specific field is therefore
+ * the runtime invariant proven in tests/unit/generateLocalizationReportVerdictNotChecked.test.ts:
+ * `null` occurs only together with a non-empty `unresolvedChecks`. What this test DOES prove at
+ * compile time is that the type was actually widened -- `null` is a legal value here, which it
+ * was not before this unit.
+ */
+const incompleteVerdict: GovernedVerdictAnalysis = {
+  assessment_status: 'ASSESSED',
+  restrictions: [],
+  rules: [],
+  summary: 'incomplete',
+  overallRisk: 'LOW',
+  permitProbability: null,
+  unresolvedChecks: [{ rule_id: 'LU-WATER-001', finding_id: 'finding-notchecked-water' }],
+};
+void incompleteVerdict;

@@ -1,6 +1,7 @@
 import type { ContentReference } from "@miljobeslut/mps-evolution";
 import type { SpatialEvidenceArtifact } from "../artifacts/SpatialEvidenceArtifact.js";
 import type { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact.js";
+import type { SpatialLayerUnavailable } from "../services/SpatialQueryContract.js";
 import type { AssessmentFinding } from "../domain/AssessmentFinding.js";
 import type {
   LocalizationAssessmentArtifact,
@@ -66,11 +67,13 @@ export function evaluateLuRuleSet(
   evidence: SpatialEvidenceArtifact[],
   documentEvidence: readonly DocumentEvidenceArtifact[] = [],
   verifiedDocumentFacts: readonly VerifiedDocumentFactArtifact[] = [],
+  unavailableLayers: readonly SpatialLayerUnavailable[] = [],
 ): AssessmentFinding[] {
   return new LURuleEngine().evaluate({
     spatial_evidence: evidence,
     document_evidence: documentEvidence,
     verified_document_facts: verifiedDocumentFacts,
+    unavailable_layers: unavailableLayers,
   });
 }
 
@@ -81,9 +84,10 @@ export function createLuRuleEngineInvokeHandler(
   evidence: SpatialEvidenceArtifact[],
   documentEvidence: readonly DocumentEvidenceArtifact[] = [],
   verifiedDocumentFacts: readonly VerifiedDocumentFactArtifact[] = [],
+  unavailableLayers: readonly SpatialLayerUnavailable[] = [],
 ): (inputs: readonly ContentReference[]) => Promise<readonly ContentReference[]> {
   return async () =>
-    evaluateLuRuleSet(evidence, documentEvidence, verifiedDocumentFacts).map(
+    evaluateLuRuleSet(evidence, documentEvidence, verifiedDocumentFacts, unavailableLayers).map(
       (f: AssessmentFinding) => ({ artifact_id: f.finding_id }),
     );
 }
@@ -109,6 +113,13 @@ export interface LuKernelRunInput {
    * here would reproduce the same class of defect one layer up.
    */
   readonly verified_document_facts?: readonly VerifiedDocumentFactArtifact[];
+  /**
+   * SEM-1/OD-03 (W2): layers the spatial provider could not technically query for this run
+   * (`SpatialQueryOutcomeV2.unavailable_layers`). Optional so existing callers built before this
+   * unit are unaffected; normalized to `[]` at the evaluation boundary, same discipline as
+   * `document_evidence`/`verified_document_facts` above.
+   */
+  readonly unavailable_layers?: readonly SpatialLayerUnavailable[];
   /** HM1-C: semantic inputs for an assessment created only after governed execution succeeds. */
   readonly assessment_draft?: LocalizationAssessmentDraft;
   /** Composition-root repository; production passes the same canonical repository as providers. */
@@ -257,6 +268,7 @@ async function executeLuAssessment(
           input.evidence,
           input.document_evidence ?? [],
           input.verified_document_facts ?? [],
+          input.unavailable_layers ?? [],
         );
         return findings.map((f) => ({ artifact_id: f.finding_id }));
       },

@@ -104,6 +104,45 @@ export function assertSpatialQueryContractV3NumericParameters(parameters: unknow
   }
 }
 
+/**
+ * SEM-1/OD-03 (W2) -- a layer whose evidence could not be technically obtained.
+ *
+ * Deliberately separate from `SpatialEvidenceArtifact`/`SpatialResultSemantics` (both frozen
+ * v1 contracts, untouched by this unit): this is not a spatial result and carries no
+ * `result_semantics`, no `exists`, and no identity hash. It exists only to let the caller (and
+ * ultimately the rule engine) distinguish "this layer's query technically failed" from "this
+ * layer was checked and found nothing" without inventing a fabricated evidence artifact for a
+ * query that never actually completed.
+ *
+ * `reason` is a short, stable error-class label plus a brief technical description -- never a
+ * raw stack trace or full driver error object, since this value can end up referenced from an
+ * assessment artifact.
+ */
+export interface SpatialLayerUnavailable {
+  readonly dataset: string;
+  readonly reason: string;
+}
+
+/**
+ * SEM-1/OD-03 (W2) -- `query()`'s versioned outcome contract.
+ *
+ * V1 (`SpatialEvidenceArtifact[]`, still the type this interface used to declare) had no way to
+ * report a partial result: any single layer's technical query failure had to either be silently
+ * absorbed into a fabricated result or made to fail the entire batch, discarding every other
+ * layer's real evidence. V2 makes that split explicit and mandatory for every caller.
+ *
+ * `evidence` never contains an entry for a layer listed in `unavailable_layers`, and vice versa
+ * -- a layer is in exactly one of the two.
+ *
+ * This governs only how MANY layers a single `query()` call can report on; it says nothing new
+ * about what any individual `SpatialEvidenceArtifact` means (that stays `SpatialResultSemantics`
+ * v1, untouched).
+ */
+export interface SpatialQueryOutcomeV2 {
+  readonly evidence: readonly SpatialEvidenceArtifact[];
+  readonly unavailable_layers: readonly SpatialLayerUnavailable[];
+}
+
 export interface ISpatialProvider {
-  query(request: SpatialQueryRequest): Promise<SpatialEvidenceArtifact[]>;
+  query(request: SpatialQueryRequest): Promise<SpatialQueryOutcomeV2>;
 }

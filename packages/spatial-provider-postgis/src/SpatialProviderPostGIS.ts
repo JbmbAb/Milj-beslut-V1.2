@@ -9,6 +9,8 @@ import {
   type SpatialQueryBudget,
   type SpatialQueryContractV3,
   type SpatialQueryRequest,
+  type SpatialQueryOutcomeV2,
+  type SpatialLayerUnavailable,
   type SpatialEvidenceArtifact,
   type LUPropertyContextArtifact,
   type LocalizationGeometryArtifact,
@@ -18,7 +20,15 @@ import {
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import { resolveLayerBinding } from "./SpatialLayerRegistry";
-import { verifySpatialLayerRuntimeBinding } from "./SpatialDatasetRuntimeBinding";
+import { verifySpatialLayerRuntimeBinding, SpatialLayerRuntimeBindingError } from "./SpatialDatasetRuntimeBinding";
+
+/** Error-class + short text, never a raw stack trace -- this can end up in an assessment artifact. */
+function describeQueryFailure(error: unknown): string {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  const message = error instanceof Error ? error.message : String(error);
+  const shortMessage = message.length > 200 ? `${message.slice(0, 200)}...` : message;
+  return `${name}: ${shortMessage}`;
+}
 
 const SRID_SWEREF99TM = 3006;
 
@@ -99,7 +109,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     return [Number(row.lat), Number(row.lng)];
   }
 
-  async query(request: SpatialQueryRequest): Promise<SpatialEvidenceArtifact[]> {
+  async query(request: SpatialQueryRequest): Promise<SpatialQueryOutcomeV2> {
     const budget = this.resolveBudget(request);
     this.assertBudget(request, budget);
 
@@ -149,6 +159,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     assertSpatialQueryContractV3NumericParameters(queryContract.parameters);
 
     const evidence: SpatialEvidenceArtifact[] = [];
+    const unavailable_layers: SpatialLayerUnavailable[] = [];
     const started = Date.now();
 
     for (const layer of request.layers) {
@@ -163,11 +174,17 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         );
       }
 
+      // REJECT_SPATIAL_LAYER (unknown layer name) is a caller contract violation, not a
+      // technical query failure -- it must still fail the whole request, same as today.
       const binding = resolveLayerBinding(layer.name);
-      // SPATIAL-DATASET-RUNTIME-BINDING-V1: verify the CONNECTED database actually materializes
-      // the dataset this layer's version_hash claims, before touching its data or minting any
-      // evidence. Checked on the same pool as the query below, never a separate DB client.
+
+      // SEM-1/OD-03 (W2): only a genuine query-EXECUTION failure (the SELECT below) becomes a
+      // per-layer `unavailable_layers` entry. `SpatialLayerRuntimeBindingError` (identity/
+      // admission: the connected database does not materialize the dataset this layer's
+      // version_hash claims) is deliberately NOT caught here -- it is a governance failure, not
+      // a technical one, and must keep denying the whole batch exactly as before this unit.
       await verifySpatialLayerRuntimeBinding(this.pool, binding);
+
       const sql = `
         SELECT 1 AS hit
         FROM ${binding.table}
@@ -179,12 +196,24 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         LIMIT $4
       `;
 
-      const res = await this.pool.query(sql, [
-        easting,
-        northing,
-        bufferDistance,
-        budget.max_features_per_layer,
-      ]);
+      let res: { rowCount: number | null };
+      try {
+        res = await this.pool.query(sql, [
+          easting,
+          northing,
+          bufferDistance,
+          budget.max_features_per_layer,
+        ]);
+      } catch (error) {
+        if (error instanceof SpatialLayerRuntimeBindingError) {
+          throw error;
+        }
+        unavailable_layers.push({
+          dataset: layer.name,
+          reason: describeQueryFailure(error),
+        });
+        continue;
+      }
 
       const matchCountObserved = res.rowCount ?? 0;
       if (matchCountObserved > budget.max_features_per_layer) {
@@ -211,7 +240,7 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
       );
     }
 
-    return evidence;
+    return { evidence, unavailable_layers };
   }
 
   /**

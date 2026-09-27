@@ -284,9 +284,10 @@ function makeRuntime(
   queryRecorder: SpatialQueryRequest[],
 ): LocalizationSpatialRuntime {
   const provider: ISpatialProvider = {
+    // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
     query: vi.fn(async (request: SpatialQueryRequest) => {
       queryRecorder.push(request);
-      return [];
+      return { evidence: [], unavailable_layers: [] };
     }),
   };
   return {

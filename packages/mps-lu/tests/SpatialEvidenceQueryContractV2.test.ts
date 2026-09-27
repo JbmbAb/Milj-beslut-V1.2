@@ -180,7 +180,11 @@ describe("canonical PostGIS V3 producer", () => {
 
   it("emits only a typed V3 contract from the canonical producer", async () => {
     const provider = await providerWithQueryStub();
-    const [evidence] = await provider.query({
+    // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2 ({ evidence, unavailable_layers }),
+    // not a bare array.
+    const {
+      evidence: [evidence],
+    } = await provider.query({
       property_ref: property,
       location_ref: location,
       layers: [{ name: "water", version_hash: "human-readable-label" }],

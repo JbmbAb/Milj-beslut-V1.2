@@ -146,7 +146,8 @@ function spatialRuntimeStub() {
       getByReference: vi.fn(async () => null),
     },
     resolveSpatialProvider: vi.fn(() => ({
-      query: vi.fn(async () => []),
+      // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
+      query: vi.fn(async () => ({ evidence: [], unavailable_layers: [] })),
     })),
     wgs84ToSweref99: vi.fn(async () => [6580000, 674000] as const),
     close: vi.fn(async () => undefined),
