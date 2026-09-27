@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "docs/od12a-lm-compliance-map-v1",
-  "base_sha": "b6511b972ca48fb37c4ec996e43194246e58a1c3",
+  "base_sha": "59823b7ce4b009b517a94837e743e36999f6037c",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "docs/architecture/OD-12-A-LANTMATERIET-COMPLIANCE-MAPPING-2026-09-27.md",
