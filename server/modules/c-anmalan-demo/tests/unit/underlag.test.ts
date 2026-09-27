@@ -83,6 +83,9 @@ describe('underlag in the proposal', () => {
     expect(row.note).toContain(FICTIONAL_NOTE);
     expect(formatSource(row.provenance)).toBe(`Källa: användarens uppgift (A2.md sha256 ${sha256(A2).slice(0, 8)}…) – fiktiv uppgift (demo)`);
     // An empty field is neither sourced nor marked fictional: it is simply not filled.
+    const property = rows.find((r) => r.id === 'user-propertyDesignation')!;
+    expect(property.provenance).toEqual({ kind: 'user_input', field: 'propertyDesignation' });
+    expect(property.note).toBeUndefined();
     const empty = rows.find((r) => r.id === 'user-jordart')!;
     expect(empty.provenance).toEqual({ kind: 'user_input', field: 'jordart' });
   });

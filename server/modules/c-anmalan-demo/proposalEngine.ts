@@ -25,7 +25,8 @@ function userRow(
   const raw = input[field];
   const value = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '').trim();
   const sources = value ? underlag?.fieldSources[field] : undefined;
-  const fictional = Boolean(value && underlag?.fictional);
+  // Only text quoted from a fictional underlag file is fictional; e.g. the property is looked up in Mimer.
+  const fictional = Boolean(sources?.length && underlag?.fictional);
   return {
     id: `user-${field}`,
     section,
