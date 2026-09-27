@@ -1,0 +1,70 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-W2-SEM1-NOT-CHECKED-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/lu-w2-sem1-not-checked-proven",
+  "base_sha": "cefc95e1a96b5201ae8d5dad99a9c5dbddca5d5a",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1-PROVEN.md",
+    "governance/devgov/units/lu-w2-sem1-not-checked-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1.md",
+    "governance/devgov/units/lu-w2-sem1-not-checked-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-lu-w2-sem1-not-checked-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('LU_W2_SEM1_NOT_CHECKED_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_W2_SEM1_NOT_CHECKED_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_W2_SEM1_NOT_CHECKED_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }",
+        "[\"**Final state:** PROVEN\",\"038286ede85f7826995a0be3b3e612547e36914d\",\"4163745a2c10a7052b93b9d9916acc84a060c199\",\"cefc95e1a96b5201ae8d5dad99a9c5dbddca5d5a\",\"6e3686c24f710af60d6312f0eda40aa695c94a1f\",\"36323557295\",\"36324000088\",\"#184\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used\",\"w2-not-checked-vocabulary\",\"w2-rule-version-2-on-governed-rules\",\"w2-layer-isolation-not-checked\",\"w2-focused-tests\",\"K-11\",\"no staging environment runs\",\"LU-W2-SEM1-NOT-CHECKED-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-lu-w2-sem1-not-checked-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('LU_W2_SEM1_NOT_CHECKED_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_W2_SEM1_NOT_CHECKED_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_W2_SEM1_NOT_CHECKED_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }",
+        "[\"**Final state:** PROVEN\",\"038286ede85f7826995a0be3b3e612547e36914d\",\"4163745a2c10a7052b93b9d9916acc84a060c199\",\"cefc95e1a96b5201ae8d5dad99a9c5dbddca5d5a\",\"6e3686c24f710af60d6312f0eda40aa695c94a1f\",\"36323557295\",\"36324000088\",\"#184\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used\",\"w2-not-checked-vocabulary\",\"w2-rule-version-2-on-governed-rules\",\"w2-layer-isolation-not-checked\",\"w2-focused-tests\",\"K-11\",\"no staging environment runs\",\"LU-W2-SEM1-NOT-CHECKED-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/lu-w2-sem1-not-checked-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
