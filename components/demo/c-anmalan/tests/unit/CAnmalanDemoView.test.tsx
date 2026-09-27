@@ -67,6 +67,17 @@ describe('CAnmalanDemoView', () => {
       { rowId: 'lok-jordart', action: 'strike' },
     ]);
     expect(screen.getByText('PDF: C-anmälan – förslag, ej inlämnad')).toBeTruthy();
+    // Approved = locked: no silent save or new proposal; reopening is explicit and confirmed.
+    expect(screen.getByTestId('locked')).toBeTruthy();
+    expect((screen.getByText('Spara ändrade uppgifter') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText('Ta fram förslag') as HTMLButtonElement).disabled).toBe(true);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByTestId('reopen'));
+    expect((screen.getByText('Spara ändrade uppgifter') as HTMLButtonElement).disabled).toBe(true);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByTestId('reopen'));
+    expect((screen.getByText('Spara ändrade uppgifter') as HTMLButtonElement).disabled).toBe(false);
+    confirm.mockRestore();
     expect(screen.queryByText(/skicka in|lämna in/i)).toBeNull();
   });
 

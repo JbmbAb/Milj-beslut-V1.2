@@ -92,6 +92,8 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // An approved case is locked; changing it is an explicit, confirmed reopen (audited server-side).
+  const [reopened, setReopened] = useState(false);
   const [audit, setAudit] = useState<Array<{ id: string; timestamp: string; action: string; description: string }>>([]);
 
   useEffect(() => {
@@ -132,17 +134,19 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
     run('Sparar ärendet', async () => {
       const body = { ...input, verksamhetskoder: codes };
       const res = record
-        ? await callApi<{ case: DemoCase }>(`${API}/cases/${record.id}/input`, { method: 'PUT', body: { input: body } })
+        ? await callApi<{ case: DemoCase }>(`${API}/cases/${record.id}/input`, { method: 'PUT', body: { input: body, reopen: reopened } })
         : await callApi<{ case: DemoCase }>(`${API}/cases`, { method: 'POST', body: { projectId: getActiveProjectId(), input: body } });
       setRecord(res.case);
       setDecisions({});
+      if (res.case.status !== 'APPROVED') setReopened(false);
     });
 
   const propose = () =>
     run('Tar fram förslag ur lager, lagtext och kommunkorpus', async () => {
-      const res = await callApi<{ case: DemoCase }>(`${API}/cases/${record!.id}/proposal`, { method: 'POST' });
+      const res = await callApi<{ case: DemoCase }>(`${API}/cases/${record!.id}/proposal`, { method: 'POST', body: { reopen: reopened } });
       setRecord(res.case);
       setDecisions({});
+      setReopened(false);
     });
 
   const rows = record?.proposal?.rows ?? [];
@@ -186,6 +190,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
   }
 
   const approved = record?.status === 'APPROVED' && record.approval;
+  const locked = Boolean(approved) && !reopened;
 
   return (
     <Shell onExit={onExit}>
@@ -258,13 +263,24 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
           <input type="checkbox" checked={input.placeholder} onChange={(e) => setInput({ ...input, placeholder: e.target.checked })} />
           Uppgifterna är platshållare (underlaget är inte ifyllt)
         </label>
+        {locked && (
+          <div className="mt-3 rounded border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-900" data-testid="locked">
+            Ärendet är godkänt och låst. Ändringar kräver att godkännandet upphävs; det tidigare frysta förslaget och dess PDF:er ligger kvar.
+            <button type="button" className="ml-2 underline" data-testid="reopen"
+              onClick={() => {
+                if (window.confirm('Upphäva godkännandet för att ändra ärendet? Det frysta förslaget och audit-posten ligger kvar, men ett nytt godkännande krävs.')) setReopened(true);
+              }}>
+              Ändra ärendet (upphäver godkännandet)
+            </button>
+          </div>
+        )}
         <div className="mt-3 flex gap-2">
           <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={primaryBtn('#1e293b')}
-            disabled={Boolean(busy) || !input.propertyDesignation.trim() || codes.length === 0} onClick={saveInput}>
+            disabled={Boolean(busy) || locked || !input.propertyDesignation.trim() || codes.length === 0} onClick={saveInput}>
             {record ? 'Spara ändrade uppgifter' : 'Skapa ärende'}
           </button>
           <button type="button" className="rounded bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={primaryBtn('#4338ca')}
-            disabled={Boolean(busy) || !record} onClick={propose}>
+            disabled={Boolean(busy) || locked || !record} onClick={propose}>
             Ta fram förslag
           </button>
         </div>

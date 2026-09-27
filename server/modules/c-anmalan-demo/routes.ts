@@ -81,12 +81,13 @@ router.get(`${BASE}/cases/:id`, requireAuth, guarded(async (req, res) => {
 }));
 
 router.put(`${BASE}/cases/:id/input`, requireAuth, rateLimitByUser(30, 60_000), guarded(async (req, res) => {
-  const body = z.object({ input: caseInputSchema }).parse(req.body);
-  send(res, updateInput(req.authUser!, String(req.params.id), body.input as DemoCaseInput));
+  const body = z.object({ input: caseInputSchema, reopen: z.boolean().optional() }).parse(req.body);
+  send(res, await updateInput(req.authUser!, String(req.params.id), body.input as DemoCaseInput, body.reopen === true));
 }));
 
 router.post(`${BASE}/cases/:id/proposal`, requireAuth, rateLimitByUser(20, 60_000), guarded(async (req, res) => {
-  send(res, await proposeCase(req.authUser!, String(req.params.id)));
+  const body = z.object({ reopen: z.boolean().optional() }).parse(req.body ?? {});
+  send(res, await proposeCase(req.authUser!, String(req.params.id), body.reopen === true));
 }));
 
 router.post(`${BASE}/cases/:id/approve`, requireAuth, rateLimitByUser(20, 60_000), guarded(async (req, res) => {

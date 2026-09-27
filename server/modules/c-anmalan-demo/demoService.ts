@@ -6,7 +6,7 @@ import { lookupPropertyByDesignationFromPostgis } from '../../services/propertyU
 import { auditTrail, getAuditTrail } from '../../services/auditTrailService';
 import type { AuthUser } from '../../security/types';
 import { freezeApproval, type FrozenProposal } from './approvalGate';
-import { loadCase, loadFrozen, newCaseId, saveCase } from './caseStore';
+import { canonicalJson, loadCase, loadFrozen, newCaseId, saveCase } from './caseStore';
 import { citeMpfCodes } from './legalCitation';
 import { LOCALIZATION_LABEL, localizationRows, readLayerFacts } from './localization';
 import { renderAnmalanPdf, renderEgenkontrollPdf } from './pdf';
@@ -57,12 +57,36 @@ export function getCase(user: AuthUser, id: string): Result<DemoCase> {
 }
 
 /** Changing the input discards the proposal and approval of this case (the frozen file stays). */
-export function updateInput(user: AuthUser, id: string, input: DemoCaseInput): Result<DemoCase> {
+/**
+ * An approved case is only changed on an explicit reopen, which is audited: a save or a new
+ * proposal must never silently discard the user's approval (defect seen 2026-09-27 17:20, where an
+ * unchanged save cleared the approval pointer; the frozen file and audit post were unaffected).
+ */
+async function guardApproved(user: AuthUser, record: DemoCase, reopen: boolean, what: string): Promise<Result<null>> {
+  if (record.status !== 'APPROVED') return { ok: true, value: null };
+  if (!reopen) return { ok: false, status: 409, error: 'approved_case_requires_reopen' };
+  await auditTrail.logAction(
+    reference(record.id),
+    'APPLICATION_UPDATED',
+    'Document',
+    record.id,
+    user.id,
+    `DEMO-01: godkännandet upphävt av användaren (${what}); tidigare fryst JSON ${record.approval?.frozenSha256 ?? '–'} ligger kvar`,
+    { userRole: user.role, details: { reopenedFrozenSha256: record.approval?.frozenSha256 ?? null, reason: what } },
+  );
+  return { ok: true, value: null };
+}
+
+export async function updateInput(user: AuthUser, id: string, input: DemoCaseInput, reopen = false): Promise<Result<DemoCase>> {
   const got = access(id, user);
   if (got.ok === false) return got;
   if (input.propertyDesignation !== got.value.input.propertyDesignation) {
     return { ok: false, status: 400, error: 'property_change_requires_new_case' };
   }
+  // Saving unchanged input is a no-op: nothing is discarded.
+  if (canonicalJson(input) === canonicalJson(got.value.input)) return { ok: true, value: got.value };
+  const guard = await guardApproved(user, got.value, reopen, 'ändrade uppgifter');
+  if (guard.ok === false) return guard;
   // A field the user rewrote is no longer a quote from the underlag file: its file source is dropped.
   const prev = got.value;
   const underlag = prev.underlag
@@ -80,9 +104,11 @@ export function updateInput(user: AuthUser, id: string, input: DemoCaseInput): R
   return { ok: true, value: record };
 }
 
-export async function proposeCase(user: AuthUser, id: string): Promise<Result<DemoCase>> {
+export async function proposeCase(user: AuthUser, id: string, reopen = false): Promise<Result<DemoCase>> {
   const got = access(id, user);
   if (got.ok === false) return got;
+  const guard = await guardApproved(user, got.value, reopen, 'nytt förslag');
+  if (guard.ok === false) return guard;
   const input = got.value.input;
   const facts = await readLayerFacts(input.propertyDesignation);
   const citations = await citeMpfCodes(input.verksamhetskoder);

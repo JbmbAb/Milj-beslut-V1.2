@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sha256, saveCase } from '../../caseStore';
-import { updateInput } from '../../demoService';
+import { proposeCase, updateInput } from '../../demoService';
 import { formatSource } from '../../formatSource';
 import { buildProposalRows, FICTIONAL_NOTE } from '../../proposalEngine';
 import type { DemoCase } from '../../types';
@@ -89,14 +89,44 @@ describe('underlag in the proposal', () => {
     const empty = rows.find((r) => r.id === 'user-jordart')!;
     expect(empty.provenance).toEqual({ kind: 'user_input', field: 'jordart' });
   });
-  it('a field the user rewrites loses its file source; untouched fields keep theirs', () => {
+  it('a field the user rewrites loses its file source; untouched fields keep theirs', async () => {
     const { input, underlag } = loadUnderlag(dir, mapping());
     const record: DemoCase = { id: 'demo01-underlag-00000001', createdAt: '', updatedAt: '', createdByUserId: 'u', organisationId: 'o', input, underlag, status: 'DRAFT' };
     saveCase(record);
-    const res = updateInput({ id: 'u', organisationId: 'o', role: 'ADMIN', bankidId: 'x' }, record.id, { ...input, avfallstyper: 'Egen ny text' });
+    const res = await updateInput({ id: 'u', organisationId: 'o', role: 'ADMIN', bankidId: 'x' }, record.id, { ...input, avfallstyper: 'Egen ny text' });
     if (res.ok === false) throw new Error(res.error);
     expect(res.value.underlag?.fieldSources.avfallstyper).toBeUndefined();
     expect(res.value.underlag?.fieldSources.verksamhetsutovare).toBeDefined();
     expect(res.value.underlag?.fictional).toBe(true);
+  });
+});
+
+describe('an approved case is never changed silently (defect 2026-09-27 17:20)', () => {
+  const user = { id: 'u', organisationId: 'o', role: 'ADMIN' as const, bankidId: 'x' };
+  const approvedCase = (): DemoCase => {
+    const { input, underlag } = loadUnderlag(dir, mapping());
+    return {
+      id: `demo01-approved-${Math.random().toString(16).slice(2, 10)}`, createdAt: '', updatedAt: '', createdByUserId: 'u', organisationId: 'o',
+      input, underlag, status: 'APPROVED',
+      approval: { approvedAt: 't', approvedByUserId: 'u', frozenSha256: 'f'.repeat(64), frozenPath: 'x', releaseSha: 'r' },
+    };
+  };
+
+  it('saving unchanged input keeps the approval (no-op)', async () => {
+    const c = approvedCase();
+    saveCase(c);
+    const res = await updateInput(user, c.id, { ...c.input });
+    if (res.ok === false) throw new Error(res.error);
+    expect(res.value.status).toBe('APPROVED');
+    expect(res.value.approval?.frozenSha256).toBe('f'.repeat(64));
+  });
+
+  it('RED: changing an approved case without reopen is refused with 409', async () => {
+    const c = approvedCase();
+    saveCase(c);
+    const res = await updateInput(user, c.id, { ...c.input, dagvatten: 'ny text' });
+    expect(res).toEqual({ ok: false, status: 409, error: 'approved_case_requires_reopen' });
+    const again = await proposeCase(user, c.id);
+    expect(again).toEqual({ ok: false, status: 409, error: 'approved_case_requires_reopen' });
   });
 });
