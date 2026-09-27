@@ -577,10 +577,21 @@ async function analyzeSite(
 
   const geologicalData = toGeologicalData(spatialAudit.sgu);
   const distanceToWaterMeters = spatialAudit.distanceToWaterMeters;
-  const distanceForCompliance =
-    distanceToWaterMeters ?? (strict && !spatialAudit.distanceToWaterAvailable ? null : 200);
 
-  if (distanceForCompliance == null) {
+  // NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: an unknown distance must reach the
+  // compliance engine as `null`, never as a fabricated numeric value (the legacy 200 m
+  // fallback REBUILD-GATE-STATUS.md explicitly bans). Mechanical only: this passes the real
+  // measured value straight through, in every mode, and does not attempt to define what an
+  // unknown distance should additionally communicate — that is a separate, later unit.
+  //
+  // The pre-existing strict-mode warning is preserved below, logically unchanged from main:
+  // it fires exactly when the source could not produce a distance at all
+  // (`distanceToWaterAvailable === false`) in strict mode. It must NOT fire when the query
+  // succeeded and simply found no water within its search radius
+  // (`distanceToWaterMeters === null` with `distanceToWaterAvailable === true`) — that is a
+  // genuine "beyond range" result, not a data gap, and conflating the two is exactly the
+  // producer-conflation risk a future W2 unit still needs to address at the source.
+  if (distanceToWaterMeters == null && strict && !spatialAudit.distanceToWaterAvailable) {
     warnings.push('Avstånd till vatten okänt — compliance använder inte standardfallback i strikt läge.');
   }
 
@@ -589,7 +600,7 @@ async function analyzeSite(
     protectedAreas,
     geologicalData,
     monuments,
-    distanceForCompliance ?? 200,
+    distanceToWaterMeters,
   );
 
   // Magic Moment path: property CAS → registry-resolved spatial provider → evidence → kernel → assessment

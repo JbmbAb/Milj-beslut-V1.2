@@ -533,7 +533,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     expect(sgu?.status).toBe('degraded');
   });
 
-  it('distanceForCompliance=null i strict-läge när vatten ej tillgängligt', async () => {
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: unavailable water distance in strict mode reaches the compliance engine as null, never fabricates Strandskydd, and preserves the existing strict-mode warning', async () => {
+    // Re-authored: this test previously asserted the strict-mode warning without also
+    // covering the mechanical guarantee. W1's cold review found the warning had been
+    // over-removed along with the numeric fallback — they are independent: the warning is
+    // pre-existing user-facing communication ("we don't know, no default was assumed"), the
+    // fallback was a fabricated number silently fed into a legal rule. Both are now covered.
     process.env.LOCALIZATION_STRICT_SOURCES = 'true';
     const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
     (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -552,6 +557,140 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
       siteAlternatives: [SITE],
     });
 
+    // The real measured value (null) passes through unmolested — never a fabricated 200.
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    // The pre-existing strict-mode warning is preserved for the genuinely-unavailable case.
     expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(true);
+
+    // DISCRIMINATING call-site proof, not a restrictions/rules check: complianceRuleEngine is
+    // vi.mock'd at the top of this file to always return a fixed { restrictions: [], rules: []
+    // } object regardless of input, so any assertion on report.siteAnalyses[0].complianceAnalysis
+    // would pass on unfixed main too — it proves nothing about this fix. The one thing this
+    // mock lets us observe honestly is what argument the usecase actually passed. Main called
+    // the engine with `distanceForCompliance ?? 200` — i.e. the literal 200 in this exact
+    // scenario — so this assertion fails on base and passes only when the real measured value
+    // (null) is the fifth argument.
+    const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      null,
+    );
+  });
+
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: a successful query finding no water within range must NOT warn — "beyond search radius" is not "unavailable"', async () => {
+    // The producer (spatialAuditService.ts) returns distanceToWaterMeters=null in TWO
+    // distinct situations: the query genuinely failed (distanceToWaterAvailable=false), or
+    // the query succeeded and simply found nothing within its search radius
+    // (distanceToWaterAvailable=true). Conflating these would warn on ordinary,
+    // far-from-water sites — ordinary sites are not a data gap. This is a strict-mode case
+    // specifically because the warning is strict-mode-only; the conflation risk is the same
+    // regardless of mode.
+    process.env.LOCALIZATION_STRICT_SOURCES = 'true';
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      protectedAreaHits: [],
+      protectedAreaAvailable: true,
+      isProtected: false,
+      sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+      distanceToWaterMeters: null,
+      distanceToWaterAvailable: true,
+      text: 'OK',
+      sources: [],
+    });
+
+    const report = await generateLocalizationReport({
+      projectId: 'proj-strict-beyond-range',
+      siteAlternatives: [SITE],
+    });
+
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+
+    // Same call-site proof as above (see that test's comment on why restrictions/rules
+    // assertions are vacuous against this file's mock).
+    const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      null,
+    );
+  });
+
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: unavailable water distance outside strict mode must not warn (warning is strict-mode-only, unchanged from main)', async () => {
+    delete process.env.LOCALIZATION_STRICT_SOURCES;
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      protectedAreaHits: [],
+      protectedAreaAvailable: true,
+      isProtected: false,
+      sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+      distanceToWaterMeters: null,
+      distanceToWaterAvailable: false,
+      text: 'OK',
+      sources: [],
+    });
+
+    const report = await generateLocalizationReport({
+      projectId: 'proj-nonstrict-nowater',
+      siteAlternatives: [SITE],
+    });
+
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+
+    const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      null,
+    );
+  });
+
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1 (positive control): a finite measured distance reaches the compliance engine unchanged, in every mode', async () => {
+    // Complements the three null-path tests above: this fix must not have disturbed the
+    // ordinary case where the producer DID successfully measure a distance. Asserts both ends
+    // of the same fact — the result-facing field, and the exact argument the (mocked) engine
+    // received — so a future edit that broke the plain pass-through in either the field or
+    // the call site would be caught here, not just in the compliance-engine unit tests.
+    delete process.env.LOCALIZATION_STRICT_SOURCES;
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      protectedAreaHits: [],
+      protectedAreaAvailable: true,
+      isProtected: false,
+      sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+      distanceToWaterMeters: 42,
+      distanceToWaterAvailable: true,
+      text: 'OK',
+      sources: [],
+    });
+
+    const report = await generateLocalizationReport({
+      projectId: 'proj-finite-distance',
+      siteAlternatives: [SITE],
+    });
+
+    expect(report.siteAnalyses[0].distanceToWaterMeters).toBe(42);
+    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+
+    const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(evaluateComplianceRules)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      42,
+    );
   });
 });

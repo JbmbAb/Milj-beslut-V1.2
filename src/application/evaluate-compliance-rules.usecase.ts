@@ -71,7 +71,7 @@ export class EvaluateComplianceRulesUseCase {
     protectedAreas: ProtectedArea[],
     geological: GeologicalData,
     monuments: Monument[],
-    distanceToWater: number = 200,
+    distanceToWater: number | null = null,
   ): SiteAnalysis {
     const rules: ComplianceRuleResult[] = [];
     const restrictions: string[] = [];
@@ -103,7 +103,12 @@ export class EvaluateComplianceRulesUseCase {
       });
     }
 
-    if (distanceToWater < 100) {
+    // NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: `null < 100` is `true` in JS (null
+    // coerces to 0), so a naive pass-through would fabricate a HIGH Strandskydd finding
+    // ("Avstand till vatten ar null m") for every unknown distance. Number.isFinite() guards
+    // both null and NaN explicitly; do not rely on `typeof === 'number'`, which lets NaN
+    // through. This is a technical guard only — it does not define what "unknown" means.
+    if (Number.isFinite(distanceToWater) && (distanceToWater as number) < 100) {
       restrictions.push('Strandskydd');
       rules.push({
         ruleId: 'MB_7_KAP_STRAND',
