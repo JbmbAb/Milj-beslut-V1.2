@@ -98,9 +98,9 @@ describe('DEMO-01 import scan (K-26 §1)', () => {
 });
 
 /**
- * Charter §0f / K-36: the case (property, quantities, names, codes of the test case) must not be a
- * literal in the demo code. Word boundaries matter: "korsar" contains "orsa" and must not match.
- * Only exceptions: the declared seed loader (it names the default underlag folder) and test files.
+ * Charter §0f / K-36 / K-51: the case (property, quantities, names, codes of the test case) must not
+ * be a literal in the demo code. Word boundaries matter: "korsar" contains "orsa" and must not match.
+ * Since K-51 the seed loader has no default folder, so it is scanned too; only test files are exempt.
  */
 export const CASE_LITERALS: RegExp[] = [
   /\bSTACKMORA\b/i,
@@ -126,19 +126,22 @@ export function literalHits(files: string[]): string[] {
 describe('DEMO-01 literal scan (charter §0f, K-36)', () => {
   const demoFiles = [...listSources(MODULE_DIR), ...listSources(CLIENT_DIR)].map(rel);
 
-  it('scans both demo trees and excludes only the declared seed loader and tests', () => {
+  it('scans both demo trees, including the seed loader; only tests are excluded', () => {
+    expect(demoFiles).toContain(SEED_LOADER);
     expect(demoFiles).toContain('server/modules/c-anmalan-demo/routes.ts');
     expect(demoFiles).toContain('components/demo/c-anmalan/CAnmalanDemoView.tsx');
     expect(demoFiles.some((f) => f.includes('/tests/'))).toBe(false);
   });
 
-  it('no case literal in the demo code outside the declared seed loader', () => {
-    expect(literalHits(demoFiles.filter((f) => f !== SEED_LOADER))).toEqual([]);
+  it('no case literal anywhere in the demo code (seed loader included)', () => {
+    expect(literalHits(demoFiles)).toEqual([]);
   });
 
-  it('the seed loader takes the underlag folder from DEMO_UNDERLAG_DIR', () => {
+  it('the seed loader takes the underlag folder only from DEMO_UNDERLAG_DIR, with no default', () => {
     const src = fs.readFileSync(path.join(ROOT, SEED_LOADER), 'utf8');
     expect(src).toMatch(/process\.env\.DEMO_UNDERLAG_DIR/);
+    expect(src).not.toMatch(/DEFAULT_UNDERLAG_DIR/);
+    expect(src).not.toMatch(/testcase/i);
   });
 
   it('word boundaries: "korsar", "Orsasjön-lik" text in other words does not match, the names do', () => {

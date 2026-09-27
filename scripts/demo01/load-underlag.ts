@@ -2,8 +2,8 @@
 // (server/modules/c-anmalan-demo/seedUnderlag.ts; DEMO_UNDERLAG_DIR / DEMO_UNDERLAG_MAPPING from
 // env) and build its proposal. Approval is left to the user in the demo view.
 //
-// Usage (cwd = worktree root, local DB up):
-//   node --import tsx scripts/demo01/load-underlag.ts --user <userId> --org <organisationId>
+// Usage (cwd = worktree root, local DB up; DEMO_UNDERLAG_DIR is required, no default):
+//   DEMO_UNDERLAG_DIR=<underlag dir> node --import tsx scripts/demo01/load-underlag.ts --user <userId> --org <organisationId>
 //        --role ADMIN|CONSULTANT --project <projectId> [--approve-all-for-writer-test]
 import '../../server/loadEnvFirst';
 

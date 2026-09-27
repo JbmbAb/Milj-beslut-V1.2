@@ -9,7 +9,7 @@
 export const FICTIONAL_MARK = 'FIKTIVA UPPGIFTER — demo';
 
 /** C-code menu of the demo view (K-36: regulation, not the case; all Anmälningsplikt C). "annan kod" stays free text. */
-export const DEMO_CODES = ['90.40', '90.110', '90.141'] as const;
+export const DEMO_CODES = ['90.40', '90.80', '90.110', '90.141'] as const;
 
 /** Where a row comes from. There is no "generated"/"ai" kind on purpose. */
 export type RowProvenance =

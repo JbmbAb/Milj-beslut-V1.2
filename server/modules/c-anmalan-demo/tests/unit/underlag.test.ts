@@ -13,6 +13,7 @@ import { formatSource } from '../../formatSource';
 import { buildProposalRows, FICTIONAL_NOTE } from '../../proposalEngine';
 import type { DemoCase } from '../../types';
 import { loadUnderlag, stripMarkdown, type UnderlagMapping } from '../../underlagLoader';
+import { seedFromUnderlag, underlagDir } from '../../seedUnderlag';
 
 let tmp: string;
 let dir: string;
@@ -128,5 +129,38 @@ describe('an approved case is never changed silently (defect 2026-09-27 17:20)',
     expect(res).toEqual({ ok: false, status: 409, error: 'approved_case_requires_reopen' });
     const again = await proposeCase(user, c.id);
     expect(again).toEqual({ ok: false, status: 409, error: 'approved_case_requires_reopen' });
+  });
+});
+
+describe('seed loader requires DEMO_UNDERLAG_DIR (K-51)', () => {
+  it('RED: refuses to run without DEMO_UNDERLAG_DIR, with a clear message', () => {
+    const prev = process.env.DEMO_UNDERLAG_DIR;
+    delete process.env.DEMO_UNDERLAG_DIR;
+    try {
+      expect(() => underlagDir()).toThrow(/DEMO_UNDERLAG_DIR saknas/);
+      expect(() => seedFromUnderlag()).toThrow(/DEMO_UNDERLAG_DIR saknas/);
+    } finally {
+      if (prev !== undefined) process.env.DEMO_UNDERLAG_DIR = prev;
+    }
+  });
+  it('refuses a folder that does not exist', () => {
+    const prev = process.env.DEMO_UNDERLAG_DIR;
+    process.env.DEMO_UNDERLAG_DIR = path.join(tmp, 'finns-inte');
+    try {
+      expect(() => underlagDir()).toThrow(/DEMO_UNDERLAG_DIR finns inte/);
+    } finally {
+      if (prev === undefined) delete process.env.DEMO_UNDERLAG_DIR;
+      else process.env.DEMO_UNDERLAG_DIR = prev;
+    }
+  });
+  it('uses the folder given in DEMO_UNDERLAG_DIR', () => {
+    const prev = process.env.DEMO_UNDERLAG_DIR;
+    process.env.DEMO_UNDERLAG_DIR = dir;
+    try {
+      expect(underlagDir()).toBe(dir);
+    } finally {
+      if (prev === undefined) delete process.env.DEMO_UNDERLAG_DIR;
+      else process.env.DEMO_UNDERLAG_DIR = prev;
+    }
   });
 });
