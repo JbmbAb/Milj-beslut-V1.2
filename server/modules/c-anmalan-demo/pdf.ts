@@ -7,7 +7,7 @@
 import PDFDocument from 'pdfkit';
 import type { FrozenProposal } from './approvalGate';
 import { formatSource } from './formatSource';
-import type { ProposalRow, ProposalSectionId } from './types';
+import { FICTIONAL_MARK, type ProposalRow, type ProposalSectionId } from './types';
 
 export const ANMALAN_TITLE = 'C-anmälan – förslag, ej inlämnad';
 export const EGENKONTROLL_TITLE = 'Egenkontrollprogram – förslag';
@@ -54,6 +54,13 @@ function header(doc: PDFKit.PDFDocument, title: string, frozen: FrozenProposal) 
   doc.moveDown(0.3).fontSize(18).fillColor('#0f172a').text(title);
   doc.fontSize(10).fillColor('#334155').text(`Fastighet: ${frozen.input.propertyDesignation}`);
   doc.text(`Godkänt radvis av användaren: ${frozen.approvedAt.slice(0, 16).replace('T', ' ')} (UTC)`);
+  if (frozen.underlag?.fictional) {
+    doc.fillColor('#b91c1c').font('Helvetica-Bold')
+      .text(`${FICTIONAL_MARK}. Användarens uppgifter kommer ur ${frozen.underlag.label} (sha256 ${frozen.underlag.sha256.slice(0, 12)}…) och är påhittade för test; detta är ingen verklig anmälan.`)
+      .font('Helvetica');
+  } else if (frozen.underlag) {
+    doc.fillColor('#334155').text(`Användarens underlag: ${frozen.underlag.label} (sha256 ${frozen.underlag.sha256.slice(0, 12)}…)`);
+  }
   if (frozen.input.placeholder) {
     doc.fillColor('#b45309').text('Ärendet innehåller platshållare: användarens underlag är inte ifyllt.');
   }
@@ -76,7 +83,8 @@ function rowBlock(doc: PDFKit.PDFDocument, r: ProposalRow) {
 }
 
 function footerText(frozen: FrozenProposal, sha256: string) {
-  return `Förslag – ej inlämnad · release ${frozen.releaseSha} · fryst JSON sha256 ${sha256}`;
+  const mark = frozen.underlag?.fictional ? `${FICTIONAL_MARK} · ` : '';
+  return `${mark}Förslag – ej inlämnad · release ${frozen.releaseSha} · fryst JSON sha256 ${sha256}`;
 }
 
 export function renderAnmalanPdf(frozen: FrozenProposal, sha256: string): Promise<Buffer> {

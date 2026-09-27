@@ -214,7 +214,7 @@ export const AppShell: React.FC = () => {
   // shell (TechnicalDashboardHub, AppContentRouter, AppSidebar) from here any more, so no
   // env value can resurrect it. Legacy-scoped modules (sewage, mass notification, logistics,
   // generators, project manager) are out of the frozen LU+admin-console product scope.
-  if (locationHash === DEMO_C_ANMALAN_HASH) {
+  if (locationHash === DEMO_C_ANMALAN_HASH || locationHash.startsWith(`${DEMO_C_ANMALAN_HASH}?`)) {
     return <CAnmalanDemoView onExit={() => { window.location.hash = ''; }} />;
   }
 

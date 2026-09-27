@@ -35,6 +35,7 @@ export interface FrozenProposal {
   approvedByUserId: string;
   releaseSha: string;
   input: DemoCase['input'];
+  underlag: DemoCase['underlag'] | null;
   rows: ProposalRow[];
   decisions: RowDecision[];
   struckRowIds: string[];
@@ -89,6 +90,7 @@ export function freezeApproval(record: DemoCase, decisions: RowDecision[], userI
     approvedByUserId: userId,
     releaseSha: releaseSha(),
     input: record.input,
+    underlag: record.underlag ?? null,
     rows: approved,
     decisions,
     struckRowIds: struck,

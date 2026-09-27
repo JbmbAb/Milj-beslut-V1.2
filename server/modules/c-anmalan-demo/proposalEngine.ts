@@ -7,23 +7,32 @@
  */
 import type { MpfCitation } from './legalCitation';
 import type { CoverageRow, RequirementRow } from './requirementsSource';
-import type { DemoCaseInput, ProposalRow, ProposalSectionId } from './types';
+import type { DemoCaseInput, ProposalRow, ProposalSectionId, UnderlagRef } from './types';
 
 export const INSUFFICIENT = 'otillräckligt underlag';
 export const MIN_N = 3;
 const USER_MISSING = 'användarens uppgift – ej ifylld';
-const PLACEHOLDER_NOTE = 'platshållare – ärendet är inte fryst (jimmy-underlag/ ej ifyllt)';
+const PLACEHOLDER_NOTE = 'platshållare – användarens underlag är inte inläst';
+export const FICTIONAL_NOTE = 'fiktiv uppgift (demo) – ej verklig';
 
-function userRow(input: DemoCaseInput, section: ProposalSectionId, field: keyof DemoCaseInput, label: string): ProposalRow {
+function userRow(
+  input: DemoCaseInput,
+  underlag: UnderlagRef | undefined,
+  section: ProposalSectionId,
+  field: keyof DemoCaseInput,
+  label: string,
+): ProposalRow {
   const raw = input[field];
   const value = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '').trim();
+  const sources = value ? underlag?.fieldSources[field] : undefined;
+  const fictional = Boolean(value && underlag?.fictional);
   return {
     id: `user-${field}`,
     section,
     label,
     text: value || USER_MISSING,
-    provenance: { kind: 'user_input', field },
-    note: input.placeholder && value ? PLACEHOLDER_NOTE : undefined,
+    provenance: { kind: 'user_input', field, ...(sources?.length ? { sources } : {}), ...(fictional ? { fictional } : {}) },
+    note: [input.placeholder && value ? PLACEHOLDER_NOTE : null, fictional ? FICTIONAL_NOTE : null].filter(Boolean).join('; ') || undefined,
   };
 }
 
@@ -114,6 +123,7 @@ function corpusRows(rows: RequirementRow[], codes: string[], coverage: CoverageR
 
 export function buildProposalRows(args: {
   input: DemoCaseInput;
+  underlag?: UnderlagRef;
   localization: ProposalRow[];
   citations: MpfCitation[];
   requirements: RequirementRow[];
@@ -121,20 +131,27 @@ export function buildProposalRows(args: {
   municipality: string | null;
 }): ProposalRow[] {
   const { input } = args;
+  const u = (section: ProposalSectionId, field: keyof DemoCaseInput, label: string) => userRow(input, args.underlag, section, field, label);
+  const corpus = corpusRows(args.requirements, input.verksamhetskoder, args.coverage, args.municipality);
   const rows: ProposalRow[] = [
-    userRow(input, 'verksamhetsutovare', 'verksamhetsutovare', 'Verksamhetsutövare'),
-    userRow(input, 'verksamhetsutovare', 'propertyDesignation', 'Fastighet'),
-    userRow(input, 'verksamhet', 'verksamhetskoder', 'Verksamhetskod(er), valda av användaren'),
+    u('verksamhetsutovare', 'verksamhetsutovare', 'Verksamhetsutövare'),
+    u('verksamhetsutovare', 'propertyDesignation', 'Fastighet'),
+    u('verksamhet', 'verksamhetsbeskrivning', 'Verksamhetsbeskrivning'),
+    u('verksamhet', 'verksamhetskoder', 'Verksamhetskod(er), valda av användaren'),
     ...legalRows(args.citations),
-    userRow(input, 'verksamhet', 'avfallstyper', 'Avfallstyper (EWC)'),
-    userRow(input, 'verksamhet', 'mangdPerArTon', 'Mängd per år (ton)'),
-    userRow(input, 'verksamhet', 'maxSamtidigtLagradTon', 'Största mängd lagrad vid något tillfälle (ton)'),
+    u('verksamhet', 'avfallstyper', 'Avfallstyper (EWC)'),
+    u('verksamhet', 'mangdPerArTon', 'Mängd per år (ton)'),
+    u('verksamhet', 'maxSamtidigtLagradTon', 'Största mängd lagrad vid något tillfälle (ton)'),
     ...args.localization,
-    userRow(input, 'teknisk_beskrivning', 'ytansKonstruktion', 'Lagringsytans konstruktion (tätskikt, bärlager)'),
-    userRow(input, 'teknisk_beskrivning', 'jordart', 'Jordart under ytan'),
-    userRow(input, 'teknisk_beskrivning', 'lutningAvrinning', 'Lutning och avrinning'),
-    userRow(input, 'teknisk_beskrivning', 'dagvatten', 'Dagvattenhantering'),
-    ...corpusRows(args.requirements, input.verksamhetskoder, args.coverage, args.municipality),
+    u('teknisk_beskrivning', 'ytansKonstruktion', 'Lagringsytans konstruktion (tätskikt, bärlager)'),
+    u('teknisk_beskrivning', 'jordart', 'Jordart under ytan'),
+    u('teknisk_beskrivning', 'lutningAvrinning', 'Lutning och avrinning'),
+    u('teknisk_beskrivning', 'dagvatten', 'Dagvattenhantering'),
+    ...corpus.filter((r) => r.section === 'teknisk_beskrivning'),
+    u('forsiktighetsmatt', 'anvandarensForsiktighetsmatt', 'Verksamhetsutövarens försiktighetsmått (damm, buller, transporter)'),
+    ...corpus.filter((r) => r.section === 'forsiktighetsmatt'),
+    u('egenkontroll', 'anvandarensEgenkontroll', 'Verksamhetsutövarens kontrollrutiner'),
+    ...corpus.filter((r) => r.section === 'egenkontroll'),
   ];
   assertEveryRowHasProvenance(rows);
   return rows;

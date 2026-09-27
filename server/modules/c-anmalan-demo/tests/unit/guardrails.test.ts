@@ -102,14 +102,14 @@ describe('proposal engine: counts, not percentages; n < 3 marked', () => {
   it('prefers a manually verified source row as the quote', () => {
     const rows = buildProposalRows({ input: input(), localization: [], citations: [], coverage: [], municipality: null,
       requirements: [req(), req({ row_id: 'r0', verified: true, citat: 'Verifierad formulering.' })] });
-    const corpus = rows.find((r) => r.section === 'forsiktighetsmatt')!;
+    const corpus = rows.find((r) => r.section === 'forsiktighetsmatt' && r.provenance.kind === 'municipal_corpus')!;
     expect(corpus.text).toBe('Verifierad formulering.');
     expect(corpus.provenance.kind === 'municipal_corpus' && corpus.provenance.verified).toBe(true);
   });
   it('kontrollpunkt rows land in egenkontroll; missing fields are the user\'s task', () => {
     const rows = buildProposalRows({ input: input(), localization: [], citations: [], coverage: [], municipality: null,
       requirements: [req({ krav_typ: 'kontrollpunkt', frekvens: 'en gång per år', extraction_rule_id: 'rule-kontroll' })] });
-    const k = rows.find((r) => r.section === 'egenkontroll')!;
+    const k = rows.find((r) => r.section === 'egenkontroll' && r.provenance.kind === 'municipal_corpus')!;
     expect(k.control).toMatchObject({ frekvens: 'en gång per år', metod: 'användarens uppgift – ej ifylld', avvikelse: 'användarens uppgift – ej ifylld' });
   });
 });

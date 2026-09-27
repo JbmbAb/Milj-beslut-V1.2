@@ -96,3 +96,56 @@ describe('DEMO-01 import scan (K-26 §1)', () => {
     expect(appShell).not.toMatch(/CNotificationMassUI/);
   });
 });
+
+/**
+ * Charter §0f / K-36: the case (property, quantities, names, codes of the test case) must not be a
+ * literal in the demo code. Word boundaries matter: "korsar" contains "orsa" and must not match.
+ * Only exceptions: the declared seed loader (it names the default underlag folder) and test files.
+ */
+export const CASE_LITERALS: RegExp[] = [
+  /\bSTACKMORA\b/i,
+  /\b3:12\b/,
+  /\bJimmy\b/i,
+  /\bMillby/i,
+  /\b4 800\b/,
+  /\b2 100\b/,
+  /\b559999/,
+  /\bPG-01\b/,
+  /\b17 05 04\b/,
+  /\bOrsa\b/i,
+];
+const SEED_LOADER = 'server/modules/c-anmalan-demo/seedUnderlag.ts';
+
+export function literalHits(files: string[]): string[] {
+  return files.flatMap((f) => {
+    const lines = fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\r?\n/);
+    return lines.flatMap((line, i) => CASE_LITERALS.filter((re) => re.test(line)).map((re) => `${f}:${i + 1} ${re}`));
+  });
+}
+
+describe('DEMO-01 literal scan (charter §0f, K-36)', () => {
+  const demoFiles = [...listSources(MODULE_DIR), ...listSources(CLIENT_DIR)].map(rel);
+
+  it('scans both demo trees and excludes only the declared seed loader and tests', () => {
+    expect(demoFiles).toContain('server/modules/c-anmalan-demo/routes.ts');
+    expect(demoFiles).toContain('components/demo/c-anmalan/CAnmalanDemoView.tsx');
+    expect(demoFiles.some((f) => f.includes('/tests/'))).toBe(false);
+  });
+
+  it('no case literal in the demo code outside the declared seed loader', () => {
+    expect(literalHits(demoFiles.filter((f) => f !== SEED_LOADER))).toEqual([]);
+  });
+
+  it('the seed loader takes the underlag folder from DEMO_UNDERLAG_DIR', () => {
+    const src = fs.readFileSync(path.join(ROOT, SEED_LOADER), 'utf8');
+    expect(src).toMatch(/process\.env\.DEMO_UNDERLAG_DIR/);
+  });
+
+  it('word boundaries: "korsar", "Orsasjön-lik" text in other words does not match, the names do', () => {
+    expect(CASE_LITERALS.some((re) => re.test('0 korsar fastigheten'))).toBe(false);
+    expect(CASE_LITERALS.some((re) => re.test('lagret korsade'))).toBe(false);
+    expect(CASE_LITERALS.some((re) => re.test('kommun ORSA'))).toBe(true);
+    expect(CASE_LITERALS.some((re) => re.test('STACKMORA'))).toBe(true);
+    expect(CASE_LITERALS.some((re) => re.test('dnr 2 100-12'))).toBe(true);
+  });
+});

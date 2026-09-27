@@ -13,8 +13,10 @@ export function formatSource(p: RowProvenance): string {
       return `Källa: ${PROVENANCE_LABEL[p.kind]}, ${p.paragraph || '–'}, ${p.recordKey}, content_hash ${short(p.contentHash)}; ${p.caveat}`;
     case 'mimer_layer':
       return `Källa: ${PROVENANCE_LABEL[p.kind]} ${p.layer}${p.datasetVersion ? `, dataset ${p.datasetVersion}` : ''}, bundle ${short(p.bundleSha256)}; fråga: ${p.query}`;
-    case 'user_input':
-      return `Källa: ${PROVENANCE_LABEL[p.kind]}`;
+    case 'user_input': {
+      const files = p.sources?.map((f) => `${f.file} sha256 ${short(f.sha256, 8)}`).join(', ');
+      return `Källa: ${PROVENANCE_LABEL[p.kind]}${files ? ` (${files})` : ''}${p.fictional ? ' – fiktiv uppgift (demo)' : ''}`;
+    }
     case 'template_default':
       return `Källa: ${PROVENANCE_LABEL[p.kind]} (${p.templateId})`;
   }

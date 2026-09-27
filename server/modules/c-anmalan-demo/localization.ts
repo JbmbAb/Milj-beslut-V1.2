@@ -2,7 +2,7 @@
  * Lokaliseringsavsnitt for DEMO-01 (K-26 §3).
  *
  * Same read-only layer queries as the testcase folder
- * (Claude outputs/demo-01-testcase-orsa-stackmora-3-12/mimer-db-evidence/02–05), run in a
+ * (the testcase folder's mimer-db-evidence/02–05, owned by the verifier), run in a
  * READ ONLY transaction. Each result row carries the runtime-bound import batch and its bundle
  * hash from "PostgisImportBatch". Nothing here is inferred: missing data becomes
  * "ej analyserat", never a default.

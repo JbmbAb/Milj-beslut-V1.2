@@ -38,12 +38,12 @@ describe('CAnmalanDemoView', () => {
   it('walks case → proposal → radvis approval, with sources shown and no submit', async () => {
     render(<CAnmalanDemoView onExit={() => undefined} />);
     await screen.findByText(/Release:/);
-    fireEvent.change(screen.getByPlaceholderText('t.ex. ORSA STACKMORA 3:12'), { target: { value: 'orsa stackmora 3:12' } });
+    fireEvent.change(screen.getByPlaceholderText('Fastighetsbeteckning'), { target: { value: 'testby 1:1' } });
     fireEvent.click(screen.getByLabelText('90.40'));
     fireEvent.click(screen.getByText('Skapa ärende'));
     await waitFor(() => expect(callApi).toHaveBeenCalledWith('/api/demo/c-anmalan/cases', expect.objectContaining({ method: 'POST' })));
     expect(callApi.mock.calls.find((c) => c[0] === '/api/demo/c-anmalan/cases')![1].body.input).toMatchObject({
-      propertyDesignation: 'ORSA STACKMORA 3:12', verksamhetskoder: ['90.40'], placeholder: true,
+      propertyDesignation: 'TESTBY 1:1', verksamhetskoder: ['90.40'], placeholder: true,
     });
 
     fireEvent.click(screen.getByText('Ta fram förslag'));

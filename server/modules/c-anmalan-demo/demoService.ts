@@ -12,7 +12,7 @@ import { LOCALIZATION_LABEL, localizationRows, readLayerFacts } from './localiza
 import { renderAnmalanPdf, renderEgenkontrollPdf } from './pdf';
 import { buildProposalRows } from './proposalEngine';
 import { loadRequirements } from './requirementsSource';
-import type { DemoCase, DemoCaseInput, RowDecision } from './types';
+import type { DemoCase, DemoCaseInput, RowDecision, UnderlagRef } from './types';
 
 type Result<T> = { ok: true; value: T } | { ok: false; status: number; error: string };
 
@@ -25,7 +25,13 @@ function access(id: string, user: AuthUser): Result<DemoCase> {
   return { ok: true, value: record };
 }
 
-export async function createCase(user: AuthUser, projectId: string, input: DemoCaseInput): Promise<Result<DemoCase>> {
+/** `underlag` is passed only by the local underlag loader; the HTTP routes never set it. */
+export async function createCase(
+  user: AuthUser,
+  projectId: string,
+  input: DemoCaseInput,
+  underlag?: UnderlagRef,
+): Promise<Result<DemoCase>> {
   // Reused property lookup: validates project membership and writes the property-access audit.
   await lookupPropertyByDesignationFromPostgis(
     { projectId, propertyDesignation: input.propertyDesignation, purpose: 'demo01_c_anmalan' },
@@ -39,6 +45,7 @@ export async function createCase(user: AuthUser, projectId: string, input: DemoC
     createdByUserId: user.id,
     organisationId: user.organisationId,
     input,
+    ...(underlag ? { underlag } : {}),
     status: 'DRAFT',
   };
   saveCase(record);
@@ -56,7 +63,19 @@ export function updateInput(user: AuthUser, id: string, input: DemoCaseInput): R
   if (input.propertyDesignation !== got.value.input.propertyDesignation) {
     return { ok: false, status: 400, error: 'property_change_requires_new_case' };
   }
-  const record: DemoCase = { ...got.value, input, status: 'DRAFT', proposal: undefined, approval: undefined, updatedAt: new Date().toISOString() };
+  // A field the user rewrote is no longer a quote from the underlag file: its file source is dropped.
+  const prev = got.value;
+  const underlag = prev.underlag
+    ? {
+        ...prev.underlag,
+        fieldSources: Object.fromEntries(
+          Object.entries(prev.underlag.fieldSources).filter(
+            ([field]) => JSON.stringify(input[field as keyof DemoCaseInput]) === JSON.stringify(prev.input[field as keyof DemoCaseInput]),
+          ),
+        ),
+      }
+    : undefined;
+  const record: DemoCase = { ...prev, input, underlag, status: 'DRAFT', proposal: undefined, approval: undefined, updatedAt: new Date().toISOString() };
   saveCase(record);
   return { ok: true, value: record };
 }
@@ -70,6 +89,7 @@ export async function proposeCase(user: AuthUser, id: string): Promise<Result<De
   const requirements = loadRequirements();
   const rows = buildProposalRows({
     input,
+    underlag: got.value.underlag,
     localization: localizationRows(facts),
     citations,
     requirements: requirements.rows,

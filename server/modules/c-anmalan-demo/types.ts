@@ -5,6 +5,12 @@
  * fallback (see assertEveryRowHasProvenance in proposalEngine.ts).
  */
 
+/** Marking for a fictional underlag (K-36): view, both PDFs (header + every footer). */
+export const FICTIONAL_MARK = 'FIKTIVA UPPGIFTER — demo';
+
+/** C-code menu of the demo view (K-36: regulation, not the case; all Anmälningsplikt C). "annan kod" stays free text. */
+export const DEMO_CODES = ['90.40', '90.110', '90.141'] as const;
+
 /** Where a row comes from. There is no "generated"/"ai" kind on purpose. */
 export type RowProvenance =
   | {
@@ -32,7 +38,14 @@ export type RowProvenance =
       bundleSha256: string | null;
       query: string;
     }
-  | { kind: 'user_input'; field: string }
+  | {
+      kind: 'user_input';
+      field: string;
+      /** Files in the user's underlag the text is quoted from (set only by the underlag loader). */
+      sources?: UnderlagFileRef[];
+      /** The underlag is marked as fictional demo data. */
+      fictional?: boolean;
+    }
   | { kind: 'template_default'; templateId: string };
 
 export const PROVENANCE_LABEL: Record<RowProvenance['kind'], string> = {
@@ -71,6 +84,20 @@ export interface ProposalRow {
   };
 }
 
+export interface UnderlagFileRef {
+  file: string;
+  sha256: string;
+}
+
+/** Where the user's facts came from. Set only server-side by the underlag loader, never by the API. */
+export interface UnderlagRef {
+  label: string;
+  sha256: string;
+  fictional: boolean;
+  /** Per input field: the files its text is quoted from, verbatim. */
+  fieldSources: Partial<Record<string, UnderlagFileRef[]>>;
+}
+
 /** User-supplied facts. Everything here renders as "användarens uppgift". */
 export interface DemoCaseInput {
   propertyDesignation: string;
@@ -84,7 +111,12 @@ export interface DemoCaseInput {
   jordart: string;
   lutningAvrinning: string;
   dagvatten: string;
-  /** true while jimmy-underlag/ is empty: every user field is a placeholder. */
+  verksamhetsbeskrivning?: string;
+  /** The user's own precautions (dust, noise, transports). */
+  anvandarensForsiktighetsmatt?: string;
+  /** The user's own control routines, feeds the egenkontroll PDF. */
+  anvandarensEgenkontroll?: string;
+  /** true while the user's underlag is not loaded: every user field is a placeholder. */
   placeholder: boolean;
 }
 
@@ -95,6 +127,7 @@ export interface DemoCase {
   createdByUserId: string;
   organisationId: string | null;
   input: DemoCaseInput;
+  underlag?: UnderlagRef;
   status: 'DRAFT' | 'PROPOSED' | 'APPROVED';
   proposal?: Proposal;
   approval?: ApprovalRecord;

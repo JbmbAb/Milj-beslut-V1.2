@@ -30,6 +30,9 @@ export const caseInputSchema = z.object({
   jordart: text,
   lutningAvrinning: text,
   dagvatten: text,
+  verksamhetsbeskrivning: text,
+  anvandarensForsiktighetsmatt: text,
+  anvandarensEgenkontroll: text,
   placeholder: z.boolean(),
 });
 

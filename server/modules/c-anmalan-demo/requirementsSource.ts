@@ -11,7 +11,6 @@ import path from 'node:path';
 import { sha256 } from './caseStore';
 import type { RequirementsSourceStatus } from './types';
 
-export const DEMO_CODES = ['90.30', '90.40', '90.131'] as const;
 export const KRAV_TYPER = ['försiktighetsmått', 'kontrollpunkt', 'kompletteringskrav', 'villkor'] as const;
 export const DOKUMENTTYPER = ['anmälan', 'beslut', 'föreläggande', 'komplettering'] as const;
 

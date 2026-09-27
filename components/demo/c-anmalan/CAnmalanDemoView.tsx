@@ -7,15 +7,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { formatSource } from '../../../server/modules/c-anmalan-demo/formatSource';
-import type {
-  DemoCase,
-  DemoCaseInput,
-  ProposalRow,
-  ProposalSectionId,
-  RequirementsSourceStatus,
+import {
+  DEMO_CODES,
+  FICTIONAL_MARK,
+  type DemoCase,
+  type DemoCaseInput,
+  type ProposalRow,
+  type ProposalSectionId,
+  type RequirementsSourceStatus,
 } from '../../../server/modules/c-anmalan-demo/types';
 
-const CODES = ['90.30', '90.40', '90.131'];
+const CODES: readonly string[] = DEMO_CODES;
 
 const SECTION_TITLES: Record<ProposalSectionId, string> = {
   verksamhetsutovare: '1. Verksamhetsutövare och fastighet',
@@ -28,6 +30,7 @@ const SECTION_TITLES: Record<ProposalSectionId, string> = {
 
 const TEXT_FIELDS: Array<[keyof DemoCaseInput, string]> = [
   ['verksamhetsutovare', 'Verksamhetsutövare'],
+  ['verksamhetsbeskrivning', 'Verksamhetsbeskrivning'],
   ['avfallstyper', 'Avfallstyper (EWC)'],
   ['mangdPerArTon', 'Mängd per år (ton)'],
   ['maxSamtidigtLagradTon', 'Största mängd lagrad vid något tillfälle (ton)'],
@@ -35,6 +38,8 @@ const TEXT_FIELDS: Array<[keyof DemoCaseInput, string]> = [
   ['jordart', 'Jordart under ytan'],
   ['lutningAvrinning', 'Lutning och avrinning'],
   ['dagvatten', 'Dagvattenhantering'],
+  ['anvandarensForsiktighetsmatt', 'Egna försiktighetsmått (damm, buller, transporter)'],
+  ['anvandarensEgenkontroll', 'Egna kontrollrutiner'],
 ];
 
 const emptyInput = (): DemoCaseInput => ({
@@ -48,8 +53,14 @@ const emptyInput = (): DemoCaseInput => ({
   jordart: '',
   lutningAvrinning: '',
   dagvatten: '',
+  verksamhetsbeskrivning: '',
+  anvandarensForsiktighetsmatt: '',
+  anvandarensEgenkontroll: '',
   placeholder: true,
 });
+
+/** `#/demo/c-anmalan?case=<id>` opens a prepared case (e.g. one loaded from the underlag). */
+const caseIdFromHash = () => new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('case');
 
 type Decision = { action: 'accept' } | { action: 'strike' } | { action: 'edit'; text: string };
 
@@ -87,6 +98,17 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
     callApi<StatusResponse>(`${API}/status`, { method: 'GET' })
       .then(setStatus)
       .catch((e) => setStatusError(e instanceof Error ? e.message : String(e)));
+    const id = caseIdFromHash();
+    if (id) {
+      callApi<{ case: DemoCase }>(`${API}/cases/${encodeURIComponent(id)}`, { method: 'GET' })
+        .then((res) => {
+          setRecord(res.case);
+          setInput({ ...emptyInput(), ...res.case.input });
+          const other = res.case.input.verksamhetskoder.filter((c) => !CODES.includes(c));
+          setOtherCode(other.join(', '));
+        })
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    }
   }, []);
 
   const run = useCallback(async (label: string, fn: () => Promise<void>) => {
@@ -102,7 +124,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
   }, []);
 
   const codes = useMemo(
-    () => [...input.verksamhetskoder, ...otherCode.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean)],
+    () => [...new Set([...input.verksamhetskoder.filter((c) => CODES.includes(c)), ...otherCode.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean)])],
     [input.verksamhetskoder, otherCode],
   );
 
@@ -173,6 +195,12 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
           <div>Kommunkorpus (D2): {status.requirements.message}</div>
         </div>
       )}
+      {record?.underlag && (
+        <div className="mb-4 rounded border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800" data-testid="underlag-banner">
+          {record.underlag.fictional ? <strong>{FICTIONAL_MARK}. </strong> : null}
+          Användarens uppgifter är citerade ur {record.underlag.label} (sha256 {record.underlag.sha256.slice(0, 12)}…). En ändrad uppgift räknas som ny egen uppgift, utan filkälla.
+        </div>
+      )}
       {error && <div role="alert" className="mb-4 rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">{error}</div>}
       {busy && <div className="mb-4 text-sm text-slate-500">{busy}…</div>}
 
@@ -185,7 +213,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
             value={input.propertyDesignation}
             disabled={Boolean(record)}
             onChange={(e) => setInput({ ...input, propertyDesignation: e.target.value.toUpperCase() })}
-            placeholder="t.ex. ORSA STACKMORA 3:12"
+            placeholder="Fastighetsbeteckning"
           />
         </label>
         <fieldset className="mb-3 text-sm">
