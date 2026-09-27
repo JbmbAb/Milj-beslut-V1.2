@@ -1,0 +1,68 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "OD-12-A-LANTMATERIET-COMPLIANCE-MAPPING-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/od12a-lm-compliance-map-v1",
+  "base_sha": "59823b7ce4b009b517a94837e743e36999f6037c",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/OD-12-A-LANTMATERIET-COMPLIANCE-MAPPING-2026-09-27.md",
+    "docs/architecture/od12a-lm-compliance/**",
+    "governance/devgov/units/od12a-lm-compliance-map-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**"
+  ],
+  "required_red": [
+    {
+      "id": "od12a-mapping-bundle",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');\nconst V=m=>{console.error('OD12A_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('OD12A_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const doc='docs/architecture/OD-12-A-LANTMATERIET-COMPLIANCE-MAPPING-2026-09-27.md';\n const man='docs/architecture/od12a-lm-compliance/SNAPSHOT-MANIFEST.md';\n if(!fs.existsSync(doc)) V('mapping document absent');\n if(!fs.existsSync(man)) V('snapshot manifest absent');\n const d=fs.readFileSync(doc,'utf8');\n const required=['f\\u00f6renligt enligt villkorstext','tolkningsfr\\u00e5ga','restriktion','OD-12 map state remains **EXTERNAL**','raw_properties','CC0','CC BY 4.0','Licenstagare / juridisk person','Ans\\u00f6kningsdatum','Inl\\u00e4mnad \\u00e4ndam\\u00e5lstext','Pr\\u00f6vningsstatus','Hydrografi Nedladdning','enskilda firma'];\n for(const x of required) if(!d.includes(x)) V('missing required mapping term: '+x);\n if(/godk\\u00e4nt|juridiskt klart/i.test(d)) V('forbidden legal-closure wording present');\n const rows=fs.readFileSync(man,'utf8').split(/\\r?\\n/).filter(l=>/^\\| [^|]+ \\| https:\\/\\//.test(l));\n if(rows.length<8) V('snapshot manifest has fewer than 8 source rows');\n for(const row of rows){\n   const c=row.split('|').map(x=>x.trim());\n   const name=c[1], expected=c[3];\n   if(!/^[A-F0-9]{64}$/.test(expected)) V('invalid manifest hash for '+name);\n   const p=path.join('docs/architecture/od12a-lm-compliance/snapshots',name);\n   if(!fs.existsSync(p)) V('snapshot missing: '+name);\n   const actual=crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex').toUpperCase();\n   if(actual!==expected) V('snapshot hash mismatch: '+name);\n }\n console.log('OD12A_MAPPING_BUNDLE_OK');\n}catch(e){H(e&&e.stack?e.stack:String(e))}\n"
+      ],
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000,
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "od12a-mapping-bundle",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');\nconst V=m=>{console.error('OD12A_VIOLATION: '+m);process.exit(1)};\nconst H=m=>{console.error('OD12A_HARNESS_ERROR: '+m);process.exit(2)};\ntry{\n const doc='docs/architecture/OD-12-A-LANTMATERIET-COMPLIANCE-MAPPING-2026-09-27.md';\n const man='docs/architecture/od12a-lm-compliance/SNAPSHOT-MANIFEST.md';\n if(!fs.existsSync(doc)) V('mapping document absent');\n if(!fs.existsSync(man)) V('snapshot manifest absent');\n const d=fs.readFileSync(doc,'utf8');\n const required=['f\\u00f6renligt enligt villkorstext','tolkningsfr\\u00e5ga','restriktion','OD-12 map state remains **EXTERNAL**','raw_properties','CC0','CC BY 4.0','Licenstagare / juridisk person','Ans\\u00f6kningsdatum','Inl\\u00e4mnad \\u00e4ndam\\u00e5lstext','Pr\\u00f6vningsstatus','Hydrografi Nedladdning','enskilda firma'];\n for(const x of required) if(!d.includes(x)) V('missing required mapping term: '+x);\n if(/godk\\u00e4nt|juridiskt klart/i.test(d)) V('forbidden legal-closure wording present');\n const rows=fs.readFileSync(man,'utf8').split(/\\r?\\n/).filter(l=>/^\\| [^|]+ \\| https:\\/\\//.test(l));\n if(rows.length<8) V('snapshot manifest has fewer than 8 source rows');\n for(const row of rows){\n   const c=row.split('|').map(x=>x.trim());\n   const name=c[1], expected=c[3];\n   if(!/^[A-F0-9]{64}$/.test(expected)) V('invalid manifest hash for '+name);\n   const p=path.join('docs/architecture/od12a-lm-compliance/snapshots',name);\n   if(!fs.existsSync(p)) V('snapshot missing: '+name);\n   const actual=crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex').toUpperCase();\n   if(actual!==expected) V('snapshot hash mismatch: '+name);\n }\n console.log('OD12A_MAPPING_BUNDLE_OK');\n}catch(e){H(e&&e.stack?e.stack:String(e))}\n"
+      ],
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000,
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/od12a-lm-compliance-map-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

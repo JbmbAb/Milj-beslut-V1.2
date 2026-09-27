@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <meta name="viewport" content="height=device-height, width=device-width, initial-scale=1">
+  <link rel="icon" href="/dokument/projects/belaegenhetsadress-direkt/released/4.2/_scroll_external/other/1e6d68de3c9e/global.logo-api-v2-modificationdate-1370382264000-version-2">
+  <!-- Primary Meta Tags -->
+  <meta name="exp-export-timestamp" content="2026-09-09T09:12:10.843+0200">
+  <meta name="exp-page-id" content="2880963609">
+  <meta name="exp-page-title" content="Belägenhetsadress Direkt">
+  <meta name="exp-page-version" content="1">
+  <meta name="exp-page-scroll-page-id" content="203159ec636a06693ebba88df2364f03">
+  <meta name="exp-page-created" content="2026-09-09T09:11:04.879+0200">
+  <meta name="exp-page-last-modified" content="2026-09-09T09:11:04.879+0200">
+  <meta name="exp-page-labels" content="direktåtkomst,fastighetsinformation">
+  <meta name="exp-page-context-keys" content="">
+  <meta name="exp-space-key" content="BELADRDIR">
+  <meta name="exp-space-title" content="Belägenhetsadress Direkt">
+  <!-- Additional Meta Tags -->
+  <meta name="exp-document-id" content="2784071976">
+  <meta name="exp-document-title" content="Belägenhetsadress Direkt">
+  <meta name="exp-document-summary" content="">
+  <meta name="exp-version-status" content="">
+  <meta name="exp-version-id" content="dc53b8d19ced3f67db1dd5867342ed55">
+  <meta name="exp-version-name" content="4.3-tillfallig">
+  <meta name="exp-version-description" content="">
+  <meta name="exp-version-date" content="">
+  <meta name="exp-variant-id" content="">
+  <meta name="exp-variant-name" content="">
+  <meta name="exp-variant-description" content="">
+  <meta name="exp-language-code" content="">
+  <meta name="exp-language-name" content="">
+  <link rel="stylesheet" href="/dokument/projects/belaegenhetsadress-direkt/released/4.2/css/app.css">
+  <link rel="stylesheet" href="/dokument/projects/belaegenhetsadress-direkt/released/4.2/css/image-dimensions.css">
+  <link href="/dokument/projects/belaegenhetsadress-direkt/released/4.2/css/custom.css" id="theme-asset-custom-css" rel="stylesheet">
+  <script src="/dokument/projects/belaegenhetsadress-direkt/released/4.2/js/custom.js" id="theme-asset-custom-js"></script>
+  <script src="/dokument/projects/belaegenhetsadress-direkt/released/4.2/js/search.js"></script>
+  <script id="search-worker" type="javascript/worker">
+    onmessage = function(event) {
+        // dispatch events to handling functions
+        var message = event.data;
+
+        if ((message.type === 'setup') && message.baseUrl) {
+            setup(message.baseUrl);
+        }
+
+        if (message.type === 'search-request') {
+            search(message.query);
+        }
+    }
+
+    var searchIndex;
+
+    function setup(baseUrl) {
+        importScripts(
+            baseUrl + 'js/lunr.js',
+            baseUrl + 'js/lunr-index.js',
+            baseUrl + 'js/lunr-data.js'
+        );
+        try {
+            // load lunr-extras if it exists, which contains language-specific files for languages other than english
+            importScripts(baseUrl + 'js/lunr-extras.js');
+        } catch (e) {}
+        searchIndex = lunr.Index.load(lunrIndex);
+    }
+
+    function search(query) {
+        var searchHits = searchIndex.search(query);
+        var results = searchHits.map(function (result) {
+            return lunrData.filter(function (d) {
+                return d.id === result.ref;
+            })[0]
+        });
+        postMessage({ type: 'search-results', results: results, query: query });
+    }
+</script>
+  <title>Belägenhetsadress Direkt</title>
+  <meta name="generator" content="Scroll HTML Exporter / K15t GmbH">
+  <meta name="exp-content-hash" content="5fac2a7bf8e07c5d5e71dd354de2feec4cd456e723bccd84090f1f0c355fd507">
+  <link rel="stylesheet" href="/dokument/css/screen-local-optionals.css">
+  <link rel="stylesheet" href="/dokument/css/geotorget.css">
+  <link rel="stylesheet" href="/dokument/css/itm-joker.css">
+  <link rel="stylesheet" href="/dokument/css/dokuwiki.css">
+  <link rel="stylesheet" href="/dokument/css/prism.css">
+ </head>
+ <body id="BelägenhetsadressDirekt-top" data-pageid="2880963609" data-confluence-deployment-type="DATACENTER">
+  <div class="exp-grid-container">
+   <main class="exp-content">
+    <article role="article">
+     <header>
+      <h1 class="article-heading scroll-h1 scroll-original-h1 scroll-relative-h1 scroll-custom-section-heading scroll-document-section-heading" role="heading" data-scroll-heading-rank="1" data-scroll-original-heading-rank="1" data-scroll-relative-heading-rank="1" id="no-src_generated-id-65ff640a4d6608cbc37c87d30d9e91b703417023a2647321130cc300926ab563"><span class="scroll-document-section-heading-counter" role="none"></span><span class="scroll-document-section-heading-text" role="none"> Belägenhetsadress Direkt </span></h1>
+     </header>
+     <section class="page" id="content" role="main">
+      <div id="main-content" class="wiki-content article-content js-tocBot-content">
+       <h2 id="id-(4.3tillfallig)BelägenhetsadressDirekt-Kortomprodukten" data-scroll-heading-rank-offset="1" data-scroll-heading-rank="2" data-scroll-original-heading-rank="2" data-scroll-relative-heading-rank="2" class="scroll-original-h2 scroll-custom-section-heading scroll-document-section-heading scroll-h2 scroll-relative-h2"><span class="scroll-document-section-heading-counter" role="none"></span><span class="scroll-document-section-heading-text" role="none"><span>Kort om produkten</span></span></h2>
+       <p><span style="color:var(--ds-text-accent-blue-bolder,#09326c);">Produkten innehåller information från fastighetsregistret om så kallade belägenhetsadresser. En belägenhetsadress definieras enligt svensk standard som ett sätt att ange en plats utan att använda koordinater.</span></p>
+       <p><span style="color:var(--ds-text-accent-blue-bolder,#09326c);"></span></p>
+       <h3 class="auto-cursor-target scroll-original-h3 scroll-custom-section-heading scroll-document-section-heading scroll-h3 scroll-relative-h3" id="id-(4.3tillfallig)BelägenhetsadressDirekt-Viktigtattveta" data-scroll-heading-rank-offset="1" data-scroll-heading-rank="3" data-scroll-original-heading-rank="3" data-scroll-relative-heading-rank="3"><span class="scroll-document-section-heading-counter" role="none"></span><span class="scroll-document-section-heading-text" role="none"><span style="letter-spacing: 0.0px;color:var(--ds-text,#172b4d);">Viktigt att veta</span></span></h3>
+       <p class="auto-cursor-target"><span style="letter-spacing: 0.0px;color:var(--ds-text,#172b4d);">Tänk på följande innan du beställer produkten:</span></p>
+       <ul style="text-align: left;">
+        <li><span style="color:var(--ds-text,#172b4d);">Produkten är avgiftsfri.</span></li>
+        <li><span style="color:var(--ds-text,#172b4d);">Din användning kommer att behöva prövas juridiskt i enlighet med fastighetsregisterlagen och <span style="color:var(--ds-text,#172b4d);">du behöver godkänna särskilda användningsvillkor</span>.</span></li>
+        <li><span style="color:var(--ds-text,#172b4d);">Du gör anrop direkt mot Lantmäteriet och får uppdaterad information i realtid.</span></li>
+        <li><span style="color:var(--ds-text,#172b4d);">Du behöver ett system eller en applikation för att kunna använda produkten. Den har ett programmeringsgränssnitt (API) och kan inte användas direkt i en webbläsare.</span></li>
+       </ul>
+       <p style="text-align: left;"><span style="color:var(--ds-background-accent-red-bolder,#c9372c);"><span style="color:var(--ds-text-accent-teal-bolder,#164555);"><span style="color:var(--ds-text,#172b4d);"><span style="color:var(--ds-text,#172b4d);">Mer information om produkten och hur du får tillgång till den finns på sidorna Informationsinnehåll och Åtkomst och leverans.</span></span></span></span></p>
+       <p></p>
+       <h2 id="id-(4.3tillfallig)BelägenhetsadressDirekt-Såoftauppdaterasinformationen" data-scroll-heading-rank-offset="1" data-scroll-heading-rank="2" data-scroll-original-heading-rank="2" data-scroll-relative-heading-rank="2" class="scroll-original-h2 scroll-custom-section-heading scroll-document-section-heading scroll-h2 scroll-relative-h2"><span class="scroll-document-section-heading-counter" role="none"></span><span class="scroll-document-section-heading-text" role="none">Så ofta uppdateras informationen</span></h2>
+       <p>Adressdelen i fastighetsregistret uppdateras av respektive kommun så snart kommunen tar beslut om ny eller ändrad adress. Adressuppgifter finns för samtliga kommuner i Sverige. På vissa håll kan adressuppgifter saknas, till exempel i glesbygd och fjällområden.</p>
+       <p><span style="color:var(--ds-text,#172b4d);">När fastighetsregistret är uppdaterat slår förändringarna omgående igenom i produkten.</span></p>
+      </div>
+     </section>
+    </article>
+   </main>
+   <nav class="exp-sidebar-toc js-tocBot">
+    <!-- content generated by toc.js  -->
+   </nav>
+   <div class="exp-scroll-to-top-container">
+    <a href="/dokument/projects/belaegenhetsadress-direkt/released/4.2/#BelägenhetsadressDirekt-top" class="exp-scroll-to-top-link">↑ Back to top</a>
+   </div>
+  </div>
+  <dialog class="exp-lightbox-container" aria-modal="true">
+   <div class="lightbox-toolbar">
+    <button type="button" class="exp-lightbox-close">
+     <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 -960 960 960" aria-hidden="true">
+      <path fill="currentColor" d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+     </svg>
+    </button>
+   </div>
+   <div class="lightbox-content content"></div>
+  </dialog>
+  <template id="exp-lightbox-wrapper-template">
+   <div class="exp-lightbox-wrapper">
+    <div class="exp-lightbox-toggle">
+     <button type="button" class="exp-lightbox-close">
+      <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 -960 960 960" aria-hidden="true">
+       <path fill="currentColor" d="M120-120v-320h80v184l504-504H520v-80h320v320h-80v-184L256-200h184v80H120Z" />
+      </svg>
+     </button>
+    </div>
+   </div>
+  </template>
+  <script src="/dokument/projects/belaegenhetsadress-direkt/released/4.2/js/tocbot.min.js"></script>
+  <script src="/dokument/js/prism.js"></script>
+ </body>
+</html>
