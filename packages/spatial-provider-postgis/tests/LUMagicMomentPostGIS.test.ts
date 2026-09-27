@@ -144,7 +144,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     };
 
     // 3. Spatial Provider genererar Spatial Evidence från PostGIS
-    const spatialEvidence = await provider.query({
+    const { evidence: spatialEvidence } = await provider.query({
       property_ref: propRef,
       buffer_distance_meters: 100,
       layers: [
@@ -153,7 +153,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
         { name: "protected_area", version_hash: "v1.0" }
       ]
     });
-    
+
     expect(spatialEvidence.length).toBeGreaterThanOrEqual(3);
 
     for (const ev of spatialEvidence) {
@@ -165,7 +165,7 @@ describe("LU Domain - PostGIS Magic Moment", () => {
     }
 
     // Identity stability: same request → same content_hash (SV-I06)
-    const again = await provider.query({
+    const { evidence: again } = await provider.query({
       property_ref: propRef,
       buffer_distance_meters: 100,
       layers: [

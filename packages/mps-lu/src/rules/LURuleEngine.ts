@@ -3,6 +3,7 @@ import { DocumentEvidenceArtifact } from "../artifacts/DocumentEvidenceArtifact"
 import { isDocumentEvidenceV2, type DocumentEvidenceArtifactV2 } from "../artifacts/DocumentEvidenceArtifactV2";
 import { AssessmentFinding } from "../domain/AssessmentFinding";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
+import type { SpatialLayerUnavailable } from "../services/SpatialQueryContract";
 import {
   isVerifiedDocumentFact,
   type DocumentFactType,
@@ -45,7 +46,32 @@ export interface LURuleEvaluationInput {
    * Defaults to empty — absent facts must mean "no finding", never "unchecked".
    */
   readonly verified_document_facts?: readonly VerifiedDocumentFactArtifact[];
+  /**
+   * SEM-1/OD-03 (W2) -- layers the caller could not technically query for this evaluation
+   * (`SpatialProviderPostGIS.query()`'s `SpatialQueryOutcomeV2.unavailable_layers`, or an
+   * equivalent upstream source). Distinct from `spatial_evidence`'s absence of a layer, which
+   * still means nothing by itself here -- only an entry in THIS field causes a `NOT_CHECKED`
+   * finding. Defaults to empty: a caller that has not been updated to supply this field gets the
+   * unchanged v1 behavior (silence, never a fabricated finding), not a new NOT_CHECKED finding it
+   * never asked for.
+   */
+  readonly unavailable_layers?: readonly SpatialLayerUnavailable[];
 }
+
+/**
+ * SEM-1 (W2) -- the layer-based governed rules, keyed by the `source_metadata.dataset` /
+ * `unavailable_layers[].dataset` name they fire on. `LU-DOC-BESLUT-001` is deliberately absent:
+ * it is predicated on document evidence and verified document facts, never on
+ * `spatial_evidence`/layer availability, so a spatial layer's technical failure has no bearing on
+ * it -- its own contract is unaffected by this unit and it stays at `rule_version: "1.0"`.
+ */
+const LAYER_RULE_IDS: Readonly<Record<string, string>> = {
+  water: "LU-WATER-001",
+  ebh: "LU-EBH-001",
+  protected_area: "LU-PROTECTED-001",
+  natura2000: "LU-NATURA2000-001",
+  water_protection_area: "LU-WATERPROTECTION-001",
+};
 
 /**
  * F4B — the fact type `LU-DOC-BESLUT-001` is predicated on.
@@ -74,31 +100,31 @@ export class LURuleEngine {
         const finding: AssessmentFinding = {
           finding_id: `finding-water-${ev.artifact_id}`,
           rule_id: "LU-WATER-001",
-          rule_version: "1.0",
+          rule_version: "2.0",
           explanation: "Närhet till vatten kräver analys",
           risk_level: "MEDIUM",
           evidence_refs: [this.toRef(ev)],
         };
         findings.push(finding);
       }
-      
+
       if (layer === "ebh") {
         const finding: AssessmentFinding = {
           finding_id: `finding-ebh-${ev.artifact_id}`,
           rule_id: "LU-EBH-001",
-          rule_version: "1.0",
+          rule_version: "2.0",
           explanation: "Potentiellt förorenat område inom sökradie",
           risk_level: "HIGH",
           evidence_refs: [this.toRef(ev)],
         };
         findings.push(finding);
       }
-      
+
       if (layer === "protected_area") {
         const finding: AssessmentFinding = {
           finding_id: `finding-protected-${ev.artifact_id}`,
           rule_id: "LU-PROTECTED-001",
-          rule_version: "1.0",
+          rule_version: "2.0",
           explanation: "Skyddat naturområde påverkas av lokaliseringen",
           risk_level: "MEDIUM",
           evidence_refs: [this.toRef(ev)],
@@ -112,7 +138,7 @@ export class LURuleEngine {
         const finding: AssessmentFinding = {
           finding_id: `finding-natura2000-${ev.artifact_id}`,
           rule_id: "LU-NATURA2000-001",
-          rule_version: "1.0",
+          rule_version: "2.0",
           explanation: "Natura 2000-område (SPA/SCI) inom sökradie kräver särskild prövning",
           risk_level: "HIGH",
           evidence_refs: [this.toRef(ev)],
@@ -124,7 +150,7 @@ export class LURuleEngine {
         const finding: AssessmentFinding = {
           finding_id: `finding-waterprotection-${ev.artifact_id}`,
           rule_id: "LU-WATERPROTECTION-001",
-          rule_version: "1.0",
+          rule_version: "2.0",
           explanation: "Vattenskyddsområde inom sökradie kräver analys av tillståndsvillkor",
           risk_level: "HIGH",
           evidence_refs: [this.toRef(ev)],
@@ -133,8 +159,40 @@ export class LURuleEngine {
       }
     }
 
+    findings.push(...this.evaluateUnavailableLayers(input));
     findings.push(...this.evaluateDocumentRules(input));
 
+    return findings;
+  }
+
+  /**
+   * SEM-1/OD-03 (W2) -- one `NOT_CHECKED` finding per declared unavailable layer that has a
+   * known governed rule. A layer that failed but has no entry in `LAYER_RULE_IDS` (not
+   * currently a governed layer at all) produces no finding here -- there is no rule whose
+   * outcome it could qualify.
+   *
+   * `rule_version: "2.0"` on a `NOT_CHECKED` finding is the same version as that rule's normal
+   * LOW/MEDIUM/HIGH findings (bumped above): the rule's contract, not any single outcome, is
+   * what changed by admitting this new non-severity state.
+   */
+  private evaluateUnavailableLayers(input: LURuleEvaluationInput): AssessmentFinding[] {
+    const findings: AssessmentFinding[] = [];
+    for (const unavailable of input.unavailable_layers ?? []) {
+      const ruleId = LAYER_RULE_IDS[unavailable.dataset];
+      if (!ruleId) {
+        continue;
+      }
+      findings.push({
+        finding_id: `finding-notchecked-${unavailable.dataset}`,
+        rule_id: ruleId,
+        rule_version: "2.0",
+        risk_level: "NOT_CHECKED",
+        explanation:
+          `Lagret "${unavailable.dataset}" kunde inte kontrolleras (${unavailable.reason}). ` +
+          "Ej kontrollerbart - underlag saknas.",
+        evidence_refs: [],
+      });
+    }
     return findings;
   }
 

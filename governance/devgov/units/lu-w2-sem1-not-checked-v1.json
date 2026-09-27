@@ -14,12 +14,23 @@
     "packages/mps-lu/tests/LURuleEngine.test.ts",
     "packages/spatial-provider-postgis/src/SpatialProviderPostGIS.ts",
     "packages/spatial-provider-postgis/tests/SpatialProviderPostGISLayerIsolation.test.ts",
+    "packages/spatial-provider-postgis/tests/LUEnforcement.test.ts",
+    "packages/spatial-provider-postgis/tests/LUMagicMomentE2E.chain.test.ts",
+    "packages/spatial-provider-postgis/tests/LUMagicMomentPostGIS.test.ts",
+    "packages/spatial-provider-postgis/tests/SpatialProviderPostGIS.test.ts",
     "src/application/generate-localization-report.usecase.ts",
     "src/application/types/LuVerdictTypeBoundary.type-proof.ts",
     "src/application/unit/P3LuVerdictTypeBoundary.test.ts",
+    "src/application/unit/P3LuVerdictAuthority.red.test.ts",
+    "packages/mps-lu/tests/HM1BRealGovernedDocumentChain.test.ts",
+    "packages/mps-lu/tests/HM1CGovernedAssessmentPersistence.test.ts",
+    "packages/mps-lu/tests/SpatialEvidenceQueryContractV2.test.ts",
     "tests/unit/spatialAuditServiceExtended.test.ts",
     "tests/unit/services/localizationReportService.test.ts",
     "tests/unit/generateLocalizationReportVerdictNotChecked.test.ts",
+    "tests/unit/localizationGeometryProductProofs.test.ts",
+    "tests/unit/luExecutionIdentityScopeV2ProductWiring.test.ts",
+    "tests/unit/localizationGeometryDrawingProofs.test.ts",
     "docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1.md",
     "governance/devgov/units/lu-w2-sem1-not-checked-v1.json"
   ],
@@ -41,7 +52,7 @@
       "command": "node",
       "args": [
         "-e",
-        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('W2_SEM1_NOT_CHECKED_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W2_SEM1_NOT_CHECKED_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const path = 'packages/mps-lu/src/domain/AssessmentFinding.ts';\n  let src;\n  try { src = fs.readFileSync(path, 'utf8'); } catch (e) { H('cannot read ' + path + ': ' + (e && e.message)); }\n  const hasNotChecked = /risk_level\\s*:\\s*[^;]*\"NOT_CHECKED\"/.test(src);\n  if (!hasNotChecked) V('AssessmentFinding.risk_level does not admit \"NOT_CHECKED\" yet in ' + path);\n  console.log('W2_SEM1_NOT_CHECKED_OK: AssessmentFinding.risk_level admits \"NOT_CHECKED\"');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('W2_SEM1_NOT_CHECKED_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W2_SEM1_NOT_CHECKED_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const path = 'packages/mps-lu/src/domain/AssessmentFinding.ts';\n  let src;\n  try { src = fs.readFileSync(path, 'utf8'); } catch (e) { H('cannot read ' + path + ': ' + (e && e.message)); }\n  const hasNotChecked = src.indexOf('\"NOT_CHECKED\"') !== -1;\n  if (!hasNotChecked) V('AssessmentFinding risk_level vocabulary does not admit the \"NOT_CHECKED\" string literal yet in ' + path);\n  console.log('W2_SEM1_NOT_CHECKED_OK: risk_level vocabulary admits the \"NOT_CHECKED\" literal');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }"
       ],
       "expected_classification": "FAIL",
       "required_head": "base_sha",
@@ -85,7 +96,7 @@
       "command": "node",
       "args": [
         "-e",
-        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('W2_SEM1_NOT_CHECKED_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W2_SEM1_NOT_CHECKED_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const path = 'packages/mps-lu/src/domain/AssessmentFinding.ts';\n  let src;\n  try { src = fs.readFileSync(path, 'utf8'); } catch (e) { H('cannot read ' + path + ': ' + (e && e.message)); }\n  const hasNotChecked = /risk_level\\s*:\\s*[^;]*\"NOT_CHECKED\"/.test(src);\n  if (!hasNotChecked) V('AssessmentFinding.risk_level does not admit \"NOT_CHECKED\" yet in ' + path);\n  console.log('W2_SEM1_NOT_CHECKED_OK: AssessmentFinding.risk_level admits \"NOT_CHECKED\"');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('W2_SEM1_NOT_CHECKED_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('W2_SEM1_NOT_CHECKED_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const path = 'packages/mps-lu/src/domain/AssessmentFinding.ts';\n  let src;\n  try { src = fs.readFileSync(path, 'utf8'); } catch (e) { H('cannot read ' + path + ': ' + (e && e.message)); }\n  const hasNotChecked = src.indexOf('\"NOT_CHECKED\"') !== -1;\n  if (!hasNotChecked) V('AssessmentFinding risk_level vocabulary does not admit the \"NOT_CHECKED\" string literal yet in ' + path);\n  console.log('W2_SEM1_NOT_CHECKED_OK: risk_level vocabulary admits the \"NOT_CHECKED\" literal');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }"
       ],
       "expected_classification": "PASS",
       "required_head": "candidate_sha",
@@ -124,8 +135,11 @@
     },
     {
       "id": "w2-focused-tests",
-      "command": "PLACEHOLDER_ADDED_WHEN_IMPLEMENTATION_TESTS_EXIST",
-      "args": [],
+      "command": "node",
+      "args": [
+        "-e",
+        "const cp = require('node:child_process');\nconst winx = process.platform === 'win32';\nconst env = Object.assign({}, process.env, { DATABASE_URL: process.env.DATABASE_URL || 'postgresql://localhost:5432/devgov_dummy' });\nconst gen = cp.spawnSync(winx ? 'npx.cmd' : 'npx', ['prisma', 'generate'], { env: env, encoding: 'utf8', shell: winx, timeout: 240000 });\nif (gen.status !== 0) {\n  console.error('W2_FOCUSED_TESTS_HARNESS_ERROR: prisma generate failed: ' + ((gen.stderr||'')+(gen.stdout||'')));\n  process.exit(2);\n}\nconst files = [\"packages/mps-lu/tests/LURuleEngine.test.ts\",\"packages/spatial-provider-postgis/tests/SpatialProviderPostGISLayerIsolation.test.ts\",\"tests/unit/spatialAuditServiceExtended.test.ts\",\"tests/unit/services/localizationReportService.test.ts\",\"tests/unit/generateLocalizationReportVerdictNotChecked.test.ts\"];\nconst test = cp.spawnSync(winx ? 'npx.cmd' : 'npx', ['vitest', 'run', ...files], { env: env, encoding: 'utf8', shell: winx, timeout: 300000, stdio: 'inherit' });\nprocess.exit(test.status === 0 ? 0 : 1);"
+      ],
       "expected_classification": "PASS",
       "required_head": "candidate_sha",
       "blocked_exit_codes": [

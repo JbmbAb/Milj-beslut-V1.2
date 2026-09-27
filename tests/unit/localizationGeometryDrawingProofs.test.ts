@@ -222,7 +222,8 @@ function fakeSweref99ToWgs84(northing: number, easting: number): readonly [numbe
 function makeSpatialRuntime(repo: InMemoryArtifactRepository): LocalizationSpatialRuntime {
   return {
     artifactRepository: repo,
-    resolveSpatialProvider: () => ({ query: vi.fn().mockResolvedValue([]) }),
+    // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
+    resolveSpatialProvider: () => ({ query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }) }),
     wgs84ToSweref99: async (lat, lng) => fakeWgs84ToSweref99(lat, lng),
     sweref99ToWgs84: async (n, e) => fakeSweref99ToWgs84(n, e),
     close: async () => undefined,

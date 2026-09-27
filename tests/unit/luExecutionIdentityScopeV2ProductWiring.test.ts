@@ -167,7 +167,8 @@ async function buildSignedRelease(label: 'A' | 'B'): Promise<ProductReleaseManif
 const DERIVED_WGS84_LAT_LNG: readonly [number, number] = [59.33, 18.07];
 
 function runtime(repository: InMemoryArtifactRepository): LocalizationSpatialRuntime {
-  const provider: ISpatialProvider = { query: vi.fn().mockResolvedValue([]) };
+  // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
+  const provider: ISpatialProvider = { query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }) };
   return {
     artifactRepository: repository,
     resolveSpatialProvider: () => provider,

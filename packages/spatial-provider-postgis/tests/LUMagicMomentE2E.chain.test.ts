@@ -341,7 +341,7 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
         artifact_id: motor!.property_context_id!,
         artifact_type: "LU_PROPERTY_CONTEXT" as const,
       };
-      const first = await provider.query({
+      const { evidence: first } = await provider.query({
         property_ref: propRef,
         buffer_distance_meters: 500,
         layers: [
@@ -350,7 +350,7 @@ describe("E2E LU Magic Moment — PostGIS → assessment (no mocks)", () => {
           { name: "protected_area", version_hash: "v1.0" },
         ],
       });
-      const second = await provider.query({
+      const { evidence: second } = await provider.query({
         property_ref: propRef,
         buffer_distance_meters: 500,
         layers: [

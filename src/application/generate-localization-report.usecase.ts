@@ -137,6 +137,17 @@ export interface ExecutionMotorMeta {
  */
 export type GovernedVerdictAnalysis = SiteAnalysis & {
   assessment_status: 'ASSESSED';
+  /**
+   * SEM-1 (W2) -- ADR-28A section 1: "no permit/risk number may be derived solely from a
+   * null/unmeasured [signal]" generalizes here to every governed rule, not only water distance.
+   * Non-empty exactly when at least one governed rule's required evidence could not be
+   * technically checked (a `NOT_CHECKED` finding was produced). `overallRisk`/`permitProbability`
+   * above are added to `SiteAnalysis` (the legacy engine's own type, untouched by this unit) and
+   * describe severity among the checks that DID complete; they must never be read alone as "all
+   * checks passed" when this array is non-empty -- see `governedVerdictFromFindings` below, which
+   * lowers `permitProbability` and states this explicitly in `summary` whenever it is non-empty.
+   */
+  unresolvedChecks: readonly { readonly rule_id: string; readonly finding_id: string }[];
 };
 
 export type NonVerdictAnalysis = Omit<SiteAnalysis, 'overallRisk' | 'permitProbability'> & {
@@ -164,27 +175,60 @@ export function isGovernedVerdict(
  * compliance analysis may still provide exploratory observations, but its live inputs must never
  * determine the verdict-bearing risk or permit probability of a governed result.
  */
-function governedVerdictFromFindings(
+/**
+ * Exported for direct unit proof (tests/unit/generateLocalizationReportVerdictNotChecked.test.ts)
+ * -- SEM-1's verdict-consequence claim is about this exact function's behavior, not about the
+ * full DB-dependent governed pipeline that calls it. Still module-private in every other sense:
+ * not part of this file's intended public surface, and not re-exported from any barrel.
+ */
+export function governedVerdictFromFindings(
   findings: readonly AssessmentFinding[],
-): Pick<SiteAnalysis, 'overallRisk' | 'permitProbability' | 'summary'> {
+): Pick<GovernedVerdictAnalysis, 'overallRisk' | 'permitProbability' | 'summary' | 'unresolvedChecks'> {
+  // SEM-1 (W2): NOT_CHECKED is a non-severity state -- it never itself raises overallRisk to
+  // HIGH/MEDIUM -- but its presence must never be silently absorbed into a clean LOW result.
+  const unresolvedChecks = findings
+    .filter((finding) => finding.risk_level === 'NOT_CHECKED')
+    .map((finding) => ({ rule_id: finding.rule_id, finding_id: finding.finding_id }));
+  const unresolvedNote =
+    unresolvedChecks.length > 0
+      ? ` ${unresolvedChecks.length} governed check(s) could not be completed and are not reflected in this risk grade (see unresolvedChecks).`
+      : '';
+
   if (findings.some((finding) => finding.risk_level === 'HIGH')) {
     return {
       overallRisk: 'HIGH',
       permitProbability: 0.2,
-      summary: 'Governed LU assessment findings establish HIGH risk.',
+      summary: 'Governed LU assessment findings establish HIGH risk.' + unresolvedNote,
+      unresolvedChecks,
     };
   }
   if (findings.some((finding) => finding.risk_level === 'MEDIUM')) {
     return {
       overallRisk: 'MEDIUM',
       permitProbability: 0.5,
-      summary: 'Governed LU assessment findings establish MEDIUM risk.',
+      summary: 'Governed LU assessment findings establish MEDIUM risk.' + unresolvedNote,
+      unresolvedChecks,
+    };
+  }
+  if (unresolvedChecks.length > 0) {
+    // Not HIGH/MEDIUM among the checks that DID complete, but at least one governed check did
+    // NOT complete -- this is explicitly not the same claim as "LOW risk, nothing found".
+    // permitProbability is lowered to the MEDIUM-tier value to avoid presenting the same
+    // confidence as a fully-completed clean result.
+    return {
+      overallRisk: 'LOW',
+      permitProbability: 0.5,
+      summary:
+        'Governed LU assessment did not complete all checks; the completed checks found no ' +
+        'HIGH/MEDIUM risk, but this is not a clean result.' + unresolvedNote,
+      unresolvedChecks,
     };
   }
   return {
     overallRisk: 'LOW',
     permitProbability: 0.95,
     summary: 'Governed LU assessment findings establish LOW risk.',
+    unresolvedChecks,
   };
 }
 
@@ -588,9 +632,12 @@ async function analyzeSite(
   // it fires exactly when the source could not produce a distance at all
   // (`distanceToWaterAvailable === false`) in strict mode. It must NOT fire when the query
   // succeeded and simply found no water within its search radius
-  // (`distanceToWaterMeters === null` with `distanceToWaterAvailable === true`) — that is a
-  // genuine "beyond range" result, not a data gap, and conflating the two is exactly the
-  // producer-conflation risk a future W2 unit still needs to address at the source.
+  // (`distanceToWaterMeters === null` with `distanceToWaterAvailable === true`). OD-03 (W2):
+  // the producer returns null with available=true when the bounded query found nothing; what
+  // that specific producer state means is not decided here -- this warning only distinguishes
+  // it from available=false, it does not interpret it. The trichotomy itself (technical
+  // failure / checked-and-nothing-found / measured distance) is proven directly against the
+  // producer in tests/unit/spatialAuditServiceExtended.test.ts.
   if (distanceToWaterMeters == null && strict && !spatialAudit.distanceToWaterAvailable) {
     warnings.push('Avstånd till vatten okänt — compliance använder inte standardfallback i strikt läge.');
   }
@@ -742,7 +789,8 @@ async function analyzeSite(
       },
     };
 
-    const mpsEvidence = await provider.query(queryRequest);
+    const { evidence: mpsEvidence, unavailable_layers: mpsUnavailableLayers } =
+      await provider.query(queryRequest);
     const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
       site.documentEvidenceRefs,
       propRef.artifact_id,
@@ -773,9 +821,14 @@ async function analyzeSite(
     const kernelResult = await runCanonicalLuProductAssessment({
       site_id: canonicalSiteId,
       deterministic_seed: canonicalDeterministicSeed,
-      evidence: mpsEvidence,
+      // SpatialQueryOutcomeV2.evidence is readonly (SEM-1/W2); LuKernelRunInput.evidence
+      // predates that contract and still declares a mutable array. Copying is the minimal,
+      // in-scope fix -- widening LuKernelRunInput's own field type would touch every existing
+      // caller/test of runLuAssessmentViaKernel, none of which are in this unit's allowed_paths.
+      evidence: [...mpsEvidence],
       document_evidence: governedDocumentEvidence,
       verified_document_facts: verifiedDocumentFacts,
+      unavailable_layers: mpsUnavailableLayers,
       artifact_repository: repo,
       identity_subject_v3: canonicalIdentitySubjectV3,
       assessment_draft: {

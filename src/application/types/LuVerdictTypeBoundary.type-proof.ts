@@ -41,11 +41,21 @@ void nonVerdict.overallRisk;
 // @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: permitProbability is verdict-only.
 void nonVerdict.permitProbability;
 
+/*
+ * T2c — SEM-1 (W2): a non-verdict result has no `unresolvedChecks` either. It is meaningful
+ * only alongside a real verdict (which checks were left out of THIS risk grade); a result with
+ * no verdict at all has nothing for it to qualify.
+ */
+// @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: unresolvedChecks is verdict-only.
+void nonVerdict.unresolvedChecks;
+
 /* T3 — the union cannot be read for verdict fields before the discriminant is narrowed. */
 // @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: narrow on assessment_status first.
 void anyAnalysis.overallRisk;
 // @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: narrow on assessment_status first.
 void anyAnalysis.permitProbability;
+// @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: narrow on assessment_status first.
+void anyAnalysis.unresolvedChecks;
 
 /*
  * T3b — the same, reached through the shape consumers actually hold. This is the access the
@@ -60,16 +70,20 @@ void result.complianceAnalysis.permitProbability;
 if (anyAnalysis.assessment_status === 'ASSESSED') {
   const risk: GovernedVerdictAnalysis['overallRisk'] = anyAnalysis.overallRisk;
   const probability: number = anyAnalysis.permitProbability;
+  const checks: GovernedVerdictAnalysis['unresolvedChecks'] = anyAnalysis.unresolvedChecks;
   void risk;
   void probability;
+  void checks;
 }
 
 /* T4b — the same narrowing through the published type guard. */
 if (isGovernedVerdict(anyAnalysis)) {
   const risk: GovernedVerdictAnalysis['overallRisk'] = anyAnalysis.overallRisk;
   const probability: number = anyAnalysis.permitProbability;
+  const checks: GovernedVerdictAnalysis['unresolvedChecks'] = anyAnalysis.unresolvedChecks;
   void risk;
   void probability;
+  void checks;
 }
 
 /* T5 — every non-verdict branch stays constructible without supplying verdict fields. */
@@ -128,3 +142,19 @@ const hollow: GovernedVerdictAnalysis = {
   summary: '',
 };
 void hollow;
+
+/*
+ * T5e — SEM-1 (W2): a governed verdict cannot be built without `unresolvedChecks` specifically,
+ * even when `overallRisk`/`permitProbability` are both present. Isolates the new field from the
+ * other two so a future edit cannot make it silently optional while T5d still passes.
+ */
+// @ts-expect-error LU_VERDICT_TYPE_BOUNDARY_V1: unresolvedChecks is required on a governed verdict.
+const missingUnresolvedChecks: GovernedVerdictAnalysis = {
+  assessment_status: 'ASSESSED',
+  restrictions: [],
+  rules: [],
+  summary: '',
+  overallRisk: 'LOW',
+  permitProbability: 0.95,
+};
+void missingUnresolvedChecks;

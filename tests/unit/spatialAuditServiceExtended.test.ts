@@ -158,4 +158,43 @@ describe('spatialAuditService – utvidgade scenarier', () => {
     expect(result.isProtected).toBe(true);
     expect(result.text).toContain('namnlost omrade');
   });
+
+  describe('OD-03 (W2): producer trichotomy for distance to water', () => {
+    // spatialAuditService's own fetchDistanceToWater() runs as the second $queryRaw call inside
+    // runSpatialAudit's Promise.all (after the protected-area query) -- both mockResolvedValueOnce
+    // calls below are queued in that same order, matching the "generellt DB-fel" test above.
+
+    it('technical failure: the query throws -> distanceToWaterAvailable=false, distanceToWaterMeters=null', async () => {
+      mocks.queryRaw.mockResolvedValueOnce([]); // protected area: no hits
+      mocks.queryRaw.mockRejectedValueOnce(new Error('relation "topo10.vatten" does not exist'));
+
+      const result = await runSpatialAudit(59.0, 18.0);
+
+      expect(result.distanceToWaterAvailable).toBe(false);
+      expect(result.distanceToWaterMeters).toBeNull();
+      expect(result.distanceToWaterWarning).toContain('Kunde inte beräkna avstånd till vatten');
+    });
+
+    it('checked and absent: the query succeeds with no rows within range -> distanceToWaterAvailable=true, distanceToWaterMeters=null', async () => {
+      mocks.queryRaw.mockResolvedValueOnce([]); // protected area: no hits
+      mocks.queryRaw.mockResolvedValueOnce([]); // distance: no rows within 500 m
+
+      const result = await runSpatialAudit(59.0, 18.0);
+
+      expect(result.distanceToWaterAvailable).toBe(true);
+      expect(result.distanceToWaterMeters).toBeNull();
+      expect(result.distanceToWaterWarning).toBeUndefined();
+    });
+
+    it('measured: the query succeeds with a row within range -> distanceToWaterAvailable=true, distanceToWaterMeters=<measured value>', async () => {
+      mocks.queryRaw.mockResolvedValueOnce([]); // protected area: no hits
+      mocks.queryRaw.mockResolvedValueOnce([{ distance_m: 123.45 }]);
+
+      const result = await runSpatialAudit(59.0, 18.0);
+
+      expect(result.distanceToWaterAvailable).toBe(true);
+      expect(result.distanceToWaterMeters).toBe(123.45);
+      expect(result.distanceToWaterWarning).toBeUndefined();
+    });
+  });
 });

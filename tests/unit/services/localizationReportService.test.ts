@@ -559,7 +559,10 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
 
     // The real measured value (null) passes through unmolested — never a fabricated 200.
     expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
-    // The pre-existing strict-mode warning is preserved for the genuinely-unavailable case.
+    // The pre-existing strict-mode warning is preserved when distanceToWaterAvailable is false
+    // (the query technically could not run). OD-03 (W2): this comment previously called that
+    // case "genuinely-unavailable" as if it were the only interpretation; the producer state is
+    // proven and tested directly in tests/unit/spatialAuditServiceExtended.test.ts instead.
     expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(true);
 
     // DISCRIMINATING call-site proof, not a restrictions/rules check: complianceRuleEngine is
@@ -581,9 +584,9 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     );
   });
 
-  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: a successful query finding no water within range must NOT warn — "beyond search radius" is not "unavailable"', async () => {
+  it('NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: a successful query finding no water within range must NOT warn -- distanceToWaterAvailable distinguishes it from a technical failure', async () => {
     // The producer (spatialAuditService.ts) returns distanceToWaterMeters=null in TWO
-    // distinct situations: the query genuinely failed (distanceToWaterAvailable=false), or
+    // distinct situations: the query technically failed (distanceToWaterAvailable=false), or
     // the query succeeded and simply found nothing within its search radius
     // (distanceToWaterAvailable=true). Conflating these would warn on ordinary,
     // far-from-water sites — ordinary sites are not a data gap. This is a strict-mode case

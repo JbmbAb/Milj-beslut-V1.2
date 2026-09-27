@@ -99,7 +99,7 @@ describe("LU Domain - Enforcement and Replay", () => {
 
     const propRef: ArtifactReference = { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type };
     
-    const spatialEvidence = await provider.query({
+    const { evidence: spatialEvidence } = await provider.query({
       property_ref: propRef,
       buffer_distance_meters: 100,
       layers: [{ name: "water", version_hash: "v1.0" }]
@@ -152,7 +152,7 @@ describe("LU Domain - Enforcement and Replay", () => {
     });
 
     const propRef: ArtifactReference = { artifact_id: "art_prop_enforce2", artifact_type: "LU_PROPERTY_CONTEXT" };
-    const spatialEvidence = await provider.query({
+    const { evidence: spatialEvidence } = await provider.query({
       property_ref: propRef,
       buffer_distance_meters: 150,
       layers: [{ name: "ebh", version_hash: "v1.0" }]

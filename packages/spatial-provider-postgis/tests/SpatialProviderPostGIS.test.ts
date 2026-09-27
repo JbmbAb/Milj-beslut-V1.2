@@ -85,8 +85,8 @@ describe("SpatialProviderPostGIS Integration", () => {
       ]
     };
 
-    const evidence = await provider.query(request);
-    
+    const { evidence } = await provider.query(request);
+
     // Vi förväntar oss minst en evidence från de mockade querysna
     expect(evidence).toBeInstanceOf(Array);
     expect(evidence.length).toBeGreaterThanOrEqual(1);
@@ -118,7 +118,7 @@ describe("SpatialProviderPostGIS Integration", () => {
       body: propertyContext,
     });
 
-    const evidence = await provider.query({
+    const { evidence } = await provider.query({
       property_ref: {
         artifact_id: propertyContext.artifact_id,
         artifact_type: propertyContext.artifact_type,
