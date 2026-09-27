@@ -94,7 +94,7 @@ describe('proposal engine: counts, not percentages; n < 3 marked', () => {
       coverage: [{ kommun: 'Testkommun', mpf_kod: '90.40', n_dokument: 5 }, { kommun: 'Annan', mpf_kod: '90.40', n_dokument: 4 }],
     });
     const corpus = rows.find((r) => r.id === 'korpus-90.40-rule-yta')!;
-    expect(corpus.label).toContain('förekommer i 2 handlingar av 9 med kod 90.40, 2 kommuner');
+    expect(corpus.label).toContain('regel rule-yta träffar i 2 handlingar av 9 med kod 90.40, 2 kommuner; citatet är ett exempel ur en av dem');
     expect(corpus.note).toContain(INSUFFICIENT);
     expect(corpus.note).toContain('ej manuellt kontrollerad');
     expect(corpus.label).not.toMatch(/%/);

@@ -63,7 +63,7 @@ const API = '/api/demo/c-anmalan';
 
 // src/index.css has an unlayered `button` reset (no border, no padding) that outranks Tailwind's
 // layered utilities, so button box styles are set inline here instead of touching global CSS.
-const PRIMARY_BTN: React.CSSProperties = { padding: '6px 12px', borderRadius: 4 };
+const primaryBtn = (background: string): React.CSSProperties => ({ padding: '6px 12px', borderRadius: 4, background, color: '#fff' });
 const choiceBtn = (active: boolean, color: string): React.CSSProperties => ({
   padding: '2px 8px',
   borderRadius: 4,
@@ -231,11 +231,11 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
           Uppgifterna är platshållare (underlaget är inte ifyllt)
         </label>
         <div className="mt-3 flex gap-2">
-          <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={PRIMARY_BTN}
+          <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={primaryBtn('#1e293b')}
             disabled={Boolean(busy) || !input.propertyDesignation.trim() || codes.length === 0} onClick={saveInput}>
             {record ? 'Spara ändrade uppgifter' : 'Skapa ärende'}
           </button>
-          <button type="button" className="rounded bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={PRIMARY_BTN}
+          <button type="button" className="rounded bg-indigo-700 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={primaryBtn('#4338ca')}
             disabled={Boolean(busy) || !record} onClick={propose}>
             Ta fram förslag
           </button>
@@ -258,7 +258,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
               <div key={section} className="mb-4">
                 <h3 className="mb-2 text-sm font-semibold">{SECTION_TITLES[section]}</h3>
                 {sectionRows.map((r) => (
-                  <RowCard key={r.id} row={r} decision={decisions[r.id]} onDecide={(d) => setDecisions((p) => ({ ...p, [r.id]: d }))} />
+                  <RowCard key={`${record?.proposal?.generatedAt}-${r.id}`} row={r} decision={decisions[r.id]} onDecide={(d) => setDecisions((p) => ({ ...p, [r.id]: d }))} />
                 ))}
               </div>
             );
@@ -266,7 +266,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
           {record?.proposal?.inputs.requirements.state !== 'loaded' && (
             <p className="mb-3 text-xs text-amber-700">Inga förslag ur kommunkorpusen: {record?.proposal?.inputs.requirements.message}</p>
           )}
-          <button type="button" className="rounded bg-emerald-700 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={PRIMARY_BTN}
+          <button type="button" className="rounded bg-emerald-700 px-3 py-1.5 text-sm text-white disabled:opacity-50" style={primaryBtn('#047857')}
             disabled={Boolean(busy) || undecided > 0} onClick={approve} data-testid="approve">
             Godkänn förslag ({rows.length - undecided} av {rows.length} rader beslutade)
           </button>
@@ -276,19 +276,19 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
       {approved && record?.approval && (
         <section className="mb-6 rounded border border-emerald-300 bg-emerald-50 p-4" data-testid="approved">
           <h2 className="mb-2 text-base font-semibold">Godkänt och fryst</h2>
-          <p className="text-xs text-slate-700">Fryst JSON sha256: <code>{record.approval.frozenSha256}</code></p>
-          <p className="mb-3 text-xs text-slate-700">Release: <code>{record.approval.releaseSha}</code></p>
+          <p className="break-all text-xs text-slate-700">Fryst JSON sha256: <code>{record.approval.frozenSha256}</code></p>
+          <p className="mb-3 break-all text-xs text-slate-700">Release: <code>{record.approval.releaseSha}</code></p>
           <div className="flex gap-2">
-            <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white" style={PRIMARY_BTN} onClick={() => download('anmalan')}>
+            <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white" style={primaryBtn('#1e293b')} onClick={() => download('anmalan')}>
               PDF: C-anmälan – förslag, ej inlämnad
             </button>
-            <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white" style={PRIMARY_BTN} onClick={() => download('egenkontroll')}>
+            <button type="button" className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white" style={primaryBtn('#1e293b')} onClick={() => download('egenkontroll')}>
               PDF: Egenkontrollprogram – förslag
             </button>
           </div>
           <p className="mt-3 text-xs text-slate-600">Mimer lämnar inte in. Inlämning görs av verksamhetsutövaren.</p>
           {audit.length > 0 && (
-            <ul className="mt-3 text-xs text-slate-600">
+            <ul className="mt-3 break-all text-xs text-slate-600">
               {audit.map((a) => (
                 <li key={a.id}>{a.timestamp.slice(0, 19).replace('T', ' ')} · {a.action} · {a.description}</li>
               ))}

@@ -73,7 +73,8 @@ function corpusRows(rows: RequirementRow[], codes: string[], coverage: CoverageR
           Number(b.kommun.toLowerCase() === muni) - Number(a.kommun.toLowerCase() === muni) ||
           a.row_id.localeCompare(b.row_id),
       )[0];
-      const countText = `förekommer i ${docs} ${docs === 1 ? 'handling' : 'handlingar'}${totalDocs ? ` av ${totalDocs}` : ''} med kod ${code}, ${kommuner} ${kommuner === 1 ? 'kommun' : 'kommuner'}`;
+      // The count belongs to the extraction rule, not to the quoted sentence: say so.
+      const countText = `regel ${rule} träffar i ${docs} ${docs === 1 ? 'handling' : 'handlingar'}${totalDocs ? ` av ${totalDocs}` : ''} med kod ${code}, ${kommuner} ${kommuner === 1 ? 'kommun' : 'kommuner'}; citatet är ett exempel ur en av dem`;
       const control =
         pick.krav_typ === 'kontrollpunkt'
           ? {
