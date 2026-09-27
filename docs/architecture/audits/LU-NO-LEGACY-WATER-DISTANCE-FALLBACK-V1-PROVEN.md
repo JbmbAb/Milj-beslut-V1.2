@@ -17,6 +17,8 @@ candidate record `LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1.md`.
 - Base before this merge (`main`): `6b10f5cf729c5fb814582e30f5e0be81ced6b19c` (the merged ADR-28A
   docs-only decision batch, PR #181)
 - Gated candidate: `fc2bf12f61d117894059c70563f406096428c1b6`
+- This record's own unit base (`main` at record creation, after OD-12-A, PR #182):
+  `092bf60c2392cd6e2e79d96fd4732675cde53e1c`
 
 The candidate record's own lineage (`LU-NO-LEGACY-WATER-DISTANCE-FALLBACK-V1.md`) documents the
 full 14-item implementation and hardening history in detail, from `7bb6cfef` (remove the
@@ -32,8 +34,10 @@ are not part of it.
 
 This PROVEN-doc unit is a separate, later unit with its own base and its own two-file
 `allowed_paths` (this record and its own unit JSON) — its own delta is exactly those two files
-against its base, the W1 merge commit `59823b7ce4b009b517a94837e743e36999f6037c` itself (not
-`6b10f5cf`), so none of W1's eight files appear in it.
+against its base, `main` at record creation after OD-12-A (PR #182),
+`092bf60c2392cd6e2e79d96fd4732675cde53e1c` (not the W1 merge commit `59823b7c`, and not
+`6b10f5cf`), so none of W1's eight files, nor OD-12-A's own files, appear in it — both sets are
+already present identically on both sides of that diff.
 
 ## Trusted execution evidence
 
