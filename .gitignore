@@ -229,3 +229,6 @@ docker/postgres-init/**/*.tif
 docker/postgres-init/**/*.tiff
 libsf_mini_core_windows_amd64.dll
 
+
+# DEMO-01 local case/proposal/frozen state (may contain corpus quotes; never commit)
+.data/demo-01/

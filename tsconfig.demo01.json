@@ -1,0 +1,3 @@
+{ "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": ["server/modules/c-anmalan-demo/**/*.ts", "components/demo/**/*.tsx"], "exclude": ["node_modules"] }

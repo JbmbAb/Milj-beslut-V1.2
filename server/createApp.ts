@@ -30,6 +30,7 @@ import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
 import { governanceRouter } from './routes/governance.routes';
 
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
+import cAnmalanDemoRouter, { isDemoCAnmalanEnabled } from './modules/c-anmalan-demo/routes';
 import hydroRouter from './routes/hydro.routes';
 import tilesRouter from './routes/tiles.routes';
 import pdfExportRouter from './routes/pdf-export.routes';
@@ -178,6 +179,11 @@ export function createApp() {
     app.use(sewageLegacyAliasRouter);
     app.use(sewageDocumentRouter);
     app.use(cNotificationMassRouter);
+  }
+  // DEMO-01 (demo branch only, K-26): own module behind its own server-owned flag; it does not
+  // re-enable the legacy c-notification-mass routes or UI.
+  if (isDemoCAnmalanEnabled()) {
+    app.use(cAnmalanDemoRouter);
   }
   app.use(hydroRouter);
   app.use(tilesRouter);

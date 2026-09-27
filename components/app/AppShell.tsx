@@ -5,6 +5,11 @@ import { setSession, callApi, getToken, getRefreshToken, setActiveProjectId } fr
 import { MimerProductShell } from './MimerProductShell';
 import { AuthInterface } from '../project/AuthInterface';
 import { logout as bankIdLogout, type BankIdLoginResult } from '../../src/ui/hooks/useAuth';
+import { CAnmalanDemoView } from '../demo/c-anmalan/CAnmalanDemoView';
+
+// DEMO-01 (demo branch only): the view is reachable at #/demo/c-anmalan after login; whether it
+// works is decided by the server flag DEMO_C_ANMALAN_ENABLED, not by the client.
+const DEMO_C_ANMALAN_HASH = '#/demo/c-anmalan';
 
 interface BankIdStatusResponse {
   ok: boolean;
@@ -18,6 +23,13 @@ export const AppShell: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authConfig, setAuthConfig] = useState<BankIdStatusResponse | null>(null);
   const [authConfigError, setAuthConfigError] = useState('');
+  const [locationHash, setLocationHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
+
+  React.useEffect(() => {
+    const onHash = () => setLocationHash(window.location.hash);
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   // PRODUCT-AUTH-USER-LOGIN-UX-01 Phase B: which login surfaces to even RENDER is decided by
   // the server (BankID readiness, ALLOW_DEV_LOGIN), never guessed client-side from NODE_ENV --
@@ -202,6 +214,10 @@ export const AppShell: React.FC = () => {
   // shell (TechnicalDashboardHub, AppContentRouter, AppSidebar) from here any more, so no
   // env value can resurrect it. Legacy-scoped modules (sewage, mass notification, logistics,
   // generators, project manager) are out of the frozen LU+admin-console product scope.
+  if (locationHash === DEMO_C_ANMALAN_HASH) {
+    return <CAnmalanDemoView onExit={() => { window.location.hash = ''; }} />;
+  }
+
   const handleLogout = async () => {
     try {
       await bankIdLogout(getToken() || undefined, getRefreshToken() || undefined);
