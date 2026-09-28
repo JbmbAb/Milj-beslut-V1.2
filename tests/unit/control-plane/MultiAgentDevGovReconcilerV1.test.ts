@@ -7,14 +7,14 @@ import {
   DevGovReconciler,
   FileCorrelationStore,
   FileDurableControlPlaneStore,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   type DevGovAuthoritativeProof,
   type DevGovAuthoritativeProofPort,
   type DevGovProofLookup,
   type DevGovTelemetryStatusPort,
   type DevGovWorkflowAvailabilityPort,
   type GitHubActionsRunObserverPort,
-  type GitHubWorkflowDispatchPort,
+  type GitHubRepositoryDispatchPort,
   type MultiAgentUnitState,
   type ObservedWorkflowRun,
   type TelemetryStatusObservation,
@@ -64,7 +64,9 @@ function run(overrides: Partial<ObservedWorkflowRun> = {}): ObservedWorkflowRun 
     workflow: 'devgov-v0-orchestrate.yml',
     headBranch: 'main',
     headSha: refShaAtDispatch,
-    event: 'workflow_dispatch',
+    event: 'repository_dispatch',
+    // Mirrors devgov-v0-orchestrate.yml's real run-name echo of client_payload.candidate_sha.
+    displayTitle: `DEV-GOV orchestrate ${candidateSha} unit=governance/devgov/units/example.json`,
     createdAt: '2026-09-05T01:00:01.000Z',
     status: 'completed',
     conclusion: 'success',
@@ -95,11 +97,11 @@ class Availability implements DevGovWorkflowAvailabilityPort {
   }
 }
 
-class DispatchPort implements GitHubWorkflowDispatchPort {
+class DispatchPort implements GitHubRepositoryDispatchPort {
   async getRefSha() {
     return refShaAtDispatch;
   }
-  async dispatchWorkflow() {}
+  async dispatchRepositoryEvent() {}
 }
 
 class RunObserver implements GitHubActionsRunObserverPort {
@@ -135,8 +137,10 @@ function successTelemetry(overrides: Partial<TelemetryStatusObservation> = {}): 
   });
 }
 
-function correlator(observer: GitHubActionsRunObserverPort = new RunObserver()): WorkflowDispatchCorrelator {
-  return new WorkflowDispatchCorrelator(
+function correlator(
+  observer: GitHubActionsRunObserverPort = new RunObserver(),
+): RepositoryDispatchCorrelator {
+  return new RepositoryDispatchCorrelator(
     new FileCorrelationStore(tmpFile('mimer-correlation-')),
     new DispatchPort(),
     observer,
@@ -145,13 +149,14 @@ function correlator(observer: GitHubActionsRunObserverPort = new RunObserver()):
 }
 
 /** A correlator whose dispatchKey is already durably CORRELATED to `observed`. */
-async function correlatedTo(observed: ObservedWorkflowRun): Promise<WorkflowDispatchCorrelator> {
+async function correlatedTo(observed: ObservedWorkflowRun): Promise<RepositoryDispatchCorrelator> {
   const corr = correlator(new RunObserver([observed]));
   await corr.dispatch({
     dispatchKey: DISPATCH_KEY,
     workflow: 'devgov-v0-orchestrate.yml',
+    eventType: 'devgov-v0-orchestrate',
     ref: 'main',
-    inputs: {},
+    clientPayload: { candidate_sha: candidateSha },
   });
   await corr.poll(DISPATCH_KEY);
   return corr;
@@ -162,7 +167,7 @@ function reconciler(args: {
   availability: DevGovWorkflowAvailabilityPort;
   authoritativeProof: DevGovAuthoritativeProofPort;
   telemetry?: DevGovTelemetryStatusPort;
-  corr?: WorkflowDispatchCorrelator;
+  corr?: RepositoryDispatchCorrelator;
 }): DevGovReconciler {
   return new DevGovReconciler({
     store: args.store,
@@ -305,8 +310,9 @@ describe('DEV-GOV reconciliation (Parts C, D, F)', () => {
     await corr.dispatch({
       dispatchKey: DISPATCH_KEY,
       workflow: 'devgov-v0-orchestrate.yml',
+      eventType: 'devgov-v0-orchestrate',
       ref: 'main',
-      inputs: {},
+      clientPayload: { candidate_sha: candidateSha },
     });
     const r = reconciler({
       store,

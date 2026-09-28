@@ -10,13 +10,13 @@ import {
   FileAgentMailbox,
   FileCorrelationStore,
   GitHubDevGovDispatchAdapter,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   type AgentWorkItem,
   type DevGovBindingResolver,
   type DevGovUnitBinding,
   type DevGovWorkflowAvailabilityPort,
   type GitHubActionsRunObserverPort,
-  type GitHubWorkflowDispatchPort,
+  type GitHubRepositoryDispatchPort,
   type MultiAgentUnitState,
   type ObservedWorkflowRun,
 } from '../../../packages/mps-control-plane/src/multi-agent';
@@ -89,12 +89,14 @@ class Availability implements DevGovWorkflowAvailabilityPort {
   }
 }
 
-class DispatchPort implements GitHubWorkflowDispatchPort {
-  readonly calls: Parameters<GitHubWorkflowDispatchPort['dispatchWorkflow']>[0][] = [];
+class DispatchPort implements GitHubRepositoryDispatchPort {
+  readonly calls: Parameters<GitHubRepositoryDispatchPort['dispatchRepositoryEvent']>[0][] = [];
   async getRefSha() {
     return refSha;
   }
-  async dispatchWorkflow(input: Parameters<GitHubWorkflowDispatchPort['dispatchWorkflow']>[0]) {
+  async dispatchRepositoryEvent(
+    input: Parameters<GitHubRepositoryDispatchPort['dispatchRepositoryEvent']>[0],
+  ) {
     this.calls.push(input);
   }
 }
@@ -110,8 +112,8 @@ function correlator(
   dispatch: DispatchPort,
   observer: RunObserver,
   now?: () => Date,
-): WorkflowDispatchCorrelator {
-  return new WorkflowDispatchCorrelator(correlationStore(), dispatch, observer, { now });
+): RepositoryDispatchCorrelator {
+  return new RepositoryDispatchCorrelator(correlationStore(), dispatch, observer, { now });
 }
 
 describe('Multi-Agent Control Plane V1 dispatch adapters', () => {
@@ -151,9 +153,8 @@ describe('Multi-Agent Control Plane V1 dispatch adapters', () => {
     });
     expect(dispatchId).toBe('github-actions:pending:K1:6:DEV_GOV');
     expect(dispatchPort.calls[0]).toEqual({
-      workflow: 'devgov-v0-orchestrate.yml',
-      ref: 'main',
-      inputs: {
+      eventType: 'devgov-v0-orchestrate',
+      clientPayload: {
         candidate_sha: candidateSha,
         unit_definition_path: 'governance/devgov/units/governed-harvest-canonical-entrypoint.json',
       },

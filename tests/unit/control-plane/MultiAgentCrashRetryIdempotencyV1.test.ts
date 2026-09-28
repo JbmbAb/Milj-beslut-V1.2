@@ -13,7 +13,7 @@ import {
   FileCorrelationStore,
   FileDurableControlPlaneStore,
   ProcessAgentWorker,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   type AgentDispatchPort,
   type AgentHandoff,
   type AgentHandoffSink,
@@ -25,7 +25,7 @@ import {
   type DevGovWorkflowAvailabilityPort,
   type DevGovWorkItem,
   type GitHubActionsRunObserverPort,
-  type GitHubWorkflowDispatchPort,
+  type GitHubRepositoryDispatchPort,
   type MultiAgentUnitState,
   type ObservedWorkflowRun,
 } from '../../../packages/mps-control-plane/src/multi-agent';
@@ -186,11 +186,11 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
   });
 
   it('3. ambiguous GitHub run correlation is rejected rather than guessed', async () => {
-    class Dispatch implements GitHubWorkflowDispatchPort {
+    class Dispatch implements GitHubRepositoryDispatchPort {
       async getRefSha() {
         return '3'.repeat(40);
       }
-      async dispatchWorkflow() {}
+      async dispatchRepositoryEvent() {}
     }
     function observedRun(runId: string): ObservedWorkflowRun {
       return {
@@ -198,7 +198,11 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         workflow: 'wf.yml',
         headBranch: 'main',
         headSha: '3'.repeat(40),
-        event: 'workflow_dispatch',
+        event: 'repository_dispatch',
+        // Mirrors a run-name echo of client_payload.candidate_sha, matching
+        // the dispatch below's own clientPayload so both runs are otherwise
+        // valid candidates — the ambiguity this test exists to prove.
+        displayTitle: 'wf-run cand-3',
         createdAt: '2026-09-05T01:00:01.000Z',
         status: 'completed',
         conclusion: 'success',
@@ -210,13 +214,19 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         return [observedRun('1'), observedRun('2')];
       }
     }
-    const correlator = new WorkflowDispatchCorrelator(
+    const correlator = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(tmpFile('mimer-correlation-')),
       new Dispatch(),
       new Observer(),
       { now: () => new Date('2026-09-05T01:00:00.000Z') },
     );
-    await correlator.dispatch({ dispatchKey: 'K1:3:DEV_GOV', workflow: 'wf.yml', ref: 'main', inputs: {} });
+    await correlator.dispatch({
+      dispatchKey: 'K1:3:DEV_GOV',
+      workflow: 'wf.yml',
+      eventType: 'wf-dispatch-event',
+      ref: 'main',
+      clientPayload: { candidate_sha: 'cand-3' },
+    });
     const resolved = await correlator.poll('K1:3:DEV_GOV');
     expect(resolved.status).toBe('AMBIGUOUS_CORRELATION');
   });
@@ -346,9 +356,9 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         throw new Error('proof must not be consulted before dependency availability is known');
       }
     }
-    const correlator = new WorkflowDispatchCorrelator(
+    const correlator = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(tmpFile('mimer-correlation-')),
-      { getRefSha: async () => '0'.repeat(40), dispatchWorkflow: async () => {} },
+      { getRefSha: async () => '0'.repeat(40), dispatchRepositoryEvent: async () => {} },
       { listRuns: async () => [] },
     );
     const reconciler = new DevGovReconciler({

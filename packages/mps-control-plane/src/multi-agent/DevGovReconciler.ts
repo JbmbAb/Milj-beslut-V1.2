@@ -6,7 +6,7 @@ import {
   type ProofRejectionReason,
 } from './DevGovAuthoritativeProof';
 import type { FileDurableControlPlaneStore } from './FileDurableControlPlaneStore';
-import type { WorkflowDispatchCorrelator } from './GitHubRunCorrelation';
+import type { RepositoryDispatchCorrelator } from './GitHubRunCorrelation';
 import type { DevGovWorkflowAvailabilityPort } from './GitHubDevGovDispatchAdapter';
 import type {
   DevGovTelemetryStatusPort,
@@ -103,7 +103,7 @@ export interface ReconcileInput {
 export interface DevGovReconcilerDependencies {
   readonly store: FileDurableControlPlaneStore;
   readonly availability: DevGovWorkflowAvailabilityPort;
-  readonly correlator: WorkflowDispatchCorrelator;
+  readonly correlator: RepositoryDispatchCorrelator;
   /** AUTHORITY. The only source that may justify a gate-complete proposal. */
   readonly authoritativeProof: DevGovAuthoritativeProofPort;
   /**
@@ -150,7 +150,7 @@ export interface DevGovReconcilerDependencies {
 export class DevGovReconciler {
   private readonly store: FileDurableControlPlaneStore;
   private readonly availability: DevGovWorkflowAvailabilityPort;
-  private readonly correlator: WorkflowDispatchCorrelator;
+  private readonly correlator: RepositoryDispatchCorrelator;
   private readonly authoritativeProof: DevGovAuthoritativeProofPort;
   private readonly trustedWorkflowIdentity: string;
   private readonly telemetry?: DevGovTelemetryStatusPort;
