@@ -66,7 +66,7 @@ export async function classifyProjectRegulatoryTrack(
 
   const insarUnresolved = spatialAudit.insar?.warningFlags?.includes('insar:unavailable') ?? false;
 
-  const protectedAreaUnresolved = spatialAudit.protectedAreaAvailable === false;
+  const protectedAreaUnresolved = spatialAudit.protectedAreaAvailable !== true;
 
   const spatialDataUnresolved: string[] = [];
   if (distanceUnresolved) spatialDataUnresolved.push('distance-to-water-unavailable');
