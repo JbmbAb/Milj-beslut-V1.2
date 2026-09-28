@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 
@@ -25,8 +25,27 @@ function gitSha(root) {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 }
 
+function resolveContainedPath(root, rel) {
+  const realRoot = realpathSync(root);
+  const realTarget = realpathSync(resolve(realRoot, rel));
+  const fromRoot = relative(realRoot, realTarget);
+  if (fromRoot === '..' || fromRoot.startsWith('..' + sep) || isAbsolute(fromRoot)) {
+    throw new Error(`path escapes controller/target root: ${rel}`);
+  }
+  return realTarget;
+}
+
 function readText(root, rel) {
-  return readFileSync(resolve(root, rel), 'utf8');
+  return readFileSync(resolveContainedPath(root, rel), 'utf8');
+}
+
+function isSafePackPath(value) {
+  if (typeof value !== 'string' || value.includes('\\')) return false;
+  const segments = value.split('/');
+  return (
+    value.startsWith('governance/devgov/invariant-packs/') &&
+    !segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+  );
 }
 
 function readJson(root, rel) {
@@ -63,11 +82,11 @@ function block(source, start, end) {
   return b < 0 ? source.slice(a) : source.slice(a, b);
 }
 
-// F-10 fix: strip only genuine line comments (# starting a line, or preceded by whitespace) so a
-// decoy comment cannot satisfy a hasAll() needle check. Bash `${#var}` length-expansion (# preceded
-// by `{`) and any other non-comment `#` usage is left untouched.
+// Strip genuine shell (#) and JavaScript (//) line comments so decoy text cannot satisfy
+// structural needle checks. Bash `${#var}` is preserved because # is preceded by `{`; URL
+// fragments such as https:// are preserved because // is preceded by ':' rather than whitespace.
 function stripLineComments(source) {
-  return source.replace(/(^|[ \t])#.*$/gm, '$1');
+  return source.replace(/(^|[ \t])#.*$/gm, '$1').replace(/(^|[ \t])\/\/.*$/gm, '$1');
 }
 
 // F-10 fix: a `node` invocation whose target script is a shell variable, quoted variable, or
@@ -186,6 +205,31 @@ function evaluateInvariant(id, targetRoot) {
       const orch = orchestrator();
       const g = gate();
       const pr = prPacks();
+      const orchPackBlock = stripLineComments(block(orch, '  invariant-packs:', '\n  red:'));
+      const gatePackBlock = stripLineComments(
+        block(
+          g,
+          '      - name: Verify controller-owned invariant packs',
+          '\n      - name: Upload invariant-pack report',
+        ),
+      );
+      const prPackBlock = stripLineComments(
+        block(
+          pr,
+          '      - name: Run all controller-owned invariant packs',
+          '\n      - name: Upload invariant-pack report',
+        ),
+      );
+      const gateReverifyBlock = stripLineComments(
+        block(
+          g,
+          '      - name: Reverify invariant-pack report binding',
+          '\n      - name: Inspect required proof cardinality',
+        ),
+      );
+      const gatePublishBlock = stripLineComments(
+        block(g, '      - name: Publish exact candidate gate result', null),
+      );
       return combine(
         hasAll(orch, [
           '  invariant-packs:',
@@ -199,11 +243,33 @@ function evaluateInvariant(id, targetRoot) {
           '--target candidate',
         ]),
         hasAll(pr, ['node controller/scripts/devgov/invariant-packs.mjs', '--target candidate']),
+        hasNone(orchPackBlock, ['\n    if:', '\n      if:', '\n        if:']),
+        hasNone(gatePackBlock, ['\n        if:', 'continue-on-error: true']),
+        hasNone(prPackBlock, ['\n        if:']),
+        noDynamicNodeInvocation(orchPackBlock),
+        noDynamicNodeInvocation(gatePackBlock),
+        noDynamicNodeInvocation(prPackBlock),
+        hasAll(gateReverifyBlock, [
+          "report.result !== 'PASS' || packsResult !== 'PASS'",
+          'report.pack_set_sha256 !== packSetSha',
+          'report.controller_sha !== controllerSha || packControllerSha !== controllerSha',
+          'report.candidate_sha !== candidateSha || packCandidateSha !== candidateSha',
+        ]),
+        hasAll(gatePublishBlock, [
+          'PACKS_OUTCOME: ${{ steps.invariant_packs.outcome }}',
+          '[ "$PACKS_OUTCOME" = success ]',
+          '[ "$PACKS_RESULT" = PASS ]',
+          '[ "$PACK_CONTROLLER_SHA" = "$CONTROLLER_SHA" ]',
+          '[ "$PACK_CANDIDATE_SHA" = "$CANDIDATE_SHA" ]',
+          '[ "$GATE_OUTCOME" = success ] && [ "$pack_ok" = true ]',
+          'test "$pack_ok" = true',
+        ]),
         {
           pass:
             g.indexOf('Verify controller-owned invariant packs') <
-            g.indexOf('Obtain protected gate identity'),
-          detail: 'gate invariant packs execute before protected gate identity',
+              g.indexOf('Reverify invariant-pack report binding') &&
+            g.indexOf('Reverify invariant-pack report binding') < g.indexOf('Obtain protected gate identity'),
+          detail: 'gate pack execution and report re-verification precede protected gate identity',
         },
       );
     }
@@ -221,9 +287,7 @@ function evaluateInvariant(id, targetRoot) {
         reg.registry_version >= 1 &&
         Array.isArray(reg.active_packs) &&
         reg.active_packs.length > 0 &&
-        reg.active_packs.every(
-          (value) => typeof value === 'string' && value.startsWith('governance/devgov/invariant-packs/'),
-        );
+        reg.active_packs.every((value) => isSafePackPath(value));
       return combine(
         {
           pass: validRegistry,
@@ -272,9 +336,13 @@ function evaluateInvariant(id, targetRoot) {
           'ref: ${{ github.event.pull_request.head.sha }}',
           'path: candidate',
           'persist-credentials: false',
+          'DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}',
+          'BASE_REF: ${{ github.event.pull_request.base.ref }}',
+          'test "$BASE_REF" = "$DEFAULT_BRANCH"',
           'test "$(git -C controller rev-parse HEAD)" = "$BASE_SHA"',
           'test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"',
         ]),
+        noDynamicNodeInvocation(stripLineComments(source)),
         hasNone(source, [
           '\n    paths:',
           '\n      paths:',

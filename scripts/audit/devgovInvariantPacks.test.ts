@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -234,6 +234,170 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     const report = evaluate(root);
     expect(report.result).toBe('FAIL');
     expect(report.failed_invariants).toContain('DG-IP-002-SIGNER-ISOLATION');
+  });
+
+  // Post-PROVEN cold falsification F-04: canonical pack failure must remain load-bearing.
+  it('fails DG-IP-005 if canonical pack verification becomes continue-on-error', () => {
+    const root = targetFixture();
+    mutate(
+      root,
+      '.github/workflows/devgov-v0-gate.yml',
+      '      - name: Verify controller-owned invariant packs\n        id: invariant_packs\n        env:',
+      '      - name: Verify controller-owned invariant packs\n        id: invariant_packs\n        continue-on-error: true\n        env:',
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-005-PACKS-LOAD-BEARING');
+  });
+
+  // Post-PROVEN cold falsification F-05: a decoy literal must not hide dynamic candidate execution.
+  it('fails if pull_request_target uses a decoy plus dynamic candidate execution', () => {
+    const root = targetFixture();
+    mutate(
+      root,
+      '.github/workflows/devgov-invariant-packs.yml',
+      '          node controller/scripts/devgov/invariant-packs.mjs \\',
+      '          # decoy: node controller/scripts/devgov/invariant-packs.mjs \\\n          CANDIDATE_RUNNER="candidate/scripts/devgov/invariant-packs.mjs"\n          node "$CANDIDATE_RUNNER" \\',
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-005-PACKS-LOAD-BEARING');
+  });
+
+  // Post-PROVEN cold falsification F-06: event filtering is not a substitute for runtime base binding.
+  it('fails if the all-PR check drops its protected-default-base assertion', () => {
+    const root = targetFixture();
+    mutate(root, '.github/workflows/devgov-invariant-packs.yml', '    branches:\n      - main\n', '');
+    mutate(
+      root,
+      '.github/workflows/devgov-invariant-packs.yml',
+      '          test "$BASE_REF" = "$DEFAULT_BRANCH"',
+      '          true # protected-base assertion removed',
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-007-PR-PROTECTED-BASE');
+  });
+
+  // Post-PROVEN cold falsification F-08: expected verifier text retained only as a comment is inert.
+  it('fails DG-IP-005 if invariant-pack report re-verification is reduced to a decoy comment', () => {
+    const root = targetFixture();
+    mutate(
+      root,
+      '.github/workflows/devgov-v0-gate.yml',
+      "          if (report.result !== 'PASS' || packsResult !== 'PASS') fail('result');",
+      "          // if (report.result !== 'PASS' || packsResult !== 'PASS') fail('result');\n          true;",
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-005-PACKS-LOAD-BEARING');
+  });
+
+  it('rejects an actually forged invariant-pack report with the embedded gate verifier', () => {
+    const root = targetFixture();
+    const gate = readFileSync(join(root, '.github/workflows/devgov-v0-gate.yml'), 'utf8');
+    const reverifyStep = gate.match(
+      /- name: Reverify invariant-pack report binding\n([\s\S]*?)\n\s*- name: Inspect required proof cardinality/,
+    );
+    expect(reverifyStep?.[1]).toBeTruthy();
+    const match = reverifyStep![1].match(/<<'NODE'\n([\s\S]*?)\n\s*NODE/);
+    expect(match?.[1]).toBeTruthy();
+
+    const sandbox = mkdtempSync(join(tmpdir(), 'devgov-f08-runtime-'));
+    tempRoots.push(sandbox);
+    const verifier = join(sandbox, 'verify-report.cjs');
+    const forged = join(sandbox, 'forged-report.json');
+    writeFileSync(verifier, match![1]);
+    writeFileSync(
+      forged,
+      JSON.stringify({
+        result: 'PASS',
+        pack_set_sha256: 'forged',
+        registry_version: 1,
+        controller_sha: 'd'.repeat(40),
+        candidate_sha: 'c'.repeat(40),
+      }),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        verifier,
+        forged,
+        'd'.repeat(40),
+        'c'.repeat(40),
+        'a'.repeat(64),
+        '1',
+        'PASS',
+        'd'.repeat(40),
+        'c'.repeat(40),
+      ],
+      { cwd: root, encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('invariant-pack report binding mismatch: pack_set_sha256');
+  });
+
+  // Post-PROVEN cold falsification F-13: lexical prefix validity must not permit ../ escape.
+  it('fails DG-IP-006 on prefix-valid pack path traversal in candidate registry data', () => {
+    const root = targetFixture();
+    const outside = join(dirname(root), `evil-${basename(root)}.json`);
+    tempRoots.push(outside);
+    copyFileSync(join(root, 'governance/devgov/invariant-packs/devgov-controller-core-v1.json'), outside);
+    const registryPath = join(root, 'governance/devgov/invariant-packs/registry-v1.json');
+    const registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+    registry.active_packs = [`governance/devgov/invariant-packs/../../../../${basename(outside)}`];
+    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-006-ALL-PACKS-NO-CANDIDATE-SELECTION');
+  });
+
+  it('refuses a future controller pack path whose realpath escapes controllerRoot', () => {
+    const root = targetFixture();
+    const outside = join(dirname(root), `evil-${basename(root)}.json`);
+    tempRoots.push(outside);
+    copyFileSync(join(root, 'governance/devgov/invariant-packs/devgov-controller-core-v1.json'), outside);
+    const registryPath = join(root, 'governance/devgov/invariant-packs/registry-v1.json');
+    const registry = JSON.parse(readFileSync(registryPath, 'utf8'));
+    registry.active_packs = [`governance/devgov/invariant-packs/../../../../${basename(outside)}`];
+    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    expect(() =>
+      evaluateInvariantPacks({
+        controllerRoot: root,
+        targetRoot: root,
+        controllerSha: 'd'.repeat(40),
+        candidateSha: 'c'.repeat(40),
+      }),
+    ).toThrow(/path escapes controller\/target root/);
+  });
+
+  // Post-PROVEN cold falsification F-14: caller non-impact metadata must never skip pack execution.
+  it('fails if invariant-pack execution is conditional on caller non-impact metadata', () => {
+    const root = targetFixture();
+    mutate(
+      root,
+      '.github/workflows/devgov-v0-orchestrate.yml',
+      '      - name: Run all controller-owned invariant packs\n        env:',
+      "      - name: Run all controller-owned invariant packs\n        if: github.event.client_payload.non_impacting != 'true'\n        env:",
+    );
+    mutate(
+      root,
+      '.github/workflows/devgov-v0-gate.yml',
+      '      - name: Verify controller-owned invariant packs\n        id: invariant_packs\n        env:',
+      "      - name: Verify controller-owned invariant packs\n        id: invariant_packs\n        if: github.event.client_payload.non_impacting != 'true'\n        env:",
+    );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-005-PACKS-LOAD-BEARING');
   });
 
   // Regression coverage for F-12 (DG-IP-000-CANONICAL-SET-COMPLETE): active_packs is always
