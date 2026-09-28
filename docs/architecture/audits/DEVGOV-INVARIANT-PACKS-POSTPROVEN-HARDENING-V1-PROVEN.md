@@ -144,6 +144,17 @@ This hardening does **not**:
 - claim that implementation gate `36401002711` used the new post-merge gate status wording. It did
   not; the exact status text is recorded above.
 
+### Non-required PR checks at merge time
+
+Branch protection on `main` required only `DEV-GOV-V0 / trusted-execution`, which passed. Five
+non-required checks were red on PR #188 at merge time and are retained here as K-12-class
+non-blocking merge evidence: `Typecheck`, `Lint`, `Format check`, `Security audit`, and
+`Require staging proof in PR`. This record does not reinterpret those red checks as green.
+
+At the same merge point, `DEV-GOV-V0 / invariant-packs`, read-only `DEV-GOV-V0` validation,
+dependency review, `npm audit (high+)`, and CodeQL were green. The trusted required context was the
+exact-candidate `DEV-GOV-V0 / trusted-execution` success from canonical gate `36401002711`.
+
 ## Final disposition
 
 `DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1 = PROVEN`
