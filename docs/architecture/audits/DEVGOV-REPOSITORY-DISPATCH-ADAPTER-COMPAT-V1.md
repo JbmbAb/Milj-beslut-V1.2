@@ -158,8 +158,11 @@ During C's own falsification pass, `devgov-v0-orchestrate.yml`'s `uses:
 reliability-only — not a security issue — and it was explicitly **not** code-fixed. It is recorded
 here, in this unit's own audit doc, only because C's own audit doc
 (`docs/architecture/audits/DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1.md`) is already merged and
-closed and cannot be amended after the fact. This unit does not touch `.github/workflows/**`
-(a `FORBIDDEN_PATH` for this unit) and makes no change related to FA-02.
+closed and cannot be amended after the fact. This unit makes **no change** related to _this_
+(C's inherited) FA-02 finding — `.github/workflows/**` remains forbidden for that purpose. (This
+unit's own, separate FA-02 finding from its own cold falsification pass — a concurrent-dispatch
+cross-match bug, unrelated to this note and coincidentally sharing the same label — is fixed via
+one owner-authorized line in `devgov-v0-orchestrate.yml`; see "Round 2 repair" below.)
 
 ## FA-05 correction (K-56, owner ruling relayed 2026-09-28)
 
@@ -200,9 +203,11 @@ block) to the eight workflows currently missing one: `smoke-integrations.yml`, `
 `staging-e2e-proof.yml`, `staging-proof-gate.yml`. That is a separate, not-yet-started micro-unit
 (sequenced, per the owner's relayed program order, as its own scope or as a micro-unit directly
 after `DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1`/"D" in the owner's stated ordering), out of scope
-here. This unit does not touch `.github/workflows/**` at all — it is a `FORBIDDEN_PATH` for this
-unit, and no file under it was read for editing purposes (only `devgov-v0-orchestrate.yml` was read
-to verify the real `client_payload` keys and `repository_dispatch.types` value cited above).
+here. `.github/workflows/**` remains forbidden for this purpose (no `permissions:` blocks added
+anywhere). Separately and narrowly, this unit's own `allowed_paths` was owner-authorized to include
+exactly one line in `devgov-v0-orchestrate.yml` (a `run-name:` addition) to close this unit's own
+FA-02 cross-match finding — see "Round 2 repair" below; every other file under
+`.github/workflows/**` remains untouched and forbidden.
 
 ## RED / GREEN proof design
 
@@ -312,9 +317,11 @@ This unit does **not**:
 
 - wire `GitHubDevGovDispatchAdapter`/`RepositoryDispatchCorrelator` into production, or claim it is
   now safe to do so — that remains separate, future scope;
-- touch `.github/workflows/**`, `scripts/devgov/**`, `governance/devgov/schema/**`,
+- touch `scripts/devgov/**`, `governance/devgov/schema/**`,
   `governance/devgov/invariant-packs/**`, or any `server/**`, `prisma/**`, `src/**`,
-  `scripts/ops/**`, `scripts/import/**` path;
+  `scripts/ops/**`, `scripts/import/**` path, or any file under `.github/workflows/**` **other
+  than** the one owner-authorized `run-name:` line in `devgov-v0-orchestrate.yml` (see "Round 2
+  repair" below) — every other workflow file remains forbidden and untouched;
 - add `permissions: { contents: read }` (or any other explicit `permissions:` block) to the eight
   workflows currently missing one — that is a separate, not-yet-started micro-unit, out of scope
   here (see the explicit non-claim section above);
