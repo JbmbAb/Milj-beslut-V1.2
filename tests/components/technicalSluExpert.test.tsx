@@ -100,4 +100,30 @@ describe('TechnicalSluExpert', () => {
       ).toBeInTheDocument(),
     );
   });
+
+  // ── W2b: compliance.permitProbability from an untrusted external (Gemini) response ─────────
+
+  it('W2b: en compliance-analys utan permitProbability (icke-numerisk Gemini-respons) renders "Ej utredd", aldrig NaN eller 0%', async () => {
+    analyzesMock.mockResolvedValue({
+      summary: 'Analys klar.',
+      observations: [],
+      protectedAreas: [],
+      compliance: {
+        overallRisk: 'LOW',
+        // Deliberately missing permitProbability: the Gemini response is untyped JSON at
+        // runtime, so a field the TS type declares as `number` can still arrive absent or null.
+        restrictions: [],
+        rules: [],
+        summary: 'Sammanfattning',
+      },
+    });
+    render(<TechnicalSluExpert />);
+    await user.type(screen.getByPlaceholderText('Lat'), '60.67');
+    await user.type(screen.getByPlaceholderText('Lng'), '17.14');
+    await user.click(screen.getByRole('button', { name: /Starta Scan/i }));
+
+    expect(await screen.findByText('Ej utredd')).toBeInTheDocument();
+    expect(screen.queryByText(/NaN%/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+  });
 });

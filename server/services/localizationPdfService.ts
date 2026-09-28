@@ -42,7 +42,21 @@ export interface LocalizationPdfData {
      * Rendering `undefined` into a PDF would put an unbacked verdict in front of a caseworker.
      */
     overallRisk?: string;
+    /**
+     * W2b: absent exactly when the governed verdict's permitProbability is `null` (SEM-1
+     * NOT_CHECKED). The old code read this key unconditionally, so a consumer that only checked
+     * `!== undefined` let `null` through and rendered `Math.round(null * 100)` = 0%, a fabricated
+     * number the ADR-28A/SEM-1 decision was written specifically to prevent. Same rule as
+     * `bestAlternativeId` above: absence, not a placeholder value, carries the "not computed"
+     * meaning. See `permitProbabilityStatus`/`permitProbabilityText` for what fills its place.
+     */
     permitProbability?: number;
+    /** Present IFF `permitProbability` is withheld. Only one cause exists today. */
+    permitProbabilityStatus?: 'NOT_CHECKED';
+    /** Caseworker-facing Swedish text to render in place of a number. Present IFF the status above is. */
+    permitProbabilityText?: string;
+    /** The governed rules whose required evidence could not be checked, so the withholding is traceable. */
+    unresolvedChecks?: Array<{ ruleId: string; findingId: string }>;
     /** Why a site carries no verdict, so the PDF can state it rather than leave a blank. */
     assessment_status: LuAssessmentStatus;
     assessment_artifact_id: string | null;
@@ -123,10 +137,20 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
       // removes them from the non-verdict variant, so an undefined can no longer reach the
       // caseworker-facing document by way of a field this projection forgot to check.
       ...(isGovernedVerdict(analysis.complianceAnalysis)
-        ? {
-            overallRisk: analysis.complianceAnalysis.overallRisk,
-            permitProbability: analysis.complianceAnalysis.permitProbability,
-          }
+        ? analysis.complianceAnalysis.permitProbability === null
+          ? {
+              overallRisk: analysis.complianceAnalysis.overallRisk,
+              permitProbabilityStatus: 'NOT_CHECKED' as const,
+              permitProbabilityText: 'kan inte anges',
+              unresolvedChecks: analysis.complianceAnalysis.unresolvedChecks.map((c) => ({
+                ruleId: c.rule_id,
+                findingId: c.finding_id,
+              })),
+            }
+          : {
+              overallRisk: analysis.complianceAnalysis.overallRisk,
+              permitProbability: analysis.complianceAnalysis.permitProbability,
+            }
         : {}),
       assessment_status: analysis.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
       assessment_artifact_id: analysis.executionMotor?.assessment_artifact_id ?? null,
