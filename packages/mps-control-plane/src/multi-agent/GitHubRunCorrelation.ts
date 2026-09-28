@@ -2,28 +2,37 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'node:path';
 
 /**
- * GitHub's workflow_dispatch API returns 204 No Content: no run id. It is
+ * GitHub's repository_dispatch API returns 204 No Content: no run id. It is
  * also NOT idempotent and offers no idempotency-key mechanism — two calls
- * with identical inputs can produce two runs, and there is no way to ask
- * "did my earlier call already go through?" other than observing the runs
- * list. Correlation must be reconstructed from that list, which never
- * echoes back dispatch inputs either. The only identifiers available on
- * every run are: workflow identity, head branch (ref), head_sha, event,
- * and creation time. head_sha-at-dispatch is the strongest of these
+ * with identical client_payload can produce two runs, and there is no way to
+ * ask "did my earlier call already go through?" other than observing the
+ * runs list. Correlation must be reconstructed from that list, which never
+ * echoes back the dispatch client_payload either. The only identifiers
+ * available on every run are: workflow identity, head branch (ref), head_sha,
+ * event, and creation time. head_sha-at-dispatch is the strongest of these
  * (display_title is not, since none of the DEV-GOV workflows set
- * `run-name:` from inputs) but it is still shared by every run dispatched
- * against the same commit, so ALL of workflow + ref + head_sha + event +
- * a bounded creation-time window must match, and an ambiguous match must
- * be rejected rather than guessed.
+ * `run-name:` from the payload) but it is still shared by every run
+ * dispatched against the same commit, so ALL of workflow + ref + head_sha +
+ * event + a bounded creation-time window must match, and an ambiguous match
+ * must be rejected rather than guessed. repository_dispatch's own REST
+ * payload carries no `ref` field at all — GitHub always resolves and
+ * executes the default branch's copy of the workflow — so `ref` here is the
+ * branch the resulting run is expected to land on (matched against the
+ * observed run's head branch for defense-in-depth), never a value the caller
+ * selected.
  */
-export interface GitHubWorkflowDispatchPort {
-  /** Returns the current tip SHA of `ref`. Used to bind the pre-dispatch commit identity. */
+export interface GitHubRepositoryDispatchPort {
+  /** Returns the current tip SHA of `ref` (the protected/default branch) — still needed to bind the
+   *  pre-dispatch commit identity for correlation, even though repository_dispatch's own REST payload
+   *  carries no ref field. */
   getRefSha(ref: string): Promise<string>;
-  /** Submits workflow_dispatch. GitHub returns no run id (204 No Content). Not idempotent. */
-  dispatchWorkflow(input: {
-    readonly workflow: string;
-    readonly ref: string;
-    readonly inputs: Readonly<Record<string, string>>;
+  /** Submits repository_dispatch. GitHub's REST contract is POST /repos/{owner}/{repo}/dispatches with
+   *  body {event_type, client_payload} — no `ref`, no `inputs`, no per-workflow targeting field exists.
+   *  Still returns 204 No Content (no run id), still not idempotent, still no idempotency-key mechanism —
+   *  identical operational hazards to workflow_dispatch, just a different wire shape. */
+  dispatchRepositoryEvent(input: {
+    readonly eventType: string;
+    readonly clientPayload: Readonly<Record<string, string>>;
   }): Promise<void>;
 }
 
@@ -33,6 +42,16 @@ export interface ObservedWorkflowRun {
   readonly headBranch: string;
   readonly headSha: string;
   readonly event: string;
+  /**
+   * GitHub's own `display_title` for the run — derived from the workflow's
+   * `run-name:` expression when the workflow file declares one (both
+   * `devgov-v0-orchestrate.yml` and `devgov-v0-gate.yml` do, echoing
+   * `github.event.client_payload.candidate_sha`), falling back to the head
+   * commit message otherwise. This is the ONLY per-run signal that varies
+   * across two concurrent repository_dispatch calls sharing the same
+   * workflow/head branch/head SHA/event — see matchCandidates() below.
+   */
+  readonly displayTitle: string;
   readonly createdAt: string;
   readonly status: 'queued' | 'in_progress' | 'completed';
   readonly conclusion?: 'success' | 'failure' | 'cancelled' | 'timed_out' | 'action_required' | null;
@@ -41,10 +60,10 @@ export interface ObservedWorkflowRun {
 
 export interface GitHubActionsRunObserverPort {
   /**
-   * Returns every workflow_dispatch run for `workflow` on `ref` — the
-   * complete result set, with all pages of the underlying GitHub list-runs
-   * API already followed. The correlator does not paginate itself and
-   * trusts this contract; it never truncates or caps what it scans, so a
+   * Returns every repository_dispatch-triggered run for `workflow` on `ref`
+   * — the complete result set, with all pages of the underlying GitHub
+   * list-runs API already followed. The correlator does not paginate itself
+   * and trusts this contract; it never truncates or caps what it scans, so a
    * conforming implementation cannot cause a valid run to be missed by
    * returning only a partial page.
    */
@@ -58,13 +77,14 @@ export type CorrelationStatus =
 export interface PendingCorrelation {
   readonly dispatchKey: string;
   readonly workflow: string;
+  readonly eventType: string;
   readonly ref: string;
   readonly refShaAtDispatch: string;
-  readonly inputs: Readonly<Record<string, string>>;
+  readonly clientPayload: Readonly<Record<string, string>>;
   readonly dispatchedAt: string;
   readonly windowMs: number;
   readonly status: CorrelationStatus;
-  /** Set the moment an external dispatchWorkflow call is actually made — presence means GitHub may have received it, even if that call then throws or the process crashes. */
+  /** Set the moment an external dispatchRepositoryEvent call is actually made — presence means GitHub may have received it, even if that call then throws or the process crashes. */
   readonly dispatchAttemptedAt?: string;
   readonly runId?: string;
   readonly candidateRunIds?: readonly string[];
@@ -73,12 +93,12 @@ export interface PendingCorrelation {
 }
 
 interface CorrelationFile {
-  readonly schemaVersion: 'multi-agent-github-run-correlation-v1';
+  readonly schemaVersion: 'multi-agent-github-run-correlation-v2';
   readonly records: Readonly<Record<string, PendingCorrelation>>;
 }
 
 const EMPTY: CorrelationFile = {
-  schemaVersion: 'multi-agent-github-run-correlation-v1',
+  schemaVersion: 'multi-agent-github-run-correlation-v2',
   records: {},
 };
 
@@ -121,7 +141,7 @@ export class FileCorrelationStore {
     mkdirSync(path.dirname(this.filePath), { recursive: true });
     if (!existsSync(this.filePath)) return EMPTY;
     const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<CorrelationFile>;
-    if (parsed.schemaVersion !== 'multi-agent-github-run-correlation-v1' || !parsed.records) {
+    if (parsed.schemaVersion !== 'multi-agent-github-run-correlation-v2' || !parsed.records) {
       throw new CorrelationStoreError('run-correlation store is invalid or unsupported');
     }
     return parsed as CorrelationFile;
@@ -135,25 +155,60 @@ export class FileCorrelationStore {
   }
 }
 
-export interface WorkflowDispatchCorrelatorOptions {
+export interface RepositoryDispatchCorrelatorOptions {
   readonly windowMs?: number;
   /** How long to wait for a matching run to surface before an UNCERTAIN_DISPATCH is deemed safe to retry. Defaults to windowMs. */
   readonly uncertainHorizonMs?: number;
   readonly now?: () => Date;
 }
 
+/**
+ * repository_dispatch's own REST payload has no `ref` field at all — GitHub
+ * always resolves and executes the copy of the workflow committed on the
+ * repository's default branch, regardless of what the caller sends. So
+ * `record.ref`/`run.headBranch` here do NOT mean "the ref the caller
+ * selected" (there is no such thing for this event type); they mean "the
+ * branch these runs are expected to execute on" — the repository's own
+ * default branch — matched for defense-in-depth/consistency, not because
+ * repository_dispatch offers any candidate-selectable ref to check against.
+ * This was already true in practice for this adapter's real usage (its only
+ * caller always hardcodes `protectedRef: 'main'`), so no disambiguating
+ * power is lost by this reframing.
+ *
+ * CROSS-MATCH HAZARD (closed here): because repository_dispatch always runs
+ * against the same default-branch tip regardless of which call triggered it,
+ * `headSha` — the strongest disambiguator under the old workflow_dispatch
+ * shape, where each dispatch could target a distinct candidate-selected ref
+ * — is now IDENTICAL across every concurrent dispatch of this workflow. None
+ * of workflow/headBranch/headSha/event/time-window encodes which dispatch
+ * call actually produced a given run, so two concurrent dispatches for
+ * different candidate_sha values could otherwise both satisfy every
+ * dimension and be silently, permanently cross-bound to the wrong run. This
+ * is closed structurally, not probabilistically: `devgov-v0-orchestrate.yml`
+ * declares `run-name: ... ${{ github.event.client_payload.candidate_sha }}
+ * ...`, so GitHub's own `display_title` for the resulting run embeds the
+ * exact candidate_sha that dispatch call carried — the one piece of
+ * API-visible, per-run data that DOES vary across concurrent dispatches even
+ * though headSha does not. A run is therefore only a candidate when its
+ * `displayTitle` contains `record.clientPayload.candidate_sha`; a record
+ * whose `clientPayload` carries no `candidate_sha` string can never match
+ * (fail-closed, not "match anything").
+ */
 function matchCandidates(
   record: PendingCorrelation,
   runs: readonly ObservedWorkflowRun[],
 ): readonly ObservedWorkflowRun[] {
   const dispatchedAtMs = Date.parse(record.dispatchedAt);
   const upperBoundMs = dispatchedAtMs + record.windowMs;
+  const candidateSha = record.clientPayload.candidate_sha;
+  if (typeof candidateSha !== 'string' || candidateSha.length === 0) return [];
   return runs.filter(
     (run) =>
       run.workflow === record.workflow &&
       run.headBranch === record.ref &&
       run.headSha === record.refShaAtDispatch &&
-      run.event === 'workflow_dispatch' &&
+      run.event === 'repository_dispatch' &&
+      run.displayTitle.includes(candidateSha) &&
       Date.parse(run.createdAt) >= dispatchedAtMs &&
       Date.parse(run.createdAt) <= upperBoundMs,
   );
@@ -164,33 +219,33 @@ function matchCandidates(
  *
  * Idempotency is local/outbox-level: re-calling `dispatch` for a dispatchKey
  * that already has a pending or resolved correlation record never blindly
- * re-issues workflow_dispatch. This is NOT exactly-once from GitHub's
+ * re-issues repository_dispatch. This is NOT exactly-once from GitHub's
  * perspective — nothing on the GitHub side guarantees that, GitHub's
- * workflow_dispatch is not idempotent, and this code makes no exactly-once
+ * repository_dispatch is not idempotent, and this code makes no exactly-once
  * claim. If GitHub ever produces more than one run matching workflow+ref+
  * head_sha+event inside the correlation window, `poll` reports
  * AMBIGUOUS_CORRELATION and stops advancing rather than picking one.
  *
  * Crash safety: durable intent (status UNCERTAIN_DISPATCH) is persisted
  * BEFORE any external side effect, and `dispatchAttemptedAt` is persisted
- * immediately before the actual dispatchWorkflow call — before the network
- * call is even made, not after. A crash at any point before that write
+ * immediately before the actual dispatchRepositoryEvent call — before the
+ * network call is even made, not after. A crash at any point before that write
  * leaves a record with no dispatchAttemptedAt, which is safe to dispatch
  * fresh on restart. A crash at or after that write leaves a record that
  * must not be blindly redispatched: `dispatch()` first tries to resolve it
  * via correlation, and only retries the external call once a conservative
  * horizon has passed with no matching run found.
  */
-export class WorkflowDispatchCorrelator {
+export class RepositoryDispatchCorrelator {
   private readonly windowMs: number;
   private readonly uncertainHorizonMs: number;
   private readonly now: () => Date;
 
   constructor(
     private readonly store: FileCorrelationStore,
-    private readonly dispatchPort: GitHubWorkflowDispatchPort,
+    private readonly dispatchPort: GitHubRepositoryDispatchPort,
     private readonly observer: GitHubActionsRunObserverPort,
-    options: WorkflowDispatchCorrelatorOptions = {},
+    options: RepositoryDispatchCorrelatorOptions = {},
   ) {
     this.windowMs = options.windowMs ?? 5 * 60_000;
     this.uncertainHorizonMs = options.uncertainHorizonMs ?? this.windowMs;
@@ -200,8 +255,9 @@ export class WorkflowDispatchCorrelator {
   async dispatch(input: {
     readonly dispatchKey: string;
     readonly workflow: string;
+    readonly eventType: string;
     readonly ref: string;
-    readonly inputs: Readonly<Record<string, string>>;
+    readonly clientPayload: Readonly<Record<string, string>>;
   }): Promise<PendingCorrelation> {
     let record = this.store.get(input.dispatchKey);
     if (!record) {
@@ -209,9 +265,10 @@ export class WorkflowDispatchCorrelator {
       record = this.store.createIfAbsent({
         dispatchKey: input.dispatchKey,
         workflow: input.workflow,
+        eventType: input.eventType,
         ref: input.ref,
         refShaAtDispatch,
-        inputs: input.inputs,
+        clientPayload: input.clientPayload,
         dispatchedAt: this.now().toISOString(),
         windowMs: this.windowMs,
         status: 'UNCERTAIN_DISPATCH',
@@ -263,7 +320,7 @@ export class WorkflowDispatchCorrelator {
    * Shared bound-candidate resolution for both AWAITING_RUN and
    * UNCERTAIN_DISPATCH records. Never itself issues a dispatch — pure
    * observation. Binds on workflow identity, ref/head branch, head SHA,
-   * the workflow_dispatch event, and a closed creation-time window
+   * the repository_dispatch event, and a closed creation-time window
    * (dispatchedAt .. dispatchedAt + windowMs) — every dimension the
    * candidate set is scoped by, defense-in-depth against a port
    * implementation that did not already filter correctly. Scans the
@@ -322,10 +379,9 @@ export class WorkflowDispatchCorrelator {
     const attempted: PendingCorrelation = { ...record, dispatchAttemptedAt: this.now().toISOString() };
     this.store.update(record.dispatchKey, attempted);
 
-    await this.dispatchPort.dispatchWorkflow({
-      workflow: record.workflow,
-      ref: record.ref,
-      inputs: record.inputs,
+    await this.dispatchPort.dispatchRepositoryEvent({
+      eventType: record.eventType,
+      clientPayload: record.clientPayload,
     });
 
     const accepted: PendingCorrelation = { ...attempted, status: 'AWAITING_RUN' };

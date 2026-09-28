@@ -7,7 +7,7 @@ import {
   DevGovReconciler,
   FileCorrelationStore,
   FileDurableControlPlaneStore,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   verifyAuthoritativeProof,
   type DevGovAuthoritativeProof,
   type DevGovAuthoritativeProofPort,
@@ -82,7 +82,9 @@ function run(overrides: Partial<ObservedWorkflowRun> = {}): ObservedWorkflowRun 
     workflow: 'devgov-v0-orchestrate.yml',
     headBranch: 'main',
     headSha: refShaAtDispatch,
-    event: 'workflow_dispatch',
+    event: 'repository_dispatch',
+    // Mirrors devgov-v0-orchestrate.yml's real run-name echo of client_payload.candidate_sha.
+    displayTitle: `DEV-GOV orchestrate ${candidateSha} unit=governance/devgov/units/example.json`,
     createdAt: '2026-09-05T01:00:01.000Z',
     status: 'completed',
     conclusion: 'success',
@@ -158,18 +160,19 @@ class ProofPort implements DevGovAuthoritativeProofPort {
   }
 }
 
-async function correlatedTo(observed: ObservedWorkflowRun): Promise<WorkflowDispatchCorrelator> {
-  const corr = new WorkflowDispatchCorrelator(
+async function correlatedTo(observed: ObservedWorkflowRun): Promise<RepositoryDispatchCorrelator> {
+  const corr = new RepositoryDispatchCorrelator(
     new FileCorrelationStore(tmpFile('mimer-correlation-')),
-    { getRefSha: async () => refShaAtDispatch, dispatchWorkflow: async () => {} },
+    { getRefSha: async () => refShaAtDispatch, dispatchRepositoryEvent: async () => {} },
     { listRuns: async () => [observed] },
     { now: () => new Date(CLOCK) },
   );
   await corr.dispatch({
     dispatchKey: DISPATCH_KEY,
     workflow: 'devgov-v0-orchestrate.yml',
+    eventType: 'devgov-v0-orchestrate',
     ref: 'main',
-    inputs: {},
+    clientPayload: { candidate_sha: candidateSha },
   });
   await corr.poll(DISPATCH_KEY);
   return corr;
@@ -315,17 +318,18 @@ describe('DEV-GOV authority binding — a commit status can never authorize an a
   it('A8b: ambiguous run correlation leaves no run bound, so no proof is attributable', async () => {
     const store = new FileDurableControlPlaneStore(tmpFile('mimer-store-'));
     store.initializeUnit(unit());
-    const corr = new WorkflowDispatchCorrelator(
+    const corr = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(tmpFile('mimer-correlation-')),
-      { getRefSha: async () => refShaAtDispatch, dispatchWorkflow: async () => {} },
+      { getRefSha: async () => refShaAtDispatch, dispatchRepositoryEvent: async () => {} },
       { listRuns: async () => [run({ runId: '1' }), run({ runId: '2' })] },
       { now: () => new Date(CLOCK) },
     );
     await corr.dispatch({
       dispatchKey: DISPATCH_KEY,
       workflow: 'devgov-v0-orchestrate.yml',
+      eventType: 'devgov-v0-orchestrate',
       ref: 'main',
-      inputs: {},
+      clientPayload: { candidate_sha: candidateSha },
     });
     await corr.poll(DISPATCH_KEY);
     const reconciler = new DevGovReconciler({

@@ -1,4 +1,5 @@
 ﻿name: DEV-GOV-V0 Proof Orchestrator
+run-name: DEV-GOV orchestrate ${{ github.event.client_payload.candidate_sha }} unit=${{ github.event.client_payload.unit_definition_path }}
 
 # repository_dispatch has no per-key required/type/description metadata (unlike workflow_dispatch
 # inputs) and, unlike workflow_dispatch, its REST payload carries no ref/branch selector at all --

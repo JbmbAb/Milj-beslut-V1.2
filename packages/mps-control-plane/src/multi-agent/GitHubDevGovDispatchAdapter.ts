@@ -1,5 +1,5 @@
 import type { DevGovDispatchPort, DevGovWorkItem } from './Ports';
-import type { WorkflowDispatchCorrelator } from './GitHubRunCorrelation';
+import type { RepositoryDispatchCorrelator } from './GitHubRunCorrelation';
 
 export interface DevGovUnitBinding {
   readonly unitId: string;
@@ -20,6 +20,7 @@ export interface DevGovWorkflowAvailabilityPort {
 export interface GitHubDevGovDispatchAdapterOptions {
   readonly workflow?: string;
   readonly protectedRef?: string;
+  readonly eventType?: string;
 }
 
 export class DevGovBindingError extends Error {}
@@ -35,9 +36,9 @@ export class DevGovBindingError extends Error {}
 export class DevGovWorkflowUnavailableError extends Error {}
 
 /**
- * GitHub's workflow_dispatch endpoint returns 204 No Content: no run id is
+ * GitHub's repository_dispatch endpoint returns 204 No Content: no run id is
  * ever handed back synchronously. This adapter submits the dispatch through
- * a WorkflowDispatchCorrelator (dispatch -> observe -> correlate) and
+ * a RepositoryDispatchCorrelator (dispatch -> observe -> correlate) and
  * returns an opaque, locally-idempotent dispatch handle — never a
  * fabricated GitHub run id. Resolving the actual run (or discovering
  * AMBIGUOUS_CORRELATION / CORRELATION_TIMEOUT) is a separate, explicit
@@ -46,15 +47,17 @@ export class DevGovWorkflowUnavailableError extends Error {}
 export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
   private readonly workflow: string;
   private readonly protectedRef: string;
+  private readonly eventType: string;
 
   constructor(
     private readonly resolver: DevGovBindingResolver,
     private readonly availability: DevGovWorkflowAvailabilityPort,
-    private readonly correlator: WorkflowDispatchCorrelator,
+    private readonly correlator: RepositoryDispatchCorrelator,
     options: GitHubDevGovDispatchAdapterOptions = {},
   ) {
     this.workflow = options.workflow ?? 'devgov-v0-orchestrate.yml';
     this.protectedRef = options.protectedRef ?? 'main';
+    this.eventType = options.eventType ?? 'devgov-v0-orchestrate';
   }
 
   async dispatch(item: DevGovWorkItem): Promise<string> {
@@ -94,8 +97,9 @@ export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
     const correlation = await this.correlator.dispatch({
       dispatchKey: item.dispatchKey,
       workflow: this.workflow,
+      eventType: this.eventType,
       ref: this.protectedRef,
-      inputs: {
+      clientPayload: {
         candidate_sha: unit.candidateSha,
         unit_definition_path: binding.unitDefinitionPath,
       },

@@ -5,15 +5,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   FileCorrelationStore,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   type GitHubActionsRunObserverPort,
-  type GitHubWorkflowDispatchPort,
+  type GitHubRepositoryDispatchPort,
   type ObservedWorkflowRun,
 } from '../../../packages/mps-control-plane/src/multi-agent';
 
 const roots: string[] = [];
 const refSha = '4'.repeat(40);
 const workflow = 'devgov-v0-orchestrate.yml';
+const eventType = 'devgov-v0-orchestrate';
 const ref = 'main';
 const dispatchedAtIso = '2026-09-05T01:00:00.000Z';
 
@@ -27,13 +28,15 @@ function store(): FileCorrelationStore {
   return new FileCorrelationStore(path.join(root, 'correlation.json'));
 }
 
-class DispatchPort implements GitHubWorkflowDispatchPort {
-  calls: Array<Parameters<GitHubWorkflowDispatchPort['dispatchWorkflow']>[0]> = [];
+class DispatchPort implements GitHubRepositoryDispatchPort {
+  calls: Array<Parameters<GitHubRepositoryDispatchPort['dispatchRepositoryEvent']>[0]> = [];
   constructor(private readonly sha = refSha) {}
   async getRefSha() {
     return this.sha;
   }
-  async dispatchWorkflow(input: Parameters<GitHubWorkflowDispatchPort['dispatchWorkflow']>[0]) {
+  async dispatchRepositoryEvent(
+    input: Parameters<GitHubRepositoryDispatchPort['dispatchRepositoryEvent']>[0],
+  ) {
     this.calls.push(input);
   }
 }
@@ -45,14 +48,21 @@ class RunObserver implements GitHubActionsRunObserverPort {
   }
 }
 
-/** A run that matches the standard fixture dispatch exactly on every bound dimension. */
+/**
+ * A run that matches the standard fixture dispatch exactly on every bound
+ * dimension, including `displayTitle` — which mirrors
+ * `devgov-v0-orchestrate.yml`'s real `run-name:` echo of
+ * `client_payload.candidate_sha` — containing the same `candidate_sha`
+ * ('x') the standard `dispatchedFixture()` helper below dispatches with.
+ */
 function validRun(overrides: Partial<ObservedWorkflowRun> = {}): ObservedWorkflowRun {
   return {
     runId: '1001',
     workflow,
     headBranch: ref,
     headSha: refSha,
-    event: 'workflow_dispatch',
+    event: 'repository_dispatch',
+    displayTitle: 'DEV-GOV orchestrate x unit=governance/devgov/units/example.json',
     createdAt: '2026-09-05T01:00:05.000Z',
     status: 'completed',
     conclusion: 'success',
@@ -65,7 +75,7 @@ function correlator(
   observer: GitHubActionsRunObserverPort,
   opts: { now?: () => Date; windowMs?: number } = {},
 ) {
-  return new WorkflowDispatchCorrelator(store(), new DispatchPort(), observer, {
+  return new RepositoryDispatchCorrelator(store(), new DispatchPort(), observer, {
     now: opts.now ?? (() => new Date(dispatchedAtIso)),
     windowMs: opts.windowMs,
   });
@@ -76,7 +86,13 @@ async function dispatchedFixture(
   opts: { now?: () => Date; windowMs?: number } = {},
 ) {
   const corr = correlator(observer, opts);
-  await corr.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: { candidate_sha: 'x' } });
+  await corr.dispatch({
+    dispatchKey: 'K1:6:DEV_GOV',
+    workflow,
+    eventType,
+    ref,
+    clientPayload: { candidate_sha: 'x' },
+  });
   return corr;
 }
 
@@ -131,11 +147,11 @@ describe('GitHub workflow-dispatch run correlation — binding (Part B, Blocker 
       validRun({ headSha: '9'.repeat(40) }),
       validRun({ event: 'push' }),
     ]);
-    const corr = new WorkflowDispatchCorrelator(store(), new DispatchPort(), observer, {
+    const corr = new RepositoryDispatchCorrelator(store(), new DispatchPort(), observer, {
       now: () => now,
       windowMs: 60_000,
     });
-    await corr.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    await corr.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, eventType, ref, clientPayload: {} });
     expect((await corr.poll('K1:6:DEV_GOV')).status).toBe('AWAITING_RUN');
     now = new Date('2026-09-05T01:01:01.000Z');
     expect((await corr.poll('K1:6:DEV_GOV')).status).toBe('CORRELATION_TIMEOUT');
@@ -167,12 +183,75 @@ describe('GitHub workflow-dispatch run correlation — binding (Part B, Blocker 
     expect(await corr.poll('K1:6:DEV_GOV')).toMatchObject({ status: 'CORRELATED', runId: '1001' });
   });
 
-  it('is idempotent per dispatchKey: a second dispatch call never re-submits workflow_dispatch once accepted', async () => {
+  it('L. FA-02: two concurrent repository_dispatch calls for DIFFERENT candidate_sha values sharing an identical headSha are never cross-bound — display_title (run-name-echoed candidate_sha) disambiguates where headSha cannot', async () => {
+    // repository_dispatch always resolves/executes the SAME default-branch
+    // tip regardless of which call triggered it, so two concurrent dispatches
+    // of this workflow get the SAME headSha — workflow/headBranch/headSha/
+    // event/time-window alone cannot tell them apart. This reproduces the
+    // exact scenario the falsifier described: dispatch A (candidate-x) then
+    // dispatch B (candidate-y) close together; only run-a has surfaced so
+    // far. Without the display_title check, run-a would satisfy every other
+    // dimension for record_B too and get permanently, wrongly bound to it.
     const dispatchPort = new DispatchPort();
-    const corr = new WorkflowDispatchCorrelator(store(), dispatchPort, new RunObserver(), {
+    const observer = new RunObserver([]);
+    const corr = new RepositoryDispatchCorrelator(store(), dispatchPort, observer, {
       now: () => new Date(dispatchedAtIso),
     });
-    const input = { dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} };
+
+    await corr.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV:A',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: { candidate_sha: 'candidate-x' },
+    });
+    await corr.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV:B',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: { candidate_sha: 'candidate-y' },
+    });
+    expect(dispatchPort.calls).toHaveLength(2);
+
+    // Only run-a (belonging to dispatch A) has surfaced via the API so far.
+    // It shares workflow/headBranch/headSha/event/time-window with what a
+    // run for dispatch B would look like too, since both DispatchPort calls
+    // resolved the same refShaAtDispatch.
+    observer.runs = [
+      validRun({ runId: 'run-a', displayTitle: 'DEV-GOV orchestrate candidate-x unit=x.json' }),
+    ];
+
+    const resolvedA = await corr.poll('K1:6:DEV_GOV:A');
+    expect(resolvedA).toMatchObject({ status: 'CORRELATED', runId: 'run-a' });
+
+    // record_B must NOT be incorrectly bound to run-a merely because every
+    // OTHER dimension matches — its display_title does not contain
+    // candidate-y, so it must still be AWAITING_RUN (or, with more than one
+    // decoy present, AMBIGUOUS_CORRELATION) — never a wrong CORRELATED bind.
+    const resolvedB = await corr.poll('K1:6:DEV_GOV:B');
+    expect(resolvedB.status).toBe('AWAITING_RUN');
+    expect(resolvedB.runId).toBeUndefined();
+
+    // Once run-b (whose display_title carries candidate-y) surfaces too,
+    // record_B correctly binds to IT, not to run-a — and record_A's own
+    // (correct) binding to run-a is unaffected.
+    observer.runs = [
+      validRun({ runId: 'run-a', displayTitle: 'DEV-GOV orchestrate candidate-x unit=x.json' }),
+      validRun({ runId: 'run-b', displayTitle: 'DEV-GOV orchestrate candidate-y unit=y.json' }),
+    ];
+    const resolvedB2 = await corr.poll('K1:6:DEV_GOV:B');
+    expect(resolvedB2).toMatchObject({ status: 'CORRELATED', runId: 'run-b' });
+    const resolvedA2 = await corr.poll('K1:6:DEV_GOV:A');
+    expect(resolvedA2).toMatchObject({ status: 'CORRELATED', runId: 'run-a' });
+  });
+
+  it('is idempotent per dispatchKey: a second dispatch call never re-submits repository_dispatch once accepted', async () => {
+    const dispatchPort = new DispatchPort();
+    const corr = new RepositoryDispatchCorrelator(store(), dispatchPort, new RunObserver(), {
+      now: () => new Date(dispatchedAtIso),
+    });
+    const input = { dispatchKey: 'K1:6:DEV_GOV', workflow, eventType, ref, clientPayload: {} };
     await corr.dispatch(input);
     await corr.dispatch(input);
     expect(dispatchPort.calls).toHaveLength(1);
@@ -185,7 +264,7 @@ describe('GitHub workflow-dispatch run correlation — binding (Part B, Blocker 
     );
     roots.push(path.dirname(filePath));
     const dispatchPort = new DispatchPort();
-    const before = new WorkflowDispatchCorrelator(
+    const before = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver(),
@@ -193,9 +272,15 @@ describe('GitHub workflow-dispatch run correlation — binding (Part B, Blocker 
         now: () => new Date(dispatchedAtIso),
       },
     );
-    await before.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    await before.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: { candidate_sha: 'x' },
+    });
 
-    const after = new WorkflowDispatchCorrelator(
+    const after = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver([validRun()]),
@@ -225,9 +310,10 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     crashedStore.createIfAbsent({
       dispatchKey: 'K1:6:DEV_GOV',
       workflow,
+      eventType,
       ref,
       refShaAtDispatch: refSha,
-      inputs: {},
+      clientPayload: {},
       dispatchedAt: dispatchedAtIso,
       windowMs: 5 * 60_000,
       status: 'UNCERTAIN_DISPATCH',
@@ -235,7 +321,7 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     });
 
     const dispatchPort = new DispatchPort();
-    const restarted = new WorkflowDispatchCorrelator(
+    const restarted = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver(),
@@ -243,7 +329,13 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
         now: () => new Date(dispatchedAtIso),
       },
     );
-    const result = await restarted.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    const result = await restarted.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: {},
+    });
     expect(result.status).toBe('AWAITING_RUN');
     expect(dispatchPort.calls).toHaveLength(1);
   });
@@ -261,9 +353,10 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     crashedStore.createIfAbsent({
       dispatchKey: 'K1:6:DEV_GOV',
       workflow,
+      eventType,
       ref,
       refShaAtDispatch: refSha,
-      inputs: {},
+      clientPayload: {},
       dispatchedAt: dispatchedAtIso,
       windowMs: 5 * 60_000,
       status: 'UNCERTAIN_DISPATCH',
@@ -272,13 +365,19 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     });
 
     const dispatchPort = new DispatchPort();
-    const restarted = new WorkflowDispatchCorrelator(
+    const restarted = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver(), // the real run has not surfaced in the API yet
       { now: () => new Date(dispatchedAtIso), uncertainHorizonMs: 5 * 60_000 },
     );
-    const result = await restarted.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    const result = await restarted.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: {},
+    });
     expect(result.status).toBe('UNCERTAIN_DISPATCH');
     expect(dispatchPort.calls).toHaveLength(0); // must NOT have blindly redispatched
   });
@@ -292,9 +391,10 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     new FileCorrelationStore(filePath).createIfAbsent({
       dispatchKey: 'K1:6:DEV_GOV',
       workflow,
+      eventType,
       ref,
       refShaAtDispatch: refSha,
-      inputs: {},
+      clientPayload: { candidate_sha: 'x' },
       dispatchedAt: dispatchedAtIso,
       windowMs: 5 * 60_000,
       status: 'UNCERTAIN_DISPATCH',
@@ -303,13 +403,19 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     });
 
     const dispatchPort = new DispatchPort();
-    const restarted = new WorkflowDispatchCorrelator(
+    const restarted = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver([validRun()]), // the earlier attempt DID reach GitHub; the run now shows up
       { now: () => new Date(dispatchedAtIso), uncertainHorizonMs: 5 * 60_000 },
     );
-    const result = await restarted.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    const result = await restarted.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: { candidate_sha: 'x' },
+    });
     expect(result).toMatchObject({ status: 'CORRELATED', runId: '1001' });
     expect(dispatchPort.calls).toHaveLength(0); // resolved via correlation, never redispatched
   });
@@ -323,9 +429,10 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     new FileCorrelationStore(filePath).createIfAbsent({
       dispatchKey: 'K1:6:DEV_GOV',
       workflow,
+      eventType,
       ref,
       refShaAtDispatch: refSha,
-      inputs: {},
+      clientPayload: { candidate_sha: 'x' },
       dispatchedAt: dispatchedAtIso,
       windowMs: 5 * 60_000,
       status: 'UNCERTAIN_DISPATCH',
@@ -334,13 +441,19 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     });
 
     const dispatchPort = new DispatchPort();
-    const restarted = new WorkflowDispatchCorrelator(
+    const restarted = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver([validRun({ runId: '1001' }), validRun({ runId: '1002' })]),
       { now: () => new Date(dispatchedAtIso), uncertainHorizonMs: 5 * 60_000 },
     );
-    const result = await restarted.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    const result = await restarted.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: { candidate_sha: 'x' },
+    });
     expect(result.status).toBe('AMBIGUOUS_CORRELATION');
     expect(dispatchPort.calls).toHaveLength(0);
   });
@@ -354,9 +467,10 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     new FileCorrelationStore(filePath).createIfAbsent({
       dispatchKey: 'K1:6:DEV_GOV',
       workflow,
+      eventType,
       ref,
       refShaAtDispatch: refSha,
-      inputs: {},
+      clientPayload: {},
       dispatchedAt: dispatchedAtIso,
       windowMs: 5 * 60_000,
       status: 'UNCERTAIN_DISPATCH',
@@ -367,7 +481,7 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     const dispatchPort = new DispatchPort();
     const laterButWithinHorizon = new Date('2026-09-05T01:02:00.000Z');
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const restarted = new WorkflowDispatchCorrelator(
+      const restarted = new RepositoryDispatchCorrelator(
         new FileCorrelationStore(filePath),
         dispatchPort,
         new RunObserver(),
@@ -376,7 +490,13 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
           uncertainHorizonMs: 5 * 60_000,
         },
       );
-      const result = await restarted.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+      const result = await restarted.dispatch({
+        dispatchKey: 'K1:6:DEV_GOV',
+        workflow,
+        eventType,
+        ref,
+        clientPayload: {},
+      });
       expect(result.status).toBe('UNCERTAIN_DISPATCH');
     }
     expect(dispatchPort.calls).toHaveLength(0);
@@ -391,9 +511,10 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
     new FileCorrelationStore(filePath).createIfAbsent({
       dispatchKey: 'K1:6:DEV_GOV',
       workflow,
+      eventType,
       ref,
       refShaAtDispatch: refSha,
-      inputs: {},
+      clientPayload: {},
       dispatchedAt: dispatchedAtIso,
       windowMs: 5 * 60_000,
       status: 'UNCERTAIN_DISPATCH',
@@ -403,7 +524,7 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
 
     const dispatchPort = new DispatchPort();
     const wellPastHorizon = new Date('2026-09-05T01:10:01.000Z');
-    const restarted = new WorkflowDispatchCorrelator(
+    const restarted = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(filePath),
       dispatchPort,
       new RunObserver(),
@@ -412,27 +533,33 @@ describe('GitHub workflow-dispatch crash window (Part B/E, Blocker 2)', () => {
         uncertainHorizonMs: 5 * 60_000,
       },
     );
-    const result = await restarted.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} });
+    const result = await restarted.dispatch({
+      dispatchKey: 'K1:6:DEV_GOV',
+      workflow,
+      eventType,
+      ref,
+      clientPayload: {},
+    });
     expect(result.status).toBe('AWAITING_RUN');
     expect(dispatchPort.calls).toHaveLength(1);
   });
 
-  it('a dispatchWorkflow call that throws leaves the record durably UNCERTAIN_DISPATCH with the attempt marker set, not silently lost', async () => {
-    class ThrowingDispatch implements GitHubWorkflowDispatchPort {
+  it('a dispatchRepositoryEvent call that throws leaves the record durably UNCERTAIN_DISPATCH with the attempt marker set, not silently lost', async () => {
+    class ThrowingDispatch implements GitHubRepositoryDispatchPort {
       async getRefSha() {
         return refSha;
       }
-      async dispatchWorkflow(): Promise<void> {
+      async dispatchRepositoryEvent(): Promise<void> {
         throw new Error('network error: response never received');
       }
     }
     const s = store();
-    const corr = new WorkflowDispatchCorrelator(s, new ThrowingDispatch(), new RunObserver(), {
+    const corr = new RepositoryDispatchCorrelator(s, new ThrowingDispatch(), new RunObserver(), {
       now: () => new Date(dispatchedAtIso),
     });
-    await expect(corr.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, ref, inputs: {} })).rejects.toThrow(
-      /network error/,
-    );
+    await expect(
+      corr.dispatch({ dispatchKey: 'K1:6:DEV_GOV', workflow, eventType, ref, clientPayload: {} }),
+    ).rejects.toThrow(/network error/);
     const record = s.get('K1:6:DEV_GOV');
     expect(record).toMatchObject({ status: 'UNCERTAIN_DISPATCH', dispatchAttemptedAt: dispatchedAtIso });
   });
