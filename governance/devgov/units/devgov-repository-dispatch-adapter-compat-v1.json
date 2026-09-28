@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "tooling/devgov-repository-dispatch-adapter-compat-v1",
-  "base_sha": "cf33cc1318b4505ccbf57d6296136b99c41fdee1",
+  "base_sha": "052582bd4ea8799de73ceffdb1c5744a48865b4b",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "packages/mps-control-plane/src/multi-agent/GitHubDevGovDispatchAdapter.ts",
