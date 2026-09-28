@@ -21,12 +21,13 @@ rewrite the historical Step-5 PROVEN record.
   `f6e241d8dec0ff8dab2bcf6ec431eef63f5f860c`.
 - Promotion merge:
   `703a7f561701abc530b52a852820ddfc5c820aea`.
-- This PROVEN-record unit base (`main` at record creation):
-  `703a7f561701abc530b52a852820ddfc5c820aea`.
+- This PROVEN-record unit base (`main` at K-77 reconciliation):
+  `0d58e83cd0b938d7fc21e43e66dff26c0f0bb305`.
 
-No other unit merged to `main` between PR #188's merge and creation of this record. The
-implementation delta is therefore already wholly present in this record unit's base; this record
-unit changes only this document and its own unit definition.
+`main` advanced after PR #188's merge. The implementation merge
+`703a7f561701abc530b52a852820ddfc5c820aea` remains an ancestor of this record unit's base, so the
+implementation delta is wholly present; this record unit still changes only this document and its
+own unit definition.
 
 ## Why a post-PROVEN hardening record exists
 

@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "docs/devgov-invariant-packs-postproven-hardening-proven-k69",
-  "base_sha": "703a7f561701abc530b52a852820ddfc5c820aea",
+  "base_sha": "0d58e83cd0b938d7fc21e43e66dff26c0f0bb305",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1-PROVEN.md",
