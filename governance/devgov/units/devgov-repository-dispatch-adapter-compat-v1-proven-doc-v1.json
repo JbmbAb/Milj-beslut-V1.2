@@ -1,0 +1,71 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/devgov-repository-dispatch-adapter-compat-proven",
+  "base_sha": "0a3e8d9861153445f8262e497b2e5f980e7e91a8",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1-PROVEN.md",
+    "governance/devgov/units/devgov-repository-dispatch-adapter-compat-v1-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "docs/architecture/audits/DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1.md",
+    "governance/devgov/units/devgov-repository-dispatch-adapter-compat-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-adapter-compat-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('ADAPTER_COMPAT_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('ADAPTER_COMPAT_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('ADAPTER_COMPAT_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"5fd57ac421a5a7ed6b93732f240efb4d77ef0a04\",\"052582bd4ea8799de73ceffdb1c5744a48865b4b\",\"0a3e8d9861153445f8262e497b2e5f980e7e91a8\",\"a4e198722ea55ce2ea986832a9bf2faf4a7b3bef\",\"36448052406\",\"36449050386\",\"#190\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN and controller-owned packs verified for exact candidate SHA\",\"proof_status: PROVEN\",\"dispatch-wire-call-repository-dispatch-shape\",\"dispatch-correlator-event-predicate-repository-dispatch\",\"correlation-store-schema-version-bumped\",\"dispatch-correlator-candidate-sha-cross-match-guard\",\"control-plane-repository-dispatch-regression-tests\",\"repository_dispatch\",\"5be20e1bff4d9fe67471804192c80c1f1072da92f31f5481c34b2c6bb84ea8c3\",\"DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-adapter-compat-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('ADAPTER_COMPAT_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('ADAPTER_COMPAT_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('ADAPTER_COMPAT_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"5fd57ac421a5a7ed6b93732f240efb4d77ef0a04\",\"052582bd4ea8799de73ceffdb1c5744a48865b4b\",\"0a3e8d9861153445f8262e497b2e5f980e7e91a8\",\"a4e198722ea55ce2ea986832a9bf2faf4a7b3bef\",\"36448052406\",\"36449050386\",\"#190\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN and controller-owned packs verified for exact candidate SHA\",\"proof_status: PROVEN\",\"dispatch-wire-call-repository-dispatch-shape\",\"dispatch-correlator-event-predicate-repository-dispatch\",\"correlation-store-schema-version-bumped\",\"dispatch-correlator-candidate-sha-cross-match-guard\",\"control-plane-repository-dispatch-regression-tests\",\"repository_dispatch\",\"5be20e1bff4d9fe67471804192c80c1f1072da92f31f5481c34b2c6bb84ea8c3\",\"DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/devgov-repository-dispatch-adapter-compat-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
