@@ -5,6 +5,7 @@
  * document SHA + page, a verbatim legal-corpus quote, a Mimer layer fact, or a marked template
  * default. Counts, never percentages; n < 3 → "otillräckligt underlag".
  */
+import { CONTROL_FIELDS, EGENKONTROLL_POINTS, EGENKONTROLL_SOURCE_NOTE, EGENKONTROLL_TEMPLATE_ID } from './egenkontrollTemplate';
 import type { MpfCitation } from './legalCitation';
 import type { CoverageRow, RequirementRow } from './requirementsSource';
 import type { DemoCaseInput, ProposalRow, ProposalSectionId, UnderlagRef } from './types';
@@ -122,6 +123,30 @@ function corpusRows(rows: RequirementRow[], codes: string[], coverage: CoverageR
   return out;
 }
 
+/**
+ * K-94b: the egenkontroll table. Rows = template control points (structure from municipal
+ * programmes, provenance "mallstandard"); cells = the user's own underlag, verbatim with file
+ * source, or "användarens uppgift – ej ifylld". No cell is written by Mimer.
+ */
+function egenkontrollRows(underlag: UnderlagRef | undefined): ProposalRow[] {
+  return EGENKONTROLL_POINTS.map((point) => {
+    const cells = underlag?.controlCells?.[point.id] ?? {};
+    const filled = CONTROL_FIELDS.filter((f) => cells[f]);
+    const control = Object.fromEntries(CONTROL_FIELDS.map((f) => [f, cells[f]?.text ?? USER_MISSING])) as NonNullable<ProposalRow['control']>;
+    const controlSources = Object.fromEntries(filled.map((f) => [f, cells[f]!.sources]));
+    return {
+      id: `ek-${point.id}`,
+      section: 'egenkontroll' as const,
+      label: point.kontrollpunkt,
+      text: point.kontrollpunkt,
+      provenance: { kind: 'template_default' as const, templateId: EGENKONTROLL_TEMPLATE_ID },
+      note: [EGENKONTROLL_SOURCE_NOTE, filled.length && underlag?.fictional ? FICTIONAL_NOTE : null].filter(Boolean).join('; '),
+      control,
+      ...(filled.length ? { controlSources } : {}),
+    };
+  });
+}
+
 /** K-54: one row per drawing from the user's underlag, decided like any other row. */
 function attachmentRows(underlag: UnderlagRef | undefined): ProposalRow[] {
   return (underlag?.attachments ?? []).map((a) => ({
@@ -169,7 +194,9 @@ export function buildProposalRows(args: {
     ...corpus.filter((r) => r.section === 'teknisk_beskrivning'),
     u('forsiktighetsmatt', 'anvandarensForsiktighetsmatt', 'Verksamhetsutövarens försiktighetsmått (damm, buller, transporter)'),
     ...corpus.filter((r) => r.section === 'forsiktighetsmatt'),
-    u('egenkontroll', 'anvandarensEgenkontroll', 'Verksamhetsutövarens kontrollrutiner'),
+    ...egenkontrollRows(args.underlag),
+    // The free-text routines are shown only when they are not already quoted into the table.
+    ...(args.underlag?.controlCells ? [] : [u('egenkontroll', 'anvandarensEgenkontroll', 'Verksamhetsutövarens kontrollrutiner')]),
     ...corpus.filter((r) => r.section === 'egenkontroll'),
     ...attachmentRows(args.underlag),
   ];
@@ -193,6 +220,9 @@ export function assertEveryRowHasProvenance(rows: ProposalRow[]): void {
       continue;
     }
     if (!r.text?.trim()) problems.push(`${r.id}: empty text`);
+    for (const [field, refs] of Object.entries(r.controlSources ?? {})) {
+      if (!refs?.length || refs.some((f) => !f.file || !SHA.test(f.sha256))) problems.push(`${r.id}: cell ${field} without file + sha256`);
+    }
     if (r.attachment && !(SHA.test(r.attachment.sha256) && ['image/jpeg', 'image/png'].includes(r.attachment.mime))) {
       problems.push(`${r.id}: attachment without sha256 / JPG-PNG type`);
     }

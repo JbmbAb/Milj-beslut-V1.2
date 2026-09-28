@@ -25,7 +25,7 @@ const SECTION_TITLES: Record<ProposalSectionId, string> = {
   lokalisering: '3. Lokalisering',
   teknisk_beskrivning: '4. Teknisk beskrivning av lagringsytan',
   forsiktighetsmatt: '5. Försiktighetsmått',
-  egenkontroll: 'Egenkontrollprogram: kontrollpunkter',
+  egenkontroll: 'Egenkontrollprogram',
   bilagor: '6. Bilagor',
 };
 
@@ -410,9 +410,20 @@ const RowCard: React.FC<{ caseId: string; row: ProposalRow; decision?: Decision;
         <div className={`mt-1 whitespace-pre-wrap text-sm ${decision?.action === 'strike' ? 'line-through' : ''}`}>{row.text}</div>
       )}
       {row.control && (
-        <div className="mt-1 text-xs text-slate-700">
-          Frekvens: {row.control.frekvens} · Metod: {row.control.metod} · Ansvarig: {row.control.ansvarig} · Dokumentation: {row.control.dokumentation} · Avvikelse: {row.control.avvikelse}
-        </div>
+        <dl className="mt-1 grid grid-cols-1 gap-x-3 text-xs text-slate-700 md:grid-cols-[8rem_1fr]" data-testid={`control-${row.id}`}>
+          {(['frekvens', 'metod', 'ansvarig', 'dokumentation', 'avvikelse'] as const).map((f) => {
+            const refs = row.controlSources?.[f];
+            return (
+              <React.Fragment key={f}>
+                <dt className="font-medium capitalize">{f}</dt>
+                <dd className={`whitespace-pre-wrap ${row.control![f].startsWith('användarens uppgift – ej ifylld') ? 'text-slate-400' : ''}`}>
+                  {row.control![f]}
+                  {refs?.length ? <span className="ml-1 text-slate-500">[{refs.map((r) => r.file.split('-')[0]).join(', ')}]</span> : null}
+                </dd>
+              </React.Fragment>
+            );
+          })}
+        </dl>
       )}
       {row.attachment && <AttachmentPreview caseId={caseId} sha256={row.attachment.sha256} title={row.attachment.title} />}
       {row.note && <div className="mt-1 text-xs text-amber-700">{row.note}</div>}

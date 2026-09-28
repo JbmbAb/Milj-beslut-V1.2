@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sha256 } from './caseStore';
+import { CONTROL_FIELDS, EGENKONTROLL_POINTS, type ControlField } from './egenkontrollTemplate';
 import type { AttachmentRef, DemoCaseInput, UnderlagFileRef, UnderlagRef } from './types';
 
 export interface Excerpt {
@@ -27,6 +28,8 @@ export interface UnderlagMapping {
   fields: Partial<Record<Exclude<keyof DemoCaseInput, 'propertyDesignation' | 'verksamhetskoder' | 'placeholder'>, Excerpt[]>>;
   /** Drawings to attach (K-54): JPG/PNG files from the underlag, in this order. */
   attachments?: Array<{ file: string; title: string }>;
+  /** Egenkontroll cells (K-94b): template point id → column → verbatim excerpts. */
+  egenkontroll?: Record<string, Partial<Record<ControlField, Excerpt[]>>>;
 }
 
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -146,9 +149,30 @@ export function loadUnderlag(
     return { title, file, sha256: digest, mime, bytes: buf.length };
   });
 
+  const controlCells: NonNullable<UnderlagRef['controlCells']> = {};
+  for (const [pointId, cells] of Object.entries(mapping.egenkontroll ?? {})) {
+    if (!EGENKONTROLL_POINTS.some((p) => p.id === pointId)) throw new Error(`unknown_egenkontroll_point:${pointId}`);
+    for (const [field, excerpts] of Object.entries(cells ?? {})) {
+      if (!CONTROL_FIELDS.includes(field as ControlField)) throw new Error(`unknown_egenkontroll_field:${field}`);
+      if (!excerpts?.length) continue;
+      const q = quote(excerpts);
+      controlCells[pointId] = {
+        ...controlCells[pointId],
+        [field]: { text: q.map((x) => x.text).join('\n'), sources: dedupe(q.map((x) => x.ref)) },
+      };
+    }
+  }
+
   return {
     input,
-    underlag: { label: mapping.label, sha256: mapping.archiveSha256, fictional, fieldSources, ...(attachments.length ? { attachments } : {}) },
+    underlag: {
+      label: mapping.label,
+      sha256: mapping.archiveSha256,
+      fictional,
+      fieldSources,
+      ...(attachments.length ? { attachments } : {}),
+      ...(Object.keys(controlCells).length ? { controlCells } : {}),
+    },
     attachmentBytes,
   };
 }

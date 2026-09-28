@@ -77,6 +77,8 @@ export interface ProposalRow {
   note?: string;
   /** Present only on attachment rows (K-54): the image is embedded from the blob store by hash. */
   attachment?: AttachmentRef;
+  /** Per egenkontroll cell: the underlag files the cell text is quoted from (K-94b). */
+  controlSources?: Partial<Record<'frekvens' | 'metod' | 'ansvarig' | 'dokumentation' | 'avvikelse', UnderlagFileRef[]>>;
   /** Present only on egenkontroll rows. */
   control?: {
     frekvens: string;
@@ -110,6 +112,8 @@ export interface UnderlagRef {
   fieldSources: Partial<Record<string, UnderlagFileRef[]>>;
   /** Drawings attached to the anmälan (e.g. situationsplan, sektion). */
   attachments?: AttachmentRef[];
+  /** Egenkontroll cells from the user's underlag, per template point id and column (K-94b). */
+  controlCells?: Record<string, Partial<Record<'frekvens' | 'metod' | 'ansvarig' | 'dokumentation' | 'avvikelse', { text: string; sources: UnderlagFileRef[] }>>>;
 }
 
 /** User-supplied facts. Everything here renders as "användarens uppgift". */

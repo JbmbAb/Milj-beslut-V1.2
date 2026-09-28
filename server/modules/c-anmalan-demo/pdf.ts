@@ -8,7 +8,14 @@ import PDFDocument from 'pdfkit';
 import type { FrozenProposal } from './approvalGate';
 import { loadBlob } from './caseStore';
 import { formatSource } from './formatSource';
-import { FICTIONAL_MARK, type ProposalRow, type ProposalSectionId } from './types';
+import {
+  CONTROL_FIELD_LABEL,
+  CONTROL_FIELDS,
+  EGENKONTROLL_SOURCE_DOCUMENTS,
+  EGENKONTROLL_SOURCE_NOTE,
+  EGENKONTROLL_TEMPLATE_ID,
+} from './egenkontrollTemplate';
+import { FICTIONAL_MARK, type ProposalRow, type ProposalSectionId, type UnderlagFileRef } from './types';
 
 export const ANMALAN_TITLE = 'C-anmälan – förslag, ej inlämnad';
 export const EGENKONTROLL_TITLE = 'Egenkontrollprogram – förslag';
@@ -22,7 +29,7 @@ const SECTION_TITLES: Record<ProposalSectionId, string> = {
   lokalisering: '3. Lokalisering',
   teknisk_beskrivning: '4. Teknisk beskrivning av lagringsytan',
   forsiktighetsmatt: '5. Försiktighetsmått',
-  egenkontroll: 'Kontrollpunkter',
+  egenkontroll: 'Kontrollpunkter ur kommunala beslut',
   bilagor: '6. Bilagor',
 };
 
@@ -132,18 +139,72 @@ export async function renderAnmalanPdf(frozen: FrozenProposal, sha256: string): 
   }, footerText(frozen, sha256), headerText(frozen));
 }
 
+const USER_MISSING_TEXT = 'användarens uppgift – ej ifylld';
+const tag = (refs?: UnderlagFileRef[]) => (refs?.length ? ` [${refs.map((r) => r.file.split('-')[0]).join(', ')}]` : '');
+
+/** K-94b table: kontrollpunkt | frekvens | metod | ansvarig | dokumentation | avvikelse. */
+function controlTable(doc: PDFKit.PDFDocument, rows: ProposalRow[]) {
+  const left = doc.page.margins.left;
+  const total = doc.page.width - left - doc.page.margins.right;
+  const widths = [0.19, 0.15, 0.17, 0.12, 0.17, 0.2].map((w) => w * total);
+  const pad = 3;
+  const draw = (cells: string[], bold: boolean) => {
+    doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(7);
+    const h = Math.max(...cells.map((c, i) => doc.heightOfString(c, { width: widths[i] - 2 * pad }))) + 2 * pad;
+    if (doc.y + h > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      if (!bold) draw(HEADER, true);
+    }
+    const y = doc.y;
+    let x = left;
+    cells.forEach((c, i) => {
+      if (bold) doc.rect(x, y, widths[i], h).fillAndStroke('#f1f5f9', '#cbd5e1');
+      else doc.rect(x, y, widths[i], h).strokeColor('#cbd5e1').stroke();
+      doc.fillColor(c.startsWith('ej ifylld') ? '#94a3b8' : '#1e293b').text(c, x + pad, y + pad, { width: widths[i] - 2 * pad });
+      x += widths[i];
+    });
+    doc.x = left;
+    doc.y = y + h;
+  };
+  const HEADER = ['Kontrollpunkt', ...CONTROL_FIELDS.map((f) => CONTROL_FIELD_LABEL[f])];
+  draw(HEADER, true);
+  for (const r of rows) {
+    const cells = CONTROL_FIELDS.map((f) => {
+      const v = r.control?.[f] ?? USER_MISSING_TEXT;
+      return v === USER_MISSING_TEXT ? 'ej ifylld' : `${v}${tag(r.controlSources?.[f])}`;
+    });
+    draw([r.label, ...cells], false);
+  }
+  doc.font('Helvetica').moveDown(0.5);
+}
+
 export function renderEgenkontrollPdf(frozen: FrozenProposal, sha256: string): Promise<Buffer> {
   return render((doc) => {
     header(doc, EGENKONTROLL_TITLE, frozen);
     const ids = ['user-verksamhetsutovare', 'user-verksamhetskoder'];
     frozen.rows.filter((r) => ids.includes(r.id)).forEach((r) => rowBlock(doc, r));
+
+    const table = frozen.rows.filter((r) => r.section === 'egenkontroll' && r.id.startsWith('ek-'));
+    const others = frozen.rows.filter((r) => r.section === 'egenkontroll' && !r.id.startsWith('ek-'));
+    doc.fontSize(12).fillColor('#0f172a').font('Helvetica-Bold').text('Egenkontrollprogram').font('Helvetica').moveDown(0.3);
+    if (table.length) {
+      controlTable(doc, table);
+      const files = new Map<string, UnderlagFileRef>();
+      table.forEach((r) => Object.values(r.controlSources ?? {}).flat().forEach((f) => f && files.set(f.file, f)));
+      doc.fontSize(7.5).fillColor('#64748b')
+        .text(`Kontrollpunkter: ${EGENKONTROLL_SOURCE_NOTE} (mall ${EGENKONTROLL_TEMPLATE_ID}, ${EGENKONTROLL_SOURCE_DOCUMENTS.length} program, identifierade med sha256; inga namn eller citat).`)
+        .text(`"ej ifylld" = användarens uppgift, ej ifylld.${files.size ? ` Märkta celler är användarens uppgift, citerade ur: ${[...files.values()].map((f) => `[${f.file.split('-')[0]}] ${f.file} sha256 ${f.sha256.slice(0, 12)}…`).join('; ')}${frozen.underlag?.fictional ? ' – fiktiv uppgift (demo)' : ''}.` : ''}`)
+        .moveDown(0.6);
+    } else {
+      doc.fontSize(9).fillColor('#64748b').text('Inga godkända kontrollpunkter i tabellen.').moveDown(0.6);
+    }
+
     doc.fontSize(12).fillColor('#0f172a').font('Helvetica-Bold').text(SECTION_TITLES.egenkontroll).font('Helvetica');
-    const rows = frozen.rows.filter((r) => r.section === 'egenkontroll');
     if (frozen.inputs.requirements.state !== 'loaded') {
       doc.fontSize(8.5).fillColor('#b45309').text(`Inga kontrollpunkter ur kommunkorpusen: ${frozen.inputs.requirements.message}`);
     }
     doc.moveDown(0.4);
-    if (rows.length === 0) doc.fontSize(9).fillColor('#64748b').text('Inga godkända kontrollpunkter.');
-    rows.forEach((r) => rowBlock(doc, r));
+    if (others.length === 0) doc.fontSize(9).fillColor('#64748b').text('Inga godkända kontrollpunkter.');
+    others.forEach((r) => rowBlock(doc, r));
   }, footerText(frozen, sha256), headerText(frozen));
 }
