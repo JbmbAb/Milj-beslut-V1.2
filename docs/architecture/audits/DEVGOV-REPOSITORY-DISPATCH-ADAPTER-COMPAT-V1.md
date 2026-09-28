@@ -1,8 +1,19 @@
 # DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1 — CANDIDATE
 
 **Status:** CANDIDATE / NOT YET PROVEN
-**Frozen base:** `cf33cc1318b4505ccbf57d6296136b99c41fdee1`
+**Frozen base:** `052582bd4ea8799de73ceffdb1c5744a48865b4b`
 **Unit:** `DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1`
+
+**Rebase note (2026-09-28):** this unit's implementation, falsification, and Round-2 fixes were
+originally developed and independently verified against base `cf33cc1318b4505ccbf57d6296136b99c41fdee1`
+(main's tip after C merged). Per owner instruction, the candidate was held local-only pending two
+prerequisite merges — `DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1` (PR #188) and its PROVEN
+record (PR #189) — then rebased onto the resulting tip, `052582bd4ea8799de73ceffdb1c5744a48865b4b`,
+with `base_sha` updated accordingly. All four `required_red` checks were independently re-run
+against the new base content and correctly fail; all five `required_green` checks (including the
+full vitest suite under a genuinely fresh `npm ci`, not junctioned `node_modules`, since
+`packages/**` is directly modified) were independently re-run against the rebased candidate and
+correctly pass. Neither prerequisite merge touched any file this unit's own diff touches.
 **Classification:** mandatory immediate-next companion unit to
 `DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1` ("C"), per C's own closed audit doc's Finalization
 section and the owner's sequencing.
