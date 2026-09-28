@@ -10,7 +10,7 @@ import {
   FileAgentMailbox,
   FileCorrelationStore,
   GitHubDevGovDispatchAdapter,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   type AgentWorkItem,
   type DevGovBindingResolver,
   type DevGovUnitBinding,
@@ -112,8 +112,8 @@ function correlator(
   dispatch: DispatchPort,
   observer: RunObserver,
   now?: () => Date,
-): WorkflowDispatchCorrelator {
-  return new WorkflowDispatchCorrelator(correlationStore(), dispatch, observer, { now });
+): RepositoryDispatchCorrelator {
+  return new RepositoryDispatchCorrelator(correlationStore(), dispatch, observer, { now });
 }
 
 describe('Multi-Agent Control Plane V1 dispatch adapters', () => {

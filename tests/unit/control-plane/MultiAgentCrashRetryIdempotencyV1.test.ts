@@ -13,7 +13,7 @@ import {
   FileCorrelationStore,
   FileDurableControlPlaneStore,
   ProcessAgentWorker,
-  WorkflowDispatchCorrelator,
+  RepositoryDispatchCorrelator,
   type AgentDispatchPort,
   type AgentHandoff,
   type AgentHandoffSink,
@@ -199,6 +199,10 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         headBranch: 'main',
         headSha: '3'.repeat(40),
         event: 'repository_dispatch',
+        // Mirrors a run-name echo of client_payload.candidate_sha, matching
+        // the dispatch below's own clientPayload so both runs are otherwise
+        // valid candidates — the ambiguity this test exists to prove.
+        displayTitle: 'wf-run cand-3',
         createdAt: '2026-09-05T01:00:01.000Z',
         status: 'completed',
         conclusion: 'success',
@@ -210,7 +214,7 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         return [observedRun('1'), observedRun('2')];
       }
     }
-    const correlator = new WorkflowDispatchCorrelator(
+    const correlator = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(tmpFile('mimer-correlation-')),
       new Dispatch(),
       new Observer(),
@@ -221,7 +225,7 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
       workflow: 'wf.yml',
       eventType: 'wf-dispatch-event',
       ref: 'main',
-      clientPayload: {},
+      clientPayload: { candidate_sha: 'cand-3' },
     });
     const resolved = await correlator.poll('K1:3:DEV_GOV');
     expect(resolved.status).toBe('AMBIGUOUS_CORRELATION');
@@ -352,7 +356,7 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         throw new Error('proof must not be consulted before dependency availability is known');
       }
     }
-    const correlator = new WorkflowDispatchCorrelator(
+    const correlator = new RepositoryDispatchCorrelator(
       new FileCorrelationStore(tmpFile('mimer-correlation-')),
       { getRefSha: async () => '0'.repeat(40), dispatchRepositoryEvent: async () => {} },
       { listRuns: async () => [] },

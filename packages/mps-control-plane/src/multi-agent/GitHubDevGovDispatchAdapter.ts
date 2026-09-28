@@ -1,5 +1,5 @@
 import type { DevGovDispatchPort, DevGovWorkItem } from './Ports';
-import type { WorkflowDispatchCorrelator } from './GitHubRunCorrelation';
+import type { RepositoryDispatchCorrelator } from './GitHubRunCorrelation';
 
 export interface DevGovUnitBinding {
   readonly unitId: string;
@@ -38,7 +38,7 @@ export class DevGovWorkflowUnavailableError extends Error {}
 /**
  * GitHub's repository_dispatch endpoint returns 204 No Content: no run id is
  * ever handed back synchronously. This adapter submits the dispatch through
- * a WorkflowDispatchCorrelator (dispatch -> observe -> correlate) and
+ * a RepositoryDispatchCorrelator (dispatch -> observe -> correlate) and
  * returns an opaque, locally-idempotent dispatch handle — never a
  * fabricated GitHub run id. Resolving the actual run (or discovering
  * AMBIGUOUS_CORRELATION / CORRELATION_TIMEOUT) is a separate, explicit
@@ -52,7 +52,7 @@ export class GitHubDevGovDispatchAdapter implements DevGovDispatchPort {
   constructor(
     private readonly resolver: DevGovBindingResolver,
     private readonly availability: DevGovWorkflowAvailabilityPort,
-    private readonly correlator: WorkflowDispatchCorrelator,
+    private readonly correlator: RepositoryDispatchCorrelator,
     options: GitHubDevGovDispatchAdapterOptions = {},
   ) {
     this.workflow = options.workflow ?? 'devgov-v0-orchestrate.yml';

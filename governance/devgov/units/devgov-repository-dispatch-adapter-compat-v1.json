@@ -9,13 +9,15 @@
   "allowed_paths": [
     "packages/mps-control-plane/src/multi-agent/GitHubDevGovDispatchAdapter.ts",
     "packages/mps-control-plane/src/multi-agent/GitHubRunCorrelation.ts",
+    "packages/mps-control-plane/src/multi-agent/DevGovReconciler.ts",
     "tests/unit/control-plane/MultiAgentDispatchAdaptersV1.test.ts",
     "tests/unit/control-plane/MultiAgentGitHubRunCorrelationV1.test.ts",
     "tests/unit/control-plane/MultiAgentDevGovReconcilerV1.test.ts",
     "tests/unit/control-plane/MultiAgentDevGovAuthorityBindingV1.test.ts",
     "tests/unit/control-plane/MultiAgentCrashRetryIdempotencyV1.test.ts",
     "governance/devgov/units/devgov-repository-dispatch-adapter-compat-v1.json",
-    "docs/architecture/audits/DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1.md"
+    "docs/architecture/audits/DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1.md",
+    ".github/workflows/devgov-v0-orchestrate.yml"
   ],
   "forbidden_paths": [
     ".github/workflows/**",
@@ -75,6 +77,20 @@
         2
       ],
       "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-correlator-candidate-sha-cross-match-guard",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nfunction isolateFunctionBody(src, startMarker) {\n  const idx = src.indexOf(startMarker);\n  if (idx === -1) return null;\n  const openIdx = src.indexOf('{', idx);\n  if (openIdx === -1) return null;\n  let depth = 0;\n  for (let i = openIdx; i < src.length; i++) {\n    const ch = src[i];\n    if (ch === '{') depth++;\n    else if (ch === '}') { depth--; if (depth === 0) return src.slice(openIdx, i + 1); }\n  }\n  return null;\n}\nfunction detect(src) {\n  const body = isolateFunctionBody(src, 'function matchCandidates(');\n  if (body === null) return null;\n  return {\n    hasCandidateShaLookup: body.includes('.clientPayload.candidate_sha'),\n    hasDisplayTitleCheck: body.includes('.displayTitle.includes('),\n  };\n}\ntry {\n  const target = 'packages/mps-control-plane/src/multi-agent/GitHubRunCorrelation.ts';\n  if (!fs.existsSync(target)) H('target file missing: ' + target);\n  const src = fs.readFileSync(target, 'utf8');\n  const goodFixture = \"function matchCandidates(record, runs) {\\n  const candidateSha = record.clientPayload.candidate_sha;\\n  return runs.filter((run) => run.displayTitle.includes(candidateSha));\\n}\\n\";\n  const badFixture = \"function matchCandidates(record, runs) {\\n  return runs.filter((run) => run.event === 'repository_dispatch');\\n}\\n\";\n  const goodResult = detect(goodFixture);\n  if (!goodResult) H('positive control: could not isolate matchCandidates(...) from the synthetic good fixture');\n  if (!(goodResult.hasCandidateShaLookup && goodResult.hasDisplayTitleCheck)) V('positive control failed: detector did NOT flag the synthetic display_title/candidate_sha-checking fixture as present -- the detector cannot be trusted to prove the fix is real');\n  const badResult = detect(badFixture);\n  if (!badResult) H('positive control: could not isolate matchCandidates(...) from the synthetic bad fixture');\n  if (badResult.hasCandidateShaLookup || badResult.hasDisplayTitleCheck) H('positive control: synthetic bad fixture unexpectedly registered candidate_sha/displayTitle checks as present');\n  const real = detect(src);\n  if (!real) H('could not isolate function matchCandidates(...) body from ' + target);\n  if (!real.hasCandidateShaLookup || !real.hasDisplayTitleCheck) V('matchCandidates() in ' + target + ' does not disambiguate concurrent repository_dispatch runs by display_title/candidate_sha (hasCandidateShaLookup=' + real.hasCandidateShaLookup + ', hasDisplayTitleCheck=' + real.hasDisplayTitleCheck + ') -- two concurrent dispatches for different candidate_sha values sharing an identical headSha can be cross-bound (FA-02)');\n  console.log('DGL_OK: ' + target + '\\'s matchCandidates() requires run.displayTitle to contain record.clientPayload.candidate_sha -- concurrent-dispatch cross-match (FA-02) is closed');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
     }
   ],
   "required_green": [
@@ -126,6 +142,20 @@
       "args": [
         "-e",
         "// CHECK 4 (recommended) -- correlation-store-schema-version-bumped\nconst fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const target = 'packages/mps-control-plane/src/multi-agent/GitHubRunCorrelation.ts';\n  if (!fs.existsSync(target)) H('target file missing: ' + target);\n  const src = fs.readFileSync(target, 'utf8');\n  const v1Count = (src.match(/multi-agent-github-run-correlation-v1/g) || []).length;\n  const v2Count = (src.match(/multi-agent-github-run-correlation-v2/g) || []).length;\n  const posControl = 'const schemaVersion = \"multi-agent-github-run-correlation-v2\";';\n  if ((posControl.match(/multi-agent-github-run-correlation-v2/g) || []).length !== 1) H('positive control: v2 schema-version regex failed to match a synthetic literal occurrence -- harness broken');\n  const negControl = 'const schemaVersion = \"multi-agent-github-run-correlation-v1\";';\n  if ((negControl.match(/multi-agent-github-run-correlation-v1/g) || []).length !== 1) H('positive control: v1 schema-version regex failed to match a synthetic literal occurrence -- harness broken');\n  if (v1Count > 0) V(target + ' still contains the old v1 schema-version literal (' + v1Count + ' occurrence(s)) -- the durable correlation-file format was not deliberately versioned');\n  if (v2Count === 0) V(target + ' does not contain the v2 schema-version literal at all');\n  console.log('DGL_OK: ' + target + ' uses schema-version literal multi-agent-github-run-correlation-v2 exclusively (' + v2Count + ' occurrence(s)), no v1 literal remains');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "dispatch-correlator-candidate-sha-cross-match-guard",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DGL_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DGL_HARNESS_ERROR: ' + m); process.exit(2); };\nfunction isolateFunctionBody(src, startMarker) {\n  const idx = src.indexOf(startMarker);\n  if (idx === -1) return null;\n  const openIdx = src.indexOf('{', idx);\n  if (openIdx === -1) return null;\n  let depth = 0;\n  for (let i = openIdx; i < src.length; i++) {\n    const ch = src[i];\n    if (ch === '{') depth++;\n    else if (ch === '}') { depth--; if (depth === 0) return src.slice(openIdx, i + 1); }\n  }\n  return null;\n}\nfunction detect(src) {\n  const body = isolateFunctionBody(src, 'function matchCandidates(');\n  if (body === null) return null;\n  return {\n    hasCandidateShaLookup: body.includes('.clientPayload.candidate_sha'),\n    hasDisplayTitleCheck: body.includes('.displayTitle.includes('),\n  };\n}\ntry {\n  const target = 'packages/mps-control-plane/src/multi-agent/GitHubRunCorrelation.ts';\n  if (!fs.existsSync(target)) H('target file missing: ' + target);\n  const src = fs.readFileSync(target, 'utf8');\n  const goodFixture = \"function matchCandidates(record, runs) {\\n  const candidateSha = record.clientPayload.candidate_sha;\\n  return runs.filter((run) => run.displayTitle.includes(candidateSha));\\n}\\n\";\n  const badFixture = \"function matchCandidates(record, runs) {\\n  return runs.filter((run) => run.event === 'repository_dispatch');\\n}\\n\";\n  const goodResult = detect(goodFixture);\n  if (!goodResult) H('positive control: could not isolate matchCandidates(...) from the synthetic good fixture');\n  if (!(goodResult.hasCandidateShaLookup && goodResult.hasDisplayTitleCheck)) V('positive control failed: detector did NOT flag the synthetic display_title/candidate_sha-checking fixture as present -- the detector cannot be trusted to prove the fix is real');\n  const badResult = detect(badFixture);\n  if (!badResult) H('positive control: could not isolate matchCandidates(...) from the synthetic bad fixture');\n  if (badResult.hasCandidateShaLookup || badResult.hasDisplayTitleCheck) H('positive control: synthetic bad fixture unexpectedly registered candidate_sha/displayTitle checks as present');\n  const real = detect(src);\n  if (!real) H('could not isolate function matchCandidates(...) body from ' + target);\n  if (!real.hasCandidateShaLookup || !real.hasDisplayTitleCheck) V('matchCandidates() in ' + target + ' does not disambiguate concurrent repository_dispatch runs by display_title/candidate_sha (hasCandidateShaLookup=' + real.hasCandidateShaLookup + ', hasDisplayTitleCheck=' + real.hasDisplayTitleCheck + ') -- two concurrent dispatches for different candidate_sha values sharing an identical headSha can be cross-bound (FA-02)');\n  console.log('DGL_OK: ' + target + '\\'s matchCandidates() requires run.displayTitle to contain record.clientPayload.candidate_sha -- concurrent-dispatch cross-match (FA-02) is closed');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
       ],
       "expected_classification": "PASS",
       "required_head": "candidate_sha",

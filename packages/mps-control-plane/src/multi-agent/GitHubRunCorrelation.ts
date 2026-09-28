@@ -42,6 +42,16 @@ export interface ObservedWorkflowRun {
   readonly headBranch: string;
   readonly headSha: string;
   readonly event: string;
+  /**
+   * GitHub's own `display_title` for the run — derived from the workflow's
+   * `run-name:` expression when the workflow file declares one (both
+   * `devgov-v0-orchestrate.yml` and `devgov-v0-gate.yml` do, echoing
+   * `github.event.client_payload.candidate_sha`), falling back to the head
+   * commit message otherwise. This is the ONLY per-run signal that varies
+   * across two concurrent repository_dispatch calls sharing the same
+   * workflow/head branch/head SHA/event — see matchCandidates() below.
+   */
+  readonly displayTitle: string;
   readonly createdAt: string;
   readonly status: 'queued' | 'in_progress' | 'completed';
   readonly conclusion?: 'success' | 'failure' | 'cancelled' | 'timed_out' | 'action_required' | null;
@@ -145,7 +155,7 @@ export class FileCorrelationStore {
   }
 }
 
-export interface WorkflowDispatchCorrelatorOptions {
+export interface RepositoryDispatchCorrelatorOptions {
   readonly windowMs?: number;
   /** How long to wait for a matching run to surface before an UNCERTAIN_DISPATCH is deemed safe to retry. Defaults to windowMs. */
   readonly uncertainHorizonMs?: number;
@@ -164,6 +174,25 @@ export interface WorkflowDispatchCorrelatorOptions {
  * This was already true in practice for this adapter's real usage (its only
  * caller always hardcodes `protectedRef: 'main'`), so no disambiguating
  * power is lost by this reframing.
+ *
+ * CROSS-MATCH HAZARD (closed here): because repository_dispatch always runs
+ * against the same default-branch tip regardless of which call triggered it,
+ * `headSha` — the strongest disambiguator under the old workflow_dispatch
+ * shape, where each dispatch could target a distinct candidate-selected ref
+ * — is now IDENTICAL across every concurrent dispatch of this workflow. None
+ * of workflow/headBranch/headSha/event/time-window encodes which dispatch
+ * call actually produced a given run, so two concurrent dispatches for
+ * different candidate_sha values could otherwise both satisfy every
+ * dimension and be silently, permanently cross-bound to the wrong run. This
+ * is closed structurally, not probabilistically: `devgov-v0-orchestrate.yml`
+ * declares `run-name: ... ${{ github.event.client_payload.candidate_sha }}
+ * ...`, so GitHub's own `display_title` for the resulting run embeds the
+ * exact candidate_sha that dispatch call carried — the one piece of
+ * API-visible, per-run data that DOES vary across concurrent dispatches even
+ * though headSha does not. A run is therefore only a candidate when its
+ * `displayTitle` contains `record.clientPayload.candidate_sha`; a record
+ * whose `clientPayload` carries no `candidate_sha` string can never match
+ * (fail-closed, not "match anything").
  */
 function matchCandidates(
   record: PendingCorrelation,
@@ -171,12 +200,15 @@ function matchCandidates(
 ): readonly ObservedWorkflowRun[] {
   const dispatchedAtMs = Date.parse(record.dispatchedAt);
   const upperBoundMs = dispatchedAtMs + record.windowMs;
+  const candidateSha = record.clientPayload.candidate_sha;
+  if (typeof candidateSha !== 'string' || candidateSha.length === 0) return [];
   return runs.filter(
     (run) =>
       run.workflow === record.workflow &&
       run.headBranch === record.ref &&
       run.headSha === record.refShaAtDispatch &&
       run.event === 'repository_dispatch' &&
+      run.displayTitle.includes(candidateSha) &&
       Date.parse(run.createdAt) >= dispatchedAtMs &&
       Date.parse(run.createdAt) <= upperBoundMs,
   );
@@ -204,7 +236,7 @@ function matchCandidates(
  * via correlation, and only retries the external call once a conservative
  * horizon has passed with no matching run found.
  */
-export class WorkflowDispatchCorrelator {
+export class RepositoryDispatchCorrelator {
   private readonly windowMs: number;
   private readonly uncertainHorizonMs: number;
   private readonly now: () => Date;
@@ -213,7 +245,7 @@ export class WorkflowDispatchCorrelator {
     private readonly store: FileCorrelationStore,
     private readonly dispatchPort: GitHubRepositoryDispatchPort,
     private readonly observer: GitHubActionsRunObserverPort,
-    options: WorkflowDispatchCorrelatorOptions = {},
+    options: RepositoryDispatchCorrelatorOptions = {},
   ) {
     this.windowMs = options.windowMs ?? 5 * 60_000;
     this.uncertainHorizonMs = options.uncertainHorizonMs ?? this.windowMs;

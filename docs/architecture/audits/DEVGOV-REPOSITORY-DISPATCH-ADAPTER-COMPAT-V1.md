@@ -26,15 +26,15 @@ forensic pass (and independently re-confirmed by this session's own falsificatio
 implementation): `packages/mps-control-plane`'s multi-agent dispatch/correlation code
 (`GitHubDevGovDispatchAdapter.ts`, `GitHubRunCorrelation.ts`) was entirely `workflow_dispatch`-shaped
 and no longer matched `devgov-v0-orchestrate.yml`'s real trigger contract. C's own doc states this
-plainly: "GitHubDevGovDispatchAdapter and WorkflowDispatchCorrelator remain workflow_dispatch-shaped
+plainly: "GitHubDevGovDispatchAdapter and RepositoryDispatchCorrelator remain workflow_dispatch-shaped
 but are not currently production-wired. Their migration is required immediately after this unit as
 a separate companion unit (DEVGOV-REPOSITORY-DISPATCH-ADAPTER-COMPAT-V1) before any production
 wiring of that adapter is permitted." This unit is that companion unit.
 
 Independently re-verified at this unit's own base (`cf33cc13…`), by grepping the whole repository:
-`new GitHubDevGovDispatchAdapter(...)` and `new WorkflowDispatchCorrelator(...)` occur **only** in
+`new GitHubDevGovDispatchAdapter(...)` and `new RepositoryDispatchCorrelator(...)` occur **only** in
 `tests/unit/control-plane/*.test.ts`. `DevGovReconciler.ts` imports only a _type_
-(`DevGovWorkflowAvailabilityPort`, plus a type-only import of `WorkflowDispatchCorrelator`) from the
+(`DevGovWorkflowAvailabilityPort`, plus a type-only import of `RepositoryDispatchCorrelator`) from the
 adapter/correlator modules and calls only `correlator.poll(...)`/`correlator.findRun(...)` — never
 `correlator.dispatch(...)` — so it needed zero edits. No `server/**` or other production entrypoint
 instantiates either class. This remains a _dormant contract mismatch_, not a live break: nothing in
@@ -70,7 +70,7 @@ clientPayload })`, matching GitHub's real REST contract for this event type: `PO
   caller-selected value. This was already true in practice for this adapter's real usage — its
   only caller always hardcodes `protectedRef: 'main'` — so no disambiguating power is lost by this
   reframing.
-- `WorkflowDispatchCorrelator.dispatch(input)`'s public input gained `eventType` and renamed
+- `RepositoryDispatchCorrelator.dispatch(input)`'s public input gained `eventType` and renamed
   `inputs` → `clientPayload`; `workflow` and `ref` were **kept** on both the input and the
   persisted record — they remain genuinely useful (`workflow` scopes `listRuns(workflow, ref)` and
   store identity; `ref` remains a real consistency check against `run.headBranch`). Only the
@@ -111,7 +111,7 @@ scoping this unit, not assumed.
 ## Test-file changes
 
 All five files under `tests/unit/control-plane/*.test.ts` that construct or exercise
-`WorkflowDispatchCorrelator`/`GitHubDevGovDispatchAdapter` were updated. The mechanical transform
+`RepositoryDispatchCorrelator`/`GitHubDevGovDispatchAdapter` were updated. The mechanical transform
 applied at every call site: `implements GitHubWorkflowDispatchPort` →
 `implements GitHubRepositoryDispatchPort`; `dispatchWorkflow` method/key →
 `dispatchRepositoryEvent`; every `.dispatch({dispatchKey, workflow, ref, inputs: {...}})` call
@@ -206,20 +206,22 @@ to verify the real `client_payload` keys and `repository_dispatch.types` value c
 
 ## RED / GREEN proof design
 
-Four checks, all dependency-free `node -e` inline programs following this repository's established
+Five checks, all dependency-free `node -e` inline programs following this repository's established
 `V(msg)`/`H(msg)`/`DGL_OK` convention (`V` exits 1 — `DGL_VIOLATION`, a real finding; `H` exits 2 —
 `DGL_HARNESS_ERROR`, the proof itself is broken; `blocked_exit_codes: [2]` on every command so a
 harness bug is never mistaken for a passing/failing candidate) — mirroring C's own `V`/`H`/`DGL_OK`,
-block-isolation, positive-control, `blocked_exit_codes:[2]` idiom exactly. Three are mandatory; the
-fourth (schema-version bump) is recommended and included. Three checks share an id across
-`required_red` (FAIL @ `base_sha`) / `required_green` (PASS @ `candidate_sha`); the fourth
+block-isolation, positive-control, `blocked_exit_codes:[2]` idiom exactly. Four are mandatory; one
+(schema-version bump) is recommended and included. Four checks share an id across
+`required_red` (FAIL @ `base_sha`) / `required_green` (PASS @ `candidate_sha`); one
 (`control-plane-repository-dispatch-regression-tests`) is GREEN-only, for the same reason C's own
 analogous regression-test checks are GREEN-only: at `base_sha` the test suite is
 self-consistently `workflow_dispatch`-shaped (old code, old fixtures), so it already exits 0
-there — a real-suite-pass check cannot be a meaningful RED signal.
+there — a real-suite-pass check cannot be a meaningful RED signal. The fifth check
+(`dispatch-correlator-candidate-sha-cross-match-guard`) was added in the round-2 repair (see
+below) to close the FA-02 concurrent-dispatch cross-match gap.
 
 - **`dispatch-wire-call-repository-dispatch-shape`** (RED @ base_sha expects FAIL, GREEN @
-  candidate_sha expects PASS) — isolates `WorkflowDispatchCorrelator.attemptExternalDispatch(...)`'s
+  candidate_sha expects PASS) — isolates `RepositoryDispatchCorrelator.attemptExternalDispatch(...)`'s
   method body by brace-depth scanning from `private async attemptExternalDispatch(` to its matching
   closing brace (the same "isolate the exact block, then reason only inside it" technique C used
   for YAML `on:` blocks, translated from indentation-scanning to brace-depth-scanning for
@@ -257,37 +259,49 @@ there — a real-suite-pass check cannot be a meaningful RED signal.
 '--project', 'unit', <all five tests/unit/control-plane/*.test.ts files that exercise this
 surface>], { stdio: 'inherit', shell: <win>, timeout: 240000 })`, requiring exit 0; `H()` on
   spawn failure, `V()` on nonzero exit. This is the genuinely behavioral proof: it exercises the
-  real `WorkflowDispatchCorrelator`/`GitHubDevGovDispatchAdapter` classes end-to-end (not just
+  real `RepositoryDispatchCorrelator`/`GitHubDevGovDispatchAdapter` classes end-to-end (not just
   their source text), including the exact-shape `toEqual({eventType, clientPayload})` assertion in
   `MultiAgentDispatchAdaptersV1.test.ts` and every crash/idempotency/ambiguity guarantee in
-  `MultiAgentGitHubRunCorrelationV1.test.ts` and `MultiAgentCrashRetryIdempotencyV1.test.ts` case 3.
+  `MultiAgentGitHubRunCorrelationV1.test.ts` and `MultiAgentCrashRetryIdempotencyV1.test.ts` case 3
+  — and, after the round-2 repair, the new FA-02 two-concurrent-candidates regression test (see
+  below) in `MultiAgentGitHubRunCorrelationV1.test.ts`.
+- **`dispatch-correlator-candidate-sha-cross-match-guard`** (RED @ base_sha expects FAIL, GREEN @
+  candidate_sha expects PASS; added in the round-2 repair) — isolates `function matchCandidates(...)`'s
+  body the same brace-depth way, then asserts the isolated body contains both
+  `.clientPayload.candidate_sha` and `.displayTitle.includes(`. **Positive control**: the same
+  substring checks are run against an in-script synthetic "good" fixture (contains both) and a
+  synthetic "bad" fixture (contains neither), asserting the detector reports presence/absence
+  correctly on each. At `base_sha` neither literal exists in `matchCandidates()` at all (the
+  function does not reference `displayTitle` or `candidate_sha` in any form there), so this is a
+  real, non-vacuous RED.
 
-All four checks were run locally against both `base_sha` (`cf33cc13…`, by transiently swapping
+All five checks were run locally against both `base_sha` (`cf33cc13…`, by transiently swapping
 `GitHubRunCorrelation.ts` to its `git show cf33cc13:...` content, running the checks, then
 restoring the candidate content and confirming the restored file byte-matches the candidate diff)
 and the candidate worktree before packaging — using the exact `node -e "<script>"` command and
 `args` text stored in `governance/devgov/units/devgov-repository-dispatch-adapter-compat-v1.json`,
 not a hand-copied approximation of it:
 
-| Check                                                     | @ base_sha                                                | @ candidate_sha                                        |
-| :-------------------------------------------------------- | :-------------------------------------------------------- | :----------------------------------------------------- |
-| `dispatch-wire-call-repository-dispatch-shape`            | FAIL (exit 1) — keys found: `workflow, ref, inputs`       | PASS (exit 0) — keys found: `eventType, clientPayload` |
-| `dispatch-correlator-event-predicate-repository-dispatch` | FAIL (exit 1) — no `repository_dispatch` comparison found | PASS (exit 0)                                          |
-| `correlation-store-schema-version-bumped`                 | FAIL (exit 1) — 3 `v1` occurrences, 0 `v2`                | PASS (exit 0) — 0 `v1` occurrences, 3 `v2`             |
-| `control-plane-repository-dispatch-regression-tests`      | (GREEN-only, not run at base_sha)                         | PASS (exit 0) — 5 files, 85 tests, all passing         |
+| Check                                                     | @ base_sha                                                                | @ candidate_sha                                        |
+| :-------------------------------------------------------- | :------------------------------------------------------------------------ | :----------------------------------------------------- |
+| `dispatch-wire-call-repository-dispatch-shape`            | FAIL (exit 1) — keys found: `workflow, ref, inputs`                       | PASS (exit 0) — keys found: `eventType, clientPayload` |
+| `dispatch-correlator-event-predicate-repository-dispatch` | FAIL (exit 1) — no `repository_dispatch` comparison found                 | PASS (exit 0)                                          |
+| `correlation-store-schema-version-bumped`                 | FAIL (exit 1) — 3 `v1` occurrences, 0 `v2`                                | PASS (exit 0) — 0 `v1` occurrences, 3 `v2`             |
+| `dispatch-correlator-candidate-sha-cross-match-guard`     | FAIL (exit 1) — `hasCandidateShaLookup=false, hasDisplayTitleCheck=false` | PASS (exit 0)                                          |
+| `control-plane-repository-dispatch-regression-tests`      | (GREEN-only, not run at base_sha)                                         | PASS (exit 0) — 5 files, 86 tests, all passing         |
 
 Every positive control passed on both runs (i.e. the detectors correctly flagged the synthetic
-bad-pattern fixtures), so none of the three FAIL results above are vacuous.
+bad-pattern fixtures), so none of the four FAIL results above are vacuous.
 
 ## packages/mps-control-plane — dormant contract mismatch CLOSED
 
-`GitHubDevGovDispatchAdapter` and `WorkflowDispatchCorrelator` are now `repository_dispatch`-shaped,
+`GitHubDevGovDispatchAdapter` and `RepositoryDispatchCorrelator` are now `repository_dispatch`-shaped,
 matching `devgov-v0-orchestrate.yml`'s real trigger contract exactly (verified: `eventType` default
 `'devgov-v0-orchestrate'` matches the live workflow's `repository_dispatch.types`; `client_payload`
 keys `candidate_sha`/`unit_definition_path` match the live workflow's
 `github.event.client_payload.*` references). They are still **not production-wired** — re-verified
 independently at this unit's own candidate: `new GitHubDevGovDispatchAdapter(...)` and `new
-WorkflowDispatchCorrelator(...)` still occur only in `tests/unit/control-plane/*.test.ts`; no
+RepositoryDispatchCorrelator(...)` still occur only in `tests/unit/control-plane/*.test.ts`; no
 `server/**` or other production entrypoint instantiates either class. This unit closes the _dormant
 contract mismatch_ C's audit doc disclosed; it does not, and was never scoped to, wire the adapter
 into production.
@@ -296,7 +310,7 @@ into production.
 
 This unit does **not**:
 
-- wire `GitHubDevGovDispatchAdapter`/`WorkflowDispatchCorrelator` into production, or claim it is
+- wire `GitHubDevGovDispatchAdapter`/`RepositoryDispatchCorrelator` into production, or claim it is
   now safe to do so — that remains separate, future scope;
 - touch `.github/workflows/**`, `scripts/devgov/**`, `governance/devgov/schema/**`,
   `governance/devgov/invariant-packs/**`, or any `server/**`, `prisma/**`, `src/**`,
@@ -314,6 +328,82 @@ This unit does **not**:
   W1/W2/LU-related track;
 - push a branch, open a PR, or fire a real GitHub Actions dispatch — this unit was committed
   locally only, per its own task instructions (no push/PR/dispatch performed by this session).
+
+## Round 2 repair (2026-09-28): concurrent-dispatch cross-match closed; correlator class renamed
+
+A cold falsification pass of the round-1 candidate (commit `a8b08893`) found the wire-shape and
+event-predicate migration sound (this pass's own FA-01/FA-03/FA-05 not confirmed as issues) but
+two real, confirmed defects, fixed here as a new commit on top of `a8b08893` (not a rewrite of it).
+**Note the label collision:** this pass's own "FA-02" finding below is unrelated to, and numbered
+independently of, the "FA-02 note" section earlier in this document (that one is C's inherited
+finding about `devgov-v0-orchestrate.yml`'s mutable `@main` pin — a different falsification pass,
+a different issue, a coincidentally identical label).
+
+### FA-02 (this pass): concurrent repository_dispatch calls could be cross-bound — CLOSED
+
+**The bug.** `matchCandidates()`'s binding dimensions — `workflow`, `headBranch`/`ref`, `headSha`,
+`event`, and a creation-time window — were carried over from the round-1 migration unchanged in
+substance, just repointed at `repository_dispatch`. Under the old `workflow_dispatch` shape this
+was safe: each dispatch could carry a distinct, candidate-selected `ref`, and even when two
+dispatches shared a ref, `headSha` could still legitimately differ from one dispatch to the next.
+Under `repository_dispatch` neither is true any more: the event's own REST payload has no `ref`
+field at all, and GitHub always resolves and executes the **same** default-branch tip regardless of
+which call triggered the run — so `headSha` is now **identical** across every concurrent dispatch of
+this workflow. None of the five old dimensions encodes which dispatch call actually produced a
+given run. Concretely: dispatch A (`candidate_sha = X`) then dispatch B (`candidate_sha = Y`) close
+together; GitHub creates `Run_A` first; record B polls, sees only `Run_A`, every one of its five
+dimensions matches, and record B gets **permanently** bound to `Run_A` — which actually belongs to
+X, not Y — because `poll()` short-circuits once a record is `CORRELATED` and never revisits it. This
+is a real hazard specifically because concurrent dispatch (multiple units gating at once) is the
+whole point of a multi-agent orchestrator; it was not a theoretical edge case.
+
+**The fix.** `devgov-v0-orchestrate.yml` gained a `run-name:` field —
+`DEV-GOV orchestrate ${{ github.event.client_payload.candidate_sha }} unit=${{
+github.event.client_payload.unit_definition_path }}` — mirroring the pattern
+`devgov-v0-gate.yml` already uses for its own `run-name:`. This makes GitHub's own `display_title`
+for the resulting run carry the exact `candidate_sha` that dispatch call sent — the one piece of
+API-visible, per-run data that **does** vary across concurrent dispatches even though `headSha` does
+not. `ObservedWorkflowRun` gained a `displayTitle: string` field (sourced from the same
+`display_title` the observer port already lists runs from), and `matchCandidates()` now requires
+`run.displayTitle.includes(record.clientPayload.candidate_sha)` in addition to the original five
+dimensions; a record whose `clientPayload` carries no `candidate_sha` string can never match at all
+(fail-closed, consistent with this file's existing fail-closed philosophy — it does not fall back to
+matching everything). This closes the hole **structurally**: the fix removes the shared-ambiguity
+condition itself (no two concurrent runs for different candidates can have the same `displayTitle`),
+it does not merely narrow the window in which the old bug could fire.
+
+**Proof.** A new `MultiAgentGitHubRunCorrelationV1.test.ts` case ("L. FA-02: two concurrent
+repository_dispatch calls for DIFFERENT candidate_sha values...") reproduces the exact scenario:
+two dispatches on one correlator/store/observer, sharing `refShaAtDispatch`, for two different
+`candidate_sha` values; only the run belonging to the first candidate has surfaced; the test asserts
+the second record is **not** incorrectly bound to it (`AWAITING_RUN`, not a wrong `CORRELATED`), then
+that it binds correctly to its own run once that run appears, and that the first record's own
+binding is unaffected. This test was manually confirmed to **fail** against the pre-fix
+`matchCandidates()` (`resolvedB.status` came back `'CORRELATED'` — the exact wrong-bind failure mode
+— instead of the expected `'AWAITING_RUN'`) before the fix, and to pass after it. A new
+`dispatch-correlator-candidate-sha-cross-match-guard` RED/GREEN check pair was added to this unit's
+own governance JSON (static brace-depth isolation of `matchCandidates()`, asserting presence of both
+`.clientPayload.candidate_sha` and `.displayTitle.includes(` at candidate_sha and absence of both at
+base_sha — see the RED/GREEN proof design table above). `.github/workflows/devgov-v0-orchestrate.yml`
+was added to this unit's own `allowed_paths` for exactly this one line; every other path under
+`.github/workflows/**` remains untouched and forbidden.
+
+### FA-04 (this pass): `WorkflowDispatchCorrelator` / `WorkflowDispatchCorrelatorOptions` renamed
+
+The round-1 migration correctly renamed the port interface (`GitHubWorkflowDispatchPort` →
+`GitHubRepositoryDispatchPort`), its method (`dispatchWorkflow` → `dispatchRepositoryEvent`), the
+event-predicate string, the on-disk schema version, and the `inputs` → `clientPayload` field — but
+left the correlator class and its options type unrenamed, despite being otherwise
+`repository_dispatch`-shaped throughout. `WorkflowDispatchCorrelator` → `RepositoryDispatchCorrelator`
+and `WorkflowDispatchCorrelatorOptions` → `RepositoryDispatchCorrelatorOptions`, with every reference
+updated: `GitHubDevGovDispatchAdapter.ts`'s constructor parameter type and doc comment,
+`DevGovReconciler.ts`'s two typed fields (this file is now listed in this unit's own `allowed_paths`
+for exactly this rename — it needed zero other edits, confirmed by re-reading it), every touched
+`tests/unit/control-plane/*.test.ts` file, and every occurrence in this audit doc itself (this is a
+pure rename — no behavioral change). The two occurrences that remain unchanged are in C's own
+closed/merged audit docs (`DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1.md`,
+`DEVGOV-PROTECTED-CONTROLLER-DISPATCH-V1-PROVEN.md`), which are `FORBIDDEN_PATHS` for this unit and
+correctly describe the shape that existed when they were written.
 
 ## Finalization
 
