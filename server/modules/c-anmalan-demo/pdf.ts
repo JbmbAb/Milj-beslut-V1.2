@@ -153,7 +153,10 @@ function controlTable(doc: PDFKit.PDFDocument, rows: ProposalRow[]) {
     const h = Math.max(...cells.map((c, i) => doc.heightOfString(c, { width: widths[i] - 2 * pad }))) + 2 * pad;
     if (doc.y + h > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
-      if (!bold) draw(HEADER, true);
+      if (!bold) {
+        draw(HEADER, true);
+        doc.font('Helvetica').fontSize(7); // the repeated header leaves bold set; the row was measured in regular
+      }
     }
     const y = doc.y;
     let x = left;
