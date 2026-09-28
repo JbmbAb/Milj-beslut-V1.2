@@ -1,5 +1,8 @@
 # DEVGOV-CI-PERMISSIONS-FLOOR-V1
 
+**Frozen base:** `6f9b005907197389c3782ef5e4e2ff0e3aa38e94` (main after D's PROVEN-record merge,
+PR #191)
+
 ## Summary
 
 Adds an explicit top-level `permissions:` block (`contents: read`) to the 8 workflow files in
