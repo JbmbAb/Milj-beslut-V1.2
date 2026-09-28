@@ -1,0 +1,74 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/lu-w2b-null-permit-probability-proven",
+  "base_sha": "825a876bd8067f5307181d9033067217968892f2",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1-PROVEN.md",
+    "governance/devgov/units/lu-w2b-null-permit-probability-consumers-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "docs/architecture/audits/LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1.md",
+    "governance/devgov/units/lu-w2b-null-permit-probability-consumers-v1.json",
+    "docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1.md",
+    "docs/architecture/audits/LU-W2-SEM1-NOT-CHECKED-V1-PROVEN.md",
+    "governance/devgov/units/lu-w2-sem1-not-checked-v1.json",
+    "governance/devgov/units/lu-w2-sem1-not-checked-proven-doc-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-lu-w2b-null-permit-probability-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('LU_W2B_NULL_PERMIT_PROBABILITY_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_W2B_NULL_PERMIT_PROBABILITY_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_W2B_NULL_PERMIT_PROBABILITY_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }",
+        "[\"**Final state:** PROVEN\",\"cf33cc1318b4505ccbf57d6296136b99c41fdee1\",\"939f27106dabc46a1093fb0482953564a2df7aa1\",\"825a876bd8067f5307181d9033067217968892f2\",\"4e061d33a0d6fcb2227e77b8e0b47c90ff0ad09f\",\"36394111819\",\"36394641828\",\"#186\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used\",\"w2b-pdf-null-permit-probability\",\"w2b-ui-null-permit-probability\",\"w2b-tse-null-permit-probability\",\"K-11\",\"no staging environment runs\",\"LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-lu-w2b-null-permit-probability-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('LU_W2B_NULL_PERMIT_PROBABILITY_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('LU_W2B_NULL_PERMIT_PROBABILITY_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('LU_W2B_NULL_PERMIT_PROBABILITY_PROVEN_OK: record binds all required evidence; merge tree == candidate tree ' + mt);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }",
+        "[\"**Final state:** PROVEN\",\"cf33cc1318b4505ccbf57d6296136b99c41fdee1\",\"939f27106dabc46a1093fb0482953564a2df7aa1\",\"825a876bd8067f5307181d9033067217968892f2\",\"4e061d33a0d6fcb2227e77b8e0b47c90ff0ad09f\",\"36394111819\",\"36394641828\",\"#186\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA\",\"Squash and rebase were not used\",\"w2b-pdf-null-permit-probability\",\"w2b-ui-null-permit-probability\",\"w2b-tse-null-permit-probability\",\"K-11\",\"no staging environment runs\",\"LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/lu-w2b-null-permit-probability-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
