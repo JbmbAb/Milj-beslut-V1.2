@@ -25,7 +25,7 @@ import {
   type DevGovWorkflowAvailabilityPort,
   type DevGovWorkItem,
   type GitHubActionsRunObserverPort,
-  type GitHubWorkflowDispatchPort,
+  type GitHubRepositoryDispatchPort,
   type MultiAgentUnitState,
   type ObservedWorkflowRun,
 } from '../../../packages/mps-control-plane/src/multi-agent';
@@ -186,11 +186,11 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
   });
 
   it('3. ambiguous GitHub run correlation is rejected rather than guessed', async () => {
-    class Dispatch implements GitHubWorkflowDispatchPort {
+    class Dispatch implements GitHubRepositoryDispatchPort {
       async getRefSha() {
         return '3'.repeat(40);
       }
-      async dispatchWorkflow() {}
+      async dispatchRepositoryEvent() {}
     }
     function observedRun(runId: string): ObservedWorkflowRun {
       return {
@@ -198,7 +198,7 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
         workflow: 'wf.yml',
         headBranch: 'main',
         headSha: '3'.repeat(40),
-        event: 'workflow_dispatch',
+        event: 'repository_dispatch',
         createdAt: '2026-09-05T01:00:01.000Z',
         status: 'completed',
         conclusion: 'success',
@@ -216,7 +216,13 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
       new Observer(),
       { now: () => new Date('2026-09-05T01:00:00.000Z') },
     );
-    await correlator.dispatch({ dispatchKey: 'K1:3:DEV_GOV', workflow: 'wf.yml', ref: 'main', inputs: {} });
+    await correlator.dispatch({
+      dispatchKey: 'K1:3:DEV_GOV',
+      workflow: 'wf.yml',
+      eventType: 'wf-dispatch-event',
+      ref: 'main',
+      clientPayload: {},
+    });
     const resolved = await correlator.poll('K1:3:DEV_GOV');
     expect(resolved.status).toBe('AMBIGUOUS_CORRELATION');
   });
@@ -348,7 +354,7 @@ describe('Crash / retry / idempotency guarantees (Part E)', () => {
     }
     const correlator = new WorkflowDispatchCorrelator(
       new FileCorrelationStore(tmpFile('mimer-correlation-')),
-      { getRefSha: async () => '0'.repeat(40), dispatchWorkflow: async () => {} },
+      { getRefSha: async () => '0'.repeat(40), dispatchRepositoryEvent: async () => {} },
       { listRuns: async () => [] },
     );
     const reconciler = new DevGovReconciler({

@@ -14,7 +14,7 @@ import {
   type DevGovTelemetryStatusPort,
   type DevGovWorkflowAvailabilityPort,
   type GitHubActionsRunObserverPort,
-  type GitHubWorkflowDispatchPort,
+  type GitHubRepositoryDispatchPort,
   type MultiAgentUnitState,
   type ObservedWorkflowRun,
   type TelemetryStatusObservation,
@@ -64,7 +64,7 @@ function run(overrides: Partial<ObservedWorkflowRun> = {}): ObservedWorkflowRun 
     workflow: 'devgov-v0-orchestrate.yml',
     headBranch: 'main',
     headSha: refShaAtDispatch,
-    event: 'workflow_dispatch',
+    event: 'repository_dispatch',
     createdAt: '2026-09-05T01:00:01.000Z',
     status: 'completed',
     conclusion: 'success',
@@ -95,11 +95,11 @@ class Availability implements DevGovWorkflowAvailabilityPort {
   }
 }
 
-class DispatchPort implements GitHubWorkflowDispatchPort {
+class DispatchPort implements GitHubRepositoryDispatchPort {
   async getRefSha() {
     return refShaAtDispatch;
   }
-  async dispatchWorkflow() {}
+  async dispatchRepositoryEvent() {}
 }
 
 class RunObserver implements GitHubActionsRunObserverPort {
@@ -150,8 +150,9 @@ async function correlatedTo(observed: ObservedWorkflowRun): Promise<WorkflowDisp
   await corr.dispatch({
     dispatchKey: DISPATCH_KEY,
     workflow: 'devgov-v0-orchestrate.yml',
+    eventType: 'devgov-v0-orchestrate',
     ref: 'main',
-    inputs: {},
+    clientPayload: {},
   });
   await corr.poll(DISPATCH_KEY);
   return corr;
@@ -305,8 +306,9 @@ describe('DEV-GOV reconciliation (Parts C, D, F)', () => {
     await corr.dispatch({
       dispatchKey: DISPATCH_KEY,
       workflow: 'devgov-v0-orchestrate.yml',
+      eventType: 'devgov-v0-orchestrate',
       ref: 'main',
-      inputs: {},
+      clientPayload: {},
     });
     const r = reconciler({
       store,
