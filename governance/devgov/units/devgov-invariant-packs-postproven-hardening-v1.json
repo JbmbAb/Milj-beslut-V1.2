@@ -1,0 +1,143 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "governance/devgov-invariant-packs-postproven-hardening-v1",
+  "base_sha": "825a876bd8067f5307181d9033067217968892f2",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/devgov-v0-gate.yml",
+    "scripts/devgov/invariant-packs.mjs",
+    "scripts/audit/devgovInvariantPacks.test.ts",
+    "governance/devgov/units/devgov-invariant-packs-postproven-hardening-v1.json",
+    "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    ".github/workflows/devgov-invariant-packs.yml",
+    ".github/workflows/devgov-v0.yml",
+    "scripts/devgov/devgov.mjs",
+    "governance/devgov/invariant-packs/**",
+    "governance/devgov/schema/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**",
+    "services/**",
+    "integrations/**",
+    "prisma/**",
+    "scripts/ops/**",
+    "scripts/import/**"
+  ],
+  "required_red": [
+    {
+      "id": "postproven-invariant-hardening-guards-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const required = ['scripts/devgov/invariant-packs.mjs','scripts/audit/devgovInvariantPacks.test.ts','.github/workflows/devgov-v0-gate.yml','.github/workflows/devgov-invariant-packs.yml','docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1-PROVEN.md'];\n  for (const p of required) if (!fs.existsSync(p)) H('Step-5 positive-control path missing: ' + p);\n  const runner = fs.readFileSync('scripts/devgov/invariant-packs.mjs','utf8');\n  const tests = fs.readFileSync('scripts/audit/devgovInvariantPacks.test.ts','utf8');\n  const gate = fs.readFileSync('.github/workflows/devgov-v0-gate.yml','utf8');\n  const guards = [\n    ['canonical containment', runner.includes('function resolveContainedPath(root, rel)')],\n    ['safe pack path', runner.includes('function isSafePackPath(value)')],\n    ['default branch binding', runner.includes(\"'test \\\"$BASE_REF\\\" = \\\"$DEFAULT_BRANCH\\\"'\")],\n    ['pack report reverify step', gate.includes('Reverify invariant-pack report binding')],\n    ['pack outcome binding', gate.includes('PACKS_OUTCOME: ${{ steps.invariant_packs.outcome }}')],\n    ['pack_ok final gate', gate.includes('test \"$pack_ok\" = true')],\n    ['F04 regression', tests.includes('canonical pack verification becomes continue-on-error')],\n    ['F05 regression', tests.includes('decoy plus dynamic candidate execution')],\n    ['F06 regression', tests.includes('protected-default-base assertion')],\n    ['F08 regression', tests.includes('report re-verification is reduced to a decoy comment')],\n    ['F13 regression', tests.includes('prefix-valid pack path traversal')],\n    ['F14 regression', tests.includes('caller non-impact metadata')],\n  ];\n  const missing = guards.filter(([, ok]) => !ok).map(([name]) => name);\n  if (missing.length) V('post-PROVEN hardening guards missing: ' + missing.join(' | '));\n  console.log('DEVGOV_POSTPROVEN_HARDENING_OK: all declared guards present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "postproven-invariant-hardening-guards-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const required = ['scripts/devgov/invariant-packs.mjs','scripts/audit/devgovInvariantPacks.test.ts','.github/workflows/devgov-v0-gate.yml','.github/workflows/devgov-invariant-packs.yml','docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1-PROVEN.md'];\n  for (const p of required) if (!fs.existsSync(p)) H('Step-5 positive-control path missing: ' + p);\n  const runner = fs.readFileSync('scripts/devgov/invariant-packs.mjs','utf8');\n  const tests = fs.readFileSync('scripts/audit/devgovInvariantPacks.test.ts','utf8');\n  const gate = fs.readFileSync('.github/workflows/devgov-v0-gate.yml','utf8');\n  const guards = [\n    ['canonical containment', runner.includes('function resolveContainedPath(root, rel)')],\n    ['safe pack path', runner.includes('function isSafePackPath(value)')],\n    ['default branch binding', runner.includes(\"'test \\\"$BASE_REF\\\" = \\\"$DEFAULT_BRANCH\\\"'\")],\n    ['pack report reverify step', gate.includes('Reverify invariant-pack report binding')],\n    ['pack outcome binding', gate.includes('PACKS_OUTCOME: ${{ steps.invariant_packs.outcome }}')],\n    ['pack_ok final gate', gate.includes('test \"$pack_ok\" = true')],\n    ['F04 regression', tests.includes('canonical pack verification becomes continue-on-error')],\n    ['F05 regression', tests.includes('decoy plus dynamic candidate execution')],\n    ['F06 regression', tests.includes('protected-default-base assertion')],\n    ['F08 regression', tests.includes('report re-verification is reduced to a decoy comment')],\n    ['F13 regression', tests.includes('prefix-valid pack path traversal')],\n    ['F14 regression', tests.includes('caller non-impact metadata')],\n  ];\n  const missing = guards.filter(([, ok]) => !ok).map(([name]) => name);\n  if (missing.length) V('post-PROVEN hardening guards missing: ' + missing.join(' | '));\n  console.log('DEVGOV_POSTPROVEN_HARDENING_OK: all declared guards present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "postproven-invariant-hardening-live",
+      "command": "node",
+      "args": [
+        "scripts/devgov/invariant-packs.mjs",
+        "--target",
+        "."
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "postproven-invariant-hardening-focused-tests",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "--config",
+        "scripts/devgov/vitest.config.mjs",
+        "scripts/audit/devgovInvariantPacks.test.ts",
+        "scripts/audit/devgovOrchestration.test.ts",
+        "scripts/audit/devgovTrustedWorkflow.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 180000
+    },
+    {
+      "id": "postproven-invariant-hardening-full-devgov-suite",
+      "command": "npm",
+      "args": [
+        "run",
+        "devgov:test"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 240000
+    },
+    {
+      "id": "postproven-invariant-hardening-targeted-format",
+      "command": "npx",
+      "args": [
+        "prettier",
+        "--check",
+        ".github/workflows/devgov-v0-gate.yml",
+        "scripts/devgov/invariant-packs.mjs",
+        "scripts/audit/devgovInvariantPacks.test.ts",
+        "governance/devgov/units/devgov-invariant-packs-postproven-hardening-v1.json",
+        "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1.md"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 180000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "governance/devgov-invariant-packs-postproven-hardening-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
