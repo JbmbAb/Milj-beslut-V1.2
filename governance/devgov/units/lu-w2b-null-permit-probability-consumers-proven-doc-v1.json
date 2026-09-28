@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "docs/lu-w2b-null-permit-probability-proven",
-  "base_sha": "825a876bd8067f5307181d9033067217968892f2",
+  "base_sha": "703a7f561701abc530b52a852820ddfc5c820aea",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "docs/architecture/audits/LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1-PROVEN.md",

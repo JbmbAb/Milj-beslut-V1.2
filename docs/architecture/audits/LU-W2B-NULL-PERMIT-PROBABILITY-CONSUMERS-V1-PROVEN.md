@@ -17,9 +17,13 @@ not edit, and does not replace, the candidate record
 - Base before this merge (`main`): `cf33cc1318b4505ccbf57d6296136b99c41fdee1` (the W2 PROVEN-record
   merge, PR #185)
 - Gated candidate: `939f27106dabc46a1093fb0482953564a2df7aa1`
-- This record's own unit base (`main` at record creation): `825a876bd8067f5307181d9033067217968892f2`
-  -- the W2b merge commit itself, since no other unit merged to `main` between W2b's merge and this
-  record's creation.
+- This record's own unit base (`main` at record creation): `703a7f561701abc530b52a852820ddfc5c820aea`
+  -- a later `main` tip than the W2b merge commit (`825a876b`), since a separate, unrelated Dev-Gov
+  hardening unit (`DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1`, PR #188) merged to `main`
+  before this record could be opened. That unit touches only `.github/workflows/devgov-v0-gate.yml`,
+  `scripts/devgov/invariant-packs.mjs`, its own test file, and its own two governance files -- none
+  of which this record's `allowed_paths` or `forbidden_paths` overlap, and none of which change any
+  fact this record binds about W2b's own run.
 
 The candidate record's own lineage (`LU-W2B-NULL-PERMIT-PROBABILITY-CONSUMERS-V1.md`) documents the
 full implementation history: candidate `35085239` (unit-JSON + two RED probes only, no production
@@ -33,9 +37,9 @@ unit JSON and its audit doc).
 
 This PROVEN-doc unit is a separate, later unit with its own base and its own two-file
 `allowed_paths` (this record and its own unit JSON) -- its own delta is exactly those two files
-against its base, `main` at record creation, `825a876bd8067f5307181d9033067217968892f2` (the W2b
-merge commit itself), so none of W2b's own files appear in it -- they are already present
-identically on both sides of that diff.
+against its base, `main` at record creation, `703a7f561701abc530b52a852820ddfc5c820aea`, so
+neither W2b's own files nor the intervening hardening unit's files appear in it -- all of them are
+already present identically on both sides of that diff.
 
 ## Trusted execution evidence
 
