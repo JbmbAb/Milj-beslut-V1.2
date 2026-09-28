@@ -123,6 +123,31 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Reverify invariant-pack report binding
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          CONTROLLER_SHA: ${{ github.sha }}
+          PACK_SET_SHA256: ${{ steps.invariant_packs.outputs.pack_set_sha256 }}
+          REGISTRY_VERSION: ${{ steps.invariant_packs.outputs.registry_version }}
+          PACKS_RESULT: ${{ steps.invariant_packs.outputs.result }}
+          PACK_CONTROLLER_SHA: ${{ steps.invariant_packs.outputs.controller_sha }}
+          PACK_CANDIDATE_SHA: ${{ steps.invariant_packs.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node - "$RUNNER_TEMP/devgov-invariant-pack-report.json" \
+            "$CONTROLLER_SHA" "$CANDIDATE_SHA" "$PACK_SET_SHA256" \
+            "$REGISTRY_VERSION" "$PACKS_RESULT" "$PACK_CONTROLLER_SHA" "$PACK_CANDIDATE_SHA" <<'NODE'
+          const fs = require('node:fs');
+          const [reportPath, controllerSha, candidateSha, packSetSha, registryVersion, packsResult, packControllerSha, packCandidateSha] = process.argv.slice(2);
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          const fail = (message) => { throw new Error(`invariant-pack report binding mismatch: ${message}`); };
+          if (report.result !== 'PASS' || packsResult !== 'PASS') fail('result');
+          if (!/^[0-9a-f]{64}$/.test(packSetSha) || report.pack_set_sha256 !== packSetSha) fail('pack_set_sha256');
+          if (!/^[1-9][0-9]*$/.test(registryVersion) || String(report.registry_version) !== registryVersion) fail('registry_version');
+          if (report.controller_sha !== controllerSha || packControllerSha !== controllerSha) fail('controller_sha');
+          if (report.candidate_sha !== candidateSha || packCandidateSha !== candidateSha) fail('candidate_sha');
+          NODE
+
       - name: Inspect required proof cardinality
         id: proof_plan
         env:
@@ -296,15 +321,28 @@ jobs:
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           GH_TOKEN: ${{ github.token }}
+          PACKS_OUTCOME: ${{ steps.invariant_packs.outcome }}
           PACK_SET_SHA256: ${{ steps.invariant_packs.outputs.pack_set_sha256 }}
           REGISTRY_VERSION: ${{ steps.invariant_packs.outputs.registry_version }}
           PACKS_RESULT: ${{ steps.invariant_packs.outputs.result }}
+          PACK_CONTROLLER_SHA: ${{ steps.invariant_packs.outputs.controller_sha }}
+          PACK_CANDIDATE_SHA: ${{ steps.invariant_packs.outputs.candidate_sha }}
+          CONTROLLER_SHA: ${{ github.sha }}
         run: |
           state=failure
           description='Trusted execution gate denied or did not complete'
-          if [ "$GATE_OUTCOME" = success ]; then
+          pack_ok=false
+          if [ "$PACKS_OUTCOME" = success ] && \
+             [ "$PACKS_RESULT" = PASS ] && \
+             [[ "$PACK_SET_SHA256" =~ ^[0-9a-f]{64}$ ]] && \
+             [[ "$REGISTRY_VERSION" =~ ^[1-9][0-9]*$ ]] && \
+             [ "$PACK_CONTROLLER_SHA" = "$CONTROLLER_SHA" ] && \
+             [ "$PACK_CANDIDATE_SHA" = "$CANDIDATE_SHA" ]; then
+            pack_ok=true
+          fi
+          if [ "$GATE_OUTCOME" = success ] && [ "$pack_ok" = true ]; then
             state=success
-            description='Trusted RED/GREEN verified for exact candidate SHA'
+            description='Trusted RED/GREEN and controller-owned packs verified for exact candidate SHA'
           fi
           if [ -n "$PACK_SET_SHA256" ]; then
             description="${description}; packs=v${REGISTRY_VERSION}:${PACKS_RESULT}:${PACK_SET_SHA256}"
@@ -316,3 +354,4 @@ jobs:
             -f description="$description" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           test "$GATE_OUTCOME" = success
+          test "$pack_ok" = true
