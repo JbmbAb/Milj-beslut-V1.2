@@ -1,0 +1,74 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "docs/devgov-invariant-packs-postproven-hardening-proven",
+  "base_sha": "703a7f561701abc530b52a852820ddfc5c820aea",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1-PROVEN.md",
+    "governance/devgov/units/devgov-invariant-packs-postproven-hardening-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "services/**",
+    "integrations/**",
+    "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1.md",
+    "governance/devgov/units/devgov-invariant-packs-postproven-hardening-v1.json",
+    "docs/architecture/audits/DEVGOV-INVARIANT-PACKS-V1-PROVEN.md"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-postproven-invariant-hardening-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) {\n    if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p);\n    H('cannot read ' + p + ': ' + (e && e.message));\n  }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => {\n    const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s);\n    return m && m[1];\n  };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('DEVGOV_POSTPROVEN_HARDENING_PROVEN_OK: record binds required evidence; merge tree == candidate tree ' + mt);\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}",
+        "[\"**Final state:** PROVEN\",\"#188\",\"825a876bd8067f5307181d9033067217968892f2\",\"f6e241d8dec0ff8dab2bcf6ec431eef63f5f860c\",\"703a7f561701abc530b52a852820ddfc5c820aea\",\"ee6695954856f276e792f924afe26a1f383a833c\",\"36398731433\",\"36401002711\",\"2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5\",\"devgov-v0-gate:2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5:f6e241d8dec0ff8dab2bcf6ec431eef63f5f860c\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA; packs=v1:PASS:5be20e1bff4d9fe67471804192c80c1f1072da92f31f5481c34b2c6bb84ea8c3\",\"postproven-invariant-hardening-guards-present\",\"postproven-invariant-hardening-live\",\"postproven-invariant-hardening-focused-tests\",\"postproven-invariant-hardening-full-devgov-suite\",\"postproven-invariant-hardening-targeted-format\",\"Squash and rebase were not used\",\"implementation gate **did not** publish\",\"DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-postproven-invariant-hardening-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs = require('node:fs');\nconst V = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_PROVEN_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('DEVGOV_POSTPROVEN_HARDENING_PROVEN_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1-PROVEN.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) {\n    if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p);\n    H('cannot read ' + p + ': ' + (e && e.message));\n  }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => {\n    const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s);\n    return m && m[1];\n  };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  console.log('DEVGOV_POSTPROVEN_HARDENING_PROVEN_OK: record binds required evidence; merge tree == candidate tree ' + mt);\n} catch (e) {\n  H('unexpected: ' + (e && e.stack ? e.stack : e));\n}",
+        "[\"**Final state:** PROVEN\",\"#188\",\"825a876bd8067f5307181d9033067217968892f2\",\"f6e241d8dec0ff8dab2bcf6ec431eef63f5f860c\",\"703a7f561701abc530b52a852820ddfc5c820aea\",\"ee6695954856f276e792f924afe26a1f383a833c\",\"36398731433\",\"36401002711\",\"2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5\",\"devgov-v0-gate:2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5:f6e241d8dec0ff8dab2bcf6ec431eef63f5f860c\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN verified for exact candidate SHA; packs=v1:PASS:5be20e1bff4d9fe67471804192c80c1f1072da92f31f5481c34b2c6bb84ea8c3\",\"postproven-invariant-hardening-guards-present\",\"postproven-invariant-hardening-live\",\"postproven-invariant-hardening-focused-tests\",\"postproven-invariant-hardening-full-devgov-suite\",\"postproven-invariant-hardening-targeted-format\",\"Squash and rebase were not used\",\"implementation gate **did not** publish\",\"DEVGOV-INVARIANT-PACKS-POSTPROVEN-HARDENING-V1 = PROVEN\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "docs/devgov-invariant-packs-postproven-hardening-proven",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
