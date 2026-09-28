@@ -171,7 +171,7 @@ describe('generateSewageDossierPdf', () => {
     // S3: the caveat and the layer name must appear together in one rendered line, not merely
     // somewhere in the page (which a naive .join(' ') substring check can't tell apart from two
     // unrelated calls that happen to each contain half the phrase).
-    expect(mocks.textCalls.some((call) => call.includes('kunde inte kontrollera') && call.includes('Vattenskyddsområde'))).toBe(true);
+    expect(mocks.textCalls.some((call) => call.includes('Kunde inte kontrollera') && call.includes('Vattenskyddsområde'))).toBe(true);
   });
 
   it('W3c: still lists intersecting zones as a warning even when a different layer is also unavailable', async () => {
@@ -185,7 +185,7 @@ describe('generateSewageDossierPdf', () => {
 
     const joined = mocks.textCalls.join(' ');
     expect(joined).toContain('Natura 2000: Real');
-    expect(mocks.textCalls.some((call) => call.includes('kunde inte kontrollera') && call.includes('Skyddat område'))).toBe(true);
+    expect(mocks.textCalls.some((call) => call.includes('Kunde inte kontrollera') && call.includes('Skyddat område'))).toBe(true);
     expect(joined).not.toContain('Inga överlappande miljöskyddszoner identifierades');
   });
 
@@ -200,6 +200,6 @@ describe('generateSewageDossierPdf', () => {
 
     const joined = mocks.textCalls.join(' ');
     expect(joined).toContain('Inga överlappande miljöskyddszoner identifierades');
-    expect(joined).not.toContain('kunde inte kontrollera');
+    expect(joined).not.toContain('Kunde inte kontrollera');
   });
 });

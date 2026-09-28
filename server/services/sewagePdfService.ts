@@ -154,7 +154,7 @@ export async function generateSewageDossierPdf(
 
       try {
         const generator = new StaticMapGenerator();
-        const intersectingZones = await generator.drawMapToPdf(
+        const { intersectingZones, unavailableLayers } = await generator.drawMapToPdf(
           doc,
           application.propertyDesignation,
           currentX,
@@ -164,7 +164,10 @@ export async function generateSewageDossierPdf(
           25,
         );
 
-        logger.info(`Intersecting zones for ${application.propertyDesignation}: ${intersectingZones.join(', ')}`);
+        logger.info(
+          `Intersecting zones for ${application.propertyDesignation}: ${intersectingZones.join(', ')}` +
+            (unavailableLayers.length > 0 ? ` | unavailable: ${unavailableLayers.join(', ')}` : ''),
+        );
 
         doc.y = currentY + 265;
 
@@ -174,7 +177,19 @@ export async function generateSewageDossierPdf(
             doc.fontSize(9).fillColor('#333333').text(`• ${zone}`, { indent: 10 });
           });
           doc.moveDown(1);
-        } else {
+        }
+
+        if (unavailableLayers.length > 0) {
+          // W3c: a technical query failure must never be presented as "no zones found" -- it is
+          // surfaced explicitly, by layer, so a caseworker knows exactly what was not verified.
+          doc
+            .fontSize(10)
+            .fillColor('#f0ad4e')
+            .text(`Kunde inte kontrollera: ${unavailableLayers.join(', ')}`, currentX, doc.y);
+          doc.moveDown(1);
+        }
+
+        if (intersectingZones.length === 0 && unavailableLayers.length === 0) {
           doc
             .fontSize(10)
             .fillColor('#5cb85c')
