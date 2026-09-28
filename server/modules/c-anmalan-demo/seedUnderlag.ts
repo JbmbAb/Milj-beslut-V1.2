@@ -8,6 +8,7 @@
  *   DEMO_UNDERLAG_MAPPING  mapping of input fields to verbatim excerpts (kept outside the repo)
  */
 import fs from 'node:fs';
+import { putBlob } from './caseStore';
 import { loadUnderlag, type UnderlagMapping } from './underlagLoader';
 
 export const DEFAULT_UNDERLAG_MAPPING = 'C:\\miljöbeslut\\Claude outputs\\demo-01-writer\\underlag\\mapping.json';
@@ -31,5 +32,8 @@ export function underlagMappingPath(): string {
 export function seedFromUnderlag() {
   const dir = underlagDir();
   const mapping = JSON.parse(fs.readFileSync(underlagMappingPath(), 'utf8')) as UnderlagMapping;
-  return { dir, ...loadUnderlag(dir, mapping) };
+  const loaded = loadUnderlag(dir, mapping);
+  // Attachments are copied into the content-addressed store; PDFs read them back by hash only.
+  for (const a of loaded.underlag.attachments ?? []) putBlob(loaded.attachmentBytes.get(a.sha256)!, a.mime);
+  return { dir, input: loaded.input, underlag: loaded.underlag };
 }

@@ -6,7 +6,7 @@ import { lookupPropertyByDesignationFromPostgis } from '../../services/propertyU
 import { auditTrail, getAuditTrail } from '../../services/auditTrailService';
 import type { AuthUser } from '../../security/types';
 import { freezeApproval, type FrozenProposal } from './approvalGate';
-import { canonicalJson, loadCase, loadFrozen, newCaseId, saveCase } from './caseStore';
+import { canonicalJson, loadBlob, loadCase, loadFrozen, newCaseId, saveCase } from './caseStore';
 import { citeMpfCodes } from './legalCitation';
 import { LOCALIZATION_LABEL, localizationRows, readLayerFacts } from './localization';
 import { renderAnmalanPdf, renderEgenkontrollPdf } from './pdf';
@@ -209,4 +209,13 @@ export async function caseAuditTrail(user: AuthUser, id: string) {
   const got = access(id, user);
   if (got.ok === false) return got;
   return { ok: true as const, value: await getAuditTrail(reference(id)) };
+}
+
+/** An attachment image of this case, hash-checked on read (only hashes listed in the case's underlag). */
+export function caseAttachment(user: AuthUser, id: string, digest: string): Result<{ buffer: Buffer; mime: string }> {
+  const got = access(id, user);
+  if (got.ok === false) return got;
+  const ref = got.value.underlag?.attachments?.find((a) => a.sha256 === digest);
+  if (!ref) return { ok: false, status: 404, error: 'attachment_not_in_case' };
+  return { ok: true, value: { buffer: loadBlob(ref.sha256, ref.mime), mime: ref.mime } };
 }

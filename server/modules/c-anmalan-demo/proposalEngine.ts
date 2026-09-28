@@ -122,6 +122,24 @@ function corpusRows(rows: RequirementRow[], codes: string[], coverage: CoverageR
   return out;
 }
 
+/** K-54: one row per drawing from the user's underlag, decided like any other row. */
+function attachmentRows(underlag: UnderlagRef | undefined): ProposalRow[] {
+  return (underlag?.attachments ?? []).map((a) => ({
+    id: `bilaga-${a.sha256.slice(0, 12)}`,
+    section: 'bilagor' as const,
+    label: `Bilaga: ${a.title}`,
+    text: `${a.title} (${a.file}, ${a.mime === 'image/png' ? 'PNG' : 'JPG'}, ${Math.round(a.bytes / 1024)} kB)`,
+    provenance: {
+      kind: 'user_input' as const,
+      field: `bilaga:${a.file}`,
+      sources: [{ file: a.file, sha256: a.sha256 }],
+      ...(underlag?.fictional ? { fictional: true } : {}),
+    },
+    note: underlag?.fictional ? FICTIONAL_NOTE : undefined,
+    attachment: a,
+  }));
+}
+
 export function buildProposalRows(args: {
   input: DemoCaseInput;
   underlag?: UnderlagRef;
@@ -153,6 +171,7 @@ export function buildProposalRows(args: {
     ...corpus.filter((r) => r.section === 'forsiktighetsmatt'),
     u('egenkontroll', 'anvandarensEgenkontroll', 'Verksamhetsutövarens kontrollrutiner'),
     ...corpus.filter((r) => r.section === 'egenkontroll'),
+    ...attachmentRows(args.underlag),
   ];
   assertEveryRowHasProvenance(rows);
   return rows;
@@ -174,6 +193,9 @@ export function assertEveryRowHasProvenance(rows: ProposalRow[]): void {
       continue;
     }
     if (!r.text?.trim()) problems.push(`${r.id}: empty text`);
+    if (r.attachment && !(SHA.test(r.attachment.sha256) && ['image/jpeg', 'image/png'].includes(r.attachment.mime))) {
+      problems.push(`${r.id}: attachment without sha256 / JPG-PNG type`);
+    }
     // Only Mimer's own wording (label, note) is checked; quoted text and user input stay verbatim.
     if (FORBIDDEN_WORDS.test(`${r.label} ${r.note ?? ''}`)) problems.push(`${r.id}: forbidden wording`);
     if (p.kind !== 'user_input' && /\d\s?%/.test(`${r.label} ${r.note ?? ''}`)) problems.push(`${r.id}: percentage (counts only)`);

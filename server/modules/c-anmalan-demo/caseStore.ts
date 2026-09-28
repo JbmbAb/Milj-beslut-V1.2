@@ -40,15 +40,19 @@ export function sha256(text: string | Buffer): string {
 const CASE_ID = /^demo01-[a-z0-9-]{6,64}$/;
 const SHA = /^[a-f0-9]{64}$/;
 
-function writeWithManifest(file: string, body: string): string {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, body, 'utf8');
-  const digest = sha256(body);
+function appendManifest(file: string, digest: string): void {
   fs.appendFileSync(
     path.join(dataRoot(), 'MANIFEST.jsonl'),
     JSON.stringify({ file: path.relative(dataRoot(), file).replace(/\\/g, '/'), sha256: digest, at: new Date().toISOString() }) + '\n',
     'utf8',
   );
+}
+
+function writeWithManifest(file: string, body: string): string {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, body, 'utf8');
+  const digest = sha256(body);
+  appendManifest(file, digest);
   return digest;
 }
 
@@ -92,4 +96,28 @@ export function loadFrozen(digest: string): { body: string; document: unknown } 
   const body = fs.readFileSync(file, 'utf8');
   if (sha256(body) !== digest) throw new Error(`frozen_hash_mismatch:${digest}`);
   return { body, document: JSON.parse(body) };
+}
+
+const BLOB_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png' };
+
+/** Content-addressed attachment store (K-54): <root>/blobs/<sha256>.<ext>, written once. */
+export function putBlob(buf: Buffer, mime: 'image/jpeg' | 'image/png'): string {
+  const digest = sha256(buf);
+  const file = path.join(dataRoot(), 'blobs', `${digest}.${BLOB_EXT[mime]}`);
+  if (!fs.existsSync(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, buf);
+    appendManifest(file, digest);
+  }
+  return digest;
+}
+
+/** Reads an attachment and refuses it unless its bytes still hash to the frozen value. */
+export function loadBlob(digest: string, mime: 'image/jpeg' | 'image/png'): Buffer {
+  if (!SHA.test(digest)) throw new Error('invalid_attachment_hash');
+  const file = path.join(dataRoot(), 'blobs', `${digest}.${BLOB_EXT[mime]}`);
+  if (!fs.existsSync(file)) throw new Error(`attachment_missing:${digest}`);
+  const buf = fs.readFileSync(file);
+  if (sha256(buf) !== digest) throw new Error(`attachment_hash_mismatch:${digest}`);
+  return buf;
 }

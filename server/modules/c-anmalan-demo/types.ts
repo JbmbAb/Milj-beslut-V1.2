@@ -62,7 +62,8 @@ export type ProposalSectionId =
   | 'lokalisering'
   | 'teknisk_beskrivning'
   | 'forsiktighetsmatt'
-  | 'egenkontroll';
+  | 'egenkontroll'
+  | 'bilagor';
 
 export interface ProposalRow {
   id: string;
@@ -74,6 +75,8 @@ export interface ProposalRow {
   editedFrom?: RowProvenance;
   /** Shown next to the row, e.g. "ej analyserat – underlag saknas". */
   note?: string;
+  /** Present only on attachment rows (K-54): the image is embedded from the blob store by hash. */
+  attachment?: AttachmentRef;
   /** Present only on egenkontroll rows. */
   control?: {
     frekvens: string;
@@ -90,12 +93,23 @@ export interface UnderlagFileRef {
 }
 
 /** Where the user's facts came from. Set only server-side by the underlag loader, never by the API. */
+/** An image from the user's underlag (K-54): JPG/PNG only, stored content-addressed by sha256. */
+export interface AttachmentRef {
+  title: string;
+  file: string;
+  sha256: string;
+  mime: 'image/jpeg' | 'image/png';
+  bytes: number;
+}
+
 export interface UnderlagRef {
   label: string;
   sha256: string;
   fictional: boolean;
   /** Per input field: the files its text is quoted from, verbatim. */
   fieldSources: Partial<Record<string, UnderlagFileRef[]>>;
+  /** Drawings attached to the anmälan (e.g. situationsplan, sektion). */
+  attachments?: AttachmentRef[];
 }
 
 /** User-supplied facts. Everything here renders as "användarens uppgift". */

@@ -8,7 +8,7 @@ import { requireAuth } from '../../security/auth';
 import { rateLimitByUser } from '../../security/rateLimit';
 import { toSafeErrorResponse } from '../../security/secureErrors';
 import { releaseSha } from './approvalGate';
-import { approveCase, caseAuditTrail, casePdf, createCase, getCase, proposeCase, updateInput } from './demoService';
+import { approveCase, caseAttachment, caseAuditTrail, casePdf, createCase, getCase, proposeCase, updateInput } from './demoService';
 import { loadRequirements } from './requirementsSource';
 import type { DemoCaseInput, RowDecision } from './types';
 
@@ -104,6 +104,17 @@ router.get(`${BASE}/cases/:id/pdf/:kind`, requireAuth, rateLimitByUser(20, 60_00
   }
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${result.value.filename}"`);
+  res.send(result.value.buffer);
+}));
+
+router.get(`${BASE}/cases/:id/attachments/:sha`, requireAuth, rateLimitByUser(60, 60_000), guarded(async (req, res) => {
+  const result = caseAttachment(req.authUser!, String(req.params.id), String(req.params.sha));
+  if (result.ok === false) {
+    res.status(result.status).json({ ok: false, error: result.error });
+    return;
+  }
+  res.setHeader('Content-Type', result.value.mime);
+  res.setHeader('Cache-Control', 'private, max-age=300');
   res.send(result.value.buffer);
 }));
 

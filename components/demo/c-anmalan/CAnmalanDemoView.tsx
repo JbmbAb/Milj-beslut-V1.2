@@ -5,7 +5,7 @@
  * source line. There is no submit: Mimer does not file anything (K-26 §6).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
+import { callApi, getActiveProjectId, getToken } from '../../../services/coreApiClient';
 import { formatSource } from '../../../server/modules/c-anmalan-demo/formatSource';
 import {
   DEMO_CODES,
@@ -26,6 +26,7 @@ const SECTION_TITLES: Record<ProposalSectionId, string> = {
   teknisk_beskrivning: '4. Teknisk beskrivning av lagringsytan',
   forsiktighetsmatt: '5. Försiktighetsmått',
   egenkontroll: 'Egenkontrollprogram: kontrollpunkter',
+  bilagor: '6. Bilagor',
 };
 
 const TEXT_FIELDS: Array<[keyof DemoCaseInput, string]> = [
@@ -317,7 +318,7 @@ export const CAnmalanDemoView: React.FC<{ onExit: () => void }> = ({ onExit }) =
               <div key={section} className="mb-4">
                 <h3 className="mb-2 text-sm font-semibold">{SECTION_TITLES[section]}</h3>
                 {sectionRows.map((r) => (
-                  <RowCard key={`${record?.proposal?.generatedAt}-${r.id}`} row={r} decision={decisions[r.id]} onDecide={(d) => setDecisions((p) => ({ ...p, [r.id]: d }))} />
+                  <RowCard key={`${record?.proposal?.generatedAt}-${r.id}`} caseId={record!.id} row={r} decision={decisions[r.id]} onDecide={(d) => setDecisions((p) => ({ ...p, [r.id]: d }))} />
                 ))}
               </div>
             );
@@ -372,7 +373,28 @@ const Shell: React.FC<{ onExit: () => void; children: React.ReactNode }> = ({ on
   </div>
 );
 
-const RowCard: React.FC<{ row: ProposalRow; decision?: Decision; onDecide: (d: Decision) => void }> = ({ row, decision, onDecide }) => {
+/** Attachment thumbnail: fetched with the bearer token (an <img src> cannot send it). */
+const AttachmentPreview: React.FC<{ caseId: string; sha256: string; title: string }> = ({ caseId, sha256, title }) => {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    fetch(`${API}/cases/${encodeURIComponent(caseId)}/attachments/${sha256}`, { headers: { Authorization: `Bearer ${getToken() ?? ''}` } })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        objectUrl = URL.createObjectURL(await res.blob());
+        setUrl(objectUrl);
+      })
+      .catch((e) => setFailed(e instanceof Error ? e.message : String(e)));
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [caseId, sha256]);
+  if (failed) return <div className="mt-1 text-xs text-rose-700">Bilagan kunde inte visas: {failed}</div>;
+  return url ? <img src={url} alt={title} className="mt-2 max-h-64 rounded border border-slate-200" data-testid={`attachment-${sha256.slice(0, 12)}`} /> : null;
+};
+
+const RowCard: React.FC<{ caseId: string; row: ProposalRow; decision?: Decision; onDecide: (d: Decision) => void }> = ({ caseId, row, decision, onDecide }) => {
   const [draft, setDraft] = useState(row.text);
   const editing = decision?.action === 'edit';
   return (
@@ -392,6 +414,7 @@ const RowCard: React.FC<{ row: ProposalRow; decision?: Decision; onDecide: (d: D
           Frekvens: {row.control.frekvens} · Metod: {row.control.metod} · Ansvarig: {row.control.ansvarig} · Dokumentation: {row.control.dokumentation} · Avvikelse: {row.control.avvikelse}
         </div>
       )}
+      {row.attachment && <AttachmentPreview caseId={caseId} sha256={row.attachment.sha256} title={row.attachment.title} />}
       {row.note && <div className="mt-1 text-xs text-amber-700">{row.note}</div>}
       <div className="mt-1 text-xs text-slate-500">{formatSource(row.provenance)}</div>
       <div className="mt-2 flex gap-2 text-xs">
