@@ -2,18 +2,21 @@
 
 **Status:** CANDIDATE (not yet frozen, not yet dispatched, not pushed)
 **Unit:** `governance/devgov/units/lu-w3c-fail-open-water-availability-v1.json`
-**Base:** `0a3e8d9861153445f8262e497b2e5f980e7e91a8` (live main after the Dev-Gov repository-dispatch
-adapter compat unit, PR #190; bumped from `052582bd` per K-118 M3 -- the branch was merged with
-`origin/main`, no force, no conflicts, since the intervening merge touches only unrelated
-multi-agent dispatch-adapter files)
+**Base:** `6f9b005907197389c3782ef5e4e2ff0e3aa38e94` (live main after the Dev-Gov repository-dispatch
+adapter compat unit's own PROVEN-record, PR #191; history: `052582bd` -> bumped to `0a3e8d98` per
+K-118 M3 -> bumped again to `6f9b0059` per K-125, since main advanced again -- docs-only both
+times, a two-file PROVEN-record with no overlap with this unit's own files -- each bump merged
+`origin/main` with no force and no conflicts)
 **Design authority:** the W3 design round (`W3-DESIGN-DECISION-2026-09-28.md`, cold-reviewed K-83,
 owner decision K-89: "enligt rekommendation") pulled D1 and D2 forward as the first W3 sub-unit
 (W3c), ahead of W3a/W3b/W3d. K-109 (cold review of the first RED candidate, `efac943c`) required
 three test-design corrections (M1-M3) and recommended seven more (S1-S7) before any production
 code; that revision (`dba743df`) was itself confirmed COLD_VERIFIED (K-111). The first
 implementation candidate (`4e0c412a`) was cold-reviewed as K-118: code semantics approved, but the
-evidence chain was **FAIL_REOPEN** on three musts (M1-M3) and five recommendations (S1-S5). This
-document and this candidate are that revision.
+evidence chain was **FAIL_REOPEN** on three musts (M1-M3) and five recommendations (S1-S5); the
+revision (`89ac2b32`) was confirmed COLD_VERIFIED on content (K-125), with one more base bump
+required since main advanced again during that recheck. This document and this candidate are that
+second bump -- no code or test change from `89ac2b32`, only `base_sha` and this section.
 
 ## 0. Corrections made in this revision, per K-118
 
@@ -37,8 +40,9 @@ accepted, not applied on the reviewer's word alone.
   expected message, then restored the file and re-confirmed exit 0.
 - **M2:** this document's own §4 no longer claims proof "via exact embedded command" without the
   identity guarantee above backing that claim.
-- **M3:** base bumped to `0a3e8d98` (see header); RED re-verified failing on this exact new base,
-  GREEN re-verified passing on a new candidate built on top of it.
+- **M3:** base bumped to `0a3e8d98`, then again to `6f9b0059` per K-125 (main advanced a second
+  time during that recheck); RED re-verified failing on each exact new base in turn, GREEN
+  re-verified passing on each new candidate built on top of it.
 - **S1 (asymmetry, confirmed):** `distanceToWaterAvailable !== true` already treated an absent
   field as unresolved (fail-closed), but `protectedAreaAvailable === false` treated an absent field
   as *available* (fail-open) -- the opposite default for the same failure class. Changed to
@@ -188,9 +192,10 @@ production-code fixes, or documentation corrections.
 
 ## 4. Verified evidence
 
-**RED probes**, each run via its exact JSON-embedded command, against the true `0a3e8d98` in a
+**RED probes**, each run via its exact JSON-embedded command, against the true `6f9b0059` in a
 freshly created, separate worktree (`node_modules` robocopied + junction-repaired from this
-candidate's own tree, per the K-29 precedent):
+candidate's own tree, per the K-29 precedent). Also independently re-verified against the prior
+base `0a3e8d98` before that base advanced again (K-125):
 - `w3c-static-map-unavailable-layers`: exit 1.
 - `w3c-sewage-pdf-cannot-verify`: exit 1.
 - `w3c-regulation-orchestrator-unresolved`: exit 1.
@@ -221,10 +226,14 @@ instrument -- `tsconfig.json`'s own `exclude` list names `server`, `src/infrastr
 file-list `tsc` invocation (same `compilerOptions` as `tsconfig.json`, passed on the command line
 to bypass its `exclude`, since TypeScript's `exclude` only governs implicit file discovery, not
 explicit CLI arguments), run back-to-back on the same install state:
-- The 4 production files, base `0a3e8d98` vs this candidate: **4** pre-existing `error TS2339`
-  lines both times, all in `server/repositories/sewageApplicationRepository.ts` (an unrelated
-  `PrismaClient` model-name mismatch this unit does not touch or cause), zero textual difference
-  after diffing.
+- The 4 production files, base `0a3e8d98` vs the `89ac2b32` candidate: **4** pre-existing
+  `error TS2339` lines both times, all in `server/repositories/sewageApplicationRepository.ts` (an
+  unrelated `PrismaClient` model-name mismatch this unit does not touch or cause), zero textual
+  difference after diffing. Not re-run against the `6f9b0059` bump in this revision: the diff
+  between `0a3e8d98` and `6f9b0059` is two new files under `docs/architecture/audits/` and
+  `governance/devgov/units/` only (a PROVEN-record for an unrelated unit) -- neither path is
+  imported by, or affects the compiled output of, any file this scoped check examines, so the same
+  result necessarily still holds.
 - The 4 new test files, checked standalone on the candidate (no base comparison is possible for
   files that do not exist at base): the same 4 pre-existing errors (transitively reached via
   `sewagePdfService.test.ts` -> `sewagePdfService.ts` -> ... -> the same repository file), zero
