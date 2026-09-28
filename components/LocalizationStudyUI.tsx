@@ -1151,7 +1151,7 @@ export const LocalizationStudyUI: React.FC<LocalizationStudyUIProps> = ({
                           {alt.lat.toFixed(5)}, {alt.lng.toFixed(5)}
                         </span>
                         
-                        {analysis?.complianceAnalysis?.permitProbability !== undefined ? (
+                        {typeof analysis?.complianceAnalysis?.permitProbability === 'number' ? (
                           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
                             analysis.complianceAnalysis.permitProbability >= 0.8
                               ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-900/40'

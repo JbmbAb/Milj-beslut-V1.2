@@ -227,7 +227,7 @@ describe('buildLocalizationPdfData', () => {
       expect(site.permitProbability).toBe(0.8);
     });
 
-    it('W2b: en SEM-1 NOT_CHECKED-bedömning (permitProbability: null) renders "kan inte anges", aldrig 0 eller ett fabricerat tal', () => {
+    it('W2b: en SEM-1 NOT_CHECKED-bedömning (permitProbability: null) utelämnar permitProbability och bär status/text/unresolvedChecks istället, aldrig 0 eller ett fabricerat tal', () => {
       const report = makeReport({
         siteAnalyses: [
           makeSiteAnalysis('alt-1', {
@@ -240,12 +240,16 @@ describe('buildLocalizationPdfData', () => {
       });
       const site = buildLocalizationPdfData(report).sites[0];
 
-      // The exact regression this guards against: null must never render as 0, and the field
-      // must never be silently dropped either -- overallRisk is still present and meaningful
-      // (SEM-1: NOT_CHECKED is a non-severity state, not an absent verdict), so a reader who sees
-      // overallRisk would reasonably expect to see permitProbability too, just not as a number.
+      // The exact regression this guards against: null must never render as 0, and it must never
+      // be a raw string in the number field either -- P3's own "absence, not a placeholder" rule
+      // applies here too. permitProbability is OFF the object; structured fields replace it.
+      expect(Object.prototype.hasOwnProperty.call(site, 'permitProbability')).toBe(false);
       expect(site.permitProbability).not.toBe(0);
-      expect(site.permitProbability).toBe('kan inte anges');
+      expect(site.permitProbabilityStatus).toBe('NOT_CHECKED');
+      expect(site.permitProbabilityText).toBe('kan inte anges');
+      expect(site.unresolvedChecks).toEqual([{ ruleId: 'LU-WATER-001', findingId: 'finding-notchecked-water' }]);
+      // SEM-1: NOT_CHECKED is a non-severity state, not an absent verdict -- overallRisk is still
+      // present and meaningful even though no permit-probability number was computed.
       expect(site.overallRisk).toBe('LOW');
     });
 

@@ -183,7 +183,11 @@ export const TechnicalSluExpert: React.FC = () => {
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Tillståndschans</p>
-                                                <p className="text-xl font-black text-white font-['Outfit']">{Math.round(data.compliance.permitProbability * 100)}%</p>
+                                                {typeof data.compliance.permitProbability === 'number' ? (
+                                                    <p className="text-xl font-black text-white font-['Outfit']">{Math.round(data.compliance.permitProbability * 100)}%</p>
+                                                ) : (
+                                                    <p className="text-xl font-black text-slate-400 font-['Outfit']">Ej utredd</p>
+                                                )}
                                             </div>
                                         </div>
 
