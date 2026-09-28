@@ -71,7 +71,7 @@ describe('egenkontroll rows', () => {
     expect(ek.map((r) => r.label)).toEqual(EGENKONTROLL_POINTS.map((p) => p.kontrollpunkt));
     for (const r of ek) {
       expect(r.provenance).toEqual({ kind: 'template_default', templateId: EGENKONTROLL_TEMPLATE_ID });
-      expect(r.note).toContain('struktur ur kommunala egenkontrollprogram i korpusen');
+      expect(r.note).toContain('mall – generella kontrollpunkter (struktur ur kommunala egenkontrollprogram i korpusen)');
       expect(CONTROL_FIELDS.every((f) => r.control![f] === MISSING)).toBe(true);
       expect(r.controlSources).toBeUndefined();
     }
@@ -113,10 +113,15 @@ describe('egenkontroll PDF table', () => {
     const { input, underlag } = loadUnderlag(dir, mapping({
       mottagning: { metod: [{ file: 'B2-kontroll.md', excerpt: 'Okulär kontroll görs före lossning.' }] },
     }));
-    const rows = buildProposalRows({ input, underlag, localization: [], citations: [], requirements: [], coverage: [], municipality: null });
+    const control = {
+      row_id: 'r9', document_sha256: 'e'.repeat(64), page: 3, chunk_id: 'c', kommun: 'Testkommun', diarienummer: '', dokumenttyp: 'beslut' as const,
+      beslutsdatum: null, mpf_kod: '90.40', krav_typ: 'kontrollpunkt' as const, citat: 'Kontroll av massor ska ske vid mottagning.', metod: 'okulär',
+      frekvens: null, ansvarig: null, dokumentationskrav: null, extraction_rule_id: 'R-CONTROL', verified: false, person_masked: true as const,
+    };
+    const rows = buildProposalRows({ input, underlag, localization: [], citations: [], requirements: [control], coverage: [], municipality: null });
     const record: DemoCase = {
       id: 'demo01-ek-00000001', createdAt: '', updatedAt: '', createdByUserId: 'u', organisationId: 'o', input, underlag, status: 'PROPOSED',
-      proposal: { generatedAt: 'now', rows, inputs: { requirements: { state: 'missing', dir: 'x', message: 'ej levererad' }, localizationLabel: 'x', legalCorpusCaveat: '' } },
+      proposal: { generatedAt: 'now', rows, inputs: { requirements: { state: 'loaded', dir: 'x', message: 'ok' }, localizationLabel: 'x', legalCorpusCaveat: '' } },
     };
     const frozen = freezeApproval(record, rows.map((r) => ({ rowId: r.id, action: r.id === 'ek-buller' ? ('strike' as const) : ('accept' as const) })), 'u');
     const buf = await renderEgenkontrollPdf(loadFrozen(frozen.sha256).document as FrozenProposal, frozen.sha256);
@@ -129,5 +134,10 @@ describe('egenkontroll PDF table', () => {
     expect(text).toContain(`[B2] B2-kontroll.md sha256 ${sha256(B2).slice(0, 12)}`);
     expect(text).toContain('Damning');
     expect(text).not.toContain('Buller');
+    expect(text).toContain('mall – generella kontrollpunkter (90.40)');
+    // Corpus control point in its own table, with the columns it has and its source.
+    expect(text).toContain('Kontrollpunkter ur kommunala beslut');
+    expect(text).toContain('Kontroll av massor ska ske vid mottagning. [Testkommun s. 3]');
+    expect(text).toMatch(/\[Testkommun s\. 3\] kontrollpunkt .*dokument-SHA eeeeeeeeeeee/);
   });
 });

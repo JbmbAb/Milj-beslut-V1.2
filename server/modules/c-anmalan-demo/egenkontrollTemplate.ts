@@ -10,6 +10,9 @@
  */
 export const EGENKONTROLL_TEMPLATE_ID = 'egenkontroll-struktur-v1';
 export const EGENKONTROLL_SOURCE_NOTE = 'struktur ur kommunala egenkontrollprogram i korpusen';
+/** How the template rows are labelled (K-94b). One structure, shared by the selected codes: the source
+ * programmes are not split by activity code, so a per-code variant would be invented. */
+export const EGENKONTROLL_MALL_LABEL = 'mall – generella kontrollpunkter';
 
 export const CONTROL_FIELDS = ['frekvens', 'metod', 'ansvarig', 'dokumentation', 'avvikelse'] as const;
 export type ControlField = (typeof CONTROL_FIELDS)[number];

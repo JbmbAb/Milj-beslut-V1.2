@@ -11,6 +11,7 @@ import { formatSource } from './formatSource';
 import {
   CONTROL_FIELD_LABEL,
   CONTROL_FIELDS,
+  EGENKONTROLL_MALL_LABEL,
   EGENKONTROLL_SOURCE_DOCUMENTS,
   EGENKONTROLL_SOURCE_NOTE,
   EGENKONTROLL_TEMPLATE_ID,
@@ -143,7 +144,11 @@ const USER_MISSING_TEXT = 'användarens uppgift – ej ifylld';
 const tag = (refs?: UnderlagFileRef[]) => (refs?.length ? ` [${refs.map((r) => r.file.split('-')[0]).join(', ')}]` : '');
 
 /** K-94b table: kontrollpunkt | frekvens | metod | ansvarig | dokumentation | avvikelse. */
-function controlTable(doc: PDFKit.PDFDocument, rows: ProposalRow[]) {
+/** The municipal decision behind a corpus control row (also when the user edited the row). */
+const corpusSource = (r: ProposalRow) =>
+  r.provenance.kind === 'municipal_corpus' ? r.provenance : r.editedFrom?.kind === 'municipal_corpus' ? r.editedFrom : null;
+
+function controlTable(doc: PDFKit.PDFDocument, rows: ProposalRow[], pointCell: (r: ProposalRow) => string = (r) => r.label) {
   const left = doc.page.margins.left;
   const total = doc.page.width - left - doc.page.margins.right;
   const widths = [0.19, 0.15, 0.17, 0.12, 0.17, 0.2].map((w) => w * total);
@@ -176,7 +181,7 @@ function controlTable(doc: PDFKit.PDFDocument, rows: ProposalRow[]) {
       const v = r.control?.[f] ?? USER_MISSING_TEXT;
       return v === USER_MISSING_TEXT ? 'ej ifylld' : `${v}${tag(r.controlSources?.[f])}`;
     });
-    draw([r.label, ...cells], false);
+    draw([pointCell(r), ...cells], false);
   }
   doc.font('Helvetica').moveDown(0.5);
 }
@@ -187,27 +192,46 @@ export function renderEgenkontrollPdf(frozen: FrozenProposal, sha256: string): P
     const ids = ['user-verksamhetsutovare', 'user-verksamhetskoder'];
     frozen.rows.filter((r) => ids.includes(r.id)).forEach((r) => rowBlock(doc, r));
 
-    const table = frozen.rows.filter((r) => r.section === 'egenkontroll' && r.id.startsWith('ek-'));
-    const others = frozen.rows.filter((r) => r.section === 'egenkontroll' && !r.id.startsWith('ek-'));
+    const inSection = frozen.rows.filter((r) => r.section === 'egenkontroll');
+    const template = inSection.filter((r) => r.id.startsWith('ek-'));
+    const corpus = inSection.filter((r) => !r.id.startsWith('ek-') && r.control && corpusSource(r));
+    const others = inSection.filter((r) => !template.includes(r) && !corpus.includes(r));
+    const codes = frozen.input.verksamhetskoder.join(', ');
     doc.fontSize(12).fillColor('#0f172a').font('Helvetica-Bold').text('Egenkontrollprogram').font('Helvetica').moveDown(0.3);
-    if (table.length) {
-      controlTable(doc, table);
+
+    // Part 1: general control points (template) with the user's own cells.
+    doc.fontSize(9.5).fillColor('#0f172a').font('Helvetica-Bold').text(`${EGENKONTROLL_MALL_LABEL} (${codes})`).font('Helvetica').moveDown(0.2);
+    if (template.length) {
+      controlTable(doc, template);
       const files = new Map<string, UnderlagFileRef>();
-      table.forEach((r) => Object.values(r.controlSources ?? {}).flat().forEach((f) => f && files.set(f.file, f)));
+      template.forEach((r) => Object.values(r.controlSources ?? {}).flat().forEach((f) => f && files.set(f.file, f)));
       doc.fontSize(7.5).fillColor('#64748b')
-        .text(`Kontrollpunkter: ${EGENKONTROLL_SOURCE_NOTE} (mall ${EGENKONTROLL_TEMPLATE_ID}, ${EGENKONTROLL_SOURCE_DOCUMENTS.length} program, identifierade med sha256; inga namn eller citat).`)
+        .text(`Kontrollpunkter: ${EGENKONTROLL_MALL_LABEL}, ${EGENKONTROLL_SOURCE_NOTE} (mall ${EGENKONTROLL_TEMPLATE_ID}, ${EGENKONTROLL_SOURCE_DOCUMENTS.length} program, identifierade med sha256; inga namn eller citat; gemensam för de valda koderna).`)
         .text(`"ej ifylld" = användarens uppgift, ej ifylld.${files.size ? ` Märkta celler är användarens uppgift, citerade ur: ${[...files.values()].map((f) => `[${f.file.split('-')[0]}] ${f.file} sha256 ${f.sha256.slice(0, 12)}…`).join('; ')}${frozen.underlag?.fictional ? ' – fiktiv uppgift (demo)' : ''}.` : ''}`)
         .moveDown(0.6);
     } else {
-      doc.fontSize(9).fillColor('#64748b').text('Inga godkända kontrollpunkter i tabellen.').moveDown(0.6);
+      doc.fontSize(9).fillColor('#64748b').text('Inga godkända generella kontrollpunkter.').moveDown(0.6);
     }
 
-    doc.fontSize(12).fillColor('#0f172a').font('Helvetica-Bold').text(SECTION_TITLES.egenkontroll).font('Helvetica');
+    // Part 2: control points extracted from municipal decisions (K-24/K-40), with the columns they have.
+    doc.fontSize(9.5).fillColor('#0f172a').font('Helvetica-Bold').text(SECTION_TITLES.egenkontroll).font('Helvetica').moveDown(0.2);
     if (frozen.inputs.requirements.state !== 'loaded') {
       doc.fontSize(8.5).fillColor('#b45309').text(`Inga kontrollpunkter ur kommunkorpusen: ${frozen.inputs.requirements.message}`);
     }
-    doc.moveDown(0.4);
-    if (others.length === 0) doc.fontSize(9).fillColor('#64748b').text('Inga godkända kontrollpunkter.');
+    if (corpus.length) {
+      controlTable(doc, corpus, (r) => {
+        const src = corpusSource(r)!;
+        return `${r.text} [${src.kommun} s. ${src.page}]`;
+      });
+      doc.fontSize(7.5).fillColor('#64748b');
+      corpus.forEach((r) => {
+        const src = corpusSource(r)!;
+        doc.text(`[${src.kommun} s. ${src.page}] ${r.label}; ${formatSource(src).replace(/^Källa: /, '')}${r.provenance.kind === 'user_input' ? '; texten redigerad av användaren' : ''}`);
+      });
+      doc.moveDown(0.6);
+    } else if (frozen.inputs.requirements.state === 'loaded') {
+      doc.fontSize(9).fillColor('#64748b').text('Inga godkända kontrollpunkter ur kommunala beslut.').moveDown(0.6);
+    }
     others.forEach((r) => rowBlock(doc, r));
   }, footerText(frozen, sha256), headerText(frozen));
 }

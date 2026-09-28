@@ -5,7 +5,13 @@
  * document SHA + page, a verbatim legal-corpus quote, a Mimer layer fact, or a marked template
  * default. Counts, never percentages; n < 3 → "otillräckligt underlag".
  */
-import { CONTROL_FIELDS, EGENKONTROLL_POINTS, EGENKONTROLL_SOURCE_NOTE, EGENKONTROLL_TEMPLATE_ID } from './egenkontrollTemplate';
+import {
+  CONTROL_FIELDS,
+  EGENKONTROLL_MALL_LABEL,
+  EGENKONTROLL_POINTS,
+  EGENKONTROLL_SOURCE_NOTE,
+  EGENKONTROLL_TEMPLATE_ID,
+} from './egenkontrollTemplate';
 import type { MpfCitation } from './legalCitation';
 import type { CoverageRow, RequirementRow } from './requirementsSource';
 import type { DemoCaseInput, ProposalRow, ProposalSectionId, UnderlagRef } from './types';
@@ -140,7 +146,7 @@ function egenkontrollRows(underlag: UnderlagRef | undefined): ProposalRow[] {
       label: point.kontrollpunkt,
       text: point.kontrollpunkt,
       provenance: { kind: 'template_default' as const, templateId: EGENKONTROLL_TEMPLATE_ID },
-      note: [EGENKONTROLL_SOURCE_NOTE, filled.length && underlag?.fictional ? FICTIONAL_NOTE : null].filter(Boolean).join('; '),
+      note: [`${EGENKONTROLL_MALL_LABEL} (${EGENKONTROLL_SOURCE_NOTE})`, filled.length && underlag?.fictional ? FICTIONAL_NOTE : null].filter(Boolean).join('; '),
       control,
       ...(filled.length ? { controlSources } : {}),
     };
