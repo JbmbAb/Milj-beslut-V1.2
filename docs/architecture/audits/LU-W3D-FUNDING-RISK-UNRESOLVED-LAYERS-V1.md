@@ -1,8 +1,9 @@
-# LU-W3D-FUNDING-RISK-UNRESOLVED-LAYERS-V1 -- D3 RED-only candidate
+# LU-W3D-FUNDING-RISK-UNRESOLVED-LAYERS-V1 -- D3
 
-**Status:** CANDIDATE -- RED probes only, zero production code. For cold review of test design
-before any implementation begins, per the K-28 ordering (returning to it after W3b's own
-RED-only-first candidate; not repeating W3a's disclosed deviation).
+**Status:** CANDIDATE (implementation complete). RED probe was cold-reviewed on its own first,
+confirmed sound and cleared for implementation, before any production code was written -- per the
+K-28 ordering (returning to it after W3b's own RED-only-first candidate; not repeating W3a's
+disclosed deviation).
 **Unit:** `governance/devgov/units/lu-w3d-funding-risk-unresolved-layers-v1.json`
 **Base:** `81260bcf2fec45ddeb281fb32ea8680ecad457af` (W3b merged).
 **Design authority:** `W3-DESIGN-DECISION-2026-09-28.writer-copy.md` §1 Group D, D3 -- last of the
@@ -45,21 +46,70 @@ narrower than D1/D2/C1/C2 were), cold-reviewed and confirmed with no corrections
 - reports an empty `unresolvedLayers` array (not `undefined`, not omitted) when nothing is
   unavailable -- the clean baseline.
 
-## 2. Verified RED
+## 2. What changed (implementation, after the RED-only candidate was cleared for it)
 
-Run via the exact embedded command, against a freshly isolated worktree (`C:\wt-w3d-base`, pinned
-to `81260bcf`, `node_modules` junctioned from `C:\wt-w3d`'s own tree since
-`package.json`/`package-lock.json` are unchanged by this candidate): `w3d-unresolved-layers` exits
-1 -- all three new assertions fail (`unresolvedLayers` is `undefined`, the field doesn't exist yet);
-the 14 pre-existing tests in the same file all still pass, confirming no unrelated regression from
-adding the new describe block.
+`services/predictiveScoringService.ts`'s `calculatePredictiveScores()` gains one new computed
+value: `unresolvedLayers` filters the three tracked `MapLayerKey`s (`'GROUNDWATER'`, `'NATURA2000'`,
+`'FLOOD_RISK'`) against `plan.mapLayerSelection.unavailable`, and the result is added to the
+returned `environmentalRisk` object alongside its existing `score`/`groundwaterImpact`/
+`biodiversityImpact`/`floodingImpact` fields. `envScore`, `fundingScore`,
+`fundingRisk.rating`/`eligibleForGreenLoan` are all untouched -- exactly the additive-only scope
+Q-W3d-1 confirmed.
 
-## 3. Non-claims -- what this candidate does not do
+## 3. Verified evidence
 
-No production code. No GREEN proof has been run or can meaningfully be run yet. This candidate
-exists solely to let the RED probe be reviewed for design soundness before any implementation is
-written, matching the K-28 ordering. Does not change the funding-score formula or green-loan
-eligibility (Q-W3d-1). Does not build a producer for `mapLayerSelection.unavailable`. Does not touch
-`regulatoryRisk.confidence` (Q-W3d-3, pre-existing, unrelated) or
-`.cursor/rules/import-focus-product.mdc` (Q6, still unaddressed). This is the last named W3 unit
-from the original design round.
+**RED**, re-confirmed against a fresh, separate worktree pinned to `81260bcf`
+(`C:\wt-w3d-base2`, junctioned `node_modules`, K-29 pattern) after cold review cleared the RED-only
+candidate for implementation: the probe still fails for the same three reasons as §1, unchanged.
+
+**GREEN**, run via the exact embedded command against this candidate: exits 0, 17/17 tests (the 3
+new plus the 14 pre-existing). Includes the K-118-style byte-identity self-check, built in from the
+start -- verified it actually fires by deliberately appending a comment to
+`predictiveScoringService.test.ts`, confirming the GREEN proof then failed with exit 2 and the
+expected `W3D_HARNESS_ERROR ... does not byte-match ...` message, then restoring the file and
+reconfirming exit 0 (17/17).
+
+**Consumer regression check:** three files read `environmentalRisk`'s fields --
+`components/admin/ProjectScoringDashboard.tsx`, `components/ExecutiveSummary.tsx`,
+`server/services/projectPlanService.ts` -- all read only the pre-existing fields, none reference
+`unresolvedLayers`, confirmed by direct grep of each call site. Their own test files
+(`tests/components/executiveSummary.test.tsx`, `tests/unit/executiveSummary.test.ts`,
+`tests/unit/ExecutiveSummary.test.tsx`, `tests/unit/projectPlanService.test.ts`,
+`tests/unit/projectPlanServiceExtended.test.ts`) all still pass unmodified: 66/66 total combined
+with the target file's own 17.
+
+**Typecheck:** `predictiveScoringService.ts` is one of `tsconfig.json`'s own explicitly-excluded
+files (alongside `orchestrationService.ts`/`projectStructure.ts`), and its consumer
+`server/services/projectPlanService.ts` sits under the wholesale-excluded `server/**`, so two checks
+were run. Root `tsc --noEmit`: **87 errors on both base and candidate**, byte-identical sorted error
+sets (diffed, not just counted). Scoped, explicit-file-list `tsc` covering the changed file plus all
+three consumers (same `compilerOptions` as `tsconfig.json`): **0 errors on both sides** -- confirms
+the additive field caused no assignment-compatibility issue at `projectPlanService.ts:62`'s
+`predictiveScores: calculatePredictiveScores(...)` site. This holds despite `src/types/project.ts`'s
+own inline `environmentalRisk: { score, groundwaterImpact, biodiversityImpact, floodingImpact }`
+type (line 186) not being updated to list `unresolvedLayers` -- confirmed deliberately, not
+overlooked: the assignment happens through a function-call result, not an object literal in a typed
+position, so TypeScript's excess-property check does not apply and the wider actual shape is simply
+assignable to the narrower declared one. `src/types/project.ts` is outside this unit's
+`allowed_paths`, and no error appeared to justify touching it.
+
+## 4. Non-claims -- what this unit does not do
+
+Does not change the funding-score formula, `fundingRisk.rating` thresholds, or
+`eligibleForGreenLoan`'s condition (Q-W3d-1). Does not build a producer for
+`mapLayerSelection.unavailable` -- that field's absence-of-a-writer is a separate, larger finding,
+noted but not fixed. Does not touch `regulatoryRisk.confidence` (Q-W3d-3, pre-existing, unrelated)
+or `.cursor/rules/import-focus-product.mdc` (Q6, still unaddressed from the original design round).
+Does not update `src/types/project.ts`'s inline type -- confirmed unnecessary, not overlooked (§3).
+This is the last named W3 unit from the original design round; no further W-unit is currently
+scoped beyond this one.
+
+## 5. Final disposition
+
+RED-only candidate cold-reviewed and cleared for implementation before any production code was
+written. Implementation complete: the RED probe still fails on a fresh base, now passes on this
+candidate (17/17), zero regressions in adjacent consumer tests (66/66 combined), typecheck clean on
+both the root and scoped checks. Awaiting cold review of the implementation itself before freezing
+the exact SHA, then the established chain: cold verification -> owner push-go -> PR (branch
+`w3d-funding-risk-scoring`, the unit's own `remote.branch`) -> dispatch (owner only) -> attestation
+-> merge.
