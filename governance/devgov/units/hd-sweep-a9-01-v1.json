@@ -1,0 +1,274 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "HD-SWEEP-A9-01-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "fix/c-anmalan-hd-sweep-2026-09-29",
+  "base_sha": "760d5a153a2b8fa0f57089873d4d92673fa6a477",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "server/services/bankComplianceService.ts",
+    "server/services/erpSyncService.ts",
+    "server/services/execSummaryQueueService.ts",
+    "server/services/greenCheckGeneratorService.ts",
+    "server/services/auditTrailService.ts",
+    "server/services/digitalsignatureService.ts",
+    "server/routes/sewage.routes.ts",
+    "server/modules/sewage/public.ts",
+    "server/security/secureErrors.ts",
+    "tests/unit/bankComplianceService.test.ts",
+    "tests/unit/digitalsignatureService.test.ts",
+    "tests/unit/greenCheckGeneratorService.test.ts",
+    "tests/unit/serverLowCoverageServices.test.ts",
+    "tests/unit/services/auditTrailService.test.ts",
+    "tests/unit/sewageRoutes.test.ts",
+    "governance/devgov/units/hd-sweep-a9-01-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "components/**",
+    "integrations/**",
+    "src/**"
+  ],
+  "required_red": [
+    {
+      "id": "hd01-bank-compliance-fabricates-score",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst mod = await import('./server/services/bankComplianceService.ts');\nif (typeof mod.generateBankComplianceIndex !== 'function') H('generateBankComplianceIndex not found on base_sha tree');\nconst report = await mod.generateBankComplianceIndex('devgov-red-probe');\nif (typeof report?.overallComplianceScore !== 'number') H('positive control failed: base_sha did not return a fabricated numeric score');\nconsole.log('HD01_FABRICATED_SCORE: ' + report.overallComplianceScore);\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "hd02-erp-sync-fabricates-sent",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nprocess.env.ERP_PROVIDER = 'FORTNOX';\nconst mod = await import('./server/services/erpSyncService.ts');\nif (typeof mod.syncMilestoneToErp !== 'function') H('syncMilestoneToErp not found on base_sha tree');\nconst tx = await mod.syncMilestoneToErp('p1', 'm1', 'desc', 10);\nif (tx.status !== 'SENT' || !tx.externalReference) H('positive control failed: base_sha did not fabricate a SENT transaction for an unimplemented ERP provider');\nconsole.log('HD02_FABRICATED_SENT: ' + JSON.stringify(tx));\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "hd03-exec-summary-no-guard-before-live-vertex-call",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/execSummaryQueueService.ts', 'utf8');\nif (!src.includes(\"generateJsonWithVertex(\")) H('positive control failed: base_sha does not reference generateJsonWithVertex at all');\nif (src.includes('no real project data is loaded into the prompt')) H('positive control failed: base_sha already carries the HD-03 fix marker');\nconsole.log('HD03_UNGUARDED_LIVE_CALL_PRESENT');\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd10-audit-trail-hardcoded-verified",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/auditTrailService.ts', 'utf8');\nif (!/signatureVerificationStatus:\\s*'VERIFIED'\\s*,/.test(src)) H(\"positive control failed: base_sha does not carry the hardcoded signatureVerificationStatus: 'VERIFIED' literal\");\nif (src.includes('verifyAllSignaturesForApplication')) H('positive control failed: base_sha already references verifyAllSignaturesForApplication');\nconsole.log('HD10_HARDCODED_VERIFIED_PRESENT');\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd14-green-check-no-guard-before-live-vertex-call",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/greenCheckGeneratorService.ts', 'utf8');\nif (!src.includes('generateTextWithVertex(')) H('positive control failed: base_sha does not reference generateTextWithVertex at all');\nif (src.includes('GREEN_CHECK_NOT_IMPLEMENTED')) H('positive control failed: base_sha already carries the HD-14 fix marker');\nconsole.log('HD14_UNGUARDED_LIVE_CALL_PRESENT');\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd15-sewage-routes-missing-tenant-checks",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/routes/sewage.routes.ts', 'utf8');\nconst validateMatch = src.match(/router\\.get\\('\\/sewage\\/application\\/:id\\/validate'[\\s\\S]*?\\n\\}\\);/);\nconst submitMatch = src.match(/router\\.post\\('\\/sewage\\/application\\/:id\\/submit'[\\s\\S]*?\\n\\}\\);/);\nconst statusMatch = src.match(/router\\.get\\('\\/sewage\\/signatures\\/:orderRef\\/status'[\\s\\S]*?\\n\\}\\);/);\nif (!validateMatch || !submitMatch || !statusMatch) H('positive control failed: could not locate one or more of the three HD-15 route handlers on base_sha');\nconst orgCheck = /organisationId\\s*!==\\s*req\\.authUser\\?\\.organisationId/;\nif (orgCheck.test(validateMatch[0])) H('positive control failed: base_sha /validate already carries an organisation check');\nif (orgCheck.test(submitMatch[0])) H('positive control failed: base_sha /submit already carries an organisation check');\nif (statusMatch[0].includes('getOrderRefBinding')) H('positive control failed: base_sha /signatures/:orderRef/status already resolves a tenant binding');\nconsole.log('HD15_MISSING_TENANT_CHECKS_CONFIRMED');\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd16-bankid-completion-unbound",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/digitalsignatureService.ts', 'utf8');\nconst fnMatch = src.match(/export async function completeBankIDSignature\\(([\\s\\S]*?)\\n\\}\\n/);\nif (!fnMatch) H('positive control failed: could not locate completeBankIDSignature on base_sha');\nif (fnMatch[0].includes('orderRefBindings') || fnMatch[0].includes('SIGNATURE_BINDING')) H('positive control failed: base_sha completeBankIDSignature already carries a binding check');\nif (!/const response = await collectBankIdSign\\(orderRef, endUserIp\\);/.test(fnMatch[0])) H('positive control failed: base_sha completeBankIDSignature does not match the known pre-fix shape');\nconsole.log('HD16_UNBOUND_COMPLETION_CONFIRMED');\nprocess.exit(1);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "hd01-bank-compliance-refuses",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst mod = await import('./server/services/bankComplianceService.ts');\nif (typeof mod.generateBankComplianceIndex !== 'function') H('generateBankComplianceIndex not found on candidate_sha tree');\nlet threw = null;\ntry { await mod.generateBankComplianceIndex('devgov-green-probe'); } catch (e) { threw = e; }\nif (!threw) V('generateBankComplianceIndex resolved instead of refusing');\nif (threw.code !== 'BANK_COMPLIANCE_NOT_IMPLEMENTED') V('wrong error code: ' + threw.code);\nconsole.log('HD01_OK: refuses with ' + threw.code);\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "hd02-erp-sync-fails-honestly",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nprocess.env.ERP_PROVIDER = 'FORTNOX';\nconst mod = await import('./server/services/erpSyncService.ts');\nconst tx = await mod.syncMilestoneToErp('p1', 'm1', 'desc', 10);\nif (tx.status !== 'FAILED') V('expected FAILED, got ' + tx.status);\nif (tx.externalReference) V('unexpected externalReference on a failed sync: ' + tx.externalReference);\nconsole.log('HD02_OK: FAILED, no fabricated reference');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "hd03-exec-summary-guarded",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/execSummaryQueueService.ts', 'utf8');\nif (!src.includes('no real project data is loaded into the prompt')) V('HD-03 fix marker missing on candidate_sha');\nconsole.log('HD03_OK: guard marker present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd10-audit-trail-derived",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/auditTrailService.ts', 'utf8');\nif (/signatureVerificationStatus:\\s*'VERIFIED'\\s*,/.test(src)) V('hardcoded VERIFIED literal still present on candidate_sha');\nif (!src.includes('verifyAllSignaturesForApplication')) V('candidate_sha does not reference verifyAllSignaturesForApplication');\nconsole.log('HD10_OK: derived from real signature check');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd14-green-check-guarded",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/greenCheckGeneratorService.ts', 'utf8');\nif (!src.includes('GREEN_CHECK_NOT_IMPLEMENTED')) V('HD-14 fix marker missing on candidate_sha');\nconsole.log('HD14_OK: guard marker present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd15-sewage-routes-tenant-checks-present",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/routes/sewage.routes.ts', 'utf8');\nconst validateMatch = src.match(/router\\.get\\('\\/sewage\\/application\\/:id\\/validate'[\\s\\S]*?\\n\\}\\);/);\nconst submitMatch = src.match(/router\\.post\\('\\/sewage\\/application\\/:id\\/submit'[\\s\\S]*?\\n\\}\\);/);\nconst statusMatch = src.match(/router\\.get\\('\\/sewage\\/signatures\\/:orderRef\\/status'[\\s\\S]*?\\n\\}\\);/);\nif (!validateMatch || !submitMatch || !statusMatch) V('could not locate one or more of the three HD-15 route handlers on candidate_sha');\nconst orgCheck = /organisationId\\s*!==\\s*req\\.authUser\\?\\.organisationId/;\nif (!orgCheck.test(validateMatch[0])) V('/validate is still missing an organisation check');\nif (!orgCheck.test(submitMatch[0])) V('/submit is still missing an organisation check');\nif (!statusMatch[0].includes('getOrderRefBinding')) V('/signatures/:orderRef/status still does not resolve a tenant binding');\nconsole.log('HD15_OK: all three tenant checks present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd16-bankid-completion-bound",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\nconst fs = require('node:fs');\ntry {\n\nconst src = fs.readFileSync('server/services/digitalsignatureService.ts', 'utf8');\nconst fnMatch = src.match(/export async function completeBankIDSignature\\(([\\s\\S]*?)\\n\\}\\n/);\nif (!fnMatch) V('could not locate completeBankIDSignature on candidate_sha');\nif (!fnMatch[0].includes('SIGNATURE_BINDING_NOT_FOUND')) V('SIGNATURE_BINDING_NOT_FOUND check missing');\nif (!fnMatch[0].includes('SIGNATURE_BINDING_MISMATCH')) V('SIGNATURE_BINDING_MISMATCH check missing');\nconsole.log('HD16_OK: binding checks present');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 15000
+    },
+    {
+      "id": "hd-sweep-focused-tests",
+      "command": "node",
+      "args": [
+        "--input-type=module",
+        "-e",
+        "\nconst V = (m) => { console.error('HD_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('HD_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n\nconst cpx = await import('node:child_process');\nconst winx = process.platform === 'win32';\nconst gen = cpx.spawnSync(winx ? 'npx.cmd' : 'npx', ['prisma', 'generate'], { env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL || 'postgresql://localhost:5432/devgov_dummy' }, encoding: 'utf8', shell: winx, timeout: 240000 });\nif (gen.error || gen.status !== 0) H('prisma generate failed (the trusted environment runs no lifecycle scripts): ' + (gen.error ? gen.error.message : String(gen.stderr).slice(0, 400)));\n\nconst files = [\n  'tests/unit/bankComplianceService.test.ts',\n  'tests/unit/serverLowCoverageServices.test.ts',\n  'tests/unit/greenCheckGeneratorService.test.ts',\n  'tests/unit/adminGreenCheckGeneratorRoutes.test.ts',\n  'tests/unit/services/auditTrailService.test.ts',\n  'tests/unit/digitalsignatureService.test.ts',\n  'tests/unit/sewageRoutes.test.ts',\n];\nconst r = cpx.spawnSync(winx ? 'npx.cmd' : 'npx', ['vitest', 'run', '--config', 'vitest.config.ts', '--project', 'unit', ...files], { stdio: 'inherit', shell: winx, timeout: 180000 });\nif (r.error || r.status === null) H('vitest could not execute: ' + (r.error ? r.error.message : 'signal ' + r.signal));\nif (r.status !== 0) V('HD-sweep focused tests failed with exit ' + r.status);\nconsole.log('HD_SWEEP_OK: focused tests passed');\n\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 420000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "fix/c-anmalan-hd-sweep-2026-09-29",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
