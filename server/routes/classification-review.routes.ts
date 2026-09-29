@@ -23,6 +23,7 @@ import {
   type ApprovalReview,
 } from '../modules/classification/public';
 import { logger } from '../logger';
+import { requireAuth } from '../security/auth';
 
 const router = Router();
 
@@ -123,8 +124,12 @@ router.patch('/classifications/:recommendationId/mark-reviewing', async (req: Re
  * Submit human approval decision (APPROVED, REJECTED, or NEEDS_CLARIFICATION)
  * Does NOT apply the decision - only marks it as approved
  */
-router.post('/classifications/:recommendationId/submit-review', async (req: Request, res: Response) => {
+router.post('/classifications/:recommendationId/submit-review', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const recommendationId = Array.isArray(req.params.recommendationId)
       ? req.params.recommendationId[0]
       : req.params.recommendationId;
@@ -132,7 +137,9 @@ router.post('/classifications/:recommendationId/submit-review', async (req: Requ
     const review: ApprovalReview = {
       recommendationId,
       decision: req.body.decision,
-      reviewedBy: req.body.reviewedBy,
+      // HD-04a (CORE-01): the human reviewer's identity comes from the authenticated session,
+      // never from the request body -- otherwise any caller could forge a human approval.
+      reviewedBy: req.authUser.id,
       reviewNotes: req.body.reviewNotes,
       appliedWithChanges: req.body.appliedWithChanges,
       changesNotes: req.body.changesNotes,
@@ -142,10 +149,6 @@ router.post('/classifications/:recommendationId/submit-review', async (req: Requ
       return res.status(400).json({
         error: 'Invalid decision. Must be one of: APPROVED, REJECTED, NEEDS_CLARIFICATION',
       });
-    }
-
-    if (!review.reviewedBy) {
-      return res.status(400).json({ error: 'reviewedBy is required' });
     }
 
     const recommendation = await submitApprovalReview(review);
@@ -173,16 +176,18 @@ router.post('/classifications/:recommendationId/submit-review', async (req: Requ
  * Apply an APPROVED recommendation to the RequirementCase
  * CRITICAL: Only call for recommendations with status === 'APPROVED'
  */
-router.post('/classifications/:recommendationId/apply', async (req: Request, res: Response) => {
+router.post('/classifications/:recommendationId/apply', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const recommendationId = Array.isArray(req.params.recommendationId)
       ? req.params.recommendationId[0]
       : req.params.recommendationId;
-    const { appliedBy } = req.body;
-
-    if (!appliedBy) {
-      return res.status(400).json({ error: 'appliedBy is required' });
-    }
+    // HD-04b (CORE-02): the applier's identity comes from the authenticated session, never from
+    // the request body -- otherwise any caller could forge who applied the approved change.
+    const appliedBy = req.authUser.id;
 
     const result = await applyApprovedRecommendation(recommendationId, appliedBy);
 

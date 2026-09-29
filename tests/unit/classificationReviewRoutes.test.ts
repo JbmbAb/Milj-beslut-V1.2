@@ -1,6 +1,13 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTokenPair } from '../../server/security/auth';
+
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+}));
 
 const mocks = vi.hoisted(() => ({
   createAIRecommendation: vi.fn(),
@@ -39,6 +46,17 @@ import classificationReviewRoutes from '../../server/routes/classification-revie
 const app = express();
 app.use(express.json());
 app.use(classificationReviewRoutes);
+
+function authHeader(userId = 'reviewer-1') {
+  return `Bearer ${
+    createTokenPair({
+      id: userId,
+      organisationId: 'org-1',
+      bankidId: 'bankid:reviewer-1',
+      role: 'CONSULTANT',
+    }).accessToken
+  }`;
+}
 
 const mockRecommendation = {
   id: 'rec-1',
@@ -175,11 +193,13 @@ describe('classification-review.routes', () => {
 
   describe('POST /classifications/:recommendationId/submit-review', () => {
     it('godkänner en rekommendation (APPROVED)', async () => {
-      const res = await request(app).post('/classifications/rec-1/submit-review').send({
-        decision: 'APPROVED',
-        reviewedBy: 'handlaggare@gavle.se',
-        reviewNotes: 'Korrekt klassificering',
-      });
+      const res = await request(app)
+        .post('/classifications/rec-1/submit-review')
+        .set('Authorization', authHeader())
+        .send({
+          decision: 'APPROVED',
+          reviewNotes: 'Korrekt klassificering',
+        });
 
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
@@ -189,33 +209,54 @@ describe('classification-review.routes', () => {
     it('avvisar en rekommendation (REJECTED)', async () => {
       mocks.submitApprovalReview.mockResolvedValue({ ...mockRecommendation, status: 'REJECTED' });
 
-      const res = await request(app).post('/classifications/rec-1/submit-review').send({
-        decision: 'REJECTED',
-        reviewedBy: 'handlaggare@gavle.se',
-        reviewNotes: 'Felaktig klassificering',
-      });
+      const res = await request(app)
+        .post('/classifications/rec-1/submit-review')
+        .set('Authorization', authHeader())
+        .send({
+          decision: 'REJECTED',
+          reviewNotes: 'Felaktig klassificering',
+        });
 
       expect(res.status).toBe(200);
       expect(res.body.decision).toBe('REJECTED');
     });
 
     it('returnerar 400 för ogiltigt beslut', async () => {
-      const res = await request(app).post('/classifications/rec-1/submit-review').send({
-        decision: 'INVALID_DECISION',
-        reviewedBy: 'handlaggare@gavle.se',
-      });
+      const res = await request(app)
+        .post('/classifications/rec-1/submit-review')
+        .set('Authorization', authHeader())
+        .send({ decision: 'INVALID_DECISION' });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Invalid decision');
     });
 
-    it('returnerar 400 om reviewedBy saknas', async () => {
+    // HD-04a (CORE-01): this endpoint persists a human review decision to the audit trail.
+    // Without requireAuth, any unauthenticated caller could forge a "human approved" outcome.
+    it('returnerar 401 utan Authorization-header', async () => {
+      const res = await request(app).post('/classifications/rec-1/submit-review').send({
+        decision: 'APPROVED',
+      });
+
+      expect(res.status).toBe(401);
+      expect(mocks.submitApprovalReview).not.toHaveBeenCalled();
+    });
+
+    // HD-04a: reviewedBy must come from the authenticated session, never from a client-supplied
+    // body field -- otherwise any caller could attribute the decision to a forged reviewer.
+    it('sätter reviewedBy till den autentiserade användaren, oavsett body', async () => {
       const res = await request(app)
         .post('/classifications/rec-1/submit-review')
-        .send({ decision: 'APPROVED' });
+        .set('Authorization', authHeader('reviewer-1'))
+        .send({
+          decision: 'APPROVED',
+          reviewedBy: 'forged-reviewer@evil.example',
+        });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('reviewedBy');
+      expect(res.status).toBe(200);
+      expect(mocks.submitApprovalReview).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewedBy: 'reviewer-1' }),
+      );
     });
 
     it('accepterar NEEDS_CLARIFICATION som giltigt beslut', async () => {
@@ -224,11 +265,13 @@ describe('classification-review.routes', () => {
         status: 'NEEDS_CLARIFICATION',
       });
 
-      const res = await request(app).post('/classifications/rec-1/submit-review').send({
-        decision: 'NEEDS_CLARIFICATION',
-        reviewedBy: 'handlaggare@gavle.se',
-        reviewNotes: 'Behöver mer information',
-      });
+      const res = await request(app)
+        .post('/classifications/rec-1/submit-review')
+        .set('Authorization', authHeader())
+        .send({
+          decision: 'NEEDS_CLARIFICATION',
+          reviewNotes: 'Behöver mer information',
+        });
 
       expect(res.status).toBe(200);
       expect(res.body.decision).toBe('NEEDS_CLARIFICATION');
@@ -243,18 +286,34 @@ describe('classification-review.routes', () => {
     it('tillämpar en godkänd rekommendation', async () => {
       const res = await request(app)
         .post('/classifications/rec-1/apply')
-        .send({ appliedBy: 'system@miljo.se' });
+        .set('Authorization', authHeader())
+        .send({});
 
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
       expect(res.body.message).toContain('applied');
     });
 
-    it('returnerar 400 om appliedBy saknas', async () => {
+    // HD-04b (CORE-02): combined with HD-04a, an unauthenticated caller could move a
+    // recommendation SUGGESTED -> APPROVED -> APPLIED with a forged human attributed to both
+    // steps. requireAuth closes the apply half of that chain.
+    it('returnerar 401 utan Authorization-header', async () => {
       const res = await request(app).post('/classifications/rec-1/apply').send({});
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('appliedBy');
+      expect(res.status).toBe(401);
+      expect(mocks.applyApprovedRecommendation).not.toHaveBeenCalled();
+    });
+
+    // HD-04b: appliedBy must come from the authenticated session, never from a client-supplied
+    // body field.
+    it('sätter appliedBy till den autentiserade användaren, oavsett body', async () => {
+      const res = await request(app)
+        .post('/classifications/rec-1/apply')
+        .set('Authorization', authHeader('applier-1'))
+        .send({ appliedBy: 'forged-applier@evil.example' });
+
+      expect(res.status).toBe(200);
+      expect(mocks.applyApprovedRecommendation).toHaveBeenCalledWith('rec-1', 'applier-1');
     });
   });
 

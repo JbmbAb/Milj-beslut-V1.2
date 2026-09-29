@@ -181,7 +181,6 @@ describe('Alphaevolve Search and Recommendation Routes', () => {
         .set('Authorization', authHeader('ADMIN'))
         .send({
           decision: 'APPROVED',
-          reviewedBy: 'John Doe',
           reviewNotes: 'Valid',
         });
 
@@ -191,24 +190,54 @@ describe('Alphaevolve Search and Recommendation Routes', () => {
       expect(mocks.submitApprovalReview).toHaveBeenCalledWith({
         recommendationId: 'rec-1',
         decision: 'APPROVED',
-        reviewedBy: 'John Doe',
+        // HD-05 (SAG-21): reviewedBy comes from the authenticated session (authHeader('ADMIN')
+        // above signs a token for id 'admin-1'), never from a client-supplied body field.
+        reviewedBy: 'admin-1',
         reviewNotes: 'Valid',
         appliedWithChanges: undefined,
         changesNotes: undefined,
       });
     });
 
-    it('validates decision types and reviewedBy', async () => {
+    // HD-05: a client-supplied reviewedBy must never reach the service layer -- it would let any
+    // authenticated user forge who reviewed the recommendation.
+    it('ignores a client-supplied reviewedBy and uses the authenticated identity instead', async () => {
+      mocks.submitApprovalReview.mockResolvedValue({ id: 'rec-1', status: 'APPROVED' });
+
+      const res = await request(app)
+        .post('/api/recommendations/rec-1/submit-review')
+        .set('Authorization', authHeader('ADMIN'))
+        .send({
+          decision: 'APPROVED',
+          reviewedBy: 'forged-reviewer@evil.example',
+          reviewNotes: 'Valid',
+        });
+
+      expect(res.status).toBe(200);
+      expect(mocks.submitApprovalReview).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewedBy: 'admin-1' }),
+      );
+    });
+
+    it('validates decision types', async () => {
       const res = await request(app)
         .post('/api/recommendations/rec-1/submit-review')
         .set('Authorization', authHeader('ADMIN'))
         .send({
           decision: 'INVALID_STATUS',
-          reviewedBy: 'John Doe',
         });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Invalid decision');
+    });
+
+    it('requires authentication', async () => {
+      const res = await request(app)
+        .post('/api/recommendations/rec-1/submit-review')
+        .send({ decision: 'APPROVED' });
+
+      expect(res.status).toBe(401);
+      expect(mocks.submitApprovalReview).not.toHaveBeenCalled();
     });
   });
 });

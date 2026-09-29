@@ -98,7 +98,11 @@ router.post(
         return res.status(400).json({ ok: false, error: 'recommendationId parameter is required' });
       }
 
-      const { decision, reviewedBy, reviewNotes, appliedWithChanges, changesNotes } = req.body ?? {};
+      if (!req.authUser) {
+        return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      }
+
+      const { decision, reviewNotes, appliedWithChanges, changesNotes } = req.body ?? {};
 
       if (!decision || !['APPROVED', 'REJECTED', 'NEEDS_CLARIFICATION'].includes(decision)) {
         return res.status(400).json({
@@ -107,14 +111,13 @@ router.post(
         });
       }
 
-      if (!reviewedBy) {
-        return res.status(400).json({ ok: false, error: 'reviewedBy is required' });
-      }
-
       const review: ApprovalReview = {
         recommendationId,
         decision,
-        reviewedBy,
+        // HD-05 (SAG-21): the reviewer's identity comes from the authenticated session, never
+        // from the request body -- otherwise any authenticated user could approve another
+        // tenant's recommendation under a forged reviewer name.
+        reviewedBy: req.authUser.id,
         reviewNotes,
         appliedWithChanges,
         changesNotes,
