@@ -76,7 +76,7 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     expect(report.registry_version).toBe(1);
     expect(report.pack_set_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(report.active_packs).toHaveLength(1);
-    expect(report.invariants).toHaveLength(9);
+    expect(report.invariants).toHaveLength(10);
     expect(report.failed_invariants).toEqual([]);
   });
 

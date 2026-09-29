@@ -46,6 +46,24 @@ const REMOTE_STATUS = Object.freeze({
   NOT_CONFIGURED: 'REMOTE_NOT_CONFIGURED',
 });
 
+// F-10 structural fix: these paths are forbidden for EVERY Dev-Gov unit regardless of what that
+// unit's own forbidden_paths/allowed_paths declares. Per-unit forbidden_paths is self-authored by
+// each unit definition (reviewable, but not structurally enforced against a bug or a malicious
+// declaration); this floor is unioned into the admission check below and cannot be widened,
+// overridden, or omitted by any unit definition. Once a path is listed here, no future Dev-Gov
+// unit can ever touch it again -- a legitimate future change to any of these paths (including to
+// this controller script itself) must land via a direct main commit outside the Dev-Gov unit
+// mechanism, not through the governed candidate flow.
+export const CONTROLLER_OWNED_FLOOR_PATHS = Object.freeze([
+  'scripts/devgov/**',
+  'governance/devgov/schema/**',
+  'governance/devgov/invariant-packs/**',
+  '.github/workflows/devgov-v0-attest.yml',
+  '.github/workflows/devgov-v0-gate.yml',
+  '.github/workflows/devgov-v0-orchestrate.yml',
+  '.github/workflows/devgov-invariant-packs.yml',
+]);
+
 export function unitDefinitionHash(unitDefinition) {
   return sha256(stableJson(unitDefinition));
 }
@@ -189,11 +207,10 @@ export function evaluateRepositoryState(manifest, state, context = {}) {
     errors.push(`merge-base mismatch: expected ${manifest.base_sha}, got ${state.merge_base_sha}`);
   }
 
-  const diffViolations = classifyDiffScope(
-    state.changed_paths || [],
-    manifest.allowed_paths,
-    manifest.forbidden_paths,
-  );
+  const diffViolations = classifyDiffScope(state.changed_paths || [], manifest.allowed_paths, [
+    ...(manifest.forbidden_paths || []),
+    ...CONTROLLER_OWNED_FLOOR_PATHS,
+  ]);
   for (const violation of diffViolations) {
     errors.push(`${violation.reason}: ${violation.path}`);
   }

@@ -21,7 +21,7 @@ const manifest = {
   branch: 'codex/dev-gov-v0-test',
   base_sha: 'a'.repeat(40),
   ancestry_policy: 'exact_parent',
-  allowed_paths: ['scripts/devgov/**'],
+  allowed_paths: ['docs/architecture/audits/**'],
   forbidden_paths: ['.github/workflows/deploy-*.yml'],
   remote: { name: 'origin', branch: 'codex/dev-gov-v0-test', push_policy: 'no_force' },
 };
@@ -39,7 +39,10 @@ function repoState(overrides = {}) {
     is_descendant_of_base: true,
     remote_sha: candidateSha,
     dirty: false,
-    changed_paths: ['scripts/devgov/devgov.mjs'],
+    // Not scripts/devgov/** -- that path is now covered by CONTROLLER_OWNED_FLOOR_PATHS (F-10
+    // structural fix) and is unconditionally forbidden for every unit regardless of allowed_paths,
+    // which would make this fixture fail for a reason unrelated to the ancestry policy under test.
+    changed_paths: ['docs/architecture/audits/PLACEHOLDER.md'],
     ...overrides,
   };
 }

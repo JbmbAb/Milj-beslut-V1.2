@@ -15,6 +15,7 @@ const REQUIRED_V1_INVARIANT_IDS = Object.freeze([
   'DG-IP-006-ALL-PACKS-NO-CANDIDATE-SELECTION',
   'DG-IP-007-PR-PROTECTED-BASE',
   'DG-IP-008-POST-MERGE-ACTIVATION',
+  'DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR',
 ]);
 
 function sha256(value) {
@@ -73,6 +74,58 @@ function combine(...results) {
   return failed.length
     ? { pass: false, detail: failed.map((item) => item.detail).join('; ') }
     : { pass: true, detail: results.map((item) => item.detail).join('; ') };
+}
+
+// F-10 structural fix, defense in depth: no `run:` shell-script body may splice a `${{ }}`
+// expression directly into its text. GitHub Actions substitutes `${{ }}` expressions into a run:
+// block's generated shell script as raw text BEFORE bash parses it -- a real injection surface if
+// the expression's value (e.g. an inputs.* value, which traces back to candidate-authored data)
+// contains shell metacharacters. The existing run: steps avoid this correctly by binding every
+// dynamic value through an env: block first and referencing it only as a quoted "$VAR" shell
+// variable. `${{ }}` occurrences OUTSIDE a run: block (e.g. in a `with: { name: ... }` field on a
+// `uses:` step, or in an `env:` mapping value) are resolved by the GitHub Actions engine itself,
+// never touch a shell, and are not flagged here.
+//
+// run: block bodies are found by their YAML block-scalar indentation rule: a `run: |` or `run: >`
+// line's body is every following line indented strictly more than the `run:` key itself, until a
+// line at or below that indentation (ignoring blank lines) ends the block.
+function findRunBlocks(source) {
+  const lines = source.split(/\r?\n/);
+  const blocks = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(\s*)run:\s*[|>][+-]?\s*$/.exec(lines[index]);
+    if (!match) continue;
+    const runIndent = match[1].length;
+    const bodyLines = [];
+    let cursor = index + 1;
+    while (cursor < lines.length) {
+      const line = lines[cursor];
+      if (line.trim() === '') {
+        bodyLines.push(line);
+        cursor += 1;
+        continue;
+      }
+      const indent = line.length - line.trimStart().length;
+      if (indent <= runIndent) break;
+      bodyLines.push(line);
+      cursor += 1;
+    }
+    blocks.push(bodyLines.join('\n'));
+  }
+  return blocks;
+}
+
+function noTemplateSpliceInRunBlocks(source) {
+  const offenders = findRunBlocks(source)
+    .flatMap((body) => body.split(/\r?\n/))
+    .filter((line) => line.includes('${{'));
+  return {
+    pass: offenders.length === 0,
+    detail:
+      offenders.length === 0
+        ? 'no run: block splices a ${{ }} expression directly into shell text'
+        : `unsafe template splice inside a run: block: ${offenders.map((line) => line.trim()).join(' | ')}`,
+  };
 }
 
 function block(source, start, end) {
@@ -366,6 +419,23 @@ function evaluateInvariant(id, targetRoot) {
         hasAll(orchestrator(), ['ref: ${{ github.sha }}', 'path: controller']),
         hasAll(gate(), ['ref: ${{ github.sha }}', 'path: controller']),
         hasAll(prPacks(), ['ref: ${{ github.event.pull_request.base.sha }}', 'path: controller']),
+      );
+    }
+    case 'DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR': {
+      const source = controller();
+      return combine(
+        hasAll(source, [
+          'export const CONTROLLER_OWNED_FLOOR_PATHS',
+          "'scripts/devgov/**'",
+          "'governance/devgov/schema/**'",
+          "'governance/devgov/invariant-packs/**'",
+          "'.github/workflows/devgov-v0-attest.yml'",
+          "'.github/workflows/devgov-v0-gate.yml'",
+          "'.github/workflows/devgov-v0-orchestrate.yml'",
+          "'.github/workflows/devgov-invariant-packs.yml'",
+        ]),
+        hasAll(source, ['...CONTROLLER_OWNED_FLOOR_PATHS']),
+        noTemplateSpliceInRunBlocks(attest()),
       );
     }
     default:
