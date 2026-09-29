@@ -465,18 +465,29 @@ export const predictWeatherRisk = async (municipality: string): Promise<WeatherR
 
   const serverResult = await serverGenerateText(`Väderrisk för schakt i ${municipality}.`);
   if (serverResult) {
-    const level = serverResult.includes('Hög')
-      ? ('Hög' as WeatherRisk['level'])
-      : serverResult.includes('Medel')
-        ? ('Medel' as WeatherRisk['level'])
-        : ('Låg' as WeatherRisk['level']);
-    return {
-      level,
-      description: safeSnippet(serverResult, 180),
-      action: 'Planera erosionsskydd och uppföljning av nederbörd.',
-      source: 'Gemini AI',
-      fetchedAt: new Date().toISOString(),
-    };
+    // W3b -- D5: a response that matches neither expected Swedish risk keyword is not a low-risk
+    // answer, it is an unparseable one. Silently reading it as 'Låg' was indistinguishable from a
+    // genuinely checked, low-risk result -- the same "unknown treated as safe" pattern OD-03/OD-04
+    // have corrected everywhere else in this program. Fails the same way as no response at all.
+    if (serverResult.includes('Hög')) {
+      return {
+        level: 'Hög',
+        description: safeSnippet(serverResult, 180),
+        action: 'Planera erosionsskydd och uppföljning av nederbörd.',
+        source: 'Gemini AI',
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+    if (serverResult.includes('Medel')) {
+      return {
+        level: 'Medel',
+        description: safeSnippet(serverResult, 180),
+        action: 'Planera erosionsskydd och uppföljning av nederbörd.',
+        source: 'Gemini AI',
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+    return unavailable('Väderrisk');
   }
 
   return unavailable('Väderrisk');

@@ -120,6 +120,18 @@ describe('geminiService', () => {
       expect(result.title).toBe('Dashboard');
       expect(result.sections).toHaveLength(1);
     });
+
+    it('W3b -- D5: predictWeatherRisk kastar (aldrig "Låg") när AI-svaret finns men inte innehåller "Hög" eller "Medel"', async () => {
+      // A non-empty AI response that matches neither expected Swedish risk keyword must never be
+      // silently read as the low-risk case -- that is indistinguishable from a genuinely checked,
+      // low-risk answer and repeats exactly the "unknown treated as safe" pattern this whole
+      // program has been correcting since W1 (OD-03/OD-04).
+      mockGenerateContent.mockResolvedValueOnce({
+        response: { text: () => 'Vädret är stabilt, ingen särskild risk noterad.' },
+      });
+
+      await expect(geminiService.predictWeatherRisk('Luleå')).rejects.toThrow(/verifierad AI-källa/);
+    });
   });
 
   describe('Ingen AI-källa (hård regel: endast BankID får mockas)', () => {
