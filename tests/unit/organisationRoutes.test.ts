@@ -105,7 +105,7 @@ describe('organisation.routes', () => {
 
     const accepted = await request(app)
       .post('/api/orgs/org-1/invitations/accept')
-      .send({ token: 'invite-token', bankidId: '191212121212' });
+      .send({ token: 'invite-token', orderRef: 'order-ref-1' });
 
     expect(accepted.status).toBe(200);
     expect(accepted.body).toEqual({
@@ -114,6 +114,22 @@ describe('organisation.routes', () => {
       orgId: 'org-1',
       role: 'CONSULTANT',
     });
+    expect(mocks.acceptInvitation).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      token: 'invite-token',
+      orderRef: 'order-ref-1',
+    });
+  });
+
+  // HD-06 (AOP-08): a raw client-supplied bankidId must no longer be accepted at all -- only a
+  // reference to a verified, completed BankID session (orderRef).
+  it('rejects invitation acceptance when orderRef is missing, even if a bankidId is supplied', async () => {
+    const res = await request(app)
+      .post('/api/orgs/org-1/invitations/accept')
+      .send({ token: 'invite-token', bankidId: '191212121212' });
+
+    expect(res.status).toBe(400);
+    expect(mocks.acceptInvitation).not.toHaveBeenCalled();
   });
 
   it('revokes invitations for the authenticated organisation', async () => {
@@ -162,7 +178,7 @@ describe('organisation.routes', () => {
 
     const res = await request(app)
       .post('/api/orgs/org-1/invitations/accept')
-      .send({ token: 'expired-token', bankidId: '191212121212' });
+      .send({ token: 'expired-token', orderRef: 'order-ref-1' });
 
     expect(res.status).toBe(400);
   });

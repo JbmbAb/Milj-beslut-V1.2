@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   organisationFindUnique: vi.fn(),
   userFindFirst: vi.fn(),
   userCreate: vi.fn(),
+  bankIdSessionFindUnique: vi.fn(),
   appendDomainAudit: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
@@ -17,6 +18,11 @@ vi.mock('../../server/db/prisma', () => ({
     user: {
       findFirst: mocks.userFindFirst,
       create: mocks.userCreate,
+    },
+    // Backs persistentReplayProtection.getCompletedSession, which acceptInvitation now uses
+    // (HD-06) to resolve a verified bankidId instead of trusting a client-supplied one.
+    bankIdSession: {
+      findUnique: mocks.bankIdSessionFindUnique,
     },
   },
 }));
@@ -153,8 +159,17 @@ describe('acceptInvitation', () => {
     return createInvitation({ orgId: ORG_ID, email, role: 'CONSULTANT', actingUserId: ACTING_USER });
   }
 
-  it('accepts a valid invitation and returns user info', async () => {
+  function mockCompletedSession(bankidId: string) {
+    mocks.bankIdSessionFindUnique.mockResolvedValue({
+      orderRef: 'order-ref-1',
+      status: 'COMPLETED',
+      bankidId,
+    });
+  }
+
+  it('accepts a valid invitation backed by a completed BankID session and returns user info', async () => {
     const inv = await createTestInvitation('accept-happy@example.com');
+    mockCompletedSession('bid123');
     mocks.userFindFirst.mockResolvedValue(null);
     mocks.userCreate.mockResolvedValue({
       id: 'new-user-001',
@@ -163,11 +178,14 @@ describe('acceptInvitation', () => {
       role: 'CONSULTANT',
     });
 
-    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'bid123' });
+    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, orderRef: 'order-ref-1' });
 
     expect(result.userId).toBe('new-user-001');
     expect(result.orgId).toBe(ORG_ID);
     expect(result.role).toBe('CONSULTANT');
+    expect(mocks.userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ bankidId: 'bid123' }) }),
+    );
     expect(mocks.appendDomainAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'INVITATION_ACCEPTED' }),
     );
@@ -175,6 +193,7 @@ describe('acceptInvitation', () => {
 
   it('reuses existing user if found', async () => {
     const inv = await createTestInvitation('reuse@example.com');
+    mockCompletedSession('bid-existing');
     mocks.userFindFirst.mockResolvedValue({
       id: 'existing-user',
       bankidId: 'bid-existing',
@@ -182,20 +201,22 @@ describe('acceptInvitation', () => {
       role: 'CONSULTANT',
     });
 
-    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'bid-existing' });
+    const result = await acceptInvitation({ orgId: ORG_ID, token: inv.token, orderRef: 'order-ref-1' });
 
     expect(result.userId).toBe('existing-user');
     expect(mocks.userCreate).not.toHaveBeenCalled();
   });
 
   it('throws when token is not found', async () => {
+    mockCompletedSession('bid');
     await expect(
-      acceptInvitation({ orgId: ORG_ID, token: 'invalid-token', bankidId: 'bid' }),
+      acceptInvitation({ orgId: ORG_ID, token: 'invalid-token', orderRef: 'order-ref-1' }),
     ).rejects.toThrow('hittades inte');
   });
 
   it('throws when invitation is already accepted', async () => {
     const inv = await createTestInvitation('already-accepted@example.com');
+    mockCompletedSession('b1');
     mocks.userFindFirst.mockResolvedValue(null);
     mocks.userCreate.mockResolvedValue({
       id: 'u1',
@@ -205,12 +226,40 @@ describe('acceptInvitation', () => {
     });
 
     // Accept once
-    await acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'b1' });
+    await acceptInvitation({ orgId: ORG_ID, token: inv.token, orderRef: 'order-ref-1' });
 
     // Try again
-    await expect(acceptInvitation({ orgId: ORG_ID, token: inv.token, bankidId: 'b1' })).rejects.toThrow(
-      'ACCEPTED',
-    );
+    await expect(
+      acceptInvitation({ orgId: ORG_ID, token: inv.token, orderRef: 'order-ref-1' }),
+    ).rejects.toThrow('ACCEPTED');
+  });
+
+  // HD-06 (AOP-08): the whole point of this fix -- without a genuinely completed BankID session,
+  // acceptance must fail closed. No session found for the given orderRef.
+  it('fails closed when no BankID session exists for the given orderRef', async () => {
+    const inv = await createTestInvitation('no-session@example.com');
+    mocks.bankIdSessionFindUnique.mockResolvedValue(null);
+
+    await expect(
+      acceptInvitation({ orgId: ORG_ID, token: inv.token, orderRef: 'nonexistent-order-ref' }),
+    ).rejects.toThrow(/verifierad|slutförts/i);
+    expect(mocks.userCreate).not.toHaveBeenCalled();
+  });
+
+  // HD-06: a session that exists but never completed (still PENDING, or FAILED) must not be
+  // treated as a verified identity either.
+  it('fails closed when the BankID session exists but has not completed', async () => {
+    const inv = await createTestInvitation('pending-session@example.com');
+    mocks.bankIdSessionFindUnique.mockResolvedValue({
+      orderRef: 'order-ref-1',
+      status: 'PENDING',
+      bankidId: null,
+    });
+
+    await expect(
+      acceptInvitation({ orgId: ORG_ID, token: inv.token, orderRef: 'order-ref-1' }),
+    ).rejects.toThrow(/verifierad|slutförts/i);
+    expect(mocks.userCreate).not.toHaveBeenCalled();
   });
 });
 

@@ -119,6 +119,24 @@ class PersistentReplayProtection {
   }
 
   /**
+   * HD-06 (AOP-08): lets a caller resolve the BankID identity behind a completed session, so
+   * other flows (e.g. org-invitation acceptance) can require proof of a real completed BankID
+   * authentication instead of trusting a client-supplied bankidId string. Returns null unless the
+   * session genuinely reached COMPLETED status via validateAndComplete.
+   */
+  async getCompletedSession(orderRef: string): Promise<{ bankidId: string } | null> {
+    const session = await prisma.bankIdSession.findUnique({
+      where: { orderRef },
+    });
+
+    if (!session || session.status !== 'COMPLETED' || !session.bankidId) {
+      return null;
+    }
+
+    return { bankidId: session.bankidId };
+  }
+
+  /**
    * Fail a session
    */
   async failSession(orderRef: string, _reason: string): Promise<void> {

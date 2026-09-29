@@ -16,6 +16,7 @@
 import crypto from 'node:crypto';
 import { prisma } from '../db/prisma';
 import { appendDomainAudit } from '../security/auditTrail';
+import { persistentReplayProtection } from '../security/persistentReplayProtection';
 import { logger } from '../logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -126,11 +127,17 @@ export function listInvitations(orgId: string): OrgInvitation[] {
 /**
  * Acceptera en inbjudan via token.
  * Skapar användaren i organisationen om den inte redan finns.
+ *
+ * HD-06 (AOP-08): `bankidId` is never taken from the caller. It is resolved server-side from a
+ * BankID session that `persistentReplayProtection` has independently verified as COMPLETED --
+ * the same mechanism the real BankID login flow uses (`bankIdService.collectBankIdAuth` ->
+ * `persistentReplayProtection.validateAndComplete`). Without a genuinely completed session,
+ * acceptance fails closed instead of registering an unverified identity.
  */
 export async function acceptInvitation(params: {
   orgId: string;
   token: string;
-  bankidId: string;
+  orderRef: string;
 }): Promise<{ userId: string; orgId: string; role: string }> {
   const invite = Array.from(invitations.values()).find(
     (inv) => inv.orgId === params.orgId && inv.token === params.token,
@@ -149,15 +156,23 @@ export async function acceptInvitation(params: {
     throw new Error('Ogiltig inbjudningstoken');
   }
 
+  // HD-06: resolve the verified BankID identity from a completed session. Never trust a
+  // client-supplied bankidId string directly.
+  const completedSession = await persistentReplayProtection.getCompletedSession(params.orderRef);
+  if (!completedSession) {
+    throw new Error('BankID-sessionen är inte verifierad eller har inte slutförts');
+  }
+  const bankidId = completedSession.bankidId;
+
   // Find or create user
   let user = await prisma.user.findFirst({
-    where: { bankidId: params.bankidId, organisationId: invite.orgId },
+    where: { bankidId, organisationId: invite.orgId },
   });
 
   if (!user) {
     user = await prisma.user.create({
       data: {
-        bankidId: params.bankidId,
+        bankidId,
         organisationId: invite.orgId,
         role: invite.role === 'ADMIN' ? 'ADMIN' : 'CONSULTANT',
       },
@@ -172,7 +187,7 @@ export async function acceptInvitation(params: {
     entityId: invite.id,
     action: 'INVITATION_ACCEPTED',
     userId: user.id,
-    payload: { orgId: invite.orgId, bankidId: params.bankidId, role: invite.role },
+    payload: { orgId: invite.orgId, bankidId, role: invite.role },
   });
 
   logger.info('org-invitation: accepted', { id: invite.id, userId: user.id });

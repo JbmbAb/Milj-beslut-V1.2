@@ -59,13 +59,16 @@ router.get('/api/orgs/:orgId/invitations', requireAuth, rateLimitByUser(30, 60_0
 
 router.post('/api/orgs/:orgId/invitations/accept', rateLimitByUser(10, 60_000), async (req, res) => {
   try {
-    const { token, bankidId } = req.body as { token?: string; bankidId?: string };
-    if (!token || !bankidId) {
-      res.status(400).json({ ok: false, error: 'token och bankidId krävs' });
+    // HD-06 (AOP-08): the caller proves identity with orderRef, a reference to a BankID session
+    // that persistentReplayProtection has independently verified as completed -- never with a
+    // self-asserted bankidId string, which any invitation-token holder could set to anything.
+    const { token, orderRef } = req.body as { token?: string; orderRef?: string };
+    if (!token || !orderRef) {
+      res.status(400).json({ ok: false, error: 'token och orderRef krävs' });
       return;
     }
 
-    const result = await acceptInvitation({ orgId: routeParam(req.params.orgId), token, bankidId });
+    const result = await acceptInvitation({ orgId: routeParam(req.params.orgId), token, orderRef });
     res.json({ ok: true, ...result });
   } catch (error: unknown) {
     res.status(400).json(toSafeErrorResponse(error));
