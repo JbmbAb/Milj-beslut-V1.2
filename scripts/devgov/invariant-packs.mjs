@@ -7,7 +7,6 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 const REGISTRY_REL = 'governance/devgov/invariant-packs/registry-v1.json';
 
 const REQUIRED_V1_INVARIANT_IDS = Object.freeze([
-  'DG-IP-001-PROTECTED-CONTROLLER-SEPARATION',
   'DG-IP-002-SIGNER-ISOLATION',
   'DG-IP-003-EXACT-CANDIDATE-BINDING',
   'DG-IP-004-VERIFIER-OWNED-TRUST',
@@ -186,30 +185,18 @@ function evaluateInvariant(id, targetRoot) {
   const runner = () => readText(targetRoot, 'scripts/devgov/invariant-packs.mjs');
 
   switch (id) {
-    case 'DG-IP-001-PROTECTED-CONTROLLER-SEPARATION': {
-      const source = attest();
-      const execute = stripLineComments(block(source, '  execute:', '\n  attest:'));
-      const signing = stripLineComments(block(source, '  attest:', null));
-      const checkoutBindings = [
-        'ref: ${{ github.sha }}',
-        'path: controller',
-        'ref: ${{ inputs.candidate_sha }}',
-        'path: candidate',
-      ];
-      const forbidden = ['node candidate/scripts/devgov/', 'node execution/scripts/devgov/'];
-      return combine(
-        hasAll(execute, [
-          ...checkoutBindings,
-          'node controller/scripts/devgov/devgov.mjs resolve-execution-sha',
-          'node controller/scripts/devgov/devgov.mjs execute-proof',
-        ]),
-        hasAll(signing, [...checkoutBindings, 'node controller/scripts/devgov/devgov.mjs attest-execution']),
-        hasNone(execute, forbidden),
-        hasNone(signing, forbidden),
-        noDynamicNodeInvocation(execute),
-        noDynamicNodeInvocation(signing),
-      );
-    }
+    // DG-IP-001-PROTECTED-CONTROLLER-SEPARATION removed (F-10 structural fix,
+    // DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1): this check inspected devgov-v0-attest.yml's text for
+    // a dynamically-assembled node invocation, a class of check already proven defeatable via
+    // shell eval/token-splitting obfuscation. That file is now covered by
+    // CONTROLLER_OWNED_FLOOR_PATHS in devgov.mjs, making it structurally impossible for any
+    // candidate to modify at all -- so a content-level check of it can never again observe a
+    // different value than what's already on the protected controller, and keeping it would only
+    // provide a permanently-green, no-longer-meaningful signal. Regression coverage for the
+    // historical attack this caught lives in devgovExactShaVerification.test.ts's
+    // "rejects the historical F-10 attest-execution redirection attack at admission" case, which
+    // proves the same attack is now caught earlier (denied before merge, before content is even
+    // inspected) rather than by this now-removed check.
     case 'DG-IP-002-SIGNER-ISOLATION': {
       const source = attest();
       const execute = block(source, '  execute:', '\n  attest:');

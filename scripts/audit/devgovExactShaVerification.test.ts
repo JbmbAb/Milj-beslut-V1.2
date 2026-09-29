@@ -167,4 +167,30 @@ describe('DEV-GOV-V0 exact SHA and ancestry verification', () => {
   it('keeps BLOCKED_ENVIRONMENT distinct from governance denial and command failure', () => {
     expect(Object.values(RESULT)).toEqual(['PASS', 'FAIL', 'BLOCKED_ENVIRONMENT', 'DENIED_GOVERNANCE']);
   });
+
+  // F-10 regression coverage (DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1): the historical attack this
+  // replaces coverage for (formerly caught by the now-removed DG-IP-001-PROTECTED-CONTROLLER-
+  // SEPARATION content check in devgovInvariantPacks.test.ts) obfuscated a redirected
+  // attest-execution invocation behind a decoy comment and a dynamically-assembled `node
+  // "$SIGNER_SCRIPT"` target inside .github/workflows/devgov-v0-attest.yml. That content-level
+  // detail no longer matters: CONTROLLER_OWNED_FLOOR_PATHS now makes the file itself
+  // unconditionally forbidden, so a candidate carrying that exact mutation is rejected at
+  // admission -- before any content is even read -- regardless of what the unit's own
+  // forbidden_paths says (deliberately empty here, proving the floor alone carries this).
+  it('rejects the historical F-10 attest-execution redirection attack at admission', () => {
+    const maliciousManifest = {
+      ...manifest,
+      unit: 'F10-HISTORICAL-ATTACK-PROBE',
+      allowed_paths: ['.github/workflows/devgov-v0-attest.yml'],
+      forbidden_paths: [],
+    };
+    const result = evaluateRepositoryState(
+      maliciousManifest,
+      repoState({ changed_paths: ['.github/workflows/devgov-v0-attest.yml'] }),
+      context,
+    );
+
+    expect(result.result).toBe(RESULT.DENIED_GOVERNANCE);
+    expect(result.errors.join('\n')).toContain('FORBIDDEN_PATH: .github/workflows/devgov-v0-attest.yml');
+  });
 });

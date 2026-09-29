@@ -1,5 +1,8 @@
 # DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1
 
+**Frozen base:** `b48ed5e262793b0bf8086dad18a0729e399f84b9` (main after PR #195, K1a governed
+harvest canonical entrypoint)
+
 ## Summary
 
 This is the Step 5 F-10 rebuild, per the owner's frozen 2026-09-25 decision to stop patching
@@ -57,10 +60,17 @@ flow through `env:` + a quoted shell variable rather than a spliced `${{ }}` exp
   nowhere else the floor could have been left unapplied).
 
 - **`scripts/devgov/invariant-packs.mjs`**: adds a new controller-owned invariant,
-  `DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR`, as a second, independent defense layer (the existing
-  `DG-IP-001`/`DG-IP-002` checks are left in place as a semantic backstop in case the floor itself
-  ever has a bug, rather than being deleted now that the floor makes them largely unreachable in
-  the intended path). It verifies, against the candidate's own copy of `devgov.mjs`:
+  `DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR`. **Removes** `DG-IP-001-PROTECTED-CONTROLLER-SEPARATION`
+  entirely, rather than leaving it in place as inert defense-in-depth (an earlier draft of this
+  unit did leave it in place; the owner's explicit call, relayed mid-review, was that this was not
+  a deliberate choice and the already-proven-defeatable check should be removed, not just noted).
+  `devgov-v0-attest.yml` is now permanently floor-protected, so `DG-IP-001` could never again
+  observe a different value than what's already on the protected controller -- keeping it would
+  only provide a permanently-green, no-longer-meaningful signal, dressed up as a real check.
+  `DG-IP-002-SIGNER-ISOLATION` is unaffected: it checks native YAML keys (`environment:`,
+  `secrets.*`) resolved by GitHub's own engine, not shell text, so it was never in the
+  proven-defeatable class `DG-IP-001` was in, and is out of scope for this unit.
+  `DG-IP-009` verifies, against the candidate's own copy of `devgov.mjs`:
   1. `CONTROLLER_OWNED_FLOOR_PATHS` is defined with exactly the expected path set (a missing entry
      fails the check).
   2. The floor is actually unioned into the `classifyDiffScope` call (a regression that silently
@@ -72,17 +82,34 @@ flow through `env:` + a quoted shell variable rather than a spliced `${{ }}` exp
      GitHub's own engine resolves and which never touches a shell -- is correctly not flagged; this
      was caught and fixed during this unit's own development, see Verification below).
   - `REQUIRED_V1_INVARIANT_IDS` and `devgov-controller-core-v1.json`'s `invariants` array (bumped
-    to `pack_version: 2`) both add `DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR`.
+    to `pack_version: 3`) both drop `DG-IP-001-PROTECTED-CONTROLLER-SEPARATION` and add
+    `DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR` -- net count unchanged at 9 real invariants (was
+    001-008 = 8; now 002-009 = 8, plus the pre-existing `DG-IP-000` canonical-set-completeness
+    synthetic check = 9 total either way).
 
-- **`scripts/audit/devgovExactShaVerification.test.ts`**, **`devgovInvariantPacks.test.ts`**:
-  narrow, mechanical test-fixture updates made necessary by the floor itself, not logic changes.
-  The exact-SHA test's fixture previously used `scripts/devgov/devgov.mjs` as its generic
-  "some allowed file changed" placeholder path (with `allowed_paths: ['scripts/devgov/**']`) to
-  exercise the _ancestry-policy_ logic under test -- that placeholder is now, correctly, rejected
-  by the new floor, so the fixture was moved to a non-floored path
-  (`docs/architecture/audits/**` / `PLACEHOLDER.md`) that doesn't collide, without touching the
-  ancestry assertions themselves. The invariant-packs test's hardcoded `toHaveLength(9)` was bumped
-  to `10` to account for the new invariant.
+- **`scripts/audit/devgovExactShaVerification.test.ts`**: the ancestry-policy fixture previously
+  used `scripts/devgov/devgov.mjs` as its generic "some allowed file changed" placeholder path
+  (with `allowed_paths: ['scripts/devgov/**']`) -- now, correctly, rejected by the new floor, so
+  moved to a non-floored placeholder without touching the ancestry assertions themselves. Also
+  adds a new regression test, "rejects the historical F-10 attest-execution redirection attack at
+  admission", replacing the coverage the three removed `DG-IP-001`-specific tests (below) used to
+  provide: it proves the exact historical attack is now caught earlier (denied before merge) with
+  an intentionally _empty_ `forbidden_paths`, showing the floor alone carries it.
+- **`scripts/audit/devgovInvariantPacks.test.ts`**: removes the three tests that exercised
+  `DG-IP-001` (constructing a mutated `devgov-v0-attest.yml` and asserting that check failed) --
+  there is no longer any `DG-IP-001` to fail, and no candidate diff touching that file can reach
+  invariant-pack content evaluation at all anymore. Hardcoded invariant-count assertion stays `9`
+  (see above).
+- **`scripts/dev-helpers/lib/unitLint.mjs`** (a separate, non-protected-controller developer aid,
+  outside the floor, found by independent cold review -- see below): `DGL-003` previously checked
+  only whether a unit's own `forbidden_paths` names `scripts/devgov/devgov.mjs` and the other
+  `PROTECTED_SAMPLES`; with the floor now covering all three unconditionally, that would have
+  produced a permanent false-positive `ERROR` for this unit (which legitimately needs
+  `scripts/devgov/devgov.mjs` in _its own_ `allowed_paths`) and for every future unit relying on
+  the floor instead of redundant self-declaration. Fixed to two tiers: a sample neither
+  `forbidden_paths` nor the floor covers stays `ERROR` (a real gap); a sample only the floor covers
+  downgrades to `INFO` (redundant documentation, no longer a correctness requirement).
+  `scripts/dev-helpers/unit/devgovHelpers.test.ts` updated to match.
 
 ## Known, accepted consequence
 
@@ -140,9 +167,16 @@ behavior, not a bug.
 
 This unit does **not**:
 
-- rewrite `DG-IP-001`/`DG-IP-002`'s existing substring-based logic -- both are left as a semantic
-  backstop layer, independent of the new structural floor;
+- rewrite or restructure `DG-IP-002-SIGNER-ISOLATION`'s existing logic -- it checks native YAML
+  keys resolved by GitHub's own engine (not shell text), was never in the proven-defeatable class
+  `DG-IP-001` was in, and is out of scope for this unit;
 - touch any workflow file's content -- the floor protects them by path, not by editing them;
+- remove or restructure `DG-IP-005-PACKS-LOAD-BEARING` or `DG-IP-007-PR-PROTECTED-BASE`, even
+  though both also check content of files the floor now covers (`devgov-v0-gate.yml`,
+  `-orchestrate.yml`, `devgov-invariant-packs.yml`) via the same `noDynamicNodeInvocation` helper
+  `DG-IP-001` used -- the same "now-permanently-green" observation likely applies to parts of
+  those checks too, but only `DG-IP-001` was named as needing action; broadening this unit's scope
+  to restructure them as well was deliberately not done here;
 - resolve or clean up `dev-gov-v7-derived-target-identity.json` (flagged above, left as an inert,
   now-correctly-unreachable artifact);
 - change application code, data, secrets, or any other Dev-Gov schema file;
@@ -155,10 +189,12 @@ This unit does **not**:
   trust chain (a candidate legitimately allowed to touch protected workflow files could, in
   principle, construct an obfuscated redirection of the signing/execution command that the existing
   text-pattern checks cannot soundly detect). The fix removes the candidate's ability to have that
-  diff admitted at all, rather than attempting to validate it.
+  diff admitted at all, rather than attempting to validate it, and removes the now-permanently-green
+  `DG-IP-001` check that would otherwise misrepresent this as still being enforced by content
+  inspection.
 - Backward compatibility impact: permanently forecloses the Dev-Gov path for modifying the floored
   files (see Known, accepted consequence above) -- an explicit, owner-chosen tradeoff, not an
   unintended regression.
-- Rollback plan: revert this unit's merge commit. The floor and the new invariant disappear
-  together; `DG-IP-001`/`DG-IP-002` continue functioning exactly as before this unit (unchanged by
-  it).
+- Rollback plan: revert this unit's merge commit. The floor, the new invariant, and the
+  `DG-IP-001` removal all revert together; `DG-IP-002` and the rest of the pack continue
+  functioning exactly as before this unit (unchanged by it).

@@ -1,11 +1,10 @@
 {
   "schema_version": "dev-gov-invariant-pack-v1",
   "pack_id": "DEVGOV-CONTROLLER-CORE",
-  "pack_version": 2,
+  "pack_version": 3,
   "scope": "all-devgov-units-and-all-pull-requests",
   "owner": "protected-controller",
   "invariants": [
-    "DG-IP-001-PROTECTED-CONTROLLER-SEPARATION",
     "DG-IP-002-SIGNER-ISOLATION",
     "DG-IP-003-EXACT-CANDIDATE-BINDING",
     "DG-IP-004-VERIFIER-OWNED-TRUST",
