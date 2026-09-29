@@ -85,31 +85,42 @@ function combine(...results) {
 // `uses:` step, or in an `env:` mapping value) are resolved by the GitHub Actions engine itself,
 // never touch a shell, and are not flagged here.
 //
-// run: block bodies are found by their YAML block-scalar indentation rule: a `run: |` or `run: >`
-// line's body is every following line indented strictly more than the `run:` key itself, until a
-// line at or below that indentation (ignoring blank lines) ends the block.
+// run: block bodies are found two ways: (1) a YAML block-scalar header (`run: |`, `run: >`, with
+// any order/combination of a chomping indicator +/- and an explicit indentation indicator digit,
+// and an optional trailing comment) -- its body is every following line indented strictly more
+// than the `run:` key itself, until a line at or below that indentation (ignoring blank lines)
+// ends the block; (2) a single-line inline `run: <command>` -- its "body" is that same line's own
+// text after the colon, which is exactly as capable of having a `${{ }}` spliced into shell text
+// as a block-scalar body is, and was missed entirely by an earlier version of this check that only
+// recognized block-scalar headers.
+const BLOCK_SCALAR_HEADER = /^(\s*)run:\s*[|>][+0-9-]*\s*(#.*)?$/;
+
 function findRunBlocks(source) {
   const lines = source.split(/\r?\n/);
   const blocks = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(\s*)run:\s*[|>][+-]?\s*$/.exec(lines[index]);
-    if (!match) continue;
-    const runIndent = match[1].length;
-    const bodyLines = [];
-    let cursor = index + 1;
-    while (cursor < lines.length) {
-      const line = lines[cursor];
-      if (line.trim() === '') {
+    const blockHeader = BLOCK_SCALAR_HEADER.exec(lines[index]);
+    if (blockHeader) {
+      const runIndent = blockHeader[1].length;
+      const bodyLines = [];
+      let cursor = index + 1;
+      while (cursor < lines.length) {
+        const line = lines[cursor];
+        if (line.trim() === '') {
+          bodyLines.push(line);
+          cursor += 1;
+          continue;
+        }
+        const indent = line.length - line.trimStart().length;
+        if (indent <= runIndent) break;
         bodyLines.push(line);
         cursor += 1;
-        continue;
       }
-      const indent = line.length - line.trimStart().length;
-      if (indent <= runIndent) break;
-      bodyLines.push(line);
-      cursor += 1;
+      blocks.push(bodyLines.join('\n'));
+      continue;
     }
-    blocks.push(bodyLines.join('\n'));
+    const inline = /^\s*run:\s*(.+)$/.exec(lines[index]);
+    if (inline) blocks.push(inline[1]);
   }
   return blocks;
 }
@@ -127,11 +138,26 @@ function noTemplateSpliceInRunBlocks(source) {
   };
 }
 
-function block(source, start, end) {
+function findSpan(source, start, end) {
   const a = source.indexOf(start);
-  if (a < 0) return '';
+  if (a < 0) return null;
   const b = end ? source.indexOf(end, a + start.length) : -1;
-  return b < 0 ? source.slice(a) : source.slice(a, b);
+  return { start: a, end: b < 0 ? source.length : b };
+}
+
+function block(source, start, end) {
+  const span = findSpan(source, start, end);
+  return span ? source.slice(span.start, span.end) : '';
+}
+
+// Removes exactly the ONE start..end span block() would extract, by position -- NOT
+// source.split(needle).join(''), which removes every occurrence of a byte-identical duplicate
+// anywhere else in the file. Found in cold review: a future duplicate of the sign: block under a
+// different job name would have been invisible to hasNone() too, silently defeating the isolation
+// check that consumes this. Shares findSpan with block() so the two can never disagree on the span.
+function removeBlock(source, start, end) {
+  const span = findSpan(source, start, end);
+  return span ? source.slice(0, span.start) + source.slice(span.end) : source;
 }
 
 // Strip genuine shell (#) and JavaScript (//) line comments so decoy text cannot satisfy
@@ -198,12 +224,19 @@ function evaluateInvariant(id, targetRoot) {
     // proves the same attack is now caught earlier (denied before merge, before content is even
     // inspected) rather than by this now-removed check.
     case 'DG-IP-002-SIGNER-ISOLATION': {
-      const source = attest();
-      const execute = block(source, '  execute:', '\n  attest:');
-      const signing = block(source, '  attest:', null);
+      // V1-THROUGHPUT (one-approval signing): devgov-v0-attest.yml's execute: is now its only job
+      // (attest: is gone -- signing moved to orchestrate.yml's sign: job, the one place the key
+      // may legitimately appear). Both halves of this invariant are re-anchored accordingly.
+      const attestSource = attest();
+      const orchestratorSource = orchestrator();
+      const signBlock = block(orchestratorSource, '  sign:', '\n  gate:');
+      const restOfOrchestrator = signBlock
+        ? removeBlock(orchestratorSource, '  sign:', '\n  gate:')
+        : orchestratorSource;
       return combine(
-        hasNone(execute, ['environment: devgov-attestation', 'DEVGOV_ATTESTATION_PRIVATE_KEY_PEM']),
-        hasAll(signing, [
+        hasNone(attestSource, ['environment: devgov-attestation', 'DEVGOV_ATTESTATION_PRIVATE_KEY_PEM']),
+        hasNone(restOfOrchestrator, ['environment: devgov-attestation', 'DEVGOV_ATTESTATION_PRIVATE_KEY_PEM']),
+        hasAll(signBlock, [
           '\n    environment: devgov-attestation\n',
           'DEVGOV_ATTESTATION_PRIVATE_KEY_PEM: ${{ secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM }}',
         ]),
@@ -422,7 +455,11 @@ function evaluateInvariant(id, targetRoot) {
           "'.github/workflows/devgov-invariant-packs.yml'",
         ]),
         hasAll(source, ['...CONTROLLER_OWNED_FLOOR_PATHS']),
+        // V1-THROUGHPUT: the signing key now lives in orchestrate.yml's sign: job (see
+        // DG-IP-002), not attest.yml -- scan both files for a direct ${{ }} splice inside a
+        // run: block's shell text.
         noTemplateSpliceInRunBlocks(attest()),
+        noTemplateSpliceInRunBlocks(orchestrator()),
       );
     }
     default:
