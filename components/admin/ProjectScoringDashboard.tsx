@@ -30,7 +30,7 @@ const ProjectScoringDashboard: React.FC<ProjectScoringDashboardProps> = ({ proje
 
   useEffect(() => {
     if (projectId && token) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       void loadPlan();
     } else {
       setPlan(null);

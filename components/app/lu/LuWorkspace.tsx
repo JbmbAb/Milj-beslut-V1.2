@@ -284,7 +284,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       void loadCurrentGeometry();
     }, 2000);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
 
   const [retryingProvisioning, setRetryingProvisioning] = useState(false);

@@ -79,7 +79,7 @@
     "@google/generative-ai": "^0.24.1",
     "@loaders.gl/core": "^4.1.0",
     "@loaders.gl/las": "^4.1.0",
-    "@loaders.gl/ply": "^4.1.0",
+    "@loaders.gl/ply": "^4.4.5",
     "@miljobeslut/mimers-brunn-core": "file:packages/mimers-brunn-core",
     "@miljobeslut/mps-artifact-store": "file:packages/mps-artifact-store",
     "@miljobeslut/mps-audit": "file:packages/mps-audit",

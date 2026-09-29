@@ -263,7 +263,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
   }, [token, includePreliminarySummary, fetchJson, onError]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setPage(1);
   }, [statusFilter, municipalityFilter, categoryFilter, documentTypeFilter]);
 
@@ -280,19 +280,19 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
   useEffect(() => {
     if (!token) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     loadSummary();
   }, [token, includePreliminarySummary, loadSummary]);
 
   useEffect(() => {
     if (!token) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     loadCitations();
   }, [token, selectedRequirementCode, loadCitations]);
 
   useEffect(() => {
     if (!selectedRow) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setRequirementStatusDraft(selectedRow.verificationStatus);
      
     setValidationComment(selectedRow.validationComment || '');
@@ -302,7 +302,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
   useEffect(() => {
     if (!selectedCase) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setCaseStatusDraft(selectedCase.caseReviewStatus);
      
     setCaseNotesDraft(selectedCase.notes || '');
@@ -310,7 +310,7 @@ const AdminRequirementsStudio: React.FC<AdminRequirementsStudioProps> = ({ token
 
   useEffect(() => {
     if (!selectedCitation) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setCitationStatusDraft(selectedCitation.verificationStatus);
      
     setCitationPageNumber(selectedCitation.pageNumber != null ? String(selectedCitation.pageNumber) : '');
