@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "chatgpt/k1a-current",
-  "base_sha": "6f9b005907197389c3782ef5e4e2ff0e3aa38e94",
+  "base_sha": "760d5a153a2b8fa0f57089873d4d92673fa6a477",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "package.json",
