@@ -100,53 +100,15 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     expect(report.failed_invariants).toEqual([]);
   });
 
-  it('fails if a candidate redirects trusted proof execution from controller code to candidate code', () => {
-    const root = targetFixture();
-    mutate(
-      root,
-      '.github/workflows/devgov-v0-attest.yml',
-      'node controller/scripts/devgov/devgov.mjs execute-proof',
-      'node candidate/scripts/devgov/devgov.mjs execute-proof',
-    );
-
-    const report = evaluate(root);
-    expect(report.result).toBe('FAIL');
-    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
-  });
-
-  // Regression coverage for F-10: a candidate can obfuscate a redirected attest-execution
-  // invocation behind a decoy comment (satisfying the old bare hasAll() text check) plus a
-  // dynamically-assembled `node "$SIGNER_SCRIPT" attest-execution` that is what actually executes.
-  it('fails DG-IP-001 if a candidate redirects attest-execution via a decoy comment and a dynamically-assembled node target', () => {
-    const root = targetFixture();
-    mutate(
-      root,
-      '.github/workflows/devgov-v0-attest.yml',
-      '          node controller/scripts/devgov/devgov.mjs attest-execution \\',
-      '          # decoy (never executed, satisfies textual audit): node controller/scripts/devgov/devgov.mjs attest-execution\n          P1="cand"; P2="idate"; SIGNER_SCRIPT="${P1}${P2}/scripts/devgov/devgov.mjs"\n          node "$SIGNER_SCRIPT" attest-execution \\',
-    );
-
-    const report = evaluate(root);
-    expect(report.result).toBe('FAIL');
-    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
-  });
-
-  // Regression coverage for F-10, defense-in-depth layer: the dynamic-target class must be caught
-  // even with no decoy comment at all, proving noDynamicNodeInvocation alone closes the gap
-  // independent of comment-stripping.
-  it('fails DG-IP-001 if a candidate redirects attest-execution via a dynamically-assembled node target with no decoy comment', () => {
-    const root = targetFixture();
-    mutate(
-      root,
-      '.github/workflows/devgov-v0-attest.yml',
-      '          node controller/scripts/devgov/devgov.mjs attest-execution \\',
-      '          SIGNER_SCRIPT="controller/scripts/devgov/devgov.mjs"\n          node "$SIGNER_SCRIPT" attest-execution \\',
-    );
-
-    const report = evaluate(root);
-    expect(report.result).toBe('FAIL');
-    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
-  });
+  // DG-IP-001-PROTECTED-CONTROLLER-SEPARATION (and the three cases that exercised it here) was
+  // removed by DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1 (F-10 structural fix):
+  // .github/workflows/devgov-v0-attest.yml is now covered by CONTROLLER_OWNED_FLOOR_PATHS, so no
+  // candidate diff touching it -- including every mutation these three cases used to construct --
+  // can ever reach invariant-pack content evaluation again; it is rejected at admission instead.
+  // Regression coverage for the historical F-10 attack (the decoy-comment /
+  // dynamically-assembled-node-target redirection) now lives in
+  // devgovExactShaVerification.test.ts's "rejects the historical F-10 attest-execution redirection
+  // attack at admission" case, which proves the same attack is caught earlier, not later.
 
   it('fails if canonical gate stops running the controller-owned pack set', () => {
     const root = targetFixture();
