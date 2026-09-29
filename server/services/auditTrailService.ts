@@ -8,6 +8,7 @@
 
 import { prisma } from '../../db.server';
 import { logger } from '../logger';
+import { verifyAllSignaturesForApplication } from './digitalsignatureService';
 
 // ============================================================================
 // AUDIT ENTRY TYPES
@@ -461,6 +462,21 @@ export async function generateComplianceReport(referenceNumber: string): Promise
 
   const criticalEvents = auditTrail.filter((e) => e.severity === 'critical');
 
+  // HD-10 (A9 sweep, 2026-09-29): this used to hardcode 'VERIFIED' unconditionally — an internal
+  // contradiction, since verifyAllSignaturesForApplication (digitalsignatureService.ts) for this
+  // exact referenceNumber always returned allSignaturesValid: false (no verified signature source
+  // is configured yet). A case handler reading this report would be told signatures were verified
+  // while the system's own signature check said the opposite. Derive the status from that same
+  // real check instead.
+  let signatureVerificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'INVALID' = 'UNVERIFIED';
+  try {
+    const signatureCheck = await verifyAllSignaturesForApplication(referenceNumber);
+    signatureVerificationStatus = signatureCheck.allSignaturesValid ? 'VERIFIED' : 'UNVERIFIED';
+  } catch (error) {
+    logger.warn('generateComplianceReport: signature verification check failed', { error, referenceNumber });
+    signatureVerificationStatus = 'INVALID';
+  }
+
   return {
     referenceNumber,
     reportGeneratedAt: new Date().toISOString(),
@@ -471,7 +487,7 @@ export async function generateComplianceReport(referenceNumber: string): Promise
       action: e.action,
       actor: e.userId,
     })),
-    signatureVerificationStatus: 'VERIFIED', // Hardcoded pending live BankID signature chain verification
+    signatureVerificationStatus,
     juridicalTraceability: true, // All decisions traced
     environmentalTraceability: true, // GIS analysis & environmental data traced
     economicalTraceability: true, // Cost calculations & approvals traced

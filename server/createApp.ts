@@ -33,7 +33,6 @@ import cNotificationMassRouter from './routes/cNotificationMass.routes';
 import hydroRouter from './routes/hydro.routes';
 import tilesRouter from './routes/tiles.routes';
 import pdfExportRouter from './routes/pdf-export.routes';
-import bankComplianceRouter from './routes/bankCompliance.routes';
 import erpSyncRouter from './routes/erpSync.routes';
 import searchRoutes from './routes/searchRoutes';
 import recommendationRoutes from './routes/recommendationRoutes';
@@ -182,7 +181,13 @@ export function createApp() {
   app.use(hydroRouter);
   app.use(tilesRouter);
   app.use(propertyLookupRouter);
-  app.use(bankComplianceRouter);
+  // POST /api/projects/:projectId/bank-compliance-index -- retired (W3b, C1/OD-04).
+  // MAP-2-SEMANTICS.md Delta 2026-09-28: "Bank-endpointen ska avvecklas; den ska inte göras till
+  // governed beslutsmotor." generateBankComplianceIndex() called evaluateComplianceRules with
+  // permanently hardcoded empty inputs -- structurally unable to ever raise a flag -- with zero
+  // frontend consumers anywhere. The underlying bankComplianceService.ts is left in place as
+  // unreferenced, forward-only dead code (no other caller exists), per the established
+  // no-drive-by-cleanup norm -- only the route registration that made it reachable is removed here.
   app.use(erpSyncRouter);
 
   // Legacy alias for Prometheus metrics (bearer token or localhost only)
