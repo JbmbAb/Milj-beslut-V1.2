@@ -22,7 +22,8 @@
     "tests/unit/serverLowCoverageServices.test.ts",
     "tests/unit/services/auditTrailService.test.ts",
     "tests/unit/sewageRoutes.test.ts",
-    "governance/devgov/units/hd-sweep-a9-01-v1.json"
+    "governance/devgov/units/hd-sweep-a9-01-v1.json",
+    "docs/architecture/audits/HD-SWEEP-A9-01-V1.md"
   ],
   "forbidden_paths": [
     ".github/**",
