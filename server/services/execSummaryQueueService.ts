@@ -15,7 +15,6 @@
 import crypto from 'node:crypto';
 import { logger } from '../logger';
 import { appendDomainAudit } from '../security/auditTrail';
-import { generateJsonWithVertex } from './vertexAiService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -187,25 +186,18 @@ async function generateSummary(projectId: string): Promise<ExecSummaryResult> {
     };
   }
 
-  // Try live Vertex AI if configured
+  // HD-03 (A9 sweep, 2026-09-29): this branch used to send the LLM only the project id (no real
+  // project data — no observations, findings, or documents), then persist the model's guess as a
+  // genuine DONE result with a real-looking complianceScore. The job never failed, so the caller
+  // could not tell a data-grounded summary from an ungrounded one. Loading real project data into
+  // the prompt is a separate future unit, not this fix: until then, refuse explicitly rather than
+  // let an ungrounded model guess become an "exekutiv sammanfattning" a case handler relies on.
+  // (EXEC_SUMMARY_MOCK_MODE above stays available: it is an explicit opt-in whose own summary text
+  // says "no live data has been analysed" — self-disclosed, not a silent fabrication.)
   if (process.env.VERTEX_PROJECT_ID?.trim()) {
-    try {
-      const prompt = `Du är en senior miljökonsult. Generera en exekutiv sammanfattning för miljöprojekt ${projectId}.
-Svara med JSON enligt schema:
-{ "summary": "string", "keyRisks": ["..."], "recommendations": ["..."], "complianceScore": 0.0-1.0 }`;
-
-      const result = await generateJsonWithVertex(prompt, {
-        profile: 'json',
-        parse: (p) => parseExecSummaryJson(p),
-      });
-      if (result) {
-        return { ...result, generatedAt };
-      }
-      throw new Error('Failed to parse AI model response into valid JSON summary.');
-    } catch (err) {
-      logger.warn('exec-summary: Vertex call failed', { err: String(err) });
-      throw err;
-    }
+    throw new Error(
+      `exec-summary: real generation is not implemented for project ${projectId} (HD-03) — no real project data is loaded into the prompt. Set EXEC_SUMMARY_MOCK_MODE=true for a clearly-labelled placeholder.`,
+    );
   }
 
   // If no Vertex, it's a configuration error.
