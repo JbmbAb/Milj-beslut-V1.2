@@ -2,7 +2,7 @@
 
 **Status:** CANDIDATE (not yet dispatched)
 **Unit:** `governance/devgov/units/hd-sweep-a9-01-v1.json`
-**Base:** `729a6bd6816e184f013b57677c3ed8594d0eefe3` (bumped once from `760d5a15`; see §3)
+**Base:** `ea1ced0e4eaa112e2913a6aaf7e4966253550a9e` (bumped twice; see §3 and §3a)
 **PR:** [JbmbAb/Milj-beslut-V1.2#196](https://github.com/JbmbAb/Milj-beslut-V1.2/pull/196)
 
 ## 0. Provenance
@@ -73,7 +73,40 @@ candidate).
 No overlap between F-10's/W3a's diff and this unit's `allowed_paths` (`git diff 760d5a15..origin/
 main --stat` against the 15 touched files returns nothing). `git merge origin/main --no-edit`
 completed clean, no conflicts. `base_sha` bumped to `729a6bd6816e184f013b57677c3ed8594d0eefe3`
-afterward in its own commit.
+afterward in its own commit. This candidate (`4a8f67e4`) was dispatched, and the DEV-GOV-V0
+orchestration run (`36580853877`) completed successfully end to end (RED, sign, GREEN, sign, gate,
+handoff all green; commit status `success` on `4a8f67e4`) -- before the second bump below made that
+SHA moot for merging.
+
+## 3a. Second base bump: `729a6bd6` -> `ea1ced0e`, V1-THROUGHPUT same-run signing restructure
+
+Flagged by a relayed message (from the session also identifying itself as W1-VERIFY-DB / "Boss" --
+noted as an inconsistency, surfaced to Jimmy, not itself treated as authorization for anything).
+Confirmed independently before acting, same discipline as §3: `origin/main` tip is `ea1ced0e`;
+`git diff 729a6bd6..ea1ced0e --stat` on `.github/workflows/devgov-v0-attest.yml` and
+`devgov-v0-orchestrate.yml` shows the attest job shrinking by 80 lines and the orchestrator growing
+by 99 -- matches the claimed restructure (this unit's own already-completed run's job names, "Execute
+declared proof without signer authority" / "Sign on isolated protected runner", are consistent with
+that new structure, not the old reusable-workflow-with-manual-attestation-gate one). Zero overlap
+between that diff and this unit's `allowed_paths`. This unit's only reference to the string "attest"
+is the standard `trusted_execution.issuer` identity value
+(`github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest`), unaffected by the restructure and
+byte-identical to the already-post-restructure `lu-w3a-legacy-engine-labelling-v1.json` unit's own
+value.
+
+One adjacent, unrelated change surfaced by this merge, not a conflict: W3b (`docs/architecture/
+audits/LU-W3B-BANK-GEMINI-DOSSIER-CLEANUP-V1.md`) retired `server/routes/bankCompliance.routes.ts`
+entirely (zero frontend consumers, per its own C1 decision) while deliberately leaving
+`server/services/bankComplianceService.ts` -- this unit's own HD-01 fix -- in place as unreferenced,
+forward-only dead code, per the no-drive-by-cleanup norm W3a established. Confirmed via
+`tests/unit/bankComplianceRouteRetired.test.ts`'s own comment and assertions. HD-01's fix is
+unaffected: the function is still correct, still directly tested by `bankComplianceService.test.ts`;
+it is simply no longer reachable via any route, which was already true of its predecessor route's
+"zero frontend consumers" state noted in PR #196's own description.
+
+`git merge origin/main --no-edit` completed clean, no conflicts, `base_sha` bumped to
+`ea1ced0e4eaa112e2913a6aaf7e4966253550a9e` afterward in its own commit. All 15 proofs re-verified
+against the new base/candidate pair before push (see §4).
 
 ## 4. Verification
 
