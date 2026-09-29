@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "fix/c-anmalan-hd-sweep-2026-09-29",
-  "base_sha": "760d5a153a2b8fa0f57089873d4d92673fa6a477",
+  "base_sha": "729a6bd6816e184f013b57677c3ed8594d0eefe3",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "server/services/bankComplianceService.ts",
