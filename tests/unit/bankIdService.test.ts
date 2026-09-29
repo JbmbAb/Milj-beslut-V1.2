@@ -625,6 +625,30 @@ describe('bankIdService', () => {
     });
   });
 
+  // HD-09 (AOP-20): a missing completion signature must fail closed, never be replaced with a
+  // fabricated `mock-sig-...` placeholder that would then get hashed and trusted by the global
+  // replay-protection signature check.
+  it('fails closed when a complete response is missing a signature, on both mock and real paths', async () => {
+    mocks.scenarios.push({
+      statusCode: 200,
+      body: JSON.stringify({
+        orderRef: 'order-no-sig',
+        status: 'complete',
+        completionData: {
+          user: { personalNumber: '191212121212', givenName: 'Test', surname: 'User', name: 'Test User' },
+          device: { ipAddress: '127.0.0.1' },
+          cert: { notBefore: '2026-03-21T12:00:00.000Z', notAfter: '2028-03-21T12:00:00.000Z' },
+          ocspResponse: 'ocsp',
+        },
+      }),
+    });
+
+    await expect(collectBankIdAuth('order-no-sig', '127.0.0.1')).rejects.toThrow(
+      /missing signature/i,
+    );
+    expect(mocks.persistentReplayProtection.validateAndComplete).not.toHaveBeenCalled();
+  });
+
   it('rejects complete responses without a personal number', async () => {
     mocks.scenarios.push({
       statusCode: 200,
@@ -653,6 +677,10 @@ describe('bankIdService', () => {
           user: {
             personalNumber: '191212121212',
           },
+          // HD-09: this test exercises the org-permission check further downstream, not
+          // signature handling -- a real BankID response always carries a signature, so the
+          // fixture must too, or fail-closed signature validation would reject it first.
+          signature: 'signature-4',
         },
       }),
     });

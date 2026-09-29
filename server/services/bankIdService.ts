@@ -306,12 +306,18 @@ async function collectBankIdResult(orderRef: string, endUserIp: string): Promise
     const bankidId = response.completionData?.user?.personalNumber;
     if (!bankidId) throw new Error('BankID complete response missing personal number');
 
+    // HD-09 (AOP-20): a missing completion signature must fail closed, never be replaced with a
+    // fabricated placeholder -- the replay-protection signature hash is only meaningful when it
+    // is hashed from a signature BankID actually issued.
+    const signature = response.completionData?.signature;
+    if (!signature) throw new Error('BankID complete response missing signature');
+
     // Anti-replay check
     await persistentReplayProtection.validateAndComplete({
       orderRef,
       ipAddress: endUserIp,
       bankidId,
-      signature: response.completionData?.signature || `mock-sig-${orderRef}`,
+      signature,
     });
   }
 
