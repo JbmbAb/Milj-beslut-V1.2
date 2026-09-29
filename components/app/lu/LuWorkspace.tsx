@@ -832,12 +832,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                   risk". An unassessed site must say so explicitly. */}
               {compliance.overallRisk ?? NOT_ASSESSED_LABEL[motor?.assessment_status ?? 'NOT_ASSESSED']}
             </span>
-            {typeof compliance.permitProbability === 'number' ? (
-              <span className="opacity-70">
-                {' '}
-                · tillståndssannolikhet {(compliance.permitProbability * 100).toFixed(0)}%
-              </span>
-            ) : null}
           </p>
 
           {(analysis?.dataSources?.length ?? 0) > 0 ? (

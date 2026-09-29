@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   initiateBankIDSignature: vi.fn(),
   completeBankIDSignature: vi.fn(),
   checkSignatureStatus: vi.fn(),
+  getOrderRefBinding: vi.fn(),
   verifyAllSignaturesForApplication: vi.fn(),
   getSubmissionOrgAndProjectByKey: vi.fn(),
   assertProjectAccess: vi.fn(),
@@ -60,6 +61,7 @@ vi.mock('../../server/modules/sewage/public', () => ({
   initiateBankIDSignature: mocks.initiateBankIDSignature,
   completeBankIDSignature: mocks.completeBankIDSignature,
   checkSignatureStatus: mocks.checkSignatureStatus,
+  getOrderRefBinding: mocks.getOrderRefBinding,
   verifyAllSignaturesForApplication: mocks.verifyAllSignaturesForApplication,
   getSubmissionOrgAndProjectByKey: mocks.getSubmissionOrgAndProjectByKey,
   createSewageApplication: mocks.createSewageApplication,
@@ -93,13 +95,13 @@ const app = express();
 app.use(express.json());
 app.use(sewageRoutes);
 
-function authHeader() {
+function authHeader(organisationId = 'org-1', role = 'ADMIN') {
   return `Bearer ${
     createTokenPair({
       id: 'user-1',
-      organisationId: 'org-1',
+      organisationId,
       bankidId: 'user:one',
-      role: 'ADMIN',
+      role,
     }).accessToken
   }`;
 }
@@ -136,6 +138,10 @@ describe('sewage.routes', () => {
     mocks.initiateBankIDSignature.mockResolvedValue({ orderRef: 'order-1' });
     mocks.completeBankIDSignature.mockResolvedValue({ signatureId: 'sig-1' });
     mocks.checkSignatureStatus.mockResolvedValue({ status: 'PENDING' });
+    mocks.getOrderRefBinding.mockReturnValue({
+      referenceNumber: 'AVLOPP-app-1',
+      documentHash: 'hash-1',
+    });
     mocks.verifyAllSignaturesForApplication.mockResolvedValue({ allSigned: true });
     mocks.getEnv.mockReturnValue('webhook-secret');
   });
@@ -208,6 +214,27 @@ describe('sewage.routes', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('not valid');
     });
+
+    // HD-15 (A9 sweep, 2026-09-29): /validate and /submit read/act on an application looked up
+    // purely by :id, with no check that the caller's organisation owns it — unlike the sibling
+    // GET/PATCH /application/:id routes just above, which already deny cross-tenant access.
+    it('GET /sewage/application/:id/validate - 403 för användare från annan organisation', async () => {
+      const res = await request(app)
+        .get('/sewage/application/app-1/validate')
+        .set('Authorization', authHeader('org-2', 'USER'));
+
+      expect(res.status).toBe(403);
+      expect(mocks.validateApplicationForSubmission).not.toHaveBeenCalled();
+    });
+
+    it('POST /sewage/application/:id/submit - 403 för användare från annan organisation', async () => {
+      const res = await request(app)
+        .post('/sewage/application/app-1/submit')
+        .set('Authorization', authHeader('org-2', 'USER'));
+
+      expect(res.status).toBe(403);
+      expect(mocks.submitApplicationToMunicipality).not.toHaveBeenCalled();
+    });
   });
 
   describe('WEBHOOKS & STATUS', () => {
@@ -226,6 +253,44 @@ describe('sewage.routes', () => {
         .send({ referenceNumber: 'REF-1', status: 'APPROVED' });
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  // HD-15 (A9 sweep, 2026-09-29): GET /sewage/signatures/:orderRef/status called
+  // checkSignatureStatus for ANY orderRef with no check that the caller's organisation owns the
+  // submission that orderRef belongs to. The fix looks up the initiate-time binding (HD-16's
+  // getOrderRefBinding) and runs it through the same validateProjectAccessForReference tenant
+  // check every sibling reference-scoped route already uses.
+  describe('SIGNATURE STATUS TENANT ISOLATION (HD-15)', () => {
+    it('GET /sewage/signatures/:orderRef/status - nekar när projektåtkomst nekas för den bundna referensen', async () => {
+      mocks.assertProjectAccess.mockRejectedValueOnce(new Error('Access denied'));
+
+      const res = await request(app)
+        .get('/sewage/signatures/order-1/status')
+        .set('Authorization', authHeader());
+
+      expect(res.status).not.toBe(200);
+      expect(mocks.checkSignatureStatus).not.toHaveBeenCalled();
+    });
+
+    it('GET /sewage/signatures/:orderRef/status - nekar när orderRef saknar initiate-bindning', async () => {
+      mocks.getOrderRefBinding.mockReturnValueOnce(undefined);
+
+      const res = await request(app)
+        .get('/sewage/signatures/never-initiated/status')
+        .set('Authorization', authHeader());
+
+      expect(res.status).not.toBe(200);
+      expect(mocks.checkSignatureStatus).not.toHaveBeenCalled();
+    });
+
+    it('GET /sewage/signatures/:orderRef/status - lyckas när bindningen finns och åtkomst beviljas', async () => {
+      const res = await request(app)
+        .get('/sewage/signatures/order-1/status')
+        .set('Authorization', authHeader());
+
+      expect(res.status).toBe(200);
+      expect(mocks.checkSignatureStatus).toHaveBeenCalledWith('order-1', expect.any(String));
     });
   });
 });

@@ -13,6 +13,7 @@ export {
   initiateBankIDSignature,
   completeBankIDSignature,
   checkSignatureStatus,
+  getOrderRefBinding,
   verifyAllSignaturesForApplication,
 } from '../../services/digitalsignatureService';
 export { getSubmissionOrgAndProjectByKey } from './adapters/submissionLookup';

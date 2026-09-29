@@ -69,6 +69,13 @@ export interface LocalizationPdfData {
       description: string;
       recommendation: string;
     }>;
+    /**
+     * W3a -- SEM-2/SEM-3 (Q2): present IFF `restrictions`/`rules` above actually came from the
+     * legacy engine (i.e. either array is non-empty), so a caseworker never reads them as part of
+     * the governed verdict above. Independent of `assessment_status`/`overallRisk`: a site can be
+     * ungoverned and still carry a legacy observation, or governed and still carry one alongside it.
+     */
+    legacyObservationLabel?: string;
     monumentCount: number;
     monumentNames: string[];
     warnings: string[];
@@ -163,6 +170,9 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
         description: rule.description,
         recommendation: rule.recommendation,
       })),
+      ...(analysis.complianceAnalysis.legacyObservation
+        ? { legacyObservationLabel: 'Observation från äldre regelmotor — ej del av den styrda bedömningen' }
+        : {}),
       monumentCount: analysis.monuments.length,
       monumentNames: analysis.monuments.slice(0, 5).map((m) => m.name),
       warnings: analysis.warnings,

@@ -1,0 +1,89 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-controller-owned-path-floor-v1",
+  "base_sha": "b48ed5e262793b0bf8086dad18a0729e399f84b9",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "scripts/devgov/devgov.mjs",
+    "scripts/devgov/invariant-packs.mjs",
+    "governance/devgov/invariant-packs/devgov-controller-core-v1.json",
+    "scripts/audit/devgovExactShaVerification.test.ts",
+    "scripts/audit/devgovInvariantPacks.test.ts",
+    "scripts/dev-helpers/lib/unitLint.mjs",
+    "scripts/dev-helpers/unit/devgovHelpers.test.ts",
+    "governance/devgov/units/devgov-controller-owned-path-floor-v1.json",
+    "docs/architecture/audits/DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0-gate.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    ".github/workflows/devgov-invariant-packs.yml",
+    ".github/workflows/devgov-v0.yml",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "components/**"
+  ],
+  "required_red": [
+    {
+      "id": "controller-owned-floor-rejects-empty-forbidden-paths-touch",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst path = require('node:path');\nconst { pathToFileURL } = require('node:url');\nconst V = (m) => { console.error('CONTROLLER_OWNED_FLOOR_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('CONTROLLER_OWNED_FLOOR_HARNESS_ERROR: ' + m); process.exit(2); };\n(async () => {\n  try {\n    const modUrl = pathToFileURL(path.resolve(process.cwd(), 'scripts/devgov/devgov.mjs')).href;\n    const mod = await import(modUrl);\n    if (typeof mod.evaluateRepositoryState !== 'function') H('evaluateRepositoryState export not found');\n    const manifest = {\n      schema_version: 'dev-gov-v1-unit-definition',\n      unit: 'PROBE-EMPTY-FORBIDDEN-PATHS',\n      role: 'producer',\n      mode: 'writer',\n      branch: 'probe/empty-forbidden-paths',\n      base_sha: '0000000000000000000000000000000000000000',\n      ancestry_policy: 'descendant_of_base',\n      allowed_paths: ['.github/workflows/devgov-v0-attest.yml'],\n      forbidden_paths: [],\n    };\n    const state = {\n      worktree: process.cwd(),\n      branch: 'probe/empty-forbidden-paths',\n      dirty: false,\n      is_descendant_of_base: true,\n      changed_paths: ['.github/workflows/devgov-v0-attest.yml'],\n    };\n    const result = mod.evaluateRepositoryState(manifest, state, {\n      candidateSha: '1111111111111111111111111111111111111111',\n      worktree: process.cwd(),\n    });\n    if (result.result === 'PASS') {\n      V('a unit definition with an EMPTY forbidden_paths was admitted to modify .github/workflows/devgov-v0-attest.yml -- no controller-owned floor is enforced');\n    }\n    if (result.result === 'DENIED_GOVERNANCE' && result.errors.some((e) => e.includes('FORBIDDEN_PATH'))) {\n      console.log('CONTROLLER_OWNED_FLOOR_OK: a unit definition with an empty forbidden_paths was correctly denied for touching a protected path: ' + result.errors.join(' | '));\n      process.exit(0);\n    }\n    H('unexpected evaluateRepositoryState result: ' + JSON.stringify(result));\n  } catch (e) {\n    H('unexpected: ' + (e && e.stack ? e.stack : e));\n  }\n})();\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "controller-owned-floor-rejects-empty-forbidden-paths-touch",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst path = require('node:path');\nconst { pathToFileURL } = require('node:url');\nconst V = (m) => { console.error('CONTROLLER_OWNED_FLOOR_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('CONTROLLER_OWNED_FLOOR_HARNESS_ERROR: ' + m); process.exit(2); };\n(async () => {\n  try {\n    const modUrl = pathToFileURL(path.resolve(process.cwd(), 'scripts/devgov/devgov.mjs')).href;\n    const mod = await import(modUrl);\n    if (typeof mod.evaluateRepositoryState !== 'function') H('evaluateRepositoryState export not found');\n    const manifest = {\n      schema_version: 'dev-gov-v1-unit-definition',\n      unit: 'PROBE-EMPTY-FORBIDDEN-PATHS',\n      role: 'producer',\n      mode: 'writer',\n      branch: 'probe/empty-forbidden-paths',\n      base_sha: '0000000000000000000000000000000000000000',\n      ancestry_policy: 'descendant_of_base',\n      allowed_paths: ['.github/workflows/devgov-v0-attest.yml'],\n      forbidden_paths: [],\n    };\n    const state = {\n      worktree: process.cwd(),\n      branch: 'probe/empty-forbidden-paths',\n      dirty: false,\n      is_descendant_of_base: true,\n      changed_paths: ['.github/workflows/devgov-v0-attest.yml'],\n    };\n    const result = mod.evaluateRepositoryState(manifest, state, {\n      candidateSha: '1111111111111111111111111111111111111111',\n      worktree: process.cwd(),\n    });\n    if (result.result === 'PASS') {\n      V('a unit definition with an EMPTY forbidden_paths was admitted to modify .github/workflows/devgov-v0-attest.yml -- no controller-owned floor is enforced');\n    }\n    if (result.result === 'DENIED_GOVERNANCE' && result.errors.some((e) => e.includes('FORBIDDEN_PATH'))) {\n      console.log('CONTROLLER_OWNED_FLOOR_OK: a unit definition with an empty forbidden_paths was correctly denied for touching a protected path: ' + result.errors.join(' | '));\n      process.exit(0);\n    }\n    H('unexpected evaluateRepositoryState result: ' + JSON.stringify(result));\n  } catch (e) {\n    H('unexpected: ' + (e && e.stack ? e.stack : e));\n  }\n})();\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "devgov-invariant-regression-tests",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst { spawnSync } = require('node:child_process');\nconst result = spawnSync(\n  process.execPath,\n  ['./node_modules/vitest/vitest.mjs', 'run',\n   'scripts/audit/devgovExactShaVerification.test.ts',\n   'scripts/audit/devgovInvariantPacks.test.ts',\n   'scripts/audit/devgovPathBranchLock.test.ts',\n   'scripts/audit/devgovOrchestration.test.ts',\n   'scripts/audit/devgovRedGreenGate.test.ts',\n   'scripts/dev-helpers/unit/devgovHelpers.test.ts'],\n  { encoding: 'utf8', cwd: process.cwd() },\n);\nif (result.status !== 0) {\n  console.error('CONTROLLER_OWNED_FLOOR_REGRESSION_VIOLATION: real vitest suite failed');\n  console.error(result.stdout ? result.stdout.slice(-4000) : '');\n  console.error(result.stderr ? result.stderr.slice(-4000) : '');\n  process.exit(1);\n}\nconsole.log('CONTROLLER_OWNED_FLOOR_REGRESSION_OK: real vitest suite passed');\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 180000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-controller-owned-path-floor-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

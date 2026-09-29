@@ -166,7 +166,6 @@ jobs:
       unit_definition_path: ${{ github.event.client_payload.unit_definition_path }}
       proof_kind: RED
       test_id: ${{ matrix.test_id }}
-    secrets: inherit
 
   green:
     name: GREEN / ${{ matrix.test_id }}
@@ -186,7 +185,102 @@ jobs:
       unit_definition_path: ${{ github.event.client_payload.unit_definition_path }}
       proof_kind: GREEN
       test_id: ${{ matrix.test_id }}
-    secrets: inherit
+
+  # V1-THROUGHPUT (one-approval signing): every RED/GREEN execute: job (still unprotected, still
+  # running once per declared check via the red:/green: matrices above) uploads only an UNSIGNED
+  # execution record, exactly as before. This job is the ONE human-approved signing step for the
+  # WHOLE candidate -- same run as every execute: job it signs for (no cross-run/payload-supplied
+  # run identity anywhere), so GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT here are exactly the values every
+  # unsigned record was already stamped with. Every declared (kind, id) comes from the candidate's
+  # own verified unit definition (attest-all reads required_red/required_green itself), never from
+  # a shell loop over externally-supplied text. devgov-v0-gate.yml is unchanged: it still downloads
+  # devgov-attestation-RED-*/GREEN-* artifacts and verifies them exactly as before: the only thing
+  # that changes is which job produced them.
+  sign:
+    name: Sign trusted execution attestations
+    needs:
+      - plan
+      - invariant-packs
+      - red
+      - green
+    runs-on: ubuntu-latest
+    environment: devgov-attestation
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Checkout exact candidate without executing candidate code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Verify exact candidate and unit definition containment
+        env:
+          EXPECTED_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+        run: |
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          candidate_root="$(realpath candidate)"
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
+            "$candidate_root"/*) ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
+          esac
+
+      - name: Download unsigned execution records from this same run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/devgov-unsigned
+
+      - name: Sign trusted execution attestations
+        env:
+          DEVGOV_ATTESTATION_PRIVATE_KEY_PEM: ${{ secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM }}
+          DEVGOV_ATTESTATION_ISSUER: ${{ vars.DEVGOV_ATTESTATION_ISSUER }}
+          DEVGOV_ATTESTATION_KEY_ID: ${{ vars.DEVGOV_ATTESTATION_KEY_ID }}
+          DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
+          DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+        run: |
+          node controller/scripts/devgov/devgov.mjs attest-all \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --worktree candidate \
+            --records-root "$RUNNER_TEMP/devgov-unsigned" \
+            --output-dir "$RUNNER_TEMP/devgov-signed"
+
+      - name: Upload signed RED attestations
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-attestation-RED-${{ github.event.client_payload.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-signed/attestation-RED-*.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+      - name: Upload signed GREEN attestations
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-attestation-GREEN-${{ github.event.client_payload.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-signed/attestation-GREEN-*.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
 
   gate:
     name: Dispatch canonical trusted evidence gate
@@ -195,6 +289,7 @@ jobs:
       - invariant-packs
       - red
       - green
+      - sign
     runs-on: ubuntu-latest
     permissions:
       actions: read

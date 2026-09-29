@@ -9,18 +9,59 @@ const gateWorkflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-gat
 const orchestratorWorkflowPath = resolve(process.cwd(), '.github/workflows/devgov-v0-orchestrate.yml');
 
 describe('DEV-GOV-V0 protected execution workflow', () => {
-  it('keeps execution and signing authority on separate runner jobs', () => {
+  // V1-THROUGHPUT (one-approval signing): devgov-v0-attest.yml now holds only execute: -- no
+  // per-check signing job, no environment, no key. Signing moved to a same-run sign: job in
+  // devgov-v0-orchestrate.yml, the ONE environment-protected click per candidate. See the
+  // corresponding assertions on the orchestrator's sign: job below.
+  it('keeps execution unprotected and grants it no signer authority', () => {
     const source = readFileSync(workflowPath, 'utf8');
     const workflow = parse(source);
-    const execute = workflow.jobs.execute;
-    const attest = workflow.jobs.attest;
 
-    expect(attest.needs).toBe('execute');
-    expect(attest.environment).toBe('devgov-attestation');
-    expect(JSON.stringify(execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(JSON.stringify(attest)).toContain('secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(JSON.stringify(execute)).toContain('persist-credentials');
-    expect(JSON.stringify(attest)).toContain('persist-credentials');
+    expect(Object.keys(workflow.jobs)).toEqual(['execute']);
+    expect(workflow.jobs.execute.environment).toBeUndefined();
+    expect(JSON.stringify(workflow.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(JSON.stringify(workflow.jobs.execute)).not.toContain('devgov-attestation');
+    expect(JSON.stringify(workflow.jobs.execute)).toContain('persist-credentials');
+  });
+
+  it('signs on a same-run, environment-protected job in the orchestrator, not the reusable attest workflow', () => {
+    const source = readFileSync(orchestratorWorkflowPath, 'utf8');
+    const workflow = parse(source);
+    const sign = workflow.jobs.sign;
+
+    expect(sign).toBeTruthy();
+    expect(sign.needs).toEqual(['plan', 'invariant-packs', 'red', 'green']);
+    expect(sign.environment).toBe('devgov-attestation');
+    expect(workflow.jobs.gate.needs).toContain('sign');
+    expect(JSON.stringify(sign)).toContain('secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    expect(JSON.stringify(sign)).toContain('persist-credentials');
+    // No other orchestrator job may hold environment/secret access -- DG-IP-002 enforces this at
+    // the controller level too (scripts/devgov/invariant-packs.mjs); this test pins the same
+    // property directly against the YAML so a future edit that widens it fails here first.
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      if (name === 'sign') continue;
+      expect(JSON.stringify(job)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+      expect(JSON.stringify(job)).not.toContain('devgov-attestation');
+    }
+    // execute: (inside devgov-v0-attest.yml, called via red:/green:) never used the signer
+    // secrets, so red:/green: no longer need secrets: inherit -- narrower than before.
+    expect(workflow.jobs.red.secrets).toBeUndefined();
+    expect(workflow.jobs.green.secrets).toBeUndefined();
+  });
+
+  it('signs every declared proof id from the verified unit definition, not a shell-templated loop', () => {
+    const source = readFileSync(orchestratorWorkflowPath, 'utf8');
+    const workflow = parse(source);
+    const sign = workflow.jobs.sign.steps.find(
+      (step) => step.name === 'Sign trusted execution attestations',
+    );
+
+    expect(source).toContain('node controller/scripts/devgov/devgov.mjs attest-all');
+    expect(sign.run).toContain('--records-root "$RUNNER_TEMP/devgov-unsigned"');
+    expect(sign.run).toContain('--output-dir "$RUNNER_TEMP/devgov-signed"');
+    // No ${{ }} expression may be spliced directly into this (or any) run: block -- DG-IP-009
+    // enforces this at the controller level; pinned here too.
+    expect(sign.run).not.toMatch(/\$\{\{/);
   });
 
   it('exposes no standalone dispatch entry point -- workflow_call is the only trigger', () => {
@@ -139,25 +180,35 @@ describe('DEV-GOV-V0 protected execution workflow', () => {
     expect(source).toContain('ref: ${{ inputs.candidate_sha }}');
     expect(source).toContain('test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs execute-proof');
-    expect(source).toContain('node controller/scripts/devgov/devgov.mjs attest-execution');
     expect(source).toContain('node controller/scripts/devgov/devgov.mjs resolve-execution-sha');
     expect(source).toContain('--candidate-sha "$CANDIDATE_SHA"');
     expect(source).toContain('--definition-worktree candidate');
     expect(source).toContain('test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"');
   });
 
-  it('publishes the signed attestation without making the unsigned record authoritative', () => {
-    const workflow = parse(readFileSync(workflowPath, 'utf8'));
-    const executeUpload = workflow.jobs.execute.steps.find(
+  it('publishes the signed attestations without making the unsigned records authoritative', () => {
+    const executeWorkflow = parse(readFileSync(workflowPath, 'utf8'));
+    const executeUpload = executeWorkflow.jobs.execute.steps.find(
       (step) => step.name === 'Upload unsigned execution record',
     );
-    const attestationUpload = workflow.jobs.attest.steps.find(
-      (step) => step.name === 'Publish immutable signed attestation artifact',
-    );
+    // Retention on the unsigned record was raised from 1 day to 5: signing now waits on RED and
+    // GREEN execution PLUS one human approval, a longer window than the old per-check design.
+    expect(executeUpload.with['retention-days']).toBe(5);
 
-    expect(executeUpload.with['retention-days']).toBe(1);
-    expect(attestationUpload.with.overwrite).toBe(false);
-    expect(attestationUpload.with['retention-days']).toBe(90);
+    const orchestratorWorkflow = parse(readFileSync(orchestratorWorkflowPath, 'utf8'));
+    const redUpload = orchestratorWorkflow.jobs.sign.steps.find(
+      (step) => step.name === 'Upload signed RED attestations',
+    );
+    const greenUpload = orchestratorWorkflow.jobs.sign.steps.find(
+      (step) => step.name === 'Upload signed GREEN attestations',
+    );
+    for (const upload of [redUpload, greenUpload]) {
+      expect(upload.with.overwrite).toBe(false);
+      expect(upload.with['retention-days']).toBe(90);
+      expect(upload.with['if-no-files-found']).toBe('error');
+    }
+    expect(redUpload.with.name).toBe('devgov-attestation-RED-${{ github.event.client_payload.candidate_sha }}');
+    expect(greenUpload.with.name).toBe('devgov-attestation-GREEN-${{ github.event.client_payload.candidate_sha }}');
   });
 });
 

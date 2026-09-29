@@ -151,6 +151,12 @@ describe('LuWorkspace', () => {
     await user.click(screen.getByTestId('lu-run'));
     expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
     expect(screen.getByTestId('lu-risk')).toHaveTextContent('MEDIUM');
+    // W3a (J-2): the raw permitProbability percentage is never shown, even when a governed
+    // number (0.5) is present -- hidden entirely until W3d decides a calibration requirement.
+    // Scoped to the whole screen, not lu-risk itself: the percentage renders as a sibling span,
+    // not inside the lu-risk-tagged element, so a narrower query would pass vacuously.
+    expect(screen.queryByText(/tillståndssannolikhet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/50\s*%/)).not.toBeInTheDocument();
     expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assess-site-1-abc');
     expect(screen.getByTestId('lu-property-context-id')).toHaveTextContent('prop-site-1');
     expect(screen.getByTestId('lu-finding-ids')).toHaveTextContent('LU-WATER-001');
