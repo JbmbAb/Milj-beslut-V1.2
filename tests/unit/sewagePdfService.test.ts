@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
   return {
     textCalls,
     docInstance,
+    drawMapToPdf: vi.fn(),
     reset() {
       textCalls.length = 0;
       finishHandler = undefined;
@@ -67,11 +68,14 @@ vi.mock('fs', () => ({
   createWriteStream: mocks.createWriteStream,
 }));
 
+// W3c: drawMapToPdf now resolves { intersectingZones, unavailableLayers } instead of a bare
+// string[], so the map-drawing service can tell "checked, zero zones" apart from "couldn't check
+// this layer". Default mock below models the fully-resolved case; individual tests override it.
 vi.mock('../../src/infrastructure/geo/static-map-generator', () => {
   return {
     StaticMapGenerator: class {
-      drawMapToPdf() {
-        return Promise.resolve(['Natura 2000: Mockområde']);
+      drawMapToPdf(...args: unknown[]) {
+        return mocks.drawMapToPdf(...args);
       }
     },
   };
@@ -106,6 +110,11 @@ const baseApplication = {
 describe('generateSewageDossierPdf', () => {
   beforeEach(() => {
     mocks.reset();
+    mocks.drawMapToPdf.mockReset();
+    mocks.drawMapToPdf.mockResolvedValue({
+      intersectingZones: ['Natura 2000: Mockområde'],
+      unavailableLayers: [],
+    });
   });
 
   it('generates a PDF path and includes property designation', async () => {
@@ -146,5 +155,51 @@ describe('generateSewageDossierPdf', () => {
     expect(joined).toContain('Model: gemini-test');
     expect(joined).toContain('Corr: corr-avlopp-1');
     expect(joined).toContain('Git: cafebabe');
+  });
+
+  it('W3c: never prints "Inga overlappande miljoskyddszoner identifierades" when a protection-zone layer could not be checked', async () => {
+    mocks.drawMapToPdf.mockResolvedValue({
+      intersectingZones: [],
+      unavailableLayers: ['Vattenskyddsområde'],
+    });
+
+    const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
+    await generateSewageDossierPdf(baseApplication as any, 'C:\\temp\\dossier-unavailable.pdf');
+
+    const joined = mocks.textCalls.join(' ');
+    expect(joined).not.toContain('Inga överlappande miljöskyddszoner identifierades');
+    // S3: the caveat and the layer name must appear together in one rendered line, not merely
+    // somewhere in the page (which a naive .join(' ') substring check can't tell apart from two
+    // unrelated calls that happen to each contain half the phrase).
+    expect(mocks.textCalls.some((call) => call.includes('Kunde inte kontrollera') && call.includes('Vattenskyddsområde'))).toBe(true);
+  });
+
+  it('W3c: still lists intersecting zones as a warning even when a different layer is also unavailable', async () => {
+    mocks.drawMapToPdf.mockResolvedValue({
+      intersectingZones: ['Natura 2000: Real'],
+      unavailableLayers: ['Skyddat område'],
+    });
+
+    const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
+    await generateSewageDossierPdf(baseApplication as any, 'C:\\temp\\dossier-mixed.pdf');
+
+    const joined = mocks.textCalls.join(' ');
+    expect(joined).toContain('Natura 2000: Real');
+    expect(mocks.textCalls.some((call) => call.includes('Kunde inte kontrollera') && call.includes('Skyddat område'))).toBe(true);
+    expect(joined).not.toContain('Inga överlappande miljöskyddszoner identifierades');
+  });
+
+  it('M3 -- W3c: the genuinely clean case (zero intersecting zones, zero unavailable layers) prints the positive line and never the caveat', async () => {
+    mocks.drawMapToPdf.mockResolvedValue({
+      intersectingZones: [],
+      unavailableLayers: [],
+    });
+
+    const { generateSewageDossierPdf } = await import('../../server/services/sewagePdfService');
+    await generateSewageDossierPdf(baseApplication as any, 'C:\\temp\\dossier-clean.pdf');
+
+    const joined = mocks.textCalls.join(' ');
+    expect(joined).toContain('Inga överlappande miljöskyddszoner identifierades');
+    expect(joined).not.toContain('Kunde inte kontrollera');
   });
 });
