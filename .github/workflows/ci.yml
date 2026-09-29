@@ -18,6 +18,9 @@ env:
   # Centralize the database connection string to avoid repetition and simplify updates.
   DATABASE_URL: postgresql://riskguard:password@localhost:5432/riskguard_test?sslmode=disable
 
+permissions:
+  contents: read
+
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 
 jobs:

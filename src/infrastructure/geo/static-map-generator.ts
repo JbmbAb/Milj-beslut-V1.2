@@ -26,6 +26,13 @@ export interface StaticMapResult {
   propertyDesignation: string;
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
   intersectingZones: string[];
+  /**
+   * W3c: which protection-zone layers (Natura 2000, Skyddat omrade, Vattenskyddsomrade) could not
+   * be queried this run. A DB failure on one of these queries previously vanished into a log line,
+   * leaving `intersectingZones` indistinguishable from a genuinely clean site. Buildings are not a
+   * protection zone and are not tracked here.
+   */
+  unavailableLayers: string[];
 }
 
 /**
@@ -88,6 +95,7 @@ export class StaticMapGenerator {
     // Förbered lager-samling
     const layers: MapLayer[] = [];
     const intersectingZones: string[] = [];
+    const unavailableLayers: string[] = [];
 
     // 2. Hämta omgivande byggnader från topo10.byggnad
     try {
@@ -134,6 +142,7 @@ export class StaticMapGenerator {
       }
     } catch (err: any) {
       logger.warn(`Kunde inte hämta Natura 2000: ${err.message}`);
+      unavailableLayers.push('Natura 2000');
     }
 
     // 4. Hämta skyddsområden (naturreservat etc) från env.protected_area
@@ -158,6 +167,7 @@ export class StaticMapGenerator {
       }
     } catch (err: any) {
       logger.warn(`Kunde inte hämta skyddsområden: ${err.message}`);
+      unavailableLayers.push('Skyddat område');
     }
 
     // 5. Hämta vattenskyddsområden från env.water_protection_area
@@ -182,6 +192,7 @@ export class StaticMapGenerator {
       }
     } catch (err: any) {
       logger.warn(`Kunde inte hämta vattenskyddsområden: ${err.message}`);
+      unavailableLayers.push('Vattenskyddsområde');
     }
 
     // 6. Lägg till själva fastigheten överst på kartan
@@ -307,6 +318,7 @@ ${scaleBarSvg}
       propertyDesignation,
       bbox: { minX, minY, maxX, maxY },
       intersectingZones,
+      unavailableLayers,
     };
   }
 
@@ -322,7 +334,7 @@ ${scaleBarSvg}
     width: number,
     height: number,
     padding = 40
-  ): Promise<string[]> {
+  ): Promise<{ intersectingZones: string[]; unavailableLayers: string[] }> {
     logger.info(`Ritar statisk PDF-karta för fastighet: ${designation}`);
 
     // 1. Hämta fastighetens geometri och dess bounding box från core.property_unit
@@ -366,6 +378,7 @@ ${scaleBarSvg}
 
     const layers: MapLayer[] = [];
     const intersectingZones: string[] = [];
+    const unavailableLayers: string[] = [];
 
     // 2. Hämta omgivande byggnader från topo10.byggnad
     try {
@@ -412,6 +425,7 @@ ${scaleBarSvg}
       }
     } catch (err: any) {
       logger.warn(`Kunde inte hämta Natura 2000: ${err.message}`);
+      unavailableLayers.push('Natura 2000');
     }
 
     // 4. Hämta skyddsområden
@@ -436,6 +450,7 @@ ${scaleBarSvg}
       }
     } catch (err: any) {
       logger.warn(`Kunde inte hämta skyddsområden: ${err.message}`);
+      unavailableLayers.push('Skyddat område');
     }
 
     // 5. Hämta vattenskyddsområden
@@ -460,6 +475,7 @@ ${scaleBarSvg}
       }
     } catch (err: any) {
       logger.warn(`Kunde inte hämta vattenskyddsområden: ${err.message}`);
+      unavailableLayers.push('Vattenskyddsområde');
     }
 
     // 6. Lägg till själva fastigheten överst
@@ -603,7 +619,7 @@ ${scaleBarSvg}
 
     doc.restore(); // återställ huvuddokument-tillståndet
 
-    return intersectingZones;
+    return { intersectingZones, unavailableLayers };
   }
 
   private polygonToPath(

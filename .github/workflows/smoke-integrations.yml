@@ -19,6 +19,9 @@ on:
       - 'prisma/spatial/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     name: Nya unit-tester (querySort + legalRelevance + affected)

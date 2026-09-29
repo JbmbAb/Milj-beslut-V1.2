@@ -1,0 +1,93 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "DEVGOV-CI-PERMISSIONS-FLOOR-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "tooling/devgov-ci-permissions-floor-v1",
+  "base_sha": "d37ae1cb86248f8ea136524b99f28c80d8f1bf41",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    ".github/workflows/smoke-integrations.yml",
+    ".github/workflows/ci.yml",
+    ".github/workflows/build-postgres-image.yml",
+    ".github/workflows/deploy-gcp.yml",
+    ".github/workflows/deploy-staging.yml",
+    ".github/workflows/mimers-sovereign.yml",
+    ".github/workflows/staging-e2e-proof.yml",
+    ".github/workflows/staging-proof-gate.yml",
+    "governance/devgov/units/devgov-ci-permissions-floor-v1.json",
+    "docs/architecture/audits/DEVGOV-CI-PERMISSIONS-FLOOR-V1.md"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/codeql.yml",
+    ".github/workflows/devgov-invariant-packs.yml",
+    ".github/workflows/devgov-v0-attest.yml",
+    ".github/workflows/devgov-v0-gate.yml",
+    ".github/workflows/devgov-v0-orchestrate.yml",
+    ".github/workflows/devgov-v0.yml",
+    ".github/workflows/python-security.yml",
+    ".github/workflows/release-prompt-optimizer.yml",
+    ".github/workflows/supply-chain.yml",
+    ".github/workflows/vertex-wif-smoke.yml",
+    ".github/workflows/vertex_prompt_optimize.yml",
+    ".github/workflows/vertex_prompt_updater.yaml",
+    ".github/actions/**",
+    ".github/CODEOWNERS",
+    ".github/copilot-instructions.md",
+    ".github/dependabot.yml",
+    ".github/pull_request_template.md",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**"
+  ],
+  "required_red": [
+    {
+      "id": "ci-workflows-declare-permissions-floor",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('CI_PERMISSIONS_FLOOR_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('CI_PERMISSIONS_FLOOR_HARNESS_ERROR: ' + m); process.exit(2); };\n\nfunction topLevelPermissions(text) {\n  const lines = text.split(/\\r?\\n/);\n  for (let i = 0; i < lines.length; i++) {\n    const line = lines[i];\n    const bare = /^permissions:\\s*(read-all|write-all)\\s*(#.*)?$/.exec(line);\n    if (bare) return { __bare: bare[1] };\n    const empty = /^permissions:\\s*\\{\\s*\\}\\s*(#.*)?$/.exec(line);\n    if (empty) return {};\n    if (/^permissions:\\s*(#.*)?$/.test(line)) {\n      const scopes = {};\n      let j = i + 1;\n      while (j < lines.length) {\n        const l = lines[j];\n        if (l.trim() === '' || /^\\s*#/.test(l)) { j++; continue; }\n        const m = /^(\\s+)([A-Za-z0-9_-]+):\\s*([A-Za-z0-9_-]+)\\s*(#.*)?$/.exec(l);\n        if (!m || m[1].length === 0) break;\n        scopes[m[2]] = m[3];\n        j++;\n      }\n      return scopes;\n    }\n  }\n  return null;\n}\n\ntry {\n  const files = JSON.parse(process.argv[1]);\n  const problems = [];\n  for (const f of files) {\n    let text;\n    try { text = fs.readFileSync(f, 'utf8'); }\n    catch (e) {\n      if (e && e.code === 'ENOENT') { problems.push(f + ': file does not exist'); continue; }\n      H('cannot read ' + f + ': ' + (e && e.message));\n    }\n    const perms = topLevelPermissions(text);\n    if (perms === null) { problems.push(f + ': no top-level permissions: key'); continue; }\n    if (perms.__bare) { problems.push(f + ': top-level permissions is bare \"' + perms.__bare + '\", not an explicit least-privilege map'); continue; }\n    if (perms.contents !== 'read') { problems.push(f + ': top-level permissions.contents is \"' + (perms.contents || '<absent>') + '\", expected \"read\"'); continue; }\n    const writeScopes = Object.entries(perms).filter(([k, v]) => v === 'write' || v === 'admin');\n    if (writeScopes.length > 0) { problems.push(f + ': top-level permissions grants write/admin scope(s) [' + writeScopes.map(([k]) => k).join(',') + '] -- elevated scopes must stay job-level only'); continue; }\n  }\n  if (problems.length > 0) V('workflow(s) missing a safe least-privilege top-level permissions floor: ' + problems.join(' | '));\n  console.log('CI_PERMISSIONS_FLOOR_OK: all ' + files.length + ' workflow files declare a safe top-level permissions floor (contents: read, no top-level write/admin scope)');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\".github/workflows/smoke-integrations.yml\",\".github/workflows/ci.yml\",\".github/workflows/build-postgres-image.yml\",\".github/workflows/deploy-gcp.yml\",\".github/workflows/deploy-staging.yml\",\".github/workflows/mimers-sovereign.yml\",\".github/workflows/staging-e2e-proof.yml\",\".github/workflows/staging-proof-gate.yml\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "ci-workflows-declare-permissions-floor",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst V = (m) => { console.error('CI_PERMISSIONS_FLOOR_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('CI_PERMISSIONS_FLOOR_HARNESS_ERROR: ' + m); process.exit(2); };\n\nfunction topLevelPermissions(text) {\n  const lines = text.split(/\\r?\\n/);\n  for (let i = 0; i < lines.length; i++) {\n    const line = lines[i];\n    const bare = /^permissions:\\s*(read-all|write-all)\\s*(#.*)?$/.exec(line);\n    if (bare) return { __bare: bare[1] };\n    const empty = /^permissions:\\s*\\{\\s*\\}\\s*(#.*)?$/.exec(line);\n    if (empty) return {};\n    if (/^permissions:\\s*(#.*)?$/.test(line)) {\n      const scopes = {};\n      let j = i + 1;\n      while (j < lines.length) {\n        const l = lines[j];\n        if (l.trim() === '' || /^\\s*#/.test(l)) { j++; continue; }\n        const m = /^(\\s+)([A-Za-z0-9_-]+):\\s*([A-Za-z0-9_-]+)\\s*(#.*)?$/.exec(l);\n        if (!m || m[1].length === 0) break;\n        scopes[m[2]] = m[3];\n        j++;\n      }\n      return scopes;\n    }\n  }\n  return null;\n}\n\ntry {\n  const files = JSON.parse(process.argv[1]);\n  const problems = [];\n  for (const f of files) {\n    let text;\n    try { text = fs.readFileSync(f, 'utf8'); }\n    catch (e) {\n      if (e && e.code === 'ENOENT') { problems.push(f + ': file does not exist'); continue; }\n      H('cannot read ' + f + ': ' + (e && e.message));\n    }\n    const perms = topLevelPermissions(text);\n    if (perms === null) { problems.push(f + ': no top-level permissions: key'); continue; }\n    if (perms.__bare) { problems.push(f + ': top-level permissions is bare \"' + perms.__bare + '\", not an explicit least-privilege map'); continue; }\n    if (perms.contents !== 'read') { problems.push(f + ': top-level permissions.contents is \"' + (perms.contents || '<absent>') + '\", expected \"read\"'); continue; }\n    const writeScopes = Object.entries(perms).filter(([k, v]) => v === 'write' || v === 'admin');\n    if (writeScopes.length > 0) { problems.push(f + ': top-level permissions grants write/admin scope(s) [' + writeScopes.map(([k]) => k).join(',') + '] -- elevated scopes must stay job-level only'); continue; }\n  }\n  if (problems.length > 0) V('workflow(s) missing a safe least-privilege top-level permissions floor: ' + problems.join(' | '));\n  console.log('CI_PERMISSIONS_FLOOR_OK: all ' + files.length + ' workflow files declare a safe top-level permissions floor (contents: read, no top-level write/admin scope)');\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\".github/workflows/smoke-integrations.yml\",\".github/workflows/ci.yml\",\".github/workflows/build-postgres-image.yml\",\".github/workflows/deploy-gcp.yml\",\".github/workflows/deploy-staging.yml\",\".github/workflows/mimers-sovereign.yml\",\".github/workflows/staging-e2e-proof.yml\",\".github/workflows/staging-proof-gate.yml\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "tooling/devgov-ci-permissions-floor-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
