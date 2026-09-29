@@ -64,6 +64,20 @@ export const CONTROLLER_OWNED_FLOOR_PATHS = Object.freeze([
   '.github/workflows/devgov-invariant-packs.yml',
 ]);
 
+// V1-THROUGHPUT (one-approval signing): execute-proof always runs inside devgov-v0-attest.yml
+// (called from devgov-v0-orchestrate.yml as a reusable workflow, per the red:/green: matrix jobs),
+// so every genuine execution record is stamped with THIS exact workflow_ref regardless of which
+// job later signs it. Signing itself now happens in a same-run sign: job living directly in
+// devgov-v0-orchestrate.yml, whose own ambient GITHUB_WORKFLOW_REF is necessarily different (it
+// names orchestrate.yml, not attest.yml) even though it is exactly as trusted -- same run, same
+// controller checkout. This constant lets attest-execution/attest-all bind against "where
+// execution legitimately happens" instead of "my own ambient ref", without ever trusting anything
+// caller-supplied: it is a literal string in the protected controller's own source, and the
+// genuinely load-bearing bindings (run id, run attempt -- see below) are still compared against
+// the signing job's real ambient environment, not relaxed at all.
+const TRUSTED_EXECUTION_WORKFLOW_REF =
+  'JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@refs/heads/main';
+
 export function unitDefinitionHash(unitDefinition) {
   return sha256(stableJson(unitDefinition));
 }
@@ -1000,7 +1014,7 @@ function printResult(result) {
 }
 
 function usageText() {
-  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|resolve-execution-sha|execute-proof|attest-execution> --definition <path> --candidate-sha <sha> --worktree <path> [options]';
+  return 'Usage: node scripts/devgov/devgov.mjs <preflight|verify-sha|evidence-gate|run-red|run-green|resolve-execution-sha|execute-proof|attest-execution|attest-all> --definition <path> --candidate-sha <sha> --worktree <path> [options]';
 }
 
 function usage() {
@@ -1058,6 +1072,48 @@ function loadTrustedUnitDefinition(args, options = {}) {
   return { unitDefinition, definitionPath, candidateSha, definitionWorktree };
 }
 
+// Shared by attest-execution (single record, kept for CLI/test compatibility) and attest-all (the
+// one-approval batch signer used by devgov-v0-orchestrate.yml's sign: job). kind/id are ALWAYS
+// supplied by the caller -- from a declared unit-definition entry, never read back out of the
+// record's own self-reported fields -- so validateExecutionRecordForManifest's field-by-field
+// comparison catches a record whose content doesn't match what was asked for, rather than the
+// record grading its own homework.
+function signOneExecutionRecord(unitDefinition, candidateSha, kind, id, record, signer) {
+  const bindingErrors = validateExecutionRecordForManifest(unitDefinition, record, kind, id, {
+    candidateSha,
+  });
+  const runtimeBindings = {
+    runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
+    controller_sha: process.env.DEVGOV_CONTROLLER_SHA,
+    workflow_ref: TRUSTED_EXECUTION_WORKFLOW_REF,
+    workflow_run_id: process.env.GITHUB_RUN_ID,
+    workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+  };
+  for (const [field, value] of Object.entries(runtimeBindings)) {
+    if (!value || record[field] !== String(value)) bindingErrors.push(`${field} mismatch`);
+  }
+  if (
+    unitDefinition.trusted_execution?.issuer !== signer.issuer ||
+    unitDefinition.trusted_execution?.key_id !== signer.keyId
+  ) {
+    bindingErrors.push('protected signer does not match manifest trusted_execution');
+  }
+  if (bindingErrors.length > 0) return { ok: false, errors: bindingErrors };
+  const attestation = signExecutionRecord(record, signer.privateKey, {
+    issuer: signer.issuer,
+    key_id: signer.keyId,
+  });
+  return { ok: true, attestation };
+}
+
+function loadAttestationSigner() {
+  return {
+    privateKey: process.env.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM,
+    issuer: process.env.DEVGOV_ATTESTATION_ISSUER,
+    keyId: process.env.DEVGOV_ATTESTATION_KEY_ID,
+  };
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   try {
@@ -1068,13 +1124,11 @@ async function main() {
       const outputPath = argValue(args, '--output');
       const kind = argValue(args, '--kind');
       const id = argValue(args, '--id');
-      const privateKey = process.env.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM;
-      const issuer = process.env.DEVGOV_ATTESTATION_ISSUER;
-      const keyId = process.env.DEVGOV_ATTESTATION_KEY_ID;
+      const signer = loadAttestationSigner();
       if (!recordPath || !outputPath || !['RED', 'GREEN'].includes(kind) || !id) {
         usage();
       }
-      if (!privateKey || !issuer || !keyId) {
+      if (!signer.privateKey || !signer.issuer || !signer.keyId) {
         printResult(
           resultEnvelope(
             RESULT.BLOCKED_ENVIRONMENT,
@@ -1084,41 +1138,104 @@ async function main() {
         );
       }
       const record = loadJson(recordPath);
-      const bindingErrors = validateExecutionRecordForManifest(unitDefinition, record, kind, id, {
-        candidateSha,
-      });
-      const runtimeBindings = {
-        runner_identity: process.env.DEVGOV_RUNNER_IDENTITY,
-        controller_sha: process.env.DEVGOV_CONTROLLER_SHA,
-        workflow_ref: process.env.GITHUB_WORKFLOW_REF,
-        workflow_run_id: process.env.GITHUB_RUN_ID,
-        workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
-      };
-      for (const [field, value] of Object.entries(runtimeBindings)) {
-        if (!value || record[field] !== String(value)) bindingErrors.push(`${field} mismatch`);
-      }
-      if (
-        unitDefinition.trusted_execution?.issuer !== issuer ||
-        unitDefinition.trusted_execution?.key_id !== keyId
-      ) {
-        bindingErrors.push('protected signer does not match manifest trusted_execution');
-      }
-      if (bindingErrors.length > 0) {
+      const signed = signOneExecutionRecord(unitDefinition, candidateSha, kind, id, record, signer);
+      if (!signed.ok) {
         printResult(
           resultEnvelope(
             RESULT.DENIED_GOVERNANCE,
             'EXECUTION_RECORD_BINDING_DENIED',
-            bindingErrors.join('; '),
-            bindingErrors,
+            signed.errors.join('; '),
+            signed.errors,
           ),
         );
       }
-      const attestation = signExecutionRecord(record, privateKey, { issuer, key_id: keyId });
-      writeJsonExclusive(outputPath, attestation);
+      writeJsonExclusive(outputPath, signed.attestation);
       printResult(
         resultEnvelope(RESULT.PASS, 'PASS', 'trusted execution attestation created', [], {
           attestation_file: outputPath,
-          proof_id: attestation.proof_id,
+          proof_id: signed.attestation.proof_id,
+        }),
+      );
+    }
+
+    // attest-all: the one-approval batch signer. Every declared RED/GREEN id is driven from the
+    // VERIFIED unit definition's own required_red/required_green lists (never from a shell/YAML
+    // loop over externally-supplied text), and every record is validated+signed independently via
+    // the exact same signOneExecutionRecord() path attest-execution uses. Fails the ENTIRE batch
+    // closed on the first problem -- a missing record, a binding mismatch, anything -- and never
+    // writes a single output file unless every declared id signed successfully, so a partially
+    // broken candidate can never walk away with partial trusted-execution evidence.
+    if (command === 'attest-all') {
+      const { unitDefinition, candidateSha } = loadTrustedUnitDefinition(args, { proofStatus: true });
+      const recordsRoot = argValue(args, '--records-root');
+      const outputDir = argValue(args, '--output-dir');
+      const signer = loadAttestationSigner();
+      if (!recordsRoot || !outputDir) usage();
+      // sign: is a job of the SAME orchestration run as every execute: job it signs for (unlike the
+      // rejected design, nothing here is read from a repository_dispatch payload), so its own
+      // ambient GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT are exactly the trusted values to both locate each
+      // artifact and bind against -- no separate --run-id/--run-attempt flags needed.
+      const runId = process.env.GITHUB_RUN_ID;
+      const runAttempt = process.env.GITHUB_RUN_ATTEMPT;
+      if (!/^[1-9][0-9]*$/.test(runId || '') || !/^[1-9][0-9]*$/.test(runAttempt || '')) {
+        printResult(
+          resultEnvelope(
+            RESULT.BLOCKED_ENVIRONMENT,
+            'INVALID_RUN_IDENTITY',
+            'GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be positive integers',
+          ),
+        );
+      }
+      if (!signer.privateKey || !signer.issuer || !signer.keyId) {
+        printResult(
+          resultEnvelope(
+            RESULT.BLOCKED_ENVIRONMENT,
+            'ATTESTATION_SIGNER_UNAVAILABLE',
+            'records-root, output-dir, and protected attestation signer environment are required',
+          ),
+        );
+      }
+      const declared = [
+        ...(unitDefinition.required_red || []).map((spec) => ({ kind: 'RED', id: spec.id })),
+        ...(unitDefinition.required_green || []).map((spec) => ({ kind: 'GREEN', id: spec.id })),
+      ];
+      const results = [];
+      const errors = [];
+      for (const { kind, id } of declared) {
+        const artifactDir = `devgov-execution-${runId}-${runAttempt}-${kind}-${id}`;
+        const recordPath = resolve(recordsRoot, artifactDir, 'execution-record.json');
+        let record;
+        try {
+          record = loadJson(recordPath);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push(`${kind}/${id}: cannot read execution record (${message})`);
+          continue;
+        }
+        const signed = signOneExecutionRecord(unitDefinition, candidateSha, kind, id, record, signer);
+        if (!signed.ok) {
+          errors.push(`${kind}/${id}: ${signed.errors.join(', ')}`);
+          continue;
+        }
+        results.push({ kind, id, attestation: signed.attestation });
+      }
+      if (errors.length > 0 || results.length !== declared.length) {
+        printResult(
+          resultEnvelope(
+            RESULT.DENIED_GOVERNANCE,
+            'EXECUTION_RECORD_BINDING_DENIED',
+            errors.join('; ') || 'declared proof count mismatch',
+            errors,
+          ),
+        );
+      }
+      for (const { kind, id, attestation } of results) {
+        writeJsonExclusive(resolve(outputDir, `attestation-${kind}-${id}.json`), attestation);
+      }
+      printResult(
+        resultEnvelope(RESULT.PASS, 'PASS', `${results.length} trusted execution attestations created`, [], {
+          output_dir: outputDir,
+          proof_ids: results.map((item) => item.attestation.proof_id),
         }),
       );
     }
