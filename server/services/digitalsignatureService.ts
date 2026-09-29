@@ -14,6 +14,27 @@ import crypto from 'node:crypto';
 import type { SewageApplication } from '../../types';
 import { logger } from '../logger';
 import { initiateBankIdSign, collectBankIdSign } from './bankIdService';
+import { SecureError } from '../security/secureErrors';
+
+// HD-16 (A9 sweep, 2026-09-29): binds each BankID orderRef to the exact referenceNumber and
+// documentHash it was initiated for. completeBankIDSignature used to accept a caller-supplied
+// documentHash with no check against what was actually shown to the user in the BankID app
+// (userVisibleData at initiate time) — a genuine BankID "complete" could be recorded as a valid
+// signature for a different document than the one the user approved. In-memory only, same class
+// of gap as recordSignatureAction's own persistence-deferred note below; a real store (keyed by
+// orderRef, with TTL/eviction) is separate future work, not this fix.
+const orderRefBindings = new Map<string, { referenceNumber: string; documentHash: string; createdAt: number }>();
+
+/** Route-level use only (e.g. tenant-scoping GET /signatures/:orderRef/status, HD-15). */
+export function getOrderRefBinding(orderRef: string): { referenceNumber: string; documentHash: string } | undefined {
+  const binding = orderRefBindings.get(orderRef);
+  return binding ? { referenceNumber: binding.referenceNumber, documentHash: binding.documentHash } : undefined;
+}
+
+/** Test-only escape hatch. */
+export function __clearOrderRefBindingsForTests(): void {
+  orderRefBindings.clear();
+}
 // ============================================================================
 // DIGITAL SIGNATURE TYPES
 // ============================================================================
@@ -99,6 +120,11 @@ export async function initiateBankIDSignature(
       userVisibleData: `Jag godkänner ansökan för ${referenceNumber}. Dokument-hash: ${documentHash}`,
     });
 
+    // HD-16: bind this orderRef to exactly the document/reference the user was shown, so
+    // completeBankIDSignature can refuse a mismatched or unbound completion instead of trusting
+    // whatever documentHash the caller later supplies.
+    orderRefBindings.set(response.orderRef, { referenceNumber, documentHash, createdAt: Date.now() });
+
     return {
       orderRef: response.orderRef,
       autoStartToken: response.autoStartToken,
@@ -121,6 +147,33 @@ export async function completeBankIDSignature(
   endUserIp: string,
 ): Promise<DigitalSignature> {
   try {
+    // HD-16: fail closed if this orderRef was never initiated here, or was initiated for a
+    // different document/reference than the caller now claims — a real "complete" from BankID
+    // says the user approved *something*, but not provably this exact documentHash/referenceNumber
+    // unless we checked what they were actually shown at initiate time.
+    const binding = orderRefBindings.get(orderRef);
+    if (!binding) {
+      throw new SecureError(
+        `completeBankIDSignature: no initiate-time binding found for orderRef ${orderRef}`,
+        'Signaturen kunde inte verifieras: ingen matchande signeringsbegäran hittades.',
+        409,
+        'SIGNATURE_BINDING_NOT_FOUND',
+      );
+    }
+    if (binding.documentHash !== documentHash || binding.referenceNumber !== referenceNumber) {
+      logger.warn('BankID signature completion rejected: document/reference mismatch', {
+        orderRef,
+        expectedReferenceNumber: binding.referenceNumber,
+        claimedReferenceNumber: referenceNumber,
+      });
+      throw new SecureError(
+        `completeBankIDSignature: documentHash/referenceNumber mismatch for orderRef ${orderRef}`,
+        'Signaturen kunde inte verifieras: dokumentet eller ärendet matchar inte signeringsbegäran.',
+        409,
+        'SIGNATURE_BINDING_MISMATCH',
+      );
+    }
+
     // Call BankID collect with anti-replay checks
     const response = await collectBankIdSign(orderRef, endUserIp);
 
@@ -152,7 +205,12 @@ export async function completeBankIDSignature(
       ],
     };
 
-    logger.info('BankID signature completed and persisted', {
+    orderRefBindings.delete(orderRef);
+
+    // HD-16: this signature is NOT persisted here (no DB write below) — recordSignatureAction's
+    // own log already says so ("not persisted"). The previous "completed and persisted" message
+    // contradicted that and overstated durability to anyone reading the logs.
+    logger.info('BankID signature completed (not yet persisted — see recordSignatureAction)', {
       signatureId: signature.id,
       referenceNumber,
       documentHash: documentHash.substring(0, 16) + '...',

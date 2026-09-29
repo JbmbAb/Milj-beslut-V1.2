@@ -253,6 +253,40 @@ describe('buildLocalizationPdfData', () => {
       expect(site.overallRisk).toBe('LOW');
     });
 
+    it('W3a: a site whose legacy engine contributed restrictions/rules carries a visible legacy-observation label (SEM-2/SEM-3, Q2)', () => {
+      const report = makeReport({
+        siteAnalyses: [
+          makeSiteAnalysis('alt-1', {
+            complianceAnalysis: makeCompliance('alt-1', {
+              restrictions: ['Naturreservat'],
+              legacyObservation: { source: 'legacy_observation', version: 'v1' },
+            }),
+          }),
+        ],
+      });
+      const site = buildLocalizationPdfData(report).sites[0];
+
+      expect(site.restrictions).toEqual(['Naturreservat']);
+      expect(site.legacyObservationLabel).toBeTruthy();
+      expect(typeof site.legacyObservationLabel).toBe('string');
+    });
+
+    it('W3a: a site with no legacy restrictions or rules carries no legacy-observation label', () => {
+      const report = makeReport({
+        siteAnalyses: [
+          makeSiteAnalysis('alt-1', {
+            complianceAnalysis: makeCompliance('alt-1', {
+              restrictions: [],
+              rules: [],
+            }),
+          }),
+        ],
+      });
+      const site = buildLocalizationPdfData(report).sites[0];
+
+      expect(Object.prototype.hasOwnProperty.call(site, 'legacyObservationLabel')).toBe(false);
+    });
+
     it('fallback till "Namnlöst alternativ" när name saknas', () => {
       const report = makeReport({
         siteAnalyses: [makeSiteAnalysis('x', { site: makeSite('x', { name: undefined }) })],

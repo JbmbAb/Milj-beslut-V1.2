@@ -127,8 +127,13 @@ router.post('/api/gemini', async (req, res) => {
         let protectedAreas: any[] = [];
         let geological = null;
         let monuments: any[] = [];
+        // W3b -- C2/OD-04: a single shared try/catch around all four upstream fetches made a
+        // failed fetch indistinguishable from a genuinely-empty, checked result. Each fetch now
+        // has its own try/catch, so `unavailableSources` names exactly which source(s) could not
+        // be checked -- never collapsed into one shared flag.
+        const unavailableSources: string[] = [];
+
         try {
-          // 1. Fetch SLU observations
           const sluData = (await searchSluByCoordinates({
             lat: payload.lat,
             lng: payload.lng,
@@ -142,27 +147,43 @@ router.post('/api/gemini', async (req, res) => {
             status: r.occurrence?.occurrenceStatus || 'Observation',
             distance: Math.round(Math.random() * 500),
           }));
-
-          // 2. Fetch NVR Protected Areas
-          protectedAreas = await fetchProtectedAreas(payload.lat, payload.lng);
-
-          // 3. Fetch SGU Geological Data
-          geological = await fetchGeologicalData(payload.lat, payload.lng);
-
-          // 4. Fetch RAÄ Monuments
-          monuments = await fetchAncientMonuments(payload.lat, payload.lng);
         } catch (err) {
-          logger.error('Spatial data fetch failed', { err: String(err) });
+          logger.error('SLU species fetch failed', { err: String(err) });
+          unavailableSources.push('slu-observations-unavailable');
         }
 
-        result = await analyzeBiodiversityWithCompliance(
-          payload.lat,
-          payload.lng,
-          observations.length > 0 ? observations : payload.providedObservations,
-          protectedAreas.length > 0 ? protectedAreas : payload.protectedAreas,
-          geological || payload.geologicalData,
-          monuments.length > 0 ? monuments : payload.monuments,
-        );
+        try {
+          protectedAreas = await fetchProtectedAreas(payload.lat, payload.lng);
+        } catch (err) {
+          logger.error('NVR protected-areas fetch failed', { err: String(err) });
+          unavailableSources.push('nvr-protected-areas-unavailable');
+        }
+
+        try {
+          geological = await fetchGeologicalData(payload.lat, payload.lng);
+        } catch (err) {
+          logger.error('SGU geological-data fetch failed', { err: String(err) });
+          unavailableSources.push('sgu-geological-data-unavailable');
+        }
+
+        try {
+          monuments = await fetchAncientMonuments(payload.lat, payload.lng);
+        } catch (err) {
+          logger.error('RAA monuments fetch failed', { err: String(err) });
+          unavailableSources.push('raa-monuments-unavailable');
+        }
+
+        result = {
+          ...(await analyzeBiodiversityWithCompliance(
+            payload.lat,
+            payload.lng,
+            observations.length > 0 ? observations : payload.providedObservations,
+            protectedAreas.length > 0 ? protectedAreas : payload.protectedAreas,
+            geological || payload.geologicalData,
+            monuments.length > 0 ? monuments : payload.monuments,
+          )),
+          unavailableSources,
+        };
         break;
       }
       case 'predictWeatherRisk':

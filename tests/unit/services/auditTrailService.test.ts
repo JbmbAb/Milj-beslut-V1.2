@@ -226,6 +226,20 @@ describe('AuditTrailService', () => {
     expect(report.auditTrailComplete).toBe(true);
     expect(report.timeline).toHaveLength(2);
   });
+
+  // HD-10 (A9 sweep, 2026-09-29): signatureVerificationStatus was hardcoded 'VERIFIED'
+  // unconditionally — an internal contradiction with verifyAllSignaturesForApplication (the
+  // system's own signature check), which for any referenceNumber currently returns
+  // allSignaturesValid: false (no verified signature source configured yet).
+  it('generateComplianceReport: signatureVerificationStatus reflects the real signature check, not a hardcoded VERIFIED', async () => {
+    (prisma.auditTrail.findMany as any).mockResolvedValue([]);
+
+    const report = await generateComplianceReport('AVLOPP-200');
+
+    // Real check: verifyAllSignaturesForApplication always returns allSignaturesValid: false today.
+    expect(report.signatureVerificationStatus).toBe('UNVERIFIED');
+    expect(report.signatureVerificationStatus).not.toBe('VERIFIED');
+  });
 });
 
 // ── AuditTrailLogger — saknade metoder ────────────────────────────────────

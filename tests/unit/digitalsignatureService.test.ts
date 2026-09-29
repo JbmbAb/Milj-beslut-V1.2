@@ -16,6 +16,7 @@ import {
   verifySignature,
   recordSignatureAction,
   generateApplicationSignatureHash,
+  __clearOrderRefBindingsForTests,
 } from '../../server/services/digitalsignatureService';
 import type { DigitalSignature } from '../../server/services/digitalsignatureService';
 
@@ -36,6 +37,7 @@ const baseSignature: DigitalSignature = {
 describe('digitalsignatureService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __clearOrderRefBindingsForTests();
   });
 
   describe('initiateBankIDSignature', () => {
@@ -81,7 +83,20 @@ describe('digitalsignatureService', () => {
   });
 
   describe('completeBankIDSignature', () => {
-    it('returnerar DigitalSignature vid lyckad signering', async () => {
+    /**
+     * Establishes the initiate-time binding HD-16 now requires before completion can succeed.
+     * initiateBankIDSignature takes documentCONTENT (it hashes internally) — returns the
+     * resulting hash so the test, like a real client, can present that same hash on completion.
+     */
+    async function initiate(orderRef: string, referenceNumber: string, documentContent: string) {
+      vi.mocked(initiateBankIdSign).mockResolvedValueOnce({ orderRef, autoStartToken: 'tok' } as any);
+      await initiateBankIDSignature(referenceNumber, 'doc-1', documentContent, '10.0.0.1');
+      const { createHash } = await import('node:crypto');
+      return createHash('sha256').update(documentContent).digest('hex');
+    }
+
+    it('returnerar DigitalSignature vid lyckad signering som matchar initiate-bindningen', async () => {
+      const documentHash = await initiate('order-123', 'AVLOPP-2024-001', 'dokumentinnehåll-123');
       vi.mocked(collectBankIdSign).mockResolvedValue({
         status: 'complete',
         completionData: {
@@ -97,7 +112,7 @@ describe('digitalsignatureService', () => {
 
       const result = await completeBankIDSignature(
         'order-123',
-        'hashvalue123',
+        documentHash,
         'AVLOPP-2024-001',
         '10.0.0.1',
       );
@@ -109,14 +124,53 @@ describe('digitalsignatureService', () => {
     });
 
     it('kastar om status inte är complete', async () => {
+      const documentHash = await initiate('order-1', 'AVLOPP-001', 'hash');
       vi.mocked(collectBankIdSign).mockResolvedValue({
         status: 'pending',
         hintCode: 'outstandingTransaction',
       } as any);
 
-      await expect(completeBankIDSignature('order-1', 'hash', 'AVLOPP-001', '10.0.0.1')).rejects.toThrow(
-        'not complete',
-      );
+      await expect(
+        completeBankIDSignature('order-1', documentHash, 'AVLOPP-001', '10.0.0.1'),
+      ).rejects.toThrow('not complete');
+    });
+
+    // HD-16 (A9 sweep, 2026-09-29): documentHash/referenceNumber used to be trusted from the
+    // caller unconditionally — a BankID "complete" could be recorded as a valid signature for a
+    // document the user never actually saw in the BankID app. These tests replace the previous
+    // test's implicit assumption (calling completeBankIDSignature with no prior initiate at all
+    // and still expecting verified: true).
+    it('RED-class: refuses when no initiate-time binding exists for this orderRef', async () => {
+      vi.mocked(collectBankIdSign).mockResolvedValue({
+        status: 'complete',
+        completionData: { user: { personalNumber: '190001010000' }, signature: 'sig' },
+      } as any);
+
+      await expect(
+        completeBankIDSignature('never-initiated-order', 'hashvalue123', 'AVLOPP-2024-001', '10.0.0.1'),
+      ).rejects.toMatchObject({ code: 'SIGNATURE_BINDING_NOT_FOUND' });
+      expect(collectBankIdSign).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the claimed documentHash does not match what was initiated', async () => {
+      await initiate('order-42', 'AVLOPP-2024-001', 'original-hash');
+      vi.mocked(collectBankIdSign).mockResolvedValue({
+        status: 'complete',
+        completionData: { user: { personalNumber: '190001010000' }, signature: 'sig' },
+      } as any);
+
+      await expect(
+        completeBankIDSignature('order-42', 'a-different-hash-the-user-never-saw', 'AVLOPP-2024-001', '10.0.0.1'),
+      ).rejects.toMatchObject({ code: 'SIGNATURE_BINDING_MISMATCH' });
+      expect(collectBankIdSign).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the claimed referenceNumber does not match what was initiated', async () => {
+      const documentHash = await initiate('order-99', 'AVLOPP-2024-001', 'hashvalue123');
+
+      await expect(
+        completeBankIDSignature('order-99', documentHash, 'AVLOPP-2024-999-WRONG-CASE', '10.0.0.1'),
+      ).rejects.toMatchObject({ code: 'SIGNATURE_BINDING_MISMATCH' });
     });
   });
 

@@ -100,53 +100,15 @@ describe('DEV-GOV controller-owned invariant packs', () => {
     expect(report.failed_invariants).toEqual([]);
   });
 
-  it('fails if a candidate redirects trusted proof execution from controller code to candidate code', () => {
-    const root = targetFixture();
-    mutate(
-      root,
-      '.github/workflows/devgov-v0-attest.yml',
-      'node controller/scripts/devgov/devgov.mjs execute-proof',
-      'node candidate/scripts/devgov/devgov.mjs execute-proof',
-    );
-
-    const report = evaluate(root);
-    expect(report.result).toBe('FAIL');
-    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
-  });
-
-  // Regression coverage for F-10: a candidate can obfuscate a redirected attest-execution
-  // invocation behind a decoy comment (satisfying the old bare hasAll() text check) plus a
-  // dynamically-assembled `node "$SIGNER_SCRIPT" attest-execution` that is what actually executes.
-  it('fails DG-IP-001 if a candidate redirects attest-execution via a decoy comment and a dynamically-assembled node target', () => {
-    const root = targetFixture();
-    mutate(
-      root,
-      '.github/workflows/devgov-v0-attest.yml',
-      '          node controller/scripts/devgov/devgov.mjs attest-execution \\',
-      '          # decoy (never executed, satisfies textual audit): node controller/scripts/devgov/devgov.mjs attest-execution\n          P1="cand"; P2="idate"; SIGNER_SCRIPT="${P1}${P2}/scripts/devgov/devgov.mjs"\n          node "$SIGNER_SCRIPT" attest-execution \\',
-    );
-
-    const report = evaluate(root);
-    expect(report.result).toBe('FAIL');
-    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
-  });
-
-  // Regression coverage for F-10, defense-in-depth layer: the dynamic-target class must be caught
-  // even with no decoy comment at all, proving noDynamicNodeInvocation alone closes the gap
-  // independent of comment-stripping.
-  it('fails DG-IP-001 if a candidate redirects attest-execution via a dynamically-assembled node target with no decoy comment', () => {
-    const root = targetFixture();
-    mutate(
-      root,
-      '.github/workflows/devgov-v0-attest.yml',
-      '          node controller/scripts/devgov/devgov.mjs attest-execution \\',
-      '          SIGNER_SCRIPT="controller/scripts/devgov/devgov.mjs"\n          node "$SIGNER_SCRIPT" attest-execution \\',
-    );
-
-    const report = evaluate(root);
-    expect(report.result).toBe('FAIL');
-    expect(report.failed_invariants).toContain('DG-IP-001-PROTECTED-CONTROLLER-SEPARATION');
-  });
+  // DG-IP-001-PROTECTED-CONTROLLER-SEPARATION (and the three cases that exercised it here) was
+  // removed by DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1 (F-10 structural fix):
+  // .github/workflows/devgov-v0-attest.yml is now covered by CONTROLLER_OWNED_FLOOR_PATHS, so no
+  // candidate diff touching it -- including every mutation these three cases used to construct --
+  // can ever reach invariant-pack content evaluation again; it is rejected at admission instead.
+  // Regression coverage for the historical F-10 attack (the decoy-comment /
+  // dynamically-assembled-node-target redirection) now lives in
+  // devgovExactShaVerification.test.ts's "rejects the historical F-10 attest-execution redirection
+  // attack at admission" case, which proves the same attack is caught earlier, not later.
 
   it('fails if canonical gate stops running the controller-owned pack set', () => {
     const root = targetFixture();
@@ -221,15 +183,42 @@ describe('DEV-GOV controller-owned invariant packs', () => {
 
   // Regression coverage for the DG-IP-002 loose bare-substring check (ROOT_CAUSE_5): removing the
   // real job-level `environment: devgov-attestation` key while leaving a decoy bare-literal
-  // occurrence elsewhere in the signing job must still fail signer isolation.
+  // occurrence elsewhere in the signing job must still fail signer isolation. V1-THROUGHPUT moved
+  // the signing job (and this exact string) from devgov-v0-attest.yml's attest: to
+  // devgov-v0-orchestrate.yml's sign:.
   it('fails DG-IP-002 if a candidate removes the real signer environment binding but leaves a decoy literal', () => {
     const root = targetFixture();
     mutate(
       root,
-      '.github/workflows/devgov-v0-attest.yml',
+      '.github/workflows/devgov-v0-orchestrate.yml',
       '    environment: devgov-attestation\n    steps:',
       '    # environment: devgov-attestation (decoy comment, not a real binding)\n    steps:',
     );
+
+    const report = evaluate(root);
+    expect(report.result).toBe('FAIL');
+    expect(report.failed_invariants).toContain('DG-IP-002-SIGNER-ISOLATION');
+  });
+
+  // Regression coverage for a fix found in independent cold review of V1-THROUGHPUT: the isolation
+  // check must not lose track of a genuine violation elsewhere in the file merely because that
+  // violation happens to reproduce the sign: block's own text byte for byte. Before the fix,
+  // restOfOrchestrator was computed via orchestratorSource.split(signBlock).join(''), which --
+  // unlike position-based removal -- deletes EVERY occurrence of that exact text, not just the one
+  // real sign: job, silently hiding a second copy from hasNone().
+  it('fails DG-IP-002 if a byte-identical duplicate of the sign: block appears elsewhere in the file', () => {
+    const root = targetFixture();
+    const path = join(root, '.github/workflows/devgov-v0-orchestrate.yml');
+    const source = readFileSync(path, 'utf8');
+    const start = source.indexOf('  sign:');
+    const end = source.indexOf('\n  gate:', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const signBlockText = source.slice(start, end);
+    // Append the exact same text again, unmodified, at the end of the file -- simulating a future
+    // edit that reintroduces a byte-identical copy elsewhere (a bad merge, pasted reference text),
+    // not a differently-named decoy job with different text.
+    writeFileSync(path, `${source}\n${signBlockText}\n`);
 
     const report = evaluate(root);
     expect(report.result).toBe('FAIL');

@@ -138,6 +138,13 @@ export interface ExecutionMotorMeta {
 export type GovernedVerdictAnalysis = Omit<SiteAnalysis, 'permitProbability'> & {
   assessment_status: 'ASSESSED';
   /**
+   * W3a -- SEM-2/SEM-3 (Q2): set by `legacyObservationTag` below, independent of verdict status.
+   * Declared here (not on `SiteAnalysis`, the legacy engine's own type) so the legacy engine
+   * itself stays untouched by this unit; `NonVerdictAnalysis` carries the identical field for the
+   * same reason.
+   */
+  legacyObservation?: LegacyObservationTag;
+  /**
    * SEM-1/OD-03 (W2), corrected per cold review (K-35 M5): `null` -- never a fabricated number --
    * exactly when `unresolvedChecks` is non-empty and no completed check reached HIGH/MEDIUM.
    * ADR-28A section 1 / OD-03: "no permit/risk number may be derived solely from a null/unmeasured
@@ -162,7 +169,14 @@ export type GovernedVerdictAnalysis = Omit<SiteAnalysis, 'permitProbability'> & 
 
 export type NonVerdictAnalysis = Omit<SiteAnalysis, 'overallRisk' | 'permitProbability'> & {
   assessment_status: Exclude<LuAssessmentStatus, 'ASSESSED'>;
+  /** W3a -- see the identical field on `GovernedVerdictAnalysis` above. */
+  legacyObservation?: LegacyObservationTag;
 };
+
+/** W3a -- SEM-2/SEM-3 (Q2): the shape `legacyObservationTag` below produces and tags onto both
+ * verdict variants. Named once so `GovernedVerdictAnalysis`, `NonVerdictAnalysis`, and
+ * `legacyObservationTag`'s own return type all refer to the same definition. */
+export type LegacyObservationTag = { source: 'legacy_observation'; version: 'v1' };
 
 export type LuVerdictAnalysis = GovernedVerdictAnalysis | NonVerdictAnalysis;
 
@@ -960,9 +974,10 @@ async function analyzeSite(
       ? {
           ...complianceAnalysis,
           ...governedVerdictFromFindings(executionMotor?.findings ?? []),
+          ...legacyObservationTag(complianceAnalysis),
           assessment_status: 'ASSESSED',
         }
-      : withoutVerdict(complianceAnalysis, executionMotor?.assessment_status),
+      : { ...withoutVerdict(complianceAnalysis, executionMotor?.assessment_status), ...legacyObservationTag(complianceAnalysis) },
     monuments,
     vissWaterStatus,
     distanceToWaterMeters,
@@ -1060,9 +1075,40 @@ function rankedProbability(analysis: SiteAnalysisResult): number {
   return complianceAnalysis.permitProbability;
 }
 
-const HUMAN_IN_THE_LOOP =
-  'Human in the loop: Detta är AI-genererat beslutsstöd. Granska datakällor, varningar och ' +
-  'rekommendationer mot primärkällor innan formellt beslut.';
+/**
+ * W3a -- SEM-2 (ADR-28A): "The legacy compliance engine is retained temporarily as an explicitly
+ * labelled observation layer. It SHALL NOT determine the governed LU verdict or be presented as
+ * an equivalent authoritative assessment." `restrictions`/`rules` (from `evaluateComplianceRules`)
+ * pass through the merge below unlabeled today; this tags them so every consumer -- the API
+ * response, the PDF projection -- can tell legacy observation apart from the governed verdict.
+ *
+ * A single container-level tag, not a per-entry one: every `restrictions`/`rules` entry in this
+ * codebase comes from exactly this one call, so tagging the pair once is factually equivalent to
+ * tagging each entry, without forcing a breaking type change onto `restrictions: string[]` (bare
+ * strings can't carry a per-entry field without becoming an array of objects). Exported, like
+ * `governedVerdictFromFindings`, so this claim is provable without the full DB-dependent pipeline.
+ */
+export function legacyObservationTag(
+  analysis: Pick<SiteAnalysis, 'restrictions' | 'rules'>,
+): { legacyObservation?: LegacyObservationTag } {
+  if (analysis.restrictions.length === 0 && analysis.rules.length === 0) {
+    return {};
+  }
+  return { legacyObservation: { source: 'legacy_observation', version: 'v1' } };
+}
+
+/**
+ * W3a -- J-7/J-12 (ADR-28A): "Mimer is decision support, not the legal decision authority. A
+ * named, authorized human actor makes the formal decision." Owner-decided final wording (K-146
+ * cold review + Jimmy's own text, 2026-09-29), replacing the pre-W3a text that covered the same
+ * ground ("review before a formal decision") without ever saying who decides.
+ */
+export const HUMAN_IN_THE_LOOP =
+  'Human in the loop: Mimer är ett beslutsstödsystem och fattar inte myndighetsbeslut. Systemet ' +
+  'sammanställer underlag, identifierar relevanta omständigheter och kan lämna förslag och ' +
+  'rekommendationer med spårbara källor. En behörig handläggare ansvarar för att granska ' +
+  'underlaget, bedöma dess relevans och tillförlitlighet samt fatta, motivera och expediera det ' +
+  'formella beslutet.';
 
 export class GenerateLocalizationReportUseCase {
   constructor(

@@ -15,23 +15,18 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     const executeProof = workflow.jobs.execute.steps.find(
       (step: { name?: string }) => step.name === 'Execute declared proof command',
     );
-    const signAttestation = workflow.jobs.attest.steps.find(
-      (step: { name?: string }) => step.name === 'Sign trusted execution attestation',
-    );
 
+    // V1-THROUGHPUT: attest: was removed entirely -- signing now happens on a same-run job in
+    // devgov-v0-orchestrate.yml (see devgovTrustedWorkflow.test.ts for its positive assertions).
     expect(workflow.on.workflow_call).toBeTruthy();
     expect(workflow.on.workflow_dispatch).toBeUndefined();
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.execute.environment).toBeUndefined();
-    expect(workflow.jobs.attest.environment).toBe('devgov-attestation');
+    expect(workflow.jobs.attest).toBeUndefined();
     expect(JSON.stringify(workflow.jobs.execute)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
-    expect(JSON.stringify(workflow.jobs.attest)).toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
     expect(executeProof.env.DEVGOV_JOB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
-    expect(signAttestation.env.DEVGOV_JOB_WORKFLOW_REF).toBe('${{ job.workflow_ref }}');
     expect(executeProof.env.GITHUB_WORKFLOW_REF).toBeUndefined();
-    expect(signAttestation.env.GITHUB_WORKFLOW_REF).toBeUndefined();
     expect(executeProof.run).toContain('export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"');
-    expect(signAttestation.run).toContain('export GITHUB_WORKFLOW_REF="$DEVGOV_JOB_WORKFLOW_REF"');
     expect(source).not.toContain('CANONICAL_ATTEST_WORKFLOW_REF');
     expect(source).not.toContain('DEVGOV_JOB_WORKFLOW_REF: ${{ github.repository }}');
   });
@@ -75,11 +70,11 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(workflow.jobs.green.uses).toBe(
       'JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main',
     );
-    expect(workflow.jobs.red.secrets).toBe('inherit');
-    expect(workflow.jobs.green.secrets).toBe('inherit');
+    expect(workflow.jobs.red.secrets).toBeUndefined();
+    expect(workflow.jobs.green.secrets).toBeUndefined();
     expect(workflow.jobs.red.needs).toEqual(['plan', 'invariant-packs']);
     expect(workflow.jobs.green.needs).toEqual(['plan', 'invariant-packs', 'red']);
-    expect(workflow.jobs.gate.needs).toEqual(['plan', 'invariant-packs', 'red', 'green']);
+    expect(workflow.jobs.gate.needs).toEqual(['plan', 'invariant-packs', 'red', 'green', 'sign']);
     expect(workflow.jobs.gate['runs-on']).toBe('ubuntu-latest');
     expect(JSON.stringify(workflow.jobs.red.strategy.matrix)).toContain('needs.plan.outputs.red_ids');
     expect(JSON.stringify(workflow.jobs.green.strategy.matrix)).toContain('needs.plan.outputs.green_ids');
@@ -118,11 +113,17 @@ describe('DEV-GOV-V0 multi-proof orchestration', () => {
     expect(source).not.toContain('--pack ');
   });
 
-  it('does not give the orchestrator signer or promoter credentials', () => {
+  it('does not give any orchestrator job but sign: signer or promoter credentials', () => {
     const source = readFileSync(orchestratorPath, 'utf8');
     const workflow = parse(source);
 
-    expect(source).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    // V1-THROUGHPUT: sign: is the one deliberate, environment-protected exception -- see
+    // devgovTrustedWorkflow.test.ts for its own positive assertions. Every OTHER job must still
+    // have none of this.
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      if (name === 'sign') continue;
+      expect(JSON.stringify(job)).not.toContain('DEVGOV_ATTESTATION_PRIVATE_KEY_PEM');
+    }
     expect(source).not.toContain('DEVGOV_PROMOTER_PRIVATE_KEY_PEM');
     expect(source).not.toContain('devgov-promote.yml');
     expect(source).not.toContain('git push');
