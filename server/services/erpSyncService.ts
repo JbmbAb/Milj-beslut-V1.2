@@ -51,24 +51,32 @@ export async function syncMilestoneToErp(
     };
   }
 
-  // Create a record in our database
-  // Note: We assume a generic ErpTransaction model exists, or we just log it for now if we don't have schema
-  // We will mock the database operation for this prototype since we don't know the exact schema
   logger.info(`Initiating ERP sync to ${config.provider} for project ${projectId}, milestone ${milestoneId}`);
 
-  const externalReference = `ERP-${Date.now()}`;
-  const status: 'SENT' | 'FAILED' = 'SENT';
-
-  if (config.provider === 'FORTNOX') {
-    // Implement Fortnox logic here
-    logger.info(`Sending data to Fortnox API...`);
-  } else if (config.provider === 'VISMA') {
-    // Implement Visma logic here
-    logger.info(`Sending data to Visma API...`);
-  } else {
-    logger.info(`Mocking ERP sync...`);
+  // HD-02 (A9 sweep, 2026-09-29): FORTNOX and VISMA had no real integration ("Implement Fortnox
+  // logic here" / "Implement Visma logic here" — nothing was ever sent), yet the function still
+  // returned status: 'SENT' with a fabricated externalReference (`ERP-${Date.now()}`), so a caller
+  // had no way to tell a real sync from one that never happened. MOCK stays honest: it is an
+  // explicit, self-declared opt-in (ERP_PROVIDER=MOCK), unlike FORTNOX/VISMA which claim to be
+  // real providers. Building the real Fortnox/Visma integration is a separate future unit.
+  if (config.provider === 'MOCK') {
+    logger.info('Mocking ERP sync...');
+    return {
+      id: `tx-${Date.now()}`,
+      projectId,
+      amount,
+      currency: 'SEK',
+      description,
+      milestoneId,
+      status: 'SENT',
+      sentAt: new Date(),
+      externalReference: `ERP-${Date.now()}`,
+    };
   }
 
+  logger.warn(
+    `ERP sync NOT sent for project ${projectId}: ${config.provider} integration is not implemented (HD-02)`,
+  );
   return {
     id: `tx-${Date.now()}`,
     projectId,
@@ -76,8 +84,6 @@ export async function syncMilestoneToErp(
     currency: 'SEK',
     description,
     milestoneId,
-    status,
-    sentAt: new Date(),
-    externalReference,
+    status: 'FAILED',
   };
 }

@@ -5,7 +5,7 @@
  * Compliance: EU Taxonomy, CSRD, Banking Directive
  */
 
-import { generateTextWithVertex } from './vertexAiService';
+import { SecureError } from '../security/secureErrors';
 
 export interface GreenCheckRequest {
   organizationNumber: string;
@@ -205,58 +205,22 @@ export interface Recommendation {
  * Generate comprehensive green check assessment for a bank
  */
 export async function generateGreenCheck(request: GreenCheckRequest): Promise<GeneratedGreenCheck> {
-  // Build comprehensive prompt with EU regulations context
-  const prompt = buildGreenCheckPrompt(request);
-
-  console.log('[GreenCheckGenerator] Generating assessment for org:', request.organizationNumber);
-
-  try {
-    const responseText = await generateTextWithVertex(prompt, { profile: 'fast' });
-
-    console.log('[GreenCheckGenerator] Received response from Vertex AI');
-
-    // Parse AI response
-    const parsedAssessment = parseAIResponse(responseText, request.organizationNumber);
-
-    // Add source tracking
-    parsedAssessment.sourceTracking = [
-      {
-        source: 'GEMINI_AI',
-        timestamp: new Date().toISOString(),
-        version: 'gemini-1.5-flash',
-        confidence: 82,
-      },
-      {
-        source: 'EU_TAXONOMY_REGISTRY',
-        timestamp: new Date().toISOString(),
-        version: '2024',
-      },
-      {
-        source: 'CSRD_GUIDELINES',
-        timestamp: new Date().toISOString(),
-        version: '2024',
-      },
-    ];
-
-    // External sources
-    parsedAssessment.externalSourcesUsed = [
-      'EU Taxonomy Regulation (2020/852)',
-      'CSRD (Corporate Sustainability Reporting Directive)',
-      'EU Banking Directive 2013/36/EU',
-      'ECB Guidelines on Climate-Related & Environmental Risks',
-      'Finansinspektionen (Swedish Financial Authority)',
-      'Naturvårdsverket (Environmental Protection Agency)',
-      'Åtgärdsportalen CO2-kalkylator (co2.atgardsportalen.se) för sanering och efterbehandling',
-      'Åtgärdsportalen (atgardsportalen.se) för efterbehandling och marksanering',
-      'Technical Screening Criteria Database',
-      'Green Bond Principles',
-    ];
-
-    return parsedAssessment;
-  } catch (error) {
-    console.error('[GreenCheckGenerator] Gemini API error:', error);
-    throw new Error(`Failed to generate green check assessment: ${String(error)}`);
-  }
+  // HD-14 (A9 sweep, 2026-09-29; LEGACY_FLAG, off by default via isLegacyRoutesEnabled()). This
+  // function used to send one Gemini prompt and then: (1) default any field the model omitted —
+  // including the headline ESG letter rating — to a specific, plausible-looking value (rating:
+  // 'BBB', every score/percentage: 0, every boolean: false), so a parse gap silently became a real
+  // bank-facing ESG certificate instead of a visible failure; (2) always attach a fixed
+  // "externalSourcesUsed" list naming Finansinspektionen, Naturvårdsverket, EU Taxonomy Registry
+  // etc., regardless of whether the single Gemini prompt actually consulted any of them — it never
+  // did; only a text prompt was sent. Wiring a real, source-grounded assessment (or an honest
+  // partial-result contract per field) is a separate future unit, not this fix: until then, refuse
+  // explicitly rather than hand a bank a fabricated ESG rating with a fabricated source list.
+  throw new SecureError(
+    `generateGreenCheck(${request.organizationNumber}): no verified regulatory data source is wired; refusing to fabricate an ESG rating or source list from a single unverified LLM prompt.`,
+    'Green check assessment is not available yet: ESG ratings and source attribution cannot be fabricated from an unverified AI response.',
+    501,
+    'GREEN_CHECK_NOT_IMPLEMENTED',
+  );
 }
 
 /**

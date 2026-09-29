@@ -22,62 +22,7 @@ vi.mock('../../db.server', () => ({
 
 import { generateGreenCheck } from '../../server/services/greenCheckGeneratorService';
 import type { GreenCheckRequest } from '../../server/services/greenCheckGeneratorService';
-
-const validJsonResponse = JSON.stringify({
-  esgRating: {
-    overallScore: 75,
-    rating: 'A',
-    environmentalScore: 80,
-    socialScore: 70,
-    governanceScore: 75,
-    strengths: ['Förnybar energi', 'Låga utsläpp'],
-    weaknesses: ['Ingen CSRD-rapportering ännu'],
-  },
-  euTaxonomyCompliance: {
-    alignedActivities: [],
-    transitionActivities: [],
-    nonAlignedActivities: [],
-    alignmentPercentage: 60,
-    transitionPercentage: 20,
-    doNoSignificantHarmAssessment: {
-      climateChange: 'Godkänd',
-      waterPollution: 'Godkänd',
-      circularEconomy: 'Under granskning',
-      pollution: 'Godkänd',
-      biodiversity: 'Godkänd',
-      overallStatus: 'REVIEW_NEEDED',
-    },
-  },
-  regulatoryRiskAssessment: {
-    overallRiskScore: 35,
-    csrdCompliance: {
-      required: true,
-      reason: 'Över tröskel',
-      deadline: '2026-01-01',
-      riskLevel: 'MEDIUM',
-    },
-    taxonomyRisks: { greenwashingRisk: 20, mismatchRisk: 15, transitionRisk: 25 },
-    bankingDirectiveRisks: { capitalRequirement: 'Normalt', liquidityRequirement: 'OK', riskScore: 30 },
-    upcomingRegulations: [],
-  },
-  greenFinanceEligibility: {
-    euGreenBondEligible: true,
-    sustainabilityLinkedLoanEligible: true,
-    euFundingEligible: false,
-    publicGreenFinanceEligible: true,
-    criteria: [],
-    estimatedLoanTerms: { rateReduction: '-0.25%', volumeAvailable: '50M SEK' },
-    nextSteps: [],
-  },
-  financialMetrics: {
-    greenAssetRatio: 0.45,
-    sustainabilityLinkedFinancing: 0.3,
-    stranded_asset_risk: 0.1,
-  },
-  csrdReportingRequirements: [],
-  complianceChecklist: [],
-  recommendations: [],
-});
+import { SecureError } from '../../server/security/secureErrors';
 
 const baseRequest: GreenCheckRequest = {
   organizationNumber: '556700-0000',
@@ -89,66 +34,38 @@ const baseRequest: GreenCheckRequest = {
   longitude: 17.14,
 };
 
-describe('greenCheckGeneratorService', () => {
+/**
+ * HD-14 (A9 sweep, 2026-09-29). This function used to send one Gemini prompt and then default any
+ * field the model omitted to a specific, plausible-looking value — including the headline ESG
+ * letter rating (`rating: 'BBB'`) — and always attach a fixed "externalSourcesUsed" list naming
+ * Finansinspektionen/Naturvårdsverket/EU Taxonomy Registry etc. regardless of whether the single
+ * Gemini prompt actually consulted any of them (it never did). These tests replace the old ones,
+ * which fed the mock a complete JSON response and asserted the fabricated defaulting/sourceTracking
+ * behaviour as if it were correct — they never exercised the omitted-field path at all. The route
+ * behind this (LEGACY_FLAG, off by default) is unaffected here; only the service is tested.
+ */
+describe('generateGreenCheck (HD-14: no fabricated ESG rating or source list)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('generateGreenCheck', () => {
-    it('returnerar GeneratedGreenCheck med korrekt ESG-rating', async () => {
-      mockGenerateContent.mockResolvedValue(validJsonResponse);
-
-      const result = await generateGreenCheck(baseRequest);
-
-      expect(result.organizationNumber).toBe('556700-0000');
-      expect(result.esgRating.overallScore).toBe(75);
-      expect(result.esgRating.rating).toBe('A');
+  it('refuses with an explicit, typed error instead of generating an assessment', async () => {
+    await expect(generateGreenCheck(baseRequest)).rejects.toMatchObject({
+      name: 'SecureError',
+      statusCode: 501,
+      code: 'GREEN_CHECK_NOT_IMPLEMENTED',
     });
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
 
-    it('innehåller sourceTracking med GEMINI_AI', async () => {
-      mockGenerateContent.mockResolvedValue(validJsonResponse);
+  it('never calls Vertex at all, so no prompt can be sent on a bank\'s behalf', async () => {
+    mockGenerateContent.mockResolvedValue('{"esgRating":{"rating":"A"}}');
+    await expect(generateGreenCheck(baseRequest)).rejects.toBeInstanceOf(SecureError);
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
 
-      const result = await generateGreenCheck(baseRequest);
-
-      expect(result.sourceTracking).toBeDefined();
-      const geminiSource = result.sourceTracking.find((s) => s.source === 'GEMINI_AI');
-      expect(geminiSource).toBeDefined();
-    });
-
-    it('innehåller externalSourcesUsed', async () => {
-      mockGenerateContent.mockResolvedValue(validJsonResponse);
-
-      const result = await generateGreenCheck(baseRequest);
-
-      expect(result.externalSourcesUsed.length).toBeGreaterThan(0);
-      expect(result.externalSourcesUsed).toContain('EU Taxonomy Regulation (2020/852)');
-    });
-
-    it('innehåller generatedAt som ISO-sträng', async () => {
-      mockGenerateContent.mockResolvedValue(validJsonResponse);
-
-      const result = await generateGreenCheck(baseRequest);
-      expect(() => new Date(result.generatedAt)).not.toThrow();
-    });
-
-    it('kastar vid Gemini API-fel', async () => {
-      mockGenerateContent.mockRejectedValue(new Error('Gemini timeout'));
-
-      await expect(generateGreenCheck(baseRequest)).rejects.toThrow(
-        'Failed to generate green check assessment',
-      );
-    });
-
-    it('hanterar request utan valfria fält', async () => {
-      mockGenerateContent.mockResolvedValue(validJsonResponse);
-
-      const minimalRequest: GreenCheckRequest = {
-        organizationNumber: '556700-1111',
-        projectDescription: 'Ny fabrik',
-      };
-
-      const result = await generateGreenCheck(minimalRequest);
-      expect(result.organizationNumber).toBe('556700-1111');
-    });
+  it('refuses regardless of which fields the request supplies', async () => {
+    const minimal: GreenCheckRequest = { organizationNumber: '556700-1111', projectDescription: 'Ny fabrik' };
+    await expect(generateGreenCheck(minimal)).rejects.toBeInstanceOf(SecureError);
   });
 });
