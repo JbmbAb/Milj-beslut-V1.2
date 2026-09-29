@@ -2,8 +2,13 @@
 
 **Status:** CANDIDATE (not yet frozen, not yet dispatched, not pushed)
 **Unit:** `governance/devgov/units/lu-w3a-legacy-engine-labelling-v1.json`
-**Base:** `f14e832e55b0b01e8e05191be0b1c7f0e5cfe79c` (live main after PR #193, unrelated Dev-Gov CI
-permissions floor work; no overlap with this unit's files)
+**Base:** `b48ed5e262793b0bf8086dad18a0729e399f84b9` (bumped from `f14e832e` per this revision's own §0a -- main advanced twice more,
+PR #194 docs-only and PR #195/K1a governed-harvest work, neither touching any file this unit reads
+or writes; confirmed via `git diff f14e832e b48ed5e2 --stat`, seven files, all under
+`docs/architecture/`, `governance/devgov/units/`, `packages/mps-data-governance/`,
+`scripts/import/harvest/`, `tests/unit/import/`, plus a one-line unrelated `package.json` script
+rename -- no dependency change, confirmed via `git diff f14e832e b48ed5e2 -- package-lock.json`,
+empty)
 **Design authority:** the W3 design round (`W3-DESIGN-DECISION-2026-09-28.md`) named the
 legacy-engine labelling problem (Group A/B) as W3a, sequenced after W3c per K-89. Jimmy authorized
 starting W3a directly ("ja, sätt igång med W3a") after W3c merged (PR #192) and its PROVEN-record
@@ -26,6 +31,30 @@ ceremoni, RED-först, kall falsifiering)"), which this candidate does not fully 
 even though every individual RED probe was independently confirmed failing against a freshly
 isolated `f14e832e` worktree before its corresponding GREEN proof was written or run. Flagged here
 for the cold reviewer and for Jimmy, not glossed over.
+
+## 0a. Corrections made in this revision, per K-161
+
+- **K-161 (confirmed, doc-precision only, no code/test change):** §4's GREEN evidence originally
+  claimed `generateLocalizationReportLegacyObservationLabel.test.ts` had 6 tests (both in §3's test
+  list and in §4's own per-file breakdown), and separately claimed "60/60 passed (7/7 files)" for a
+  combined run without ever naming which 7 files or reconciling that number against the per-file
+  counts listed just above it (which summed to 53 even with the wrong 6, not 60). Independently
+  re-verified by directly re-running the file in isolation: it has **5** tests, not 6 -- `5 + 19 = 24`
+  is exactly the "(24/24 combined with the PDF service test file)" figure already in the document,
+  which was itself correct throughout. Corrected the mislabeled 6 -> 5 in both §3 and §4, and
+  replaced the unreconciled "60/60 across 7 files" line with two separate, named, independently
+  re-run lines: **52/52** across the 5 real `allowed_paths` test files (`5 + 19 + 20 + 6 + 2 = 52`,
+  now reconstructable from the numbers immediately above it), and, kept separate because it is not
+  part of this unit's own proof, **8/8** across the two named B1 comment-only-reference files
+  (`mapLayerCatalog.test.ts`, `mimerProductShell.test.tsx`) as an explicit regression check --
+  `52 + 8 = 60`, which is where the original unqualified figure came from.
+- **Base bump to `b48ed5e2`:** main advanced twice more during this review round (PR #194, #195);
+  see the header above for the no-overlap confirmation. All 5 RED probes re-verified failing against
+  a freshly isolated `b48ed5e2` worktree (same technique as the original `f14e832e` verification,
+  `node_modules` re-junctioned since dependencies are still unchanged); all 5 GREEN probes
+  re-verified passing against the merged candidate (`git merge origin/main --no-edit`, clean, no
+  conflicts). No code or test content changed in this revision beyond the merge itself and the
+  doc-precision fix above.
 
 ## 1. Scope (OD-17)
 
@@ -135,7 +164,7 @@ exported, for the same direct-pure-function-testability reason as `governedVerdi
 
 ## 3. Tests added/changed
 
-- `tests/unit/generateLocalizationReportLegacyObservationLabel.test.ts` (new, 6 tests):
+- `tests/unit/generateLocalizationReportLegacyObservationLabel.test.ts` (new, 5 tests):
   `legacyObservationTag()` tags when `restrictions` is non-empty; tags when `rules` is non-empty
   even if `restrictions` is empty; does not tag when both are empty
   (`Object.prototype.hasOwnProperty.call(tag, 'legacyObservation')` is `false`, not merely
@@ -163,9 +192,11 @@ exported, for the same direct-pure-function-testability reason as `governedVerdi
 **RED probes**, each run via its exact embedded command (via a temp `.cjs` file rather than
 `node -e <script>` directly for the `luworkspace-no-percentage` probe specifically -- see note
 below -- identical script content either way), against a freshly created, separate worktree
-(`C:\wt-w3a-base`, pinned to `f14e832e`, `node_modules` junctioned directly from this candidate's
-own tree rather than robocopied, since `package.json`/`package-lock.json` are unchanged by this
-unit -- confirmed via `git diff f14e832e HEAD -- package.json package-lock.json`, empty):
+(`C:\wt-w3a-base`, `node_modules` junctioned directly from this candidate's own tree rather than
+robocopied, since `package.json`/`package-lock.json` carry no dependency change across either base
+-- confirmed via `git diff <base> HEAD -- package-lock.json`, empty both times). Run twice: first
+pinned to `f14e832e`, then re-run in full after the base bump (§0a) pinned to `b48ed5e2`, with
+identical results both times:
 - `w3a-legacy-observation-label`: exit 1 (`HUMAN_IN_THE_LOOP` assertion throws on `undefined`,
   `legacyObservationTag` is not a function).
 - `w3a-pdf-legacy-observation-label`: exit 1 (`legacyObservationLabel` is `undefined`).
@@ -175,7 +206,7 @@ unit -- confirmed via `git diff f14e832e HEAD -- package.json package-lock.json`
 - `w3a-localization-study-ui-retired`: exit 1 (both files still exist on disk at base).
 
 All five fail for the exact assertion each test names, no crashes, under runner conditions (K-15
-`prisma generate` preamble included in every probe).
+`prisma generate` preamble included in every probe), on both the original and the bumped base.
 
 **Windows-only local-verification note:** the `w3a-luworkspace-no-percentage` probe's embedded
 script is ~41KB; invoking it via `node -e <script>` on this Windows machine fails with
@@ -188,7 +219,7 @@ only this implementer's local pre-verification harness writes the script to a te
 byte-identical either way.
 
 **GREEN**, run directly against this candidate (real committed-shape test files):
-- `generateLocalizationReportLegacyObservationLabel.test.ts`: 6/6 passed (24/24 combined with the
+- `generateLocalizationReportLegacyObservationLabel.test.ts`: 5/5 passed (24/24 combined with the
   PDF service test file in the same run).
 - `localizationPdfService.test.ts`: 19/19 passed.
 - `luWorkspace.test.tsx`: 20/20 passed.
@@ -201,7 +232,15 @@ byte-identical either way.
   expected `W3A_HARNESS_ERROR ... does not byte-match ...` message, then restoring the file and
   reconfirming exit 0 (unlike W3c, this hardening was built into the wrapper template from the
   start for this unit, not added after a reproducibility defect was found).
-- Full combined run of all 7 affected/incidental test files together: 60/60 passed (7/7 files).
+- Full combined run of the 5 `allowed_paths` test files together: **52/52** passed (5/5 files) --
+  `5 + 19 + 20 + 6 + 2 = 52`, exactly the sum of the individual counts above.
+- Separately, as a B1 regression check (not part of this unit's own proof): the two comment-only
+  `LocalizationStudyUI` references this unit deliberately left untouched --
+  `tests/unit/mapLayerCatalog.test.ts` and `tests/components/mimerProductShell.test.tsx` -- still
+  pass unmodified: **8/8** passed (2/2 files). `52 + 8 = 60`, which is where an earlier draft of
+  this document's unqualified "60/60 across 7 files" line came from, without naming the two extra
+  files or catching that the line above it had miscounted the first file as 6 tests instead of 5
+  (found by cold review, K-161; corrected here).
 
 **Typecheck (S2 methodology, ad-hoc CLI-file-list `tsc`, same `compilerOptions` as `tsconfig.json`,
 bypassing its `exclude` list which names `server`, `src/application`, `src/infrastructure`, and
@@ -227,6 +266,11 @@ bypassing its `exclude` list which names `server`, `src/application`, `src/infra
   tree, since dependencies are unchanged; `@prisma/client` was already generated in that shared
   tree, so no `prisma generate` preamble was needed for this check specifically (only for the
   vitest-based RED/GREEN probes, which do their own).
+- Not re-run against the `b48ed5e2` bump (§0a): the diff between `f14e832e` and `b48ed5e2` is seven
+  files under `docs/architecture/`, `governance/devgov/units/`, `packages/mps-data-governance/`,
+  `scripts/import/harvest/`, `tests/unit/import/`, plus a one-line `package.json` script-name change
+  -- none of the 9 files this scoped check examines imports any of them, so the same 113/111 result
+  necessarily still holds.
 
 ## 5. Non-claims
 
@@ -254,10 +298,13 @@ This unit does **not**:
 
 ## 6. Final disposition
 
-Not yet frozen, not pushed. All 5 RED probes independently reconfirmed failing against a freshly
-isolated `f14e832e` worktree; all 5 GREEN probes confirmed passing against this candidate, including
-the K-118-style byte-identity self-check built in from the start. The type-boundary gap the scoped
-`tsc` check surfaced (§2/§4) has been fixed and re-verified clean. Awaiting cold review -- with the
-§0 process deviation disclosed up front -- before freezing the exact SHA, then the established
+Not yet frozen, not pushed. This candidate went through one cold-review round: K-161 found a
+doc-precision defect in §4's evidence reporting (fixed in §0a; no code or test change) and noted
+main had advanced again (base bumped to `b48ed5e2`, §0a). All 5 RED probes independently reconfirmed
+failing against freshly isolated worktrees on both `f14e832e` and, after the bump, `b48ed5e2`; all 5
+GREEN probes confirmed passing against this candidate on both, including the K-118-style
+byte-identity self-check built in from the start. The type-boundary gap the scoped `tsc` check
+surfaced (§2/§4) has been fixed and re-verified clean. Awaiting the next cold-review pass -- with the
+§0 process deviation still disclosed up front -- before freezing the exact SHA, then the established
 chain: cold verification -> owner push-go -> PR (branch `w3a-legacy-engine-labelling`, the unit's
 own `remote.branch`) -> dispatch (owner only) -> attestation -> merge.
