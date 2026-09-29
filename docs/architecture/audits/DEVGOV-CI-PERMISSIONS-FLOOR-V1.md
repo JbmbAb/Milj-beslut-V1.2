@@ -1,7 +1,9 @@
 # DEVGOV-CI-PERMISSIONS-FLOOR-V1
 
-**Frozen base:** `6f9b005907197389c3782ef5e4e2ff0e3aa38e94` (main after D's PROVEN-record merge,
-PR #191)
+**Frozen base:** `d37ae1cb86248f8ea136524b99f28c80d8f1bf41` (main after W3c's merge, PR #192).
+Rebase note: this unit was originally built against `6f9b005907197389c3782ef5e4e2ff0e3aa38e94`
+(main after D's PROVEN-record merge, PR #191); rebased onto W3c's merge with no conflicts (disjoint
+file sets) once main advanced past it, before any push.
 
 ## Summary
 

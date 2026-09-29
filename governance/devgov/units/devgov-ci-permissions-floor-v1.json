@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "tooling/devgov-ci-permissions-floor-v1",
-  "base_sha": "6f9b005907197389c3782ef5e4e2ff0e3aa38e94",
+  "base_sha": "d37ae1cb86248f8ea136524b99f28c80d8f1bf41",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     ".github/workflows/smoke-integrations.yml",
