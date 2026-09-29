@@ -10,7 +10,6 @@ import { toSafeErrorResponse } from '../security/secureErrors';
 import { assertProjectAccess } from '../security/projectAccess';
 import {
   buildLocalizationPdfData,
-  exportLocalizationPdf,
   fetchLocalizationAuditTrail,
   LocalizationDataUnavailableError,
   runLocalizationReport,
@@ -102,33 +101,11 @@ router.post(
   },
 );
 
-/**
- * POST /api/localization/export-pdf
- */
-router.post(
-  '/api/localization/export-pdf',
-  requireAuth,
-  rateLimitByUser(15, 60_000),
-  async (req, res, next) => {
-    try {
-      const result = await exportLocalizationPdf({
-        authUser: req.authUser!,
-        projectId: String(req.body?.projectId || ''),
-        siteAlternatives: req.body?.siteAlternatives,
-      });
-      if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
-        return;
-      }
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-      res.send(result.buffer);
-    } catch (error) {
-      if (handleOrchestratorError(error, res)) return;
-      next(error);
-    }
-  },
-);
+// POST /api/localization/export-pdf -- retired (W3a, Q3/D-P5-5). Unreachable: the legacy PDF path
+// is not the product path, and its only caller (components/LocalizationStudyUI.tsx) is itself
+// retired in this same unit. The underlying exportLocalizationPdf() orchestrator function is left
+// in place as unreferenced, forward-only dead code (no other caller exists), per the established
+// no-drive-by-cleanup norm -- only the route registration that made it reachable is removed here.
 
 /**
  * GET /api/localization/:projectId/audit-trail
