@@ -8,6 +8,9 @@ on:
       - 'docker/postgres-test/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     name: Build postgres-test image

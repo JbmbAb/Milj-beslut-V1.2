@@ -17,6 +17,9 @@ concurrency:
   group: staging-e2e-proof
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   run-staging-e2e:
     name: Run staging core flows

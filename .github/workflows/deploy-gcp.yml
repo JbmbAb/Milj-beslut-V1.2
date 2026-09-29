@@ -29,6 +29,9 @@ concurrency:
   group: deploy-gcp-${{ github.event.inputs.environment || 'staging' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   guard:
     name: Gate on CI success
