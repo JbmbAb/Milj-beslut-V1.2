@@ -5,7 +5,8 @@ confirmed sound and cleared for implementation, before any production code was w
 K-28 ordering (returning to it after W3b's own RED-only-first candidate; not repeating W3a's
 disclosed deviation).
 **Unit:** `governance/devgov/units/lu-w3d-funding-risk-unresolved-layers-v1.json`
-**Base:** `81260bcf2fec45ddeb281fb32ea8680ecad457af` (W3b merged).
+**Base:** `ea1ced0e4eaa112e2913a6aaf7e4966253550a9e` (bumped from `81260bcf` -- see §5a for why and
+how it was re-verified).
 **Design authority:** `W3-DESIGN-DECISION-2026-09-28.writer-copy.md` §1 Group D, D3 -- last of the
 four named W3 units (W3c/W3a/W3b already merged). Full scope note, including every fact re-verified
 against current main and a finding the original design doc did not name (nothing currently
@@ -104,12 +105,42 @@ Does not update `src/types/project.ts`'s inline type -- confirmed unnecessary, n
 This is the last named W3 unit from the original design round; no further W-unit is currently
 scoped beyond this one.
 
-## 5. Final disposition
+## 5a. Forced base bump: `81260bcf` -> `ea1ced0e`, after PR #201's own merge and dispatch
+
+The candidate (`64316c65`) was cold-reviewed, cold-verified, pushed, PR #201 opened, dispatched
+(full trusted-execution success), and Jimmy issued `merge` -- but GitHub refused the merge:
+`the head branch is not up to date with the base branch`. Main had advanced by one commit,
+`ea1ced0e4eaa112e2913a6aaf7e4966253550a9e` ("collapse signing to one same-run click,
+V1-THROUGHPUT"), a **direct commit to main outside the governed unit mechanism** -- per its own
+audit doc (`docs/architecture/audits/DEVGOV-V1-THROUGHPUT-SAME-RUN-SIGNING-V1.md`), every file it
+touches sits inside `CONTROLLER_OWNED_FLOOR_PATHS` (DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1), which by
+that unit's own design can never be touched through the governed RED/GREEN/gate mechanism -- only a
+direct owner commit, cold-reviewed by an independent peer session first (confirmed: that document
+records exactly this review, verdict `SOUND_WITH_CHANGES`, one finding fixed and re-verified).
+
+**Why this bump needed more scrutiny than an ordinary one:** unlike prior same-day bumps in this
+program (W3a's `f14e832e`->`b48ed5e2`->`12e63380`, all docs-only), this commit restructures the
+*actual signing/dispatch mechanics* `devgov-v0-attest.yml` and `devgov-v0-orchestrate.yml` --
+moving the per-proof `attest:` signing job out entirely into one same-run `sign:` job in the
+orchestrator. Confirmed via the commit's own diff (`git diff 81260bcf ea1ced0e --stat`): zero
+overlap with this unit's own `allowed_paths` (`services/predictiveScoringService.ts`, its test, this
+doc, this unit's own JSON). Merged clean (`git merge origin/main --no-edit`, no conflicts). Re-ran
+the RED probe against a freshly isolated `ea1ced0e` worktree (still fails, same reason); re-ran
+GREEN via the exact embedded command against the merged candidate (still passes, 17/17). **Also ran
+the real `invariant-packs.mjs` CLI locally** (controller = the fresh `ea1ced0e` worktree, candidate
+= this merged tree, same command the orchestrator runs) before requesting a fresh dispatch-go --
+all 9 invariants PASS, including `DG-IP-002-SIGNER-ISOLATION` (the invariant most plausibly affected
+by a signing-mechanism restructure). This is the same discipline applied to the F-10/`DG-IP-009`
+dispatch failure during W3a: confirm the fix genuinely resolves the blocker locally before asking
+for a real dispatch run, rather than assuming a clean merge is sufficient.
+
+## 6. Final disposition
 
 RED-only candidate cold-reviewed and cleared for implementation before any production code was
 written. Implementation complete: the RED probe still fails on a fresh base, now passes on this
 candidate (17/17), zero regressions in adjacent consumer tests (66/66 combined), typecheck clean on
-both the root and scoped checks. Awaiting cold review of the implementation itself before freezing
-the exact SHA, then the established chain: cold verification -> owner push-go -> PR (branch
-`w3d-funding-risk-scoring`, the unit's own `remote.branch`) -> dispatch (owner only) -> attestation
--> merge.
+both the root and scoped checks. Two independent cold reviews (RED-design, then implementation), no
+outstanding findings. Full trusted-execution pipeline passed once already on `64316c65`; a same-day
+direct-to-main infra commit (`ea1ced0e`, §5a) then forced a base bump before the already-approved
+merge could complete -- re-verified locally (RED/GREEN/invariant-packs all clean) before requesting
+a fresh dispatch-go on the bumped candidate.

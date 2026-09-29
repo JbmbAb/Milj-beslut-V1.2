@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "w3d-funding-risk-scoring",
-  "base_sha": "81260bcf2fec45ddeb281fb32ea8680ecad457af",
+  "base_sha": "ea1ced0e4eaa112e2913a6aaf7e4966253550a9e",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "services/predictiveScoringService.ts",
