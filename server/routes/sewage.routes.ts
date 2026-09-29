@@ -16,6 +16,7 @@ import {
   initiateBankIDSignature,
   completeBankIDSignature,
   checkSignatureStatus,
+  getOrderRefBinding,
   verifyAllSignaturesForApplication,
   getSubmissionOrgAndProjectByKey,
   createSewageApplication,
@@ -165,7 +166,17 @@ router.patch('/sewage/application/:id', requireAuth, async (req: Request, res: R
  */
 router.get('/sewage/application/:id/validate', requireAuth, async (req: Request, res: Response) => {
   try {
-    const result = await validateApplicationForSubmission(getRouteParam(req.params.id));
+    const id = getRouteParam(req.params.id);
+    const application = await getSewageApplicationById(id);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+
+    // HD-15 (A9 sweep, 2026-09-29): this route read the application with no check that the
+    // caller's organisation owns it — unlike the sibling GET/PATCH /application/:id routes above.
+    if (req.authUser?.role !== 'ADMIN' && application.organisationId !== req.authUser?.organisationId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await validateApplicationForSubmission(id);
     res.json(result);
   } catch (error) {
     logger.error('Error validating sewage application', { error });
@@ -182,6 +193,12 @@ router.post('/sewage/application/:id/submit', requireAuth, async (req: Request, 
     const id = getRouteParam(req.params.id);
     const application = await getSewageApplicationById(id);
     if (!application) return res.status(404).json({ error: 'Application not found' });
+
+    // HD-15 (A9 sweep, 2026-09-29): same missing tenant check as /validate above — this route
+    // could submit another organisation's application to the municipality.
+    if (req.authUser?.role !== 'ADMIN' && application.organisationId !== req.authUser?.organisationId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     if (!application.municipalityCode) {
       return res.status(400).json({ error: 'Municipality code is required for submission' });
@@ -388,7 +405,17 @@ router.post('/sewage/signatures/complete-bankid', requireAuth, async (req: Reque
 
 router.get('/sewage/signatures/:orderRef/status', requireAuth, async (req: Request, res: Response) => {
   try {
-    const status = await checkSignatureStatus(getRouteParam(req.params.orderRef), req.ip || '127.0.0.1');
+    const orderRef = getRouteParam(req.params.orderRef);
+
+    // HD-15 (A9 sweep, 2026-09-29): this route called checkSignatureStatus for ANY orderRef with
+    // no check that the caller's organisation owns the submission it belongs to. getOrderRefBinding
+    // (HD-16) ties an orderRef back to the referenceNumber it was initiated for, so the same
+    // tenant check every other reference-scoped route already runs can apply here too.
+    const binding = getOrderRefBinding(orderRef);
+    if (!binding) return res.status(404).json({ error: 'Unknown signature order' });
+    await validateProjectAccessForReference(req, binding.referenceNumber);
+
+    const status = await checkSignatureStatus(orderRef, req.ip || '127.0.0.1');
     res.json(status);
   } catch (error) {
     logger.error('Error checking signature status', { error });

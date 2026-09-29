@@ -141,6 +141,23 @@ describe('low coverage server helpers/services', () => {
     expect(tx.externalReference).toContain('ERP-');
   });
 
+  // HD-02 (A9 sweep, 2026-09-29): FORTNOX/VISMA had no real integration ("Implement Fortnox logic
+  // here" / "Implement Visma logic here") but still returned status: 'SENT' with a fabricated
+  // externalReference. Unlike MOCK (an explicit, self-declared opt-in), these claim to be real
+  // providers, so a fabricated success here is materially different — it tells the caller money/data
+  // was sent to an external accounting system when nothing was.
+  it.each(['FORTNOX', 'VISMA'] as const)(
+    'syncMilestoneToErp returns FAILED, not a fabricated SENT, for unimplemented provider %s',
+    async (provider) => {
+      vi.stubEnv('ERP_PROVIDER', provider);
+      const tx = await syncMilestoneToErp('p1', 'm1', 'desc', 10);
+      expect(tx.status).toBe('FAILED');
+      expect(tx.externalReference).toBeUndefined();
+      expect(tx.sentAt).toBeUndefined();
+      expect(loggerMock.warn).toHaveBeenCalled();
+    },
+  );
+
   it('runReliableJob persists state and returns task result', async () => {
     prismaMock.backgroundJob.create.mockResolvedValueOnce({ id: 'job-1' });
     prismaMock.backgroundJob.update.mockResolvedValue({ id: 'job-1' });
