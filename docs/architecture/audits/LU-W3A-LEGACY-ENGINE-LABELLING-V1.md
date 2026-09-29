@@ -2,13 +2,8 @@
 
 **Status:** CANDIDATE (not yet frozen, not yet dispatched, not pushed)
 **Unit:** `governance/devgov/units/lu-w3a-legacy-engine-labelling-v1.json`
-**Base:** `b48ed5e262793b0bf8086dad18a0729e399f84b9` (bumped from `f14e832e` per this revision's own §0a -- main advanced twice more,
-PR #194 docs-only and PR #195/K1a governed-harvest work, neither touching any file this unit reads
-or writes; confirmed via `git diff f14e832e b48ed5e2 --stat`, seven files, all under
-`docs/architecture/`, `governance/devgov/units/`, `packages/mps-data-governance/`,
-`scripts/import/harvest/`, `tests/unit/import/`, plus a one-line unrelated `package.json` script
-rename -- no dependency change, confirmed via `git diff f14e832e b48ed5e2 -- package-lock.json`,
-empty)
+**Base:** `12e633803eff4e396e7fc5b41939ce17d6177b25` (bumped twice; see §0a and §0b for both bumps and
+why the second was forced, not optional)
 **Design authority:** the W3 design round (`W3-DESIGN-DECISION-2026-09-28.md`) named the
 legacy-engine labelling problem (Group A/B) as W3a, sequenced after W3c per K-89. Jimmy authorized
 starting W3a directly ("ja, sätt igång med W3a") after W3c merged (PR #192) and its PROVEN-record
@@ -55,6 +50,38 @@ for the cold reviewer and for Jimmy, not glossed over.
   re-verified passing against the merged candidate (`git merge origin/main --no-edit`, clean, no
   conflicts). No code or test content changed in this revision beyond the merge itself and the
   doc-precision fix above.
+
+## 0b. Forced base bump: `b48ed5e2` -> `12e63380`, dispatch failure on the prior candidate
+
+Jimmy dispatched `21b233541cac78268e02e8a7d114580fe81b4f4c` (this unit's PR #198 head at the time).
+The run (`36559666920`) completed in 16 seconds with **conclusion: failure**, before RED, GREEN, or
+the gate ever executed. Reported by the verifier, independently re-confirmed by re-running
+`gh run view 36559666920 --json status,conclusion` and reading the actual failed-step log directly
+(not taken on the verifier's word): the "Controller-owned invariant packs" job failed on
+`DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR`, detail `"missing: export const
+CONTROLLER_OWNED_FLOOR_PATHS | ..."`.
+
+**Root cause, independently verified, not merely relayed:** `DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1`
+(F-10) merged to main in two steps during this unit's own review window -- implementation PR #197
+(`d9d9ccdf`, merged 2026-09-29T10:33:04Z) then its PROVEN-record PR #199 (`12e63380`, merged
+2026-09-29T11:01:04Z) -- confirmed via `gh pr view 197/199 --json mergedAt,mergeCommit`. This
+unit's dispatched candidate was built on base `b48ed5e2` (merged earlier that day, before both
+PRs), so its own copy of `scripts/devgov/devgov.mjs` predates F-10 entirely and has no
+`CONTROLLER_OWNED_FLOOR_PATHS` export -- confirmed directly: `grep -c
+CONTROLLER_OWNED_FLOOR_PATHS scripts/devgov/devgov.mjs` returned 0 in the dispatched candidate's
+own worktree, and 2 in `origin/main`'s current copy. Unlike the earlier K-62/K-93-style
+merge-time-only staleness pattern, `DG-IP-009` is a **pre-flight invariant the protected controller
+itself checks at dispatch time**, so this blocks dispatch outright rather than surfacing only at
+merge. No damage from the failed run: GREEN and the gate never ran, only this new invariant stopped
+it before either did, exactly as F-10 was designed to do.
+
+**Fix:** merged `origin/main` (`git merge origin/main --no-edit`, clean, no conflicts -- the diff
+between `b48ed5e2` and `12e63380` is 11 files, all under `docs/architecture/`,
+`governance/devgov/units/`, and `scripts/{audit,dev-helpers,devgov}/`, none of them a file this
+unit reads or writes). All 5 RED probes re-verified failing against a freshly isolated `12e63380`
+worktree; all 5 GREEN probes re-verified passing against the merged candidate. Re-linted against
+the updated `scripts/dev-helpers/lib/unitLint.mjs` (F-10 changed it materially, +282/-cut lines) --
+see §4 for the result. No production or test code changed in this revision beyond the merge itself.
 
 ## 1. Scope (OD-17)
 

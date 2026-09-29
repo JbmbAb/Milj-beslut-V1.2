@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "w3a-legacy-engine-labelling",
-  "base_sha": "b48ed5e262793b0bf8086dad18a0729e399f84b9",
+  "base_sha": "12e633803eff4e396e7fc5b41939ce17d6177b25",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "src/application/generate-localization-report.usecase.ts",
