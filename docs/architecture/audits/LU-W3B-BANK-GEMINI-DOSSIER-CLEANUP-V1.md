@@ -1,9 +1,10 @@
-# LU-W3B-BANK-GEMINI-DOSSIER-CLEANUP-V1 -- C1/C2/D4/D5 RED-only candidate
+# LU-W3B-BANK-GEMINI-DOSSIER-CLEANUP-V1 -- C1/C2/D4/D5
 
-**Status:** CANDIDATE -- RED probes only, zero production code. For cold review of test design
-before any implementation begins, per the K-28 ordering used for W2's/W3c's own first candidates.
-Learning from W3a's own disclosed process deviation (its RED probes and implementation were
-written together, without an intermediate RED-only candidate) -- this unit does not repeat it.
+**Status:** CANDIDATE (implementation complete). RED probes were cold-reviewed on their own first
+(§1), confirmed sound and cleared for implementation, before any production code was written --
+per the K-28 ordering used for W2's/W3c's own first candidates. Learning from W3a's own disclosed
+process deviation (its RED probes and implementation were written together, without an intermediate
+RED-only candidate) -- this unit does not repeat it.
 **Unit:** `governance/devgov/units/lu-w3b-bank-gemini-dossier-cleanup-v1.json`
 **Base:** `729a6bd6816e184f013b57677c3ed8594d0eefe3` (W3a merged).
 **Design authority:** OD-04 (ADR-28A), K-89's W3 sequencing ("W3b bank/Gemini + D5"), and two
@@ -61,30 +62,86 @@ the actual RED assertion could even run. Fixed by adding the same
 already established in W3a -- confirmed this was purely a test-harness gap, not a signal about the
 production code path itself.
 
-## 2. Verified RED
+## 2. What changed (implementation, after the RED-only candidate was cleared for it)
 
-All 4 probes run via their exact embedded command, against a freshly isolated worktree
-(`C:\wt-w3b-base`, pinned to `729a6bd6`, `node_modules` junctioned from `C:\wt-w3b`'s own tree since
-`package.json`/`package-lock.json` are unchanged by this candidate):
-- `w3b-bank-compliance-route-retired`: exit 1 (2 of 3 assertions fail: route file still exists,
-  `createApp.ts` still mentions `bankComplianceRouter`).
-- `w3b-gemini-analyze-biodiversity-unavailable`: exit 1 (`unavailableSources` is `undefined` in both
-  cases -- the field doesn't exist yet).
-- `w3b-dossier-trio-retired`: exit 1 (3 of 4 assertions fail: all three trio files still exist).
-- `w3b-predict-weather-risk-throws`: exit 1 (the promise resolves with `{level: 'Låg', ...}` instead
-  of rejecting).
+- **C1:** `server/routes/bankCompliance.routes.ts` deleted outright (single-purpose file). Its
+  import and `app.use(bankComplianceRouter)` mount removed from `server/createApp.ts`, replaced
+  with a comment explaining the retirement and citing the Delta decision. The underlying
+  `server/services/bankComplianceService.ts` and its own test (`tests/unit/bankComplianceService.test.ts`)
+  are untouched, left as unreferenced, forward-only dead code.
+- **C2:** `server/geminiApi.express.ts`'s `analyzeBiodiversity` case now wraps each of the four
+  upstream fetches (SLU, NVR, SGU, RAÄ) in its own try/catch instead of one shared one, pushing a
+  distinct kebab-case identifier (`slu-observations-unavailable`, `nvr-protected-areas-unavailable`,
+  `sgu-geological-data-unavailable`, `raa-monuments-unavailable` -- kept symmetric across all four,
+  per the reviewer's own note) into a new `unavailableSources: string[]` array on failure. The array
+  is spliced onto the result object at the call site (`result = { ...(await
+  analyzeBiodiversityWithCompliance(...)), unavailableSources }`); `analyzeBiodiversityWithCompliance()`
+  itself and `BiodiversityAnalysisResult`'s type are both untouched, since that function has no way
+  to know *why* an input was empty -- only the caller does.
+- **D4:** `services/dossier/dossierBuilderService.ts`, `services/orchestrator/vertexDirigentService.ts`,
+  and `components/DossierDashboard.tsx` deleted outright. `server/services/vertexDirigent.ts` (the
+  unrelated, live file) is untouched, confirmed both by the deletion itself and by the dedicated
+  regression-guard test added in the RED-only candidate.
+- **D5:** `services/geminiService.ts`'s `predictWeatherRisk()` now calls `unavailable('Väderrisk')`
+  (throws) when `serverResult` is non-empty but contains neither `'Hög'` nor `'Medel'`, instead of
+  silently defaulting to `{level: 'Låg', ...}`. Reuses the file's own existing convention rather than
+  extending the `WeatherRisk.level` union.
 
-Full combined run of all 4 files together in the implementation worktree (not the isolated base,
-where the same numbers were independently reconfirmed): 8 failed, 10 passed (18 total) -- the 10
-passing are the pre-existing, untouched tests in `geminiService.test.ts` plus the one
-forward-looking, already-true assertion in the bank-compliance and dossier probes each. No
-unexpected failures anywhere outside the four targeted areas.
+## 3. Verified evidence
 
-## 3. Non-claims -- what this candidate does not do
+**RED**, re-confirmed against a fresh, separate worktree pinned to `729a6bd6`
+(`C:\wt-w3b-base2`, junctioned `node_modules`, K-29 pattern) after cold review cleared the RED-only
+candidate for implementation: all 4 probes still exit 1 on that base, unchanged from §1's own
+figures (no drift between the reviewed RED-only candidate and this implementation's own base).
 
-No production code. No GREEN proof has been run or can meaningfully be run yet -- the fixes
-described in the scope note (§2) are proposed, not implemented. This candidate exists solely to let
-the RED probes themselves be reviewed for design soundness (do they prove the right thing, precisely
-worded, no false negatives) before any implementation is written, matching the K-28/K-53 ordering.
-Does not touch W3d (`predictiveScoringService.ts`, D3) or the `.cursor/rules/import-focus-product.mdc`
-stale-doc issue -- both remain out of scope, as documented in the scope note's own §4.
+**GREEN**, run via the exact embedded command against this candidate (real committed-shape test
+files): all 4 exit 0 -- `bankComplianceRouteRetired.test.ts`: 3/3; `geminiApiAnalyzeBiodiversityUnavailable.test.ts`:
+2/2; `dossierTrioRetired.test.ts`: 4/4, including the vertexDirigent.ts-not-deleted guard;
+`geminiService.test.ts`: 9/9, the 8 pre-existing plus the new D5 test (18/18 total). Includes the
+K-118-style byte-identity self-check (each GREEN proof's embedded `TEST_SOURCE` byte-matches the
+actually committed file it names), built in from the start for this unit -- verified the check
+itself fires by deliberately appending a comment to `dossierTrioRetired.test.ts`, confirming the
+GREEN proof then failed with exit 2 and the expected `W3B_HARNESS_ERROR ... does not byte-match ...`
+message, then restoring the file and reconfirming exit 0 (4/4). Adjacent, untouched files re-run for
+regression: `bankComplianceService.test.ts` (9/9), `geminiBiodiversityService.test.ts` (3/3),
+`vertexDirigent.test.ts` (1/1) -- all still pass unmodified.
+
+**Broken-import check:** repo-wide grep for `dossierBuilderService`, `orchestrator/vertexDirigentService`,
+`DossierDashboard`, `bankComplianceRouter`, and `routes/bankCompliance` after the deletions returns
+matches only in this unit's own two retirement-proof test files (string literals for `existsSync`
+checks and explanatory comments) -- no live imports remain anywhere.
+
+**Typecheck:** `tsconfig.json`'s own `exclude` list covers `server/**` and `tests/**` outright, so
+two checks were needed. Root `tsc --noEmit` (covers `services/geminiService.ts`, which is *not*
+excluded): **87 errors on both base and candidate**, and the two error sets are byte-identical
+(`diff` of the sorted error lists, not just a count match) -- confirms `geminiService.ts`'s own D5
+change introduces zero new errors. Scoped, explicit-file-list `tsc` (same `compilerOptions` as
+`tsconfig.json`, covering `server/createApp.ts` and `server/geminiApi.express.ts`): **83 errors on
+both sides**; the one line-number difference between the two sorted lists
+(`geminiApi.express.ts(181,24)` at base vs `(202,24)` at candidate, both
+`Cannot find name 'askGeneralAssistant'`) is the exact same pre-existing, unrelated bug merely
+shifted down by the ~21 lines this unit's own try/catch-splitting inserted above it -- not a new
+error.
+
+## 4. Non-claims -- what this unit does not do
+
+Does not claim to fix every fail-open pattern the W3 design round found -- W3d
+(`predictiveScoringService.ts`, D3) remains a separate, later unit. Does not touch
+`.cursor/rules/import-focus-product.mdc` (still unaddressed, out of scope for any W-unit so far).
+Does not change `analyzeBiodiversityWithCompliance()`'s own signature, `BiodiversityAnalysisResult`'s
+type, or `complianceRuleEngine.ts` -- C2's fix is scoped entirely to the caller. Does not touch
+`components/TechnicalSluExpert.tsx` (confirmed test-only/unmounted, left as-is per Q-W3b-2). Does
+not claim the root `tsc`/scoped `tsc` figures say anything about the project's overall type health
+-- both are narrow, file-scoped comparisons against this unit's own touched files, matching the S2
+precedent from W3c/W3a.
+
+## 5. Final disposition
+
+RED-only candidate cold-reviewed and cleared for implementation before any production code was
+written. Implementation complete: all 4 RED probes still fail on a fresh base, all 4 now pass on
+this candidate (18/18), zero regressions in adjacent tests, zero broken imports, typecheck clean
+(identical error sets on both sides, the one apparent difference confirmed as a pre-existing bug at
+a shifted line number). Awaiting cold review of the implementation itself before freezing the exact
+SHA, then the established chain: cold verification -> owner push-go -> PR (branch
+`w3b-bank-gemini-dossier-cleanup`, the unit's own `remote.branch`) -> dispatch (owner only) ->
+attestation -> merge.
