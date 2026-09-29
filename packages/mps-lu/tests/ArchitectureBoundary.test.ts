@@ -34,7 +34,7 @@ describe('LU Architecture Charter v1.0 - Constitutional Boundary Tests', () => {
             'mps-governance'
         ];
 
-        let failedFiles: string[] = [];
+        const failedFiles: string[] = [];
 
         for (const pkg of frozenCorePackages) {
             const pkgDir = path.join(packagesDir, pkg, 'src');
@@ -55,7 +55,7 @@ describe('LU Architecture Charter v1.0 - Constitutional Boundary Tests', () => {
         const luDir = path.join(packagesDir, 'mps-lu', 'src');
         const files = walkSync(luDir);
 
-        let failedFiles: string[] = [];
+        const failedFiles: string[] = [];
         const forbidden = [
             'ui-lu-workspace', 
             'spatial-provider-postgis', 
@@ -77,7 +77,7 @@ describe('LU Architecture Charter v1.0 - Constitutional Boundary Tests', () => {
 
     it('Regel 3: UI får inte importera artifact-store eller LU-regler', () => {
         const uiPackages = ['mps-ui-contract', 'ui-lu-workspace']; // Including ui-lu-workspace if it exists
-        let failedFiles: string[] = [];
+        const failedFiles: string[] = [];
 
         for (const pkg of uiPackages) {
             const pkgDir = path.join(packagesDir, pkg, 'src');
