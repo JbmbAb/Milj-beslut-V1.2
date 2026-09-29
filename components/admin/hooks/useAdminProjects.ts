@@ -55,7 +55,7 @@ export const useAdminProjects = (page = 1, pageSize = 10): UseAdminProjectsResul
   }, [page, pageSize]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     fetchProjects();
   }, [fetchProjects]);
 

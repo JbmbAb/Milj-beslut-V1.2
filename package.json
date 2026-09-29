@@ -164,7 +164,7 @@
     "fast-check": "^3.23.2",
     "glob": "^13.0.6",
     "jsdom": "^26.1.0",
-    "postcss": "^8.5.25",
+    "postcss": "^8.5.26",
     "prettier": "^3.9.6",
     "prisma": "^7.9.1",
     "rimraf": "^6.1.3",

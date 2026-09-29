@@ -15,7 +15,7 @@ async function main() {
   const privateKeysPresent = Object.keys(process.env).some((k) => k.includes('PRIVATE_KEY'));
 
   try {
-    let assessmentResolved = true;
+    const assessmentResolved = true;
     if (assessmentArtifactId) {
       await mimers.artifactRepository.resolve({ artifact_id: assessmentArtifactId, artifact_type: 'LOCALIZATION_ASSESSMENT' });
     }

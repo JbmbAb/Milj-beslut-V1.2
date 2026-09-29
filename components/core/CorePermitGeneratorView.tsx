@@ -53,7 +53,7 @@ const CorePermitGeneratorView: React.FC<CorePermitGeneratorViewProps> = ({ proje
 
   useEffect(() => {
     const municipality = getProjectMunicipality(project.propertyDesignation);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setFormData((current) => ({
       ...current,
       property: project.propertyDesignation,
