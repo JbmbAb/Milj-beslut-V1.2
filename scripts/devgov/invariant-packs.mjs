@@ -7,7 +7,6 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 const REGISTRY_REL = 'governance/devgov/invariant-packs/registry-v1.json';
 
 const REQUIRED_V1_INVARIANT_IDS = Object.freeze([
-  'DG-IP-001-PROTECTED-CONTROLLER-SEPARATION',
   'DG-IP-002-SIGNER-ISOLATION',
   'DG-IP-003-EXACT-CANDIDATE-BINDING',
   'DG-IP-004-VERIFIER-OWNED-TRUST',
@@ -15,6 +14,7 @@ const REQUIRED_V1_INVARIANT_IDS = Object.freeze([
   'DG-IP-006-ALL-PACKS-NO-CANDIDATE-SELECTION',
   'DG-IP-007-PR-PROTECTED-BASE',
   'DG-IP-008-POST-MERGE-ACTIVATION',
+  'DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR',
 ]);
 
 function sha256(value) {
@@ -75,6 +75,58 @@ function combine(...results) {
     : { pass: true, detail: results.map((item) => item.detail).join('; ') };
 }
 
+// F-10 structural fix, defense in depth: no `run:` shell-script body may splice a `${{ }}`
+// expression directly into its text. GitHub Actions substitutes `${{ }}` expressions into a run:
+// block's generated shell script as raw text BEFORE bash parses it -- a real injection surface if
+// the expression's value (e.g. an inputs.* value, which traces back to candidate-authored data)
+// contains shell metacharacters. The existing run: steps avoid this correctly by binding every
+// dynamic value through an env: block first and referencing it only as a quoted "$VAR" shell
+// variable. `${{ }}` occurrences OUTSIDE a run: block (e.g. in a `with: { name: ... }` field on a
+// `uses:` step, or in an `env:` mapping value) are resolved by the GitHub Actions engine itself,
+// never touch a shell, and are not flagged here.
+//
+// run: block bodies are found by their YAML block-scalar indentation rule: a `run: |` or `run: >`
+// line's body is every following line indented strictly more than the `run:` key itself, until a
+// line at or below that indentation (ignoring blank lines) ends the block.
+function findRunBlocks(source) {
+  const lines = source.split(/\r?\n/);
+  const blocks = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(\s*)run:\s*[|>][+-]?\s*$/.exec(lines[index]);
+    if (!match) continue;
+    const runIndent = match[1].length;
+    const bodyLines = [];
+    let cursor = index + 1;
+    while (cursor < lines.length) {
+      const line = lines[cursor];
+      if (line.trim() === '') {
+        bodyLines.push(line);
+        cursor += 1;
+        continue;
+      }
+      const indent = line.length - line.trimStart().length;
+      if (indent <= runIndent) break;
+      bodyLines.push(line);
+      cursor += 1;
+    }
+    blocks.push(bodyLines.join('\n'));
+  }
+  return blocks;
+}
+
+function noTemplateSpliceInRunBlocks(source) {
+  const offenders = findRunBlocks(source)
+    .flatMap((body) => body.split(/\r?\n/))
+    .filter((line) => line.includes('${{'));
+  return {
+    pass: offenders.length === 0,
+    detail:
+      offenders.length === 0
+        ? 'no run: block splices a ${{ }} expression directly into shell text'
+        : `unsafe template splice inside a run: block: ${offenders.map((line) => line.trim()).join(' | ')}`,
+  };
+}
+
 function block(source, start, end) {
   const a = source.indexOf(start);
   if (a < 0) return '';
@@ -133,30 +185,18 @@ function evaluateInvariant(id, targetRoot) {
   const runner = () => readText(targetRoot, 'scripts/devgov/invariant-packs.mjs');
 
   switch (id) {
-    case 'DG-IP-001-PROTECTED-CONTROLLER-SEPARATION': {
-      const source = attest();
-      const execute = stripLineComments(block(source, '  execute:', '\n  attest:'));
-      const signing = stripLineComments(block(source, '  attest:', null));
-      const checkoutBindings = [
-        'ref: ${{ github.sha }}',
-        'path: controller',
-        'ref: ${{ inputs.candidate_sha }}',
-        'path: candidate',
-      ];
-      const forbidden = ['node candidate/scripts/devgov/', 'node execution/scripts/devgov/'];
-      return combine(
-        hasAll(execute, [
-          ...checkoutBindings,
-          'node controller/scripts/devgov/devgov.mjs resolve-execution-sha',
-          'node controller/scripts/devgov/devgov.mjs execute-proof',
-        ]),
-        hasAll(signing, [...checkoutBindings, 'node controller/scripts/devgov/devgov.mjs attest-execution']),
-        hasNone(execute, forbidden),
-        hasNone(signing, forbidden),
-        noDynamicNodeInvocation(execute),
-        noDynamicNodeInvocation(signing),
-      );
-    }
+    // DG-IP-001-PROTECTED-CONTROLLER-SEPARATION removed (F-10 structural fix,
+    // DEVGOV-CONTROLLER-OWNED-PATH-FLOOR-V1): this check inspected devgov-v0-attest.yml's text for
+    // a dynamically-assembled node invocation, a class of check already proven defeatable via
+    // shell eval/token-splitting obfuscation. That file is now covered by
+    // CONTROLLER_OWNED_FLOOR_PATHS in devgov.mjs, making it structurally impossible for any
+    // candidate to modify at all -- so a content-level check of it can never again observe a
+    // different value than what's already on the protected controller, and keeping it would only
+    // provide a permanently-green, no-longer-meaningful signal. Regression coverage for the
+    // historical attack this caught lives in devgovExactShaVerification.test.ts's
+    // "rejects the historical F-10 attest-execution redirection attack at admission" case, which
+    // proves the same attack is now caught earlier (denied before merge, before content is even
+    // inspected) rather than by this now-removed check.
     case 'DG-IP-002-SIGNER-ISOLATION': {
       const source = attest();
       const execute = block(source, '  execute:', '\n  attest:');
@@ -366,6 +406,23 @@ function evaluateInvariant(id, targetRoot) {
         hasAll(orchestrator(), ['ref: ${{ github.sha }}', 'path: controller']),
         hasAll(gate(), ['ref: ${{ github.sha }}', 'path: controller']),
         hasAll(prPacks(), ['ref: ${{ github.event.pull_request.base.sha }}', 'path: controller']),
+      );
+    }
+    case 'DG-IP-009-CONTROLLER-OWNED-PATH-FLOOR': {
+      const source = controller();
+      return combine(
+        hasAll(source, [
+          'export const CONTROLLER_OWNED_FLOOR_PATHS',
+          "'scripts/devgov/**'",
+          "'governance/devgov/schema/**'",
+          "'governance/devgov/invariant-packs/**'",
+          "'.github/workflows/devgov-v0-attest.yml'",
+          "'.github/workflows/devgov-v0-gate.yml'",
+          "'.github/workflows/devgov-v0-orchestrate.yml'",
+          "'.github/workflows/devgov-invariant-packs.yml'",
+        ]),
+        hasAll(source, ['...CONTROLLER_OWNED_FLOOR_PATHS']),
+        noTemplateSpliceInRunBlocks(attest()),
       );
     }
     default:
