@@ -46,6 +46,7 @@ import {
   scrubProjectData,
   permanentlyDeleteUserData,
   getUserDataExport,
+  getUserOrganisationId,
   runGdprMaintenanceJob,
 } from '../../server/services/gdprComplianceService';
 
@@ -104,20 +105,43 @@ describe('gdprComplianceService', () => {
 
       vi.mocked(prisma.project.findUnique).mockResolvedValue(mockProject as any);
 
-      await permanentlyDeleteProjectData(projectId);
+      const result = await permanentlyDeleteProjectData(projectId);
 
       expect(prisma.requirementRecord.deleteMany).toHaveBeenCalledWith({ where: { projectId } });
       expect(prisma.documentRecord.deleteMany).toHaveBeenCalledWith({ where: { projectId } });
       expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: projectId } });
+      expect(result.storageDeletionFailures).toEqual([]);
     });
 
     it('returns early when project is already missing', async () => {
       vi.mocked(prisma.project.findUnique).mockResolvedValue(null);
 
-      await permanentlyDeleteProjectData('missing-project');
+      const result = await permanentlyDeleteProjectData('missing-project');
 
       expect(prisma.project.delete).not.toHaveBeenCalled();
       expect(prisma.documentRecord.deleteMany).not.toHaveBeenCalled();
+      expect(result.storageDeletionFailures).toEqual([]);
+    });
+
+    // HD-08 (F13): a storage failure must not block the database deletion, but it must be
+    // reported honestly to the caller instead of being silently swallowed.
+    it('completes the database deletion and reports the failure when a stored file cannot be removed', async () => {
+      const projectId = 'p125';
+      vi.mocked(prisma.project.findUnique).mockResolvedValue({
+        id: projectId,
+        documents: [
+          { id: 'd1', absolutePath: '/tmp/unreachable.pdf' },
+          { id: 'd2', absolutePath: '/tmp/ok.pdf' },
+        ],
+      } as any);
+      vi.mocked(deleteStorageFile).mockImplementation(async (path: string) => {
+        if (path === '/tmp/unreachable.pdf') throw new Error('storage backend unavailable');
+      });
+
+      const result = await permanentlyDeleteProjectData(projectId);
+
+      expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: projectId } });
+      expect(result.storageDeletionFailures).toEqual(['/tmp/unreachable.pdf']);
     });
   });
 
@@ -180,6 +204,46 @@ describe('gdprComplianceService', () => {
         where: { userId },
         data: { userId: null },
       });
+      expect(result.storageDeletionFailures).toEqual([]);
+    });
+
+    // HD-08: storage-deletion failures from owned projects must surface on the aggregate result.
+    it('aggregates storage-deletion failures across every owned project', async () => {
+      const userId = 'u124';
+      vi.mocked(prisma.projectMember.findMany).mockResolvedValue([{ projectId: 'p1' }, { projectId: 'p2' }] as any);
+      vi.mocked(prisma.auditTrail.updateMany).mockResolvedValue({ count: 0 });
+      vi.mocked(prisma.tokenRevocation.deleteMany).mockResolvedValue({ count: 0 });
+      vi.mocked(prisma.project.findUnique).mockImplementation(async ({ where }: any) => {
+        if (where.id === 'p1') {
+          return { id: 'p1', documents: [{ id: 'd1', absolutePath: '/tmp/fail1.pdf' }] } as any;
+        }
+        return { id: 'p2', documents: [{ id: 'd2', absolutePath: '/tmp/ok.pdf' }] } as any;
+      });
+      vi.mocked(deleteStorageFile).mockImplementation(async (path: string) => {
+        if (path === '/tmp/fail1.pdf') throw new Error('storage backend unavailable');
+      });
+
+      const result = await permanentlyDeleteUserData(userId);
+
+      expect(result.storageDeletionFailures).toEqual(['/tmp/fail1.pdf']);
+    });
+  });
+
+  describe('getUserOrganisationId', () => {
+    it('returns the organisationId for an existing user', async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({ organisationId: 'org-1' } as any);
+
+      await expect(getUserOrganisationId('u1')).resolves.toBe('org-1');
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        select: { organisationId: true },
+      });
+    });
+
+    it('returns null when the user does not exist', async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+
+      await expect(getUserOrganisationId('missing')).resolves.toBeNull();
     });
   });
 

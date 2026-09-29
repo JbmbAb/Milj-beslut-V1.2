@@ -46,11 +46,20 @@ export async function archiveExpiredProjects(): Promise<number> {
 
 /**
  * PERMANENT DELETION: Removes all project data when retention period expires.
+ *
+ * HD-08 (F13): a document's stored file may fail to delete from disk/GCS (e.g. a transient
+ * storage error) while its database rows are still removed in the same transaction. Blocking the
+ * whole deletion on that failure would let an unrelated storage hiccup stand in the way of a
+ * GDPR-mandated erasure; instead the DB deletion proceeds and every failed absolutePath is
+ * collected and returned, so the caller can give an honest "partially deleted" response instead
+ * of silently claiming full success.
  */
 export async function permanentlyDeleteProjectData(
   projectId: string,
   prismaClient?: Prisma.TransactionClient,
-): Promise<void> {
+): Promise<{ storageDeletionFailures: string[] }> {
+  const storageDeletionFailures: string[] = [];
+
   const runDelete = async (tx: Prisma.TransactionClient) => {
     const project = await tx.project.findUnique({
       where: { id: projectId },
@@ -95,6 +104,7 @@ export async function permanentlyDeleteProjectData(
           await deleteStorageFile(doc.absolutePath); // Use statically imported function
         } catch (e) {
           console.warn(`Failed to delete stored file: ${doc.absolutePath}`, e);
+          storageDeletionFailures.push(doc.absolutePath);
         }
       }
     }
@@ -134,7 +144,15 @@ export async function permanentlyDeleteProjectData(
     });
   }
 
-  console.info(`Permanently deleted project data for project: ${projectId}`);
+  if (storageDeletionFailures.length > 0) {
+    console.warn(
+      `Permanently deleted database records for project ${projectId}, but ${storageDeletionFailures.length} stored file(s) could not be removed and require manual follow-up`,
+    );
+  } else {
+    console.info(`Permanently deleted project data for project: ${projectId}`);
+  }
+
+  return { storageDeletionFailures };
 }
 
 /**
@@ -256,6 +274,7 @@ export async function permanentlyDeleteUserData(userId: string): Promise<{
   projectsDeleted: number;
   auditLogsAnonymized: number;
   tokensRevoked: number;
+  storageDeletionFailures: string[];
 }> {
   return prisma.$transaction(async (tx) => {
     // STEG 1: Hämta alla projekt som användaren äger.
@@ -265,9 +284,14 @@ export async function permanentlyDeleteUserData(userId: string): Promise<{
     });
 
     // STEG 2: Radera alla projekt som användaren äger permanent.
+    const storageDeletionFailures: string[] = [];
     for (const membership of ownedProjects) {
       // Pass the transaction client `tx` to the project deletion function.
-      await permanentlyDeleteProjectData(membership.projectId, tx);
+      const { storageDeletionFailures: projectFailures } = await permanentlyDeleteProjectData(
+        membership.projectId,
+        tx,
+      );
+      storageDeletionFailures.push(...projectFailures);
     }
 
     // STEG 3: Radera alla projektmedlemskap för användaren.
@@ -297,8 +321,22 @@ export async function permanentlyDeleteUserData(userId: string): Promise<{
       projectsDeleted: ownedProjects.length,
       auditLogsAnonymized: auditLogsAnonymized.count,
       tokensRevoked: tokensRevoked.count,
+      storageDeletionFailures,
     };
   });
+}
+
+/**
+ * HD-07 (F12): lets a caller check which organisation a user belongs to before performing an
+ * org-scoped destructive action (e.g. admin-triggered permanent deletion), without needing to
+ * import prisma directly into the route layer. Returns null if the user does not exist.
+ */
+export async function getUserOrganisationId(userId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { organisationId: true },
+  });
+  return user?.organisationId ?? null;
 }
 
 /**
