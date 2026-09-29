@@ -156,14 +156,12 @@ describe('localization.routes', () => {
     expect(res.body.entries).toHaveLength(1);
   });
 
-  it('exports PDF binary', async () => {
+  it('W3a: export-pdf has been retired (D-P5-5/Q3) -- no longer registered, returns 404', async () => {
     const res = await request(app)
       .post('/api/localization/export-pdf')
       .set('Authorization', authHeader())
       .send(validBody);
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('application/pdf');
-    expect(Buffer.isBuffer(res.body) || typeof res.body === 'object').toBe(true);
+    expect(res.status).toBe(404);
   });
 
   it('returns 503 in strict mode when external sources are unavailable', async () => {
