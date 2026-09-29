@@ -1,18 +1,44 @@
 # SECURITY-HARDENING-HD04-HD09-V1 -- HD-04..HD-09 findings from A9
 
-**Status:** CANDIDATE (verified locally, not yet reviewed by the independent verifier session, not
-dispatched, not pushed)
+**Status:** four candidates COLD_VERIFIED by the independent verifier (K-159, no remarks) and
+pushed to origin on Jimmy's explicit go ("push all four"). Pushed branches were then rebased once
+more (main advanced significantly while cold review + push were in flight) and are being
+re-verified and re-sent for a second cold review before the next dispatch-go. **Not yet dispatched
+into the Dev-Gov gate/attestation pipeline.**
 **Units:** four, see `governance/devgov/units/devgov-security-hardening-hd04a-hd04b-hd05-v1.json`,
 `devgov-security-hardening-hd06-v1.json`, `devgov-security-hardening-hd07-hd08-v1.json`,
 `devgov-security-hardening-hd09-v1.json`
-**Base:** `b48ed5e262793b0bf8086dad18a0729e399f84b9` (origin/main tip, PR #195 merge; bumped once
-from the original `760d5a15` after main advanced mid-session -- RED and GREEN both re-verified
-against the bumped base, per the startbrief's own "if main moves, bump and re-verify" instruction)
+**Base:** `dc78d44cd47c9a9cc46ffc805a53751861221765` (origin/main tip after HD-sweep-A9-01 PR #196
+and V1-THROUGHPUT's same-run-signing restructure of `devgov-v0-attest.yml`/`devgov-v0-orchestrate.yml`).
+Bumped twice total: `760d5a15` (original) -> `b48ed5e2` (mid-session, before first push) ->
+`dc78d44c` (this bump, after push+cold-review+push-go, per Jimmy's explicit go to proceed once
+main had advanced again -- W3a, W3b, HD-sweep-A9-01, V1-THROUGHPUT all landed in between). Each
+bump confirmed zero file-level overlap with this work's own touched files before merging (verified
+via `git diff --name-only <old-base>..origin/main`, not assumed), and RED/GREEN were re-verified
+against each new base before committing the bump, per the startbrief's own "if main moves, bump
+and re-verify" instruction.
 **Design authority:** `Claude outputs/lu-maps-2026-09-26/SECURITY-HARDENING-SESSION-BRIEF-2026-09-29.md`,
 Jimmy's owner decision K-149 (`HDR20-OWNER-DECISION-ROUND-2026-09-29.md`), sourced from the A9
 route-reachability sweep (`A9-ROUTE-REACHABILITY-SWEEP-FINAL-2026-09-29.md`). HD-06's fix design
 (replace the client-supplied `bankidId` with a verified-session `orderRef`) was confirmed with
 Jimmy in-session before any code was written.
+
+**Candidate SHAs, current (post-rebase, second round):**
+
+| Unit | Branch | Candidate SHA | First-round SHA (COLD_VERIFIED K-159, pushed) |
+|---|---|---|---|
+| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `28a35880db799d87f4daec3b6f4d31a1e2957738` | `1911598925613370d42a2ace506eb0add08829d8` |
+| B (HD-06) | `claude/security-hardening-hd06-v1` | `ab5489fee2d5a728eeced5e9353584c2e5ee8443` | `3615e94ca6e5ff8546897fa22facac1a6f576354` |
+| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `d0b8acb8322744ee0103a4922eab73400fc66d2f` | `c696e562f31504ecb4d397fbe6b8a4da6463c68e` |
+| D (HD-09) | `claude/security-hardening-hd09-v1` | `df2385223b3f6f12d74d5e68db8de8114f8d39c6` | `0c7817a5e031446d6400767ef312414d5c6fd27f` |
+
+Each current SHA is a merge commit (`origin/main` at `dc78d44c` merged in, no force, no conflicts)
+plus one `base_sha`-bump commit on top of the first-round SHA already pushed and cold-reviewed --
+no production-code or test-content changes in this round, only the base pointer. The rebase and
+re-verification were authorized in-session by Jimmy ("fortsätt godkänner") after a separate,
+unverified cross-session message claiming the same authorization under the display name "Boss"
+was identified and explicitly refused -- see the security-hardening session's own transcript for
+that exchange; not repeated here since it is process history, not part of this unit's code.
 
 ## 0. Grouping rationale
 
