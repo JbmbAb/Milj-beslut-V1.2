@@ -180,3 +180,38 @@ lu-w4-project-context-readiness-canonical-projection-v1.json` file -- no product
 changed. Awaiting cold review of this fix specifically, then a fresh dispatch-go from Jimmy on the
 new candidate SHA, since the prior dispatch's own record is now stale (it recorded a real failure
 against the pre-fix unit-JSON).
+
+The fix candidate (`40b666b2`) was then dispatched and passed the real trusted-execution pipeline in
+full: run `36702445924`, all 9 jobs `conclusion: success` (both RED entries, both GREEN entries, the
+single same-run signing job, the canonical gate dispatch, and the handoff publish), independently
+re-verified live via `gh run view` rather than trusted from a peer's or an agent's own report.
+
+## 8. Base bump (2026-09-30, pre-merge)
+
+PR #204 (`main` <- `w4-project-context-readiness-canonical-projection`) was blocked from merging by
+branch protection ("the head branch is not up to date with the base branch"): `main` had advanced to
+`740b2fdfa1faffb19b922d4eaeb187ce492521cf` via an unrelated merge (PR #203, an A+STRUCTURE marker
+chunking unit touching only `packages/mps-chunking/**` and one new governance unit-JSON/docs file)
+after this unit's `base_sha` (`44e3e3df68a3ed3f22515eed55f3068fdc742baa`) was cut.
+
+Per this program's standing discipline (never bypass branch protection with `--admin` on a governed
+unit -- a merge commit that was never itself dispatched/verified as its own SHA would defeat the
+purpose of per-SHA trusted-execution proof; same precedent as W3d's two forced base bumps and the
+corpus-lane's identical situation the same day), the correct remediation is a base bump: merge `main`
+into the branch, bump `base_sha` in the unit-JSON, re-verify byte-for-byte that nothing else changed,
+then take the new candidate back through cold review and a fresh dispatch before merging.
+
+Confirmed before merging: `git diff 44e3e3df68a3ed3f22515eed55f3068fdc742baa origin/main` restricted
+to this unit's own six files (the two new `src/application` files, their two tests, this audit doc,
+and the unit-JSON itself) is empty -- zero overlap, so the merge is a clean union with no conflicts
+and no risk of this unit's own content being altered by the bump.
+
+Merge commit: `git merge origin/main --no-edit` (strategy `ort`), bringing in exactly PR #203's five
+files (`docs/architecture/CHUNK-RETRIEVAL-LOCAL-EMBEDDING-DESIGN-01.md`,
+`governance/devgov/units/a-structure-marker-default-disambiguation-v1.json`, and three
+`packages/mps-chunking/**` files) with zero changes to any of this unit's own files. `base_sha` in
+the unit-JSON bumped from `44e3e3df...` to `740b2fdf...`; the two `"required_head": "base_sha"`
+references elsewhere in the file are symbolic (resolve against the top-level field), so no other edit
+was needed. No production or test code, and no `TEST_SOURCE` embed, changed by this bump -- awaiting
+the peer's lightweight cold review (confirm base-only, no logic change) and then Jimmy's fresh
+dispatch-go on the new candidate SHA.
