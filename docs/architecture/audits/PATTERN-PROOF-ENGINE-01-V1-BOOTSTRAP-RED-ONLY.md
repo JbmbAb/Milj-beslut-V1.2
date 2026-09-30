@@ -248,8 +248,49 @@ as a `runtime_result` locator. That ledger is not implemented in this unit becau
 
 ## 10. Orchestrator adapter and CLI
 
-_Filled in by the packaging commit after wave 3 lands (adapter structure, agents, fail-closed rules, drift test,
-`ppe-cli` commands and the executed `ppe-cli run` over the frozen artifacts)._
+**Adapter** (`packages/mps-pattern-proof/workflow/ppe-v1.js`, BOOTSTRAP §4 as the first orchestrator adapter, plan
+D2/D3/D7/D14/T4/T5/T13). Plain JavaScript for the Claude Code Workflow tool: a `/* global … */` directive, then
+`export const meta` as the first statement (name `ppe-v1`, phases `DISCOVER`, `BUILD_GRAPH`, `DECISION_GATE`,
+`RED_SYNTHESIS`, a pure literal), then a generated block `const PPE_SCHEMAS = …` holding the package's eight artifact
+schemas (emitted by `scripts/gen-workflow-adapter.ts` from `PPE_ARTIFACT_SCHEMAS`, prettier-formatted, idempotent
+(`unchanged`), byte-compared by `tests/workflow-adapter.test.ts`), then hand-written control flow:
+
+- refuses, before any agent runs, every mode other than `BOOTSTRAP_RED_ONLY` and any call missing `evidenceDir`,
+  `runStamp` or `baseSha`; there is no `FULL_PATTERN_PROOF` path and no owner-go bypass;
+- runs exactly four sequential `agent()` calls, one per phase, each with a harness schema
+  `{ artifact: PPE_SCHEMAS[kind], validation: { ok, errors }, artifactPath }` (RED_SYNTHESIS additionally
+  `runSummary` and `probeResults`); every stage reads only the artifact files of the earlier stages under
+  `evidenceDir` (never a transcript), writes its own artifact file and validates it with
+  `ppe-cli validate --kind <kind> --file …`; `runtime_result` refs an agent cites must be recorded in
+  `evidenceDir/runtime-ledger.json`;
+- the authoritative transition is `ppe-cli run --dir <evidenceDir> --mode BOOTSTRAP_RED_ONLY --repo-root . --run-id
+<runStamp> --base-sha <baseSha> --json` (the pure state machine over the written files, plan D3), executed by the
+  RED_SYNTHESIS stage and required to report `stoppedAtPhase: RED_SYNTHESIS` (exit 0) or a terminal state (exit 3);
+  the stage then executes both RED probes with `--executor auto` and reports their classifications;
+- fails closed (`failedClosed` with the phase and reason) on a `null` agent result, `validation.ok !== true`, or any
+  other run summary; returns early at `DECISION_GATE` on a non-`MECHANICAL` item as a candidate verdict, naming the
+  `ppe-cli run` command that yields the authoritative one;
+- uses no `Date.now`/`Math.random`, no imports and no filesystem; keeps to four agents.
+
+Harness caveat, disclosed: the Workflow tool validates `agent()` schemas with Ajv (draft-07 default class,
+`validateFormats: false`, inferred from the Claude Code 2.1.285 binary, not from documentation); the adapter therefore
+uses only `type/properties/required/items/enum/minItems/additionalProperties/description`, and semantic invariants
+beyond that are enforced by the package validators through `ppe-cli`. In an interactive auto-mode session the agents'
+`npx tsx …` and docker commands need pre-approval; routine runs are autonomous.
+
+**CLI** (`packages/mps-pattern-proof/scripts/ppe-cli.ts`): `validate --kind <kind> [--file]` prints the validator
+verdict as JSON (exit 0 ok, 1 inadmissible, 2 harness fault); `run --dir <dir> --mode BOOTSTRAP_RED_ONLY [--repo-root]
+[--run-id] [--base-sha] [--ledger] [--out] [--json]` replays `discovery.json`, `dependency-graph.json`,
+`decision-gate.json` and `red-plan.json` through the state machine with `RepositoryAuthorityResolver` rooted at the
+checkout and the runtime ledger, writes `run-state.json` and exits 0 on `stoppedByMode` at `RED_SYNTHESIS`, 3 on a
+terminal state, 1 on an inadmissible artifact, 2 on a harness fault including the refusal of any other mode;
+`schemas` prints the artifact schemas.
+
+Executed in this session: `ppe-cli run` over the frozen §5 artifacts (seeded with their four `runtime_result` refs)
+→ exit 0, `stoppedAtPhase: RED_SYNTHESIS`, `storedArtifacts: discovery, dependency-graph, decision-gate, red-plan`
+(`tests/ppe-cli.test.ts` repeats this, plus `MISSING_AUTHORITY` → exit 3, an evidence-less finding → exit 1, and
+`--mode FULL_PATTERN_PROOF` → exit 2 quoting BOOTSTRAP §7). The adapter itself was executed once through the real
+Workflow tool in this session as a smoke run of the orchestration path; its outcome and evidence are recorded in §14a.
 
 Three different things are named "workflow" in this repository and must not be conflated: the Claude Code **Workflow
 tool** (agent orchestration; this adapter), `packages/mps-runtime`'s `WorkflowRuntime` (platform domain execution,
