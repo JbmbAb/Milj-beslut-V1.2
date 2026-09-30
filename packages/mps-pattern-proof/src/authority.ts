@@ -143,6 +143,8 @@ export interface RepositoryAuthorityResolverOptions {
 
 export const FILE_LINE_SPEC_RE = /^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/;
 const GIT_REF_RE = /^[0-9a-f]{7,64}(?::[^\s]+)?$/;
+/** `<sha>..<sha>` (R1 F4): a diff identity; both objects must exist. No `:path` suffix on a range. */
+const GIT_RANGE_RE = /^([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})$/;
 
 export interface ParsedFileLineRef {
   readonly path: string;
@@ -237,28 +239,45 @@ export class RepositoryAuthorityResolver implements AuthorityLocatorResolver {
     return resolved(`${parsed.path}:${ref.trim().slice(ref.trim().lastIndexOf(':') + 1)}`);
   }
 
+  /**
+   * `<sha>`, `<sha>:<path>` (one object) or `<sha>..<sha>` (a range: BOTH objects must exist, each
+   * checked separately through the hook or `git cat-file -e`). Any other text is malformed.
+   */
   private async resolveGitObject(ref: string): Promise<AuthorityResolution> {
     const trimmed = ref.trim();
-    if (!GIT_REF_RE.test(trimmed)) return unresolved('GIT_OBJECT_REF_MALFORMED');
-    const objectPath = trimmed.includes(':') ? trimmed.slice(trimmed.indexOf(':') + 1) : undefined;
-    if (objectPath !== undefined && (objectPath.startsWith('/') || objectPath.split('/').includes('..'))) {
-      return unresolved('GIT_OBJECT_REF_MALFORMED');
-    }
-    if (this.gitObjectExists !== undefined) {
-      try {
-        return (await this.gitObjectExists(trimmed)) ? resolved(trimmed) : unresolved('GIT_OBJECT_NOT_FOUND');
-      } catch {
-        return unresolved('GIT_UNAVAILABLE');
+    const range = GIT_RANGE_RE.exec(trimmed);
+    const objects = range !== null ? [range[1], range[2]] : [trimmed];
+    if (range === null) {
+      if (!GIT_REF_RE.test(trimmed)) return unresolved('GIT_OBJECT_REF_MALFORMED');
+      const objectPath = trimmed.includes(':') ? trimmed.slice(trimmed.indexOf(':') + 1) : undefined;
+      if (objectPath !== undefined && (objectPath.startsWith('/') || objectPath.split('/').includes('..'))) {
+        return unresolved('GIT_OBJECT_REF_MALFORMED');
       }
     }
-    const result = spawnSync('git', ['-C', this.repoRoot, 'cat-file', '-e', trimmed], {
+    for (const object of objects) {
+      const outcome = await this.gitObjectPresent(object);
+      if (outcome !== 'present') return unresolved(outcome);
+    }
+    return resolved(trimmed);
+  }
+
+  private async gitObjectPresent(
+    object: string,
+  ): Promise<'present' | 'GIT_OBJECT_NOT_FOUND' | 'GIT_UNAVAILABLE'> {
+    if (this.gitObjectExists !== undefined) {
+      try {
+        return (await this.gitObjectExists(object)) ? 'present' : 'GIT_OBJECT_NOT_FOUND';
+      } catch {
+        return 'GIT_UNAVAILABLE';
+      }
+    }
+    const result = spawnSync('git', ['-C', this.repoRoot, 'cat-file', '-e', object], {
       stdio: 'ignore',
       shell: false,
       timeout: 10_000,
     });
-    if (result.error !== undefined) return unresolved('GIT_UNAVAILABLE');
-    if (result.status === 0) return resolved(trimmed);
-    return unresolved('GIT_OBJECT_NOT_FOUND');
+    if (result.error !== undefined) return 'GIT_UNAVAILABLE';
+    return result.status === 0 ? 'present' : 'GIT_OBJECT_NOT_FOUND';
   }
 
   private async resolveCasArtifact(ref: string): Promise<AuthorityResolution> {

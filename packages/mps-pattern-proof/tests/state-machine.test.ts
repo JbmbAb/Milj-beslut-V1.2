@@ -23,10 +23,13 @@ import {
 import { validateDependencyGraphArtifact, validateDiscoveryArtifact } from '../src/validators';
 import { locatorKey } from '../src/evidence';
 import {
+  FIXTURE_BASE_SHA,
+  FIXTURE_CANDIDATE_SHA,
   validCandidate,
   validDiscovery,
   validGate,
   validGraph,
+  validManifest,
   validProofPackage,
   validRedPlan,
   validVerification,
@@ -35,9 +38,11 @@ import {
   boundComparison,
   diffResolverReturning,
   driveThroughRedSynthesis,
+  driveToAssembleEvidence,
   happyPathResolver,
   hasNoUndefinedKeys,
   isDeepFrozen,
+  seededResolver,
 } from './fixtures/state';
 
 /** Runs the whole FULL_PATTERN_PROOF happy path and returns every intermediate state in order. */
@@ -106,6 +111,23 @@ describe('state machine: the frozen enums', () => {
       history: [],
     });
     expect(isDeepFrozen(state)).toBe(true);
+  });
+
+  it('F4: startPatternProofRun records an optional 40-hex baseSha and rejects any other form', () => {
+    const bound = startPatternProofRun({ runId: 'x', mode: 'FULL_PATTERN_PROOF', baseSha: FIXTURE_BASE_SHA });
+    expect(bound.baseSha).toBe(FIXTURE_BASE_SHA);
+    expect(Object.keys(bound)).toContain('baseSha');
+    expect(hasNoUndefinedKeys(bound)).toBe(true);
+    expect(summarizeRunState(bound).baseSha).toBe(FIXTURE_BASE_SHA);
+    for (const baseSha of ['HEAD', 'main', FIXTURE_BASE_SHA.toUpperCase(), 'a'.repeat(39), '']) {
+      expect(() => startPatternProofRun({ runId: 'x', mode: 'FULL_PATTERN_PROOF', baseSha })).toThrow(
+        /PPE_SCHEMA_INVALID/,
+      );
+    }
+    // the baseSha travels through every successor state
+    const next = applyDiscovery(bound, validDiscovery());
+    expect(next.baseSha).toBe(FIXTURE_BASE_SHA);
+    expect(summarizeRunState(next)).toMatchObject({ baseSha: FIXTURE_BASE_SHA, phase: 'BUILD_GRAPH' });
   });
 });
 
@@ -252,6 +274,84 @@ describe('state machine: assertPhase and transition guards', () => {
     ).rejects.toSatisfy((error) => isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'));
   });
 
+  it('F4: a candidate built on another base than the run was started for is inadmissible (PPE_CANDIDATE_SHA_INVALID)', async () => {
+    let state = startPatternProofRun({
+      runId: 'bound',
+      mode: 'FULL_PATTERN_PROOF',
+      baseSha: FIXTURE_BASE_SHA,
+    });
+    state = applyDiscovery(state, validDiscovery());
+    state = applyDependencyGraph(state, validGraph());
+    state = applyDecisionGate(state, validGate());
+    state = await applyRedSynthesis(state, validRedPlan(), happyPathResolver());
+    expect(state.phase).toBe('WRITER');
+    const otherBase = 'f'.repeat(40);
+    const foreign = {
+      ...validCandidate(),
+      baseSha: otherBase,
+      diffRef: { kind: 'git_object' as const, ref: `${otherBase}..${FIXTURE_CANDIDATE_SHA}` },
+    };
+    const resolver = seededResolver(validDiscovery(), validGraph(), validRedPlan(), foreign);
+    await expect(
+      applyCandidate(state, foreign, { diffResolver: diffResolverReturning(['Dockerfile']), resolver }),
+    ).rejects.toSatisfy((error) => isPatternProofError(error, 'PPE_CANDIDATE_SHA_INVALID'));
+    // the same candidate is admitted by a run started for ITS base, and by a run without a recorded base
+    const admitted = await applyCandidate(state, validCandidate(), {
+      diffResolver: diffResolverReturning(['Dockerfile']),
+      resolver: happyPathResolver(),
+    });
+    expect(admitted.phase).toBe('VERIFY');
+    expect(admitted.baseSha).toBe(FIXTURE_BASE_SHA);
+  });
+
+  it('F4: candidate.diffRef must be the git_object baseSha..candidateSha (or the candidate object) AND resolve', async () => {
+    const state = await driveThroughRedSynthesis('FULL_PATTERN_PROOF');
+    const deps = (candidate: unknown) => ({
+      diffResolver: diffResolverReturning(['Dockerfile']),
+      resolver: seededResolver(validDiscovery(), validGraph(), validRedPlan(), candidate),
+    });
+    // a runtime_result the discovery established is not this candidate's diff, even though it resolves
+    const runtimeDiff = {
+      ...validCandidate(),
+      diffRef: {
+        kind: 'runtime_result' as const,
+        ref: 'local npm-ci reproduction, 2026-09-30, exit 1, MODULE_NOT_FOUND',
+      },
+    };
+    await expect(applyCandidate(state, runtimeDiff, deps(runtimeDiff))).rejects.toSatisfy((error) =>
+      isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'),
+    );
+    // a git_object naming another object (a resolvable one) is not this candidate's diff either
+    const otherObject = {
+      ...validCandidate(),
+      diffRef: { kind: 'git_object' as const, ref: 'a'.repeat(40) },
+    };
+    await expect(applyCandidate(state, otherObject, deps(otherObject))).rejects.toSatisfy((error) =>
+      isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'),
+    );
+    const reversed = {
+      ...validCandidate(),
+      diffRef: { kind: 'git_object' as const, ref: `${FIXTURE_CANDIDATE_SHA}..${FIXTURE_BASE_SHA}` },
+    };
+    await expect(applyCandidate(state, reversed, deps(reversed))).rejects.toSatisfy((error) =>
+      isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'),
+    );
+    // both admissible forms are accepted when they resolve
+    const bareObject = {
+      ...validCandidate(),
+      diffRef: { kind: 'git_object' as const, ref: FIXTURE_CANDIDATE_SHA },
+    };
+    expect((await applyCandidate(state, bareObject, deps(bareObject))).phase).toBe('VERIFY');
+    expect((await applyCandidate(state, validCandidate(), deps(validCandidate()))).phase).toBe('VERIFY');
+    // the admissible form that does NOT resolve is still a candidate-integrity fault
+    await expect(
+      applyCandidate(state, bareObject, {
+        diffResolver: diffResolverReturning(['Dockerfile']),
+        resolver: seededResolver(validDiscovery(), validGraph(), validRedPlan(), validCandidate()),
+      }),
+    ).rejects.toSatisfy((error) => isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'));
+  });
+
   it('applyRedSynthesis consults the locators discovery and graph actually established (section 8)', () => {
     const keys = establishedLocatorKeys(
       validateDiscoveryArtifact(validDiscovery()),
@@ -260,6 +360,89 @@ describe('state machine: assertPhase and transition guards', () => {
     expect(keys.has(locatorKey({ kind: 'file_line', ref: 'docker-compose.staging.yml:6-8' }))).toBe(true);
     expect(keys.has(locatorKey({ kind: 'file_line', ref: 'Dockerfile:37' }))).toBe(true);
     expect(keys.has(locatorKey({ kind: 'file_line', ref: 'services/mapLayerSelection.ts:1' }))).toBe(false);
+  });
+});
+
+describe('state machine: applyProofPackage binds the package to the admitted candidate and RedPlan (F4)', () => {
+  const OTHER_SHA = 'f'.repeat(40);
+
+  async function expectUnbound(pkg: unknown): Promise<void> {
+    const state = await driveToAssembleEvidence();
+    let caught: unknown;
+    try {
+      applyProofPackage(state, pkg, boundComparison(pkg as never));
+    } catch (error) {
+      caught = error;
+    }
+    expect(isPatternProofError(caught, 'PPE_PROOF_PACKAGE_UNBOUND'), String(caught)).toBe(true);
+    expect(state.phase).toBe('ASSEMBLE_EVIDENCE');
+    expect(state.artifacts.proofPackage).toBeUndefined();
+  }
+
+  it('a package naming another candidateSha, with a comparison bound to THAT package, never reaches DONE', async () => {
+    await expectUnbound({
+      ...validProofPackage(),
+      candidateSha: OTHER_SHA,
+      inputManifest: { ...validManifest(), candidateShaOrDiff: OTHER_SHA },
+    });
+  });
+
+  it('a package naming another baseSha is unbound', async () => {
+    await expectUnbound({
+      ...validProofPackage(),
+      baseSha: OTHER_SHA,
+      inputManifest: { ...validManifest(), baseSha: OTHER_SHA },
+    });
+  });
+
+  it('a manifest whose baseSha or candidateShaOrDiff is not the admitted candidate is unbound', async () => {
+    await expectUnbound({
+      ...validProofPackage(),
+      inputManifest: { ...validManifest(), baseSha: OTHER_SHA },
+    });
+    await expectUnbound({
+      ...validProofPackage(),
+      inputManifest: { ...validManifest(), candidateShaOrDiff: OTHER_SHA },
+    });
+    await expectUnbound({
+      ...validProofPackage(),
+      inputManifest: { ...validManifest(), candidateShaOrDiff: `${OTHER_SHA}..${FIXTURE_CANDIDATE_SHA}` },
+    });
+    await expectUnbound({
+      ...validProofPackage(),
+      inputManifest: {
+        ...validManifest(),
+        candidateShaOrDiff: `${FIXTURE_CANDIDATE_SHA}..${FIXTURE_BASE_SHA}`,
+      },
+    });
+  });
+
+  it('probeIdentities must be a NON-EMPTY subset of the stored RedPlan probe ids', async () => {
+    await expectUnbound({ ...validProofPackage(), probeIdentities: [] });
+    await expectUnbound({ ...validProofPackage(), probeIdentities: ['not-a-red-plan-probe'] });
+    await expectUnbound({
+      ...validProofPackage(),
+      probeIdentities: [...validProofPackage().probeIdentities, 'red-invented-later'],
+    });
+  });
+
+  it('a bound package (both diff forms, any non-empty probe subset) reaches DONE', async () => {
+    for (const pkg of [
+      validProofPackage(),
+      {
+        ...validProofPackage(),
+        inputManifest: {
+          ...validManifest(),
+          candidateShaOrDiff: `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
+        },
+      },
+      { ...validProofPackage(), probeIdentities: [validProofPackage().probeIdentities[1]] },
+    ]) {
+      const done = applyProofPackage(await driveToAssembleEvidence(), pkg, boundComparison(pkg));
+      expect(done.phase).toBe('DONE');
+      expect(done.artifacts.proofPackage?.candidateSha).toBe(done.artifacts.candidate?.candidateSha);
+      expect(done.artifacts.proofPackage?.baseSha).toBe(done.artifacts.candidate?.baseSha);
+    }
   });
 });
 

@@ -4,7 +4,10 @@ import { digestOf, PATTERN_PROOF_ARTIFACT_KINDS } from '../src/identity';
 import {
   allowedPathCoversProofPolicy,
   allowedPathEntryMatches,
+  candidateDiffRefs,
+  isCandidateDiffRef,
   locatorPath,
+  PROOF_POLICY_PATH_PREFIXES,
   secretMaterialReason,
   validateArtifact,
   validateCandidateArtifact,
@@ -17,7 +20,9 @@ import {
   validateRedPlanArtifact,
 } from '../src/validators';
 import {
+  FIXTURE_BASE_SHA,
   FIXTURE_BUILDERS,
+  FIXTURE_CANDIDATE_SHA,
   validCandidate,
   validDiscovery,
   validGate,
@@ -331,7 +336,21 @@ describe('CandidateArtifact', () => {
     expect(allowedPathEntryMatches('Docker?ile', 'Dockerfile')).toBe(true);
   });
 
-  it('PPE_ALLOWLIST_COVERS_PROOF_POLICY: allowedPaths may never reach proof-policy surfaces (D10)', () => {
+  it('PPE_ALLOWLIST_COVERS_PROOF_POLICY: allowedPaths may never reach proof-policy surfaces (D10 + F17)', () => {
+    expect(PROOF_POLICY_PATH_PREFIXES).toEqual([
+      'packages/mps-pattern-proof',
+      'governance/devgov',
+      'scripts/audit',
+      'scripts/devgov',
+      'docs/architecture/PATTERN-PROOF-ENGINE-01-',
+      'docs/architecture/audits',
+      '.claude',
+      '.github',
+      'vitest.config.ts',
+      'tsconfig.json',
+      'package.json',
+      'package-lock.json',
+    ]);
     const offending = [
       'packages/mps-pattern-proof',
       'packages/mps-pattern-proof/src/validators.ts',
@@ -346,6 +365,24 @@ describe('CandidateArtifact', () => {
       '.claude',
       '.claude/settings.json',
       '**',
+      // R1 F17: surfaces that register packages, alias imports, run acceptance or hold audit records
+      'vitest.config.ts',
+      'tsconfig.json',
+      'package.json',
+      'package-lock.json',
+      './package.json',
+      '*.json',
+      '*.ts',
+      'scripts/devgov',
+      'scripts/devgov/run-red.mjs',
+      'scripts/*/**',
+      '.github',
+      '.github/**',
+      '.github/workflows/deploy-gcp.yml',
+      'docs/architecture/audits',
+      'docs/architecture/audits/**',
+      // a bare `*` admits top-level package.json / tsconfig.json / vitest.config.ts: it COVERS proof policy
+      '*',
     ];
     for (const entry of offending) {
       expect(allowedPathCoversProofPolicy(entry), entry).toBe(true);
@@ -366,14 +403,56 @@ describe('CandidateArtifact', () => {
     for (const entry of [
       'Dockerfile',
       'Dockerfile.gcp',
+      'docker-compose.staging.yml',
       'src/**',
       'docs/architecture/ADR-24-23.md',
       'scripts/db/*.ts',
       '.claudex',
-      // a bare `*` admits top-level files only; every proof-policy surface is nested
-      '*',
+      '.githubx/x.yml',
+      // the top-level file rules match exactly those files, not same-named files elsewhere
+      'packages/other/package.json',
+      'packages/other/tsconfig.json',
+      'services/vitest.config.ts',
+      'package.json.bak',
+      'tsconfig.build.json',
     ]) {
       expect(allowedPathCoversProofPolicy(entry), entry).toBe(false);
+    }
+  });
+
+  it('diffRef must be the git_object baseSha..candidateSha (or the candidate object) -- F4, BOOTSTRAP section 2', () => {
+    const candidate = validCandidate();
+    expect(candidateDiffRefs(FIXTURE_BASE_SHA, FIXTURE_CANDIDATE_SHA)).toEqual([
+      `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
+      FIXTURE_CANDIDATE_SHA,
+    ]);
+    expect(candidate.diffRef).toEqual({
+      kind: 'git_object',
+      ref: `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
+      note: 'baseSha..candidateSha',
+    });
+    expect(isCandidateDiffRef(candidate.diffRef, FIXTURE_BASE_SHA, FIXTURE_CANDIDATE_SHA)).toBe(true);
+    for (const diffRef of [
+      { kind: 'git_object', ref: FIXTURE_CANDIDATE_SHA },
+      { kind: 'git_object', ref: ` ${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA} `, note: 'trimmed' },
+    ]) {
+      expect(validateCandidateArtifact({ ...candidate, diffRef }).diffRef.ref).toBe(diffRef.ref);
+    }
+    const foreign = [
+      { kind: 'runtime_result', ref: 'local npm-ci reproduction, 2026-09-30, exit 1, MODULE_NOT_FOUND' },
+      { kind: 'file_line', ref: 'Dockerfile:37' },
+      { kind: 'git_object', ref: FIXTURE_BASE_SHA },
+      { kind: 'git_object', ref: `${FIXTURE_CANDIDATE_SHA}..${FIXTURE_BASE_SHA}` },
+      { kind: 'git_object', ref: `${FIXTURE_BASE_SHA}..${'f'.repeat(40)}` },
+      { kind: 'git_object', ref: `${FIXTURE_CANDIDATE_SHA}:Dockerfile` },
+      { kind: 'cas_artifact', ref: `ppe:candidate:${'0'.repeat(64)}` },
+    ];
+    for (const diffRef of foreign) {
+      const error = expectCode(
+        () => validateCandidateArtifact({ ...candidate, diffRef }),
+        'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT',
+      );
+      expect(error.path, diffRef.ref).toBe('candidate.diffRef');
     }
   });
 
@@ -505,6 +584,97 @@ describe('InputManifest', () => {
     expectCode(
       () => validateInputManifest({ ...validManifest(), environmentConfig: [] }),
       'PPE_SCHEMA_INVALID',
+    );
+  });
+
+  it('F10: every fixtureContentHashes value must be a sha256 digest (frozen section 7: content hashes for every fixture)', () => {
+    const manifest = validManifest();
+    for (const value of [
+      'not-a-hash',
+      'sha1:abc',
+      `sha256:${'ab'.repeat(31)}`,
+      `SHA256:${'ab'.repeat(32)}`,
+      '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----',
+    ]) {
+      const error = expectCode(
+        () => validateInputManifest({ ...manifest, fixtureContentHashes: { Dockerfile: value } }),
+        'PPE_MANIFEST_INVALID',
+      );
+      expect(error.path).toBe('input-manifest.fixtureContentHashes.Dockerfile');
+    }
+    expect(
+      validateInputManifest({
+        ...manifest,
+        fixtureContentHashes: { Dockerfile: `sha256:${'cd'.repeat(32)}` },
+      }).fixtureContentHashes.Dockerfile,
+    ).toBe(`sha256:${'cd'.repeat(32)}`);
+    expect(validateInputManifest({ ...manifest, fixtureContentHashes: {} }).fixtureContentHashes).toEqual({});
+  });
+
+  it('F10: toolchainIdentity is scanned for secret material; version lines and image digests pass', () => {
+    const manifest = validManifest();
+    for (const value of [
+      '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----',
+      'node v22; registry https://mimer:hunter2@registry.internal/npm',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+      `node v22 token ${'c0ffee'.repeat(11)}`,
+    ]) {
+      const error = expectCode(
+        () => validateInputManifest({ ...manifest, toolchainIdentity: value }),
+        'PPE_MANIFEST_SECRET_MATERIAL',
+      );
+      expect(error.path).toBe('input-manifest.toolchainIdentity');
+    }
+    for (const value of [
+      'node v22.22.2; npm 10.9.7; linux x64',
+      `node v22.22.2; npm 10.9.7; linux x64; docker client 29.3.1; base image node:22-alpine@sha256:${'ab'.repeat(32)}`,
+    ]) {
+      expect(validateInputManifest({ ...manifest, toolchainIdentity: value }).toolchainIdentity).toBe(value);
+    }
+  });
+
+  it('F10: candidateShaOrDiff is a git object id or <sha>..<sha>; secret-shaped text is named as such', () => {
+    const manifest = validManifest();
+    const range = `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`;
+    expect(validateInputManifest({ ...manifest, candidateShaOrDiff: range }).candidateShaOrDiff).toBe(range);
+    expect(
+      validateInputManifest({ ...manifest, candidateShaOrDiff: FIXTURE_CANDIDATE_SHA }).candidateShaOrDiff,
+    ).toBe(FIXTURE_CANDIDATE_SHA);
+    for (const value of [
+      'main',
+      'HEAD~1',
+      'a'.repeat(39),
+      `${FIXTURE_BASE_SHA}..`,
+      `${FIXTURE_BASE_SHA}:Dockerfile`,
+      `${FIXTURE_BASE_SHA}...${FIXTURE_CANDIDATE_SHA}`,
+    ]) {
+      const error = expectCode(
+        () => validateInputManifest({ ...manifest, candidateShaOrDiff: value }),
+        'PPE_MANIFEST_INVALID',
+      );
+      expect(error.path, value).toBe('input-manifest.candidateShaOrDiff');
+    }
+    for (const value of [
+      '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+      'https://mimer:hunter2@git.internal/diff',
+      // a 64-hex run, or an UPPERCASE 40-hex run, is a blob, not a (lowercase) git object id
+      'c0ffee'.repeat(11),
+      FIXTURE_CANDIDATE_SHA.toUpperCase(),
+    ]) {
+      expectCode(
+        () => validateInputManifest({ ...manifest, candidateShaOrDiff: value }),
+        'PPE_MANIFEST_SECRET_MATERIAL',
+      );
+    }
+    // the same checks reach a ProofPackage through its nested manifest
+    expectCode(
+      () =>
+        validateProofPackage({
+          ...validProofPackage(),
+          inputManifest: { ...validManifest(), fixtureContentHashes: { Dockerfile: 'plain' } },
+        }),
+      'PPE_MANIFEST_INVALID',
     );
   });
 

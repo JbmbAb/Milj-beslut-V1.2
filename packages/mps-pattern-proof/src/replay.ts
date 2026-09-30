@@ -20,7 +20,9 @@
 import type { InputManifest, ProofPackage } from './artifacts';
 import { PatternProofError } from './errors';
 import { digestOf, isDigest, type Digest } from './identity';
-import { deepFreeze, validateInputManifest, validateProofPackage } from './validators';
+import { deepFreeze } from './internal/deep-freeze';
+import { isPlainObject } from './internal/plain-object';
+import { validateInputManifest, validateProofPackage } from './validators';
 
 export interface ReplayComparison {
   /** digestOf(the declared InputManifest the regenerations ran from) */
@@ -50,12 +52,6 @@ const COMPARISON_KEYS = [
   'observedDigests',
   'reproducible',
 ] as const;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
-}
 
 /** Digests that differ from `expected`, with their iteration index (deterministic order). */
 export function divergentObservations(

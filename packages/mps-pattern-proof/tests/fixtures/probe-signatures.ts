@@ -413,3 +413,32 @@ export const PROBED_LIFECYCLE_PATHS = [
 ] as const;
 export const PRODUCTION_BASE_INSTALL_COMMAND = 'npm ci --omit=dev --legacy-peer-deps';
 export const BUILDER_INSTALL_COMMAND = 'npm ci --legacy-peer-deps';
+
+/**
+ * R1 fix-round captures (2026-09-30, npm 10.9.7 / node v22.22.2 / docker 29.3.1), verbatim.
+ */
+
+/** enoent/run-stderr.log: `npm run build` in a directory WITHOUT package.json, exit 254. Extent: whole file (the path redaction `***` is npm's own). */
+export const HOST_MISSING_PACKAGE_JSON_STDERR = [
+  'npm error code ENOENT',
+  'npm error syscall open',
+  'npm error path /tmp/claude-0/-home-user-Milj-beslut-V1-2/615d3f00-15b1-5229-8425-a287dfd450e5/scratchpad/enoent/package.json',
+  'npm error errno -2',
+  "npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/tmp/claude-0/-home-user-Milj-beslut-V1-2/***/scratchpad/enoent/package.json'",
+  'npm error enoent This is related to npm not being able to find a file.',
+  'npm error enoent',
+  'npm error A complete log of this run can be found in: /root/.npm/_logs/2026-09-30T13_48_31_212Z-debug-0.log',
+].join('\n');
+
+/** enoent/stderr.log: `npm ci --omit=dev --legacy-peer-deps` in a directory holding neither package.json nor package-lock.json, exit 1: no lifecycle banner, none of the BLOCKED signatures. Extent: first 6 lines (the usage text that follows carries no signature). */
+export const HOST_NO_MANIFEST_EUSAGE_STDERR = [
+  'npm error code EUSAGE',
+  'npm error',
+  'npm error The `npm ci` command can only install with an existing package-lock.json or',
+  'npm error npm-shrinkwrap.json with lockfileVersion >= 1. Run an install with npm@5 or',
+  'npm error later to generate a package-lock.json file, then try again.',
+  'npm error',
+].join('\n');
+
+/** execform/build.log line 21: BuildKit plain-progress step header of `RUN ["node", "-e", "1"]` (Dockerfile: FROM node:22-alpine / WORKDIR /app / RUN ["node", "-e", "1"]), docker exit 0. */
+export const DOCKER_EXEC_FORM_STEP_HEADER = '#6 [3/3] RUN ["node", "-e", "1"]';

@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { RedProbe } from '../artifacts';
 import { PatternProofError } from '../errors';
+import { deepFreeze } from '../internal/deep-freeze';
 import type { EvidenceLocator } from '../evidence';
 import { digestOf } from '../identity';
 import { classifyInstallProbeOutput, type ProbeClassificationKind } from './classify';
@@ -84,15 +85,6 @@ export interface RedProbeExecutionResult {
   readonly timedOut: boolean;
   readonly installStepStarted: boolean;
   readonly contextFiles: readonly string[];
-}
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  for (const key of Object.keys(value as object)) {
-    deepFreeze((value as Record<string, unknown>)[key]);
-  }
-  return value;
 }
 
 function readJson(file: string): unknown {

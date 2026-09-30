@@ -22,6 +22,11 @@
  *     subject and predicate (PPE_ISOLATION_BUNDLE_DIGEST_MISMATCH).
  *  4. `renderVerifierPrompt` is a deterministic function of `context.inputs` only; its digest is
  *     the evidence an adapter records for "the verifier saw exactly this".
+ *  5. Declared slots are BOUNDED (R1 F12): `verifierRuntimeInputs` keys must match
+ *     VERIFIER_RUNTIME_INPUT_KEY_RE and values must be single-line strings of at most
+ *     VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH characters (PPE_ISOLATION_UNDECLARED_INPUT otherwise),
+ *     so a transcript cannot be smuggled through a declared key; locator notes rendered into the
+ *     prompt are capped at VERIFIER_PROMPT_NOTE_MAX_LENGTH characters with newlines folded.
  *
  * Reuse map (frozen design section 13): no parallel signer/verifier abstraction, no parallel
  * hashing. Everything cryptographic is `@miljobeslut/mimers-brunn-core`.
@@ -37,6 +42,7 @@ import {
 import { PatternProofError } from './errors';
 import { validateEvidenceLocator, validateEvidenceLocators, type EvidenceLocator } from './evidence';
 import { digestOf, isDigest, type Digest } from './identity';
+import { isPlainObject } from './internal/plain-object';
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -82,6 +88,13 @@ export const VERIFIER_INPUT_BUNDLE_PREDICATE_TYPE = 'ppe/verifier-input-bundle/v
 
 export const VERIFIER_PROMPT_TEMPLATE_VERSION = 'ppe/verifier-prompt/v1' as const;
 
+/** Declared runtime-input keys are PPE_-namespaced identifiers (R1 F12). */
+export const VERIFIER_RUNTIME_INPUT_KEY_RE = /^PPE_[A-Z0-9_]{1,64}$/;
+/** Declared runtime-input values are single-line and bounded (R1 F12). */
+export const VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH = 512;
+/** Locator notes rendered into the prompt are capped at this many characters (R1 F12). */
+export const VERIFIER_PROMPT_NOTE_MAX_LENGTH = 200;
+
 /**
  * Compile-time counterpart of the runtime `sign`-member rejection. A `SigningKeyProvider` is not
  * assignable to this type because its `sign` member is a function, not `undefined`. Use it for
@@ -114,12 +127,7 @@ export interface RenderedVerifierPrompt {
 // ---------------------------------------------------------------------------------------------
 
 const SHA1_RE = /^[0-9a-f]{40}$/;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
-}
+const LINE_BREAK_RE = /[\r\n\u2028\u2029]/;
 
 function requirePlainObject(value: unknown, path: string): Record<string, unknown> {
   if (!isPlainObject(value)) {
@@ -178,18 +186,34 @@ function validateCandidateIdentity(input: unknown, path: string): VerifierCandid
   });
 }
 
+/**
+ * Runtime inputs are a declared slot, but not an unbounded one (R1 F12): a key outside the PPE_
+ * namespace or a value that is multi-line or longer than the bound is an undeclared input, not a
+ * schema typo -- it is the shape a writer transcript takes when it tries to ride a declared key.
+ */
 function validateRuntimeInputs(input: unknown, path: string): Readonly<Record<string, string>> {
   const value = requirePlainObject(input, path);
   const out: Record<string, string> = {};
   for (const key of Object.keys(value)) {
-    if (key.trim().length === 0) {
-      throw new PatternProofError('PPE_SCHEMA_INVALID', 'runtime input keys must be non-empty', { path });
+    if (!VERIFIER_RUNTIME_INPUT_KEY_RE.test(key)) {
+      throw new PatternProofError(
+        'PPE_ISOLATION_UNDECLARED_INPUT',
+        `runtime input key "${key}" is not a declared verifier input (keys must match ${VERIFIER_RUNTIME_INPUT_KEY_RE.source})`,
+        { path: `${path}.${key}` },
+      );
     }
     const entry = value[key];
     if (typeof entry !== 'string') {
       throw new PatternProofError('PPE_SCHEMA_INVALID', 'runtime input values must be strings', {
         path: `${path}.${key}`,
       });
+    }
+    if (LINE_BREAK_RE.test(entry) || entry.length > VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH) {
+      throw new PatternProofError(
+        'PPE_ISOLATION_UNDECLARED_INPUT',
+        `runtime input "${key}" must be a single line of at most ${VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH} characters (got ${entry.length} characters${LINE_BREAK_RE.test(entry) ? ', multi-line' : ''})`,
+        { path: `${path}.${key}` },
+      );
     }
     out[key] = entry;
   }
@@ -408,10 +432,18 @@ export async function createVerifierContext(args: CreateVerifierContextArgs): Pr
 // Prompt rendering (deterministic, inputs-only)
 // ---------------------------------------------------------------------------------------------
 
+/** A note as rendered into the prompt: newlines folded to spaces, capped (R1 F12). */
+export function promptNoteText(note: string): string {
+  const folded = note.replace(/\r\n|[\r\n\u2028\u2029]/g, ' ');
+  return folded.length > VERIFIER_PROMPT_NOTE_MAX_LENGTH
+    ? `${folded.slice(0, VERIFIER_PROMPT_NOTE_MAX_LENGTH)}...`
+    : folded;
+}
+
 function renderLocator(locator: EvidenceLocator): string {
   return locator.note === undefined
     ? `${locator.kind} ${locator.ref}`
-    : `${locator.kind} ${locator.ref} (${locator.note})`;
+    : `${locator.kind} ${locator.ref} (${promptNoteText(locator.note)})`;
 }
 
 /**

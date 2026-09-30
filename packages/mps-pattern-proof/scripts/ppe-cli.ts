@@ -6,7 +6,7 @@
  *       stdout {"ok":true,"kind":..,"digest":..} exit 0 | {"ok":false,"errors":[{code,message,path}]} exit 1
  *
  *   npx tsx packages/mps-pattern-proof/scripts/ppe-cli.ts run --dir <dir> --mode BOOTSTRAP_RED_ONLY
- *       [--repo-root <root>=cwd] [--run-id <id>] [--ledger <file>] [--out <file>=<dir>/run-state.json] [--json]
+ *       [--repo-root <root>=cwd] [--run-id <id>] [--base-sha <sha>] [--ledger <file>] [--out <file>=<dir>/run-state.json] [--json]
  *       replays <dir>/discovery.json, dependency-graph.json, decision-gate.json and red-plan.json (the
  *       proposed probes; optional only when the gate stops earlier) through the PURE state machine
  *       (driveBootstrapSequence) with a RepositoryAuthorityResolver rooted at --repo-root and a
@@ -84,7 +84,7 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['json']);
 function usage(): string {
   return [
     'usage: ppe-cli.ts validate --kind <kind> [--file <path>]',
-    '       ppe-cli.ts run --dir <dir> --mode BOOTSTRAP_RED_ONLY [--repo-root <root>] [--run-id <id>]',
+    '       ppe-cli.ts run --dir <dir> --mode BOOTSTRAP_RED_ONLY [--repo-root <root>] [--run-id <id>] [--base-sha <sha>]',
     '                      [--ledger <file>] [--out <file>] [--json]',
     '       ppe-cli.ts schemas [--kind <kind>]',
     `kinds: ${PATTERN_PROOF_ARTIFACT_KINDS.join(', ')}`,
@@ -250,6 +250,10 @@ async function commandRun(parsed: ParsedArgs): Promise<number> {
   const dir = path.resolve(parsed.values.dir);
   const repoRoot = path.resolve(parsed.values['repo-root'] ?? process.cwd());
   const runId = parsed.values['run-id'] ?? `ppe-cli-run:${path.basename(dir)}`;
+  const baseSha = parsed.values['base-sha'];
+  if (baseSha !== undefined && !/^[0-9a-f]{40}$/.test(baseSha)) {
+    throw new HarnessFault(`--base-sha must be a 40-hex git sha, got ${baseSha}`);
+  }
   const outFile = path.resolve(parsed.values.out ?? path.join(dir, RUN_INPUT_FILES.runState));
   const json = parsed.flags.has('json');
 
@@ -278,12 +282,24 @@ async function commandRun(parsed: ParsedArgs): Promise<number> {
   try {
     if (redPlanPresent) {
       state = await driveBootstrapSequence(
-        { runId, mode: BOOTSTRAP_MODE, discovery, dependencyGraph, decisionGate, proposedProbes },
+        {
+          runId,
+          mode: BOOTSTRAP_MODE,
+          ...(baseSha === undefined ? {} : { baseSha }),
+          discovery,
+          dependencyGraph,
+          decisionGate,
+          proposedProbes,
+        },
         resolver,
       );
     } else {
       // No proposed probes on disk: replay up to the gate; only a terminal stop there is legitimate.
-      state = startPatternProofRun({ runId, mode: BOOTSTRAP_MODE });
+      state = startPatternProofRun({
+        runId,
+        mode: BOOTSTRAP_MODE,
+        ...(baseSha === undefined ? {} : { baseSha }),
+      });
       state = applyDiscovery(state, discovery);
       state = applyDependencyGraph(state, dependencyGraph);
       state = applyDecisionGate(state, decisionGate);

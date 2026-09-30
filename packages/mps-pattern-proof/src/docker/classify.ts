@@ -6,17 +6,31 @@
  * text. It is executor-agnostic: host-npm and docker-stage-prefix outputs of the same failure must
  * classify identically (tests assert this on the verbatim captured signatures).
  *
- * Order (fail closed):
- *   1. BLOCKED  -- spawn error, wall-clock timeout, killed by signal, a BLOCKED output signature, or the
- *                  install step never started.
- *   2. FAIL     -- RED confirmed: install step started AND lifecycle banner AND `Cannot find module`
- *                  on a lifecycle-script path (relative to workdir) AND `code: 'MODULE_NOT_FOUND'` AND
- *                  `npm error command sh -c <exact lifecycle script>`. A truncated log that still shows
- *                  the banner followed by `Cannot find module` on a lifecycle path is FAIL, never PASS.
- *   3. PASS     -- exit 0 (install completed) or a failure carrying none of the above signatures
- *                  (INSTALL_FAILED_OTHER, with the captured `npm error code X` line).
+ * Order (fail closed; R1 F1/F2/F6/F11):
+ *   1. BLOCKED  -- spawn error (including the executors' pre-spawn preconditions CONTEXT_INCOMPLETE and
+ *                  HOST_FIDELITY_UNSUPPORTED), wall-clock timeout, a BLOCKED output signature on a
+ *                  non-zero exit, the install step never started, killed by signal, or -- on a
+ *                  non-zero exit -- the candidate declares lifecycle scripts none of which derives a
+ *                  `node <path>` (LIFECYCLE_RUNNER_UNSUPPORTED: the FAIL predicate cannot be evaluated).
+ *   2. FAIL     -- RED confirmed: exit status != 0 AND install step started AND lifecycle banner of the
+ *                  probed package AND `Cannot find module` on a lifecycle-script path (both sides
+ *                  normalized and relativised to the workdir) AND `code: 'MODULE_NOT_FOUND'` AND
+ *                  `npm error command sh -c <exact lifecycle script>`; at docker fidelity the
+ *                  `did not complete successfully` line, when present, must name the install command.
+ *                  A truncated log that still shows the banner followed by `Cannot find module` on a
+ *                  lifecycle path is FAIL (…_TRUNCATED), never PASS.
+ *   3. PASS     -- for THIS probe's asserted behavior only:
+ *                  exit 0 (INSTALL_COMPLETED, or INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT when the
+ *                  lifecycle error text is present although the install completed -- masking is made
+ *                  visible in `matched`), or exit != 0 with the probed package's lifecycle banner present
+ *                  but none of the FAIL signatures (INSTALL_FAILED_AFTER_LIFECYCLE_STARTED: the lifecycle
+ *                  script was found; the asserted failure mode is absent).
+ *   4. BLOCKED  -- exit != 0 without the probed package's lifecycle banner and without a BLOCKED
+ *                  signature: INSTALL_FAILED_UNATTRIBUTED. A broken context or a signature/npm drift
+ *                  is never reported as PASS.
  */
-import type { PackageIdentity } from './lifecycle-scripts';
+import path from 'node:path';
+import { normalizeScriptPath, type PackageIdentity } from './lifecycle-scripts';
 
 export type ProbeClassificationKind = 'PASS' | 'FAIL' | 'BLOCKED';
 
@@ -54,7 +68,10 @@ export interface BlockedOutputSignature {
   readonly pattern: RegExp;
 }
 
-/** BLOCKED output signatures (grounding section 6 item 1 + plan T1), checked line by line. */
+/**
+ * BLOCKED output signatures (grounding section 6 item 1 + plan T1), checked line by line on a
+ * non-zero exit only (R1 F11: a completed install whose log carries a retried-fetch warning is PASS).
+ */
 export const BLOCKED_OUTPUT_SIGNATURES: readonly BlockedOutputSignature[] = Object.freeze([
   { reasonCode: 'DOCKER_UNAVAILABLE', pattern: /failed to connect to the docker API/ },
   { reasonCode: 'DOCKER_UNAVAILABLE', pattern: /Cannot connect to the Docker daemon/ },
@@ -68,24 +85,62 @@ export const BLOCKED_OUTPUT_SIGNATURES: readonly BlockedOutputSignature[] = Obje
   { reasonCode: 'NETWORK_UNREACHABLE', pattern: /\b(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT)\b/ },
   { reasonCode: 'NPM_EXIT_HANDLER_NEVER_CALLED', pattern: /Exit handler never called/ },
   { reasonCode: 'IMAGE_OR_FETCH_FAILED', pattern: /failed to (?:resolve|fetch|pull)\b/ },
+  // R1 F2: the probed context did not contain the package manifest -- never PASS
+  { reasonCode: 'CONTEXT_INCOMPLETE', pattern: /npm error code ENOENT\b/ },
+  { reasonCode: 'CONTEXT_INCOMPLETE', pattern: /Could not read package\.json/ },
 ]);
+
+/**
+ * Executor precondition codes carried in `spawnError.code` when a probe is refused BEFORE spawning
+ * (R1 F2/F8). They classify BLOCKED under their own reasonCode.
+ */
+export const PROBE_PRECONDITION_CODES = Object.freeze(['CONTEXT_INCOMPLETE', 'HOST_FIDELITY_UNSUPPORTED']);
 
 export const RED_REASON_CODE = 'LIFECYCLE_SCRIPT_MODULE_NOT_FOUND';
 export const RED_TRUNCATED_REASON_CODE = 'LIFECYCLE_SCRIPT_MODULE_NOT_FOUND_TRUNCATED';
+export const LIFECYCLE_RUNNER_UNSUPPORTED_REASON_CODE = 'LIFECYCLE_RUNNER_UNSUPPORTED';
+export const INSTALL_FAILED_UNATTRIBUTED_REASON_CODE = 'INSTALL_FAILED_UNATTRIBUTED';
+export const INSTALL_FAILED_AFTER_LIFECYCLE_STARTED_REASON_CODE = 'INSTALL_FAILED_AFTER_LIFECYCLE_STARTED';
+export const INSTALL_COMPLETED_REASON_CODE = 'INSTALL_COMPLETED';
+export const INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT_REASON_CODE =
+  'INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT';
 
 const CANNOT_FIND_MODULE = /Error: Cannot find module '([^']+)'/;
 const MODULE_NOT_FOUND_CODE = /code: 'MODULE_NOT_FOUND'/;
 const NPM_ERROR_COMMAND = /npm error command sh -c (.+?)\s*$/;
 const NPM_ERROR_CODE = /npm error code (\S+)/;
-const DOCKER_STEP_FAILED = /did not complete successfully: exit code: (\d+)/;
+const DOCKER_STEP_FAILED = /process "((?:[^"\\]|\\.)*)" did not complete successfully: exit code: (\d+)/;
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function normalizeSpaces(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 function relativeToWorkdir(modulePath: string, workdir: string): string {
   const base = workdir.endsWith('/') ? workdir : `${workdir}/`;
   return modulePath.startsWith(base) ? modulePath.slice(base.length) : modulePath;
+}
+
+/**
+ * Canonical form of a lifecycle/module path for membership in `L` (R1 F1): posix-normalized, `./`
+ * stripped, and an absolute path relativised to the (normalized) workdir.
+ */
+export function canonicalLifecyclePath(scriptPath: string, workdir: string): string {
+  const normalized = normalizeScriptPath(scriptPath);
+  if (!path.posix.isAbsolute(normalized)) return normalized;
+  const relative = relativeToWorkdir(normalized, path.posix.normalize(workdir));
+  return path.posix.isAbsolute(relative) ? relative : normalizeScriptPath(relative);
+}
+
+/** The command a BuildKit `did not complete successfully` line names (shell-form wrapper removed). */
+function dockerFailedCommand(line: string): string | undefined {
+  const match = DOCKER_STEP_FAILED.exec(line);
+  if (match === null) return undefined;
+  const command = match[1].replace(/\\(.)/g, '$1');
+  return normalizeSpaces(command.replace(/^\/bin\/sh -c /, ''));
 }
 
 function classification(
@@ -96,57 +151,114 @@ function classification(
   return Object.freeze({ classification: kind, reasonCode, matched: Object.freeze([...matched]) });
 }
 
+function failureContextLines(lines: readonly string[]): string[] {
+  const matched: string[] = [];
+  const npmCode = lines.find((line) => NPM_ERROR_CODE.test(line));
+  const dockerFailed = lines.find((line) => DOCKER_STEP_FAILED.test(line));
+  if (npmCode !== undefined) matched.push(npmCode);
+  if (dockerFailed !== undefined) matched.push(dockerFailed);
+  return matched;
+}
+
+interface LifecycleErrorText {
+  readonly cannotFind: string;
+  readonly codeLine?: string;
+  readonly commandLine?: string;
+}
+
+/** The lifecycle MODULE_NOT_FOUND text after the banner, on a path of `L`, if present. */
+function lifecycleErrorTextOf(
+  after: readonly string[],
+  input: InstallProbeOutputInput,
+): LifecycleErrorText | undefined {
+  const lifecycle = new Set(input.lifecyclePaths.map((p) => canonicalLifecyclePath(p, input.workdir)));
+  const cannotFind = after.find((line) => {
+    const match = CANNOT_FIND_MODULE.exec(line);
+    return match !== null && lifecycle.has(canonicalLifecyclePath(match[1], input.workdir));
+  });
+  if (cannotFind === undefined) return undefined;
+  const codeLine = after.find((line) => MODULE_NOT_FOUND_CODE.test(line));
+  const commandLine = after.find((line) => {
+    const match = NPM_ERROR_COMMAND.exec(line);
+    return match !== null && input.lifecycleScriptStrings.includes(match[1]);
+  });
+  const text: { cannotFind: string; codeLine?: string; commandLine?: string } = { cannotFind };
+  if (codeLine !== undefined) text.codeLine = codeLine;
+  if (commandLine !== undefined) text.commandLine = commandLine;
+  return text;
+}
+
 export function classifyInstallProbeOutput(input: InstallProbeOutputInput): ProbeClassification {
   const lines = input.output.split(/\r?\n/);
+  const failed = input.exitStatus !== 0;
 
   // 1. BLOCKED -- the probe could not execute.
   if (input.spawnError !== undefined) {
     const code = input.spawnError.code;
-    const reason = code === 'ENOENT' || code === 'EACCES' ? `SPAWN_${code}` : 'SPAWN_ERROR';
+    let reason = 'SPAWN_ERROR';
+    if (code === 'ENOENT' || code === 'EACCES') reason = `SPAWN_${code}`;
+    else if (code !== undefined && PROBE_PRECONDITION_CODES.includes(code)) reason = code;
     return classification('BLOCKED', reason, [input.spawnError.message]);
   }
   if (input.timedOut) return classification('BLOCKED', 'TIMEOUT', []);
-  for (const signature of BLOCKED_OUTPUT_SIGNATURES) {
-    const hits = lines.filter((line) => signature.pattern.test(line));
-    if (hits.length > 0) return classification('BLOCKED', signature.reasonCode, hits);
+  if (failed) {
+    for (const signature of BLOCKED_OUTPUT_SIGNATURES) {
+      const hits = lines.filter((line) => signature.pattern.test(line));
+      if (hits.length > 0) return classification('BLOCKED', signature.reasonCode, hits);
+    }
   }
   if (!input.installStepStarted) return classification('BLOCKED', 'INSTALL_STEP_NOT_STARTED', []);
   if (input.exitStatus === null) return classification('BLOCKED', 'KILLED_BY_SIGNAL', []);
+  if (failed && input.lifecycleScriptStrings.length > 0 && input.lifecyclePaths.length === 0) {
+    // The candidate runs its lifecycle through a runner this predicate cannot follow: the FAIL
+    // predicate is not evaluable, so the failed install is BLOCKED (never PASS by absence).
+    return classification('BLOCKED', LIFECYCLE_RUNNER_UNSUPPORTED_REASON_CODE, [
+      ...input.lifecycleScriptStrings,
+      ...failureContextLines(lines),
+    ]);
+  }
 
-  // 2. FAIL -- RED confirmed.
+  // Lifecycle banner of the probed package (bound to the candidate's identity).
   const { name, version } = input.packageIdentity;
   const banner = new RegExp(
     `> ${escapeRegExp(name)}@${escapeRegExp(version)} (?:preinstall|install|postinstall|prepare)\\s*$`,
   );
   const bannerIndex = lines.findIndex((line) => banner.test(line));
-  if (bannerIndex !== -1) {
-    const after = lines.slice(bannerIndex + 1);
-    const cannotFind = after.find((line) => {
-      const match = CANNOT_FIND_MODULE.exec(line);
-      return match !== null && input.lifecyclePaths.includes(relativeToWorkdir(match[1], input.workdir));
-    });
-    if (cannotFind !== undefined) {
-      const codeLine = after.find((line) => MODULE_NOT_FOUND_CODE.test(line));
-      const commandLine = after.find((line) => {
-        const match = NPM_ERROR_COMMAND.exec(line);
-        return match !== null && input.lifecycleScriptStrings.includes(match[1]);
-      });
-      const dockerLine = after.find((line) => DOCKER_STEP_FAILED.test(line));
-      const matched = [lines[bannerIndex], cannotFind];
-      if (codeLine !== undefined) matched.push(codeLine);
-      if (commandLine !== undefined) matched.push(commandLine);
-      if (dockerLine !== undefined) matched.push(dockerLine);
-      const complete = codeLine !== undefined && commandLine !== undefined;
+  const after = bannerIndex === -1 ? [] : lines.slice(bannerIndex + 1);
+  const errorText = bannerIndex === -1 ? undefined : lifecycleErrorTextOf(after, input);
+
+  if (!failed) {
+    // 3. PASS -- the install completed (exit 0).
+    if (errorText === undefined) return classification('PASS', INSTALL_COMPLETED_REASON_CODE, []);
+    const matched = [lines[bannerIndex], errorText.cannotFind];
+    if (errorText.codeLine !== undefined) matched.push(errorText.codeLine);
+    if (errorText.commandLine !== undefined) matched.push(errorText.commandLine);
+    return classification('PASS', INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT_REASON_CODE, matched);
+  }
+
+  if (bannerIndex === -1) {
+    // 4. BLOCKED -- a failed install that cannot be attributed to the lifecycle script.
+    return classification('BLOCKED', INSTALL_FAILED_UNATTRIBUTED_REASON_CODE, failureContextLines(lines));
+  }
+
+  // 2. FAIL -- RED confirmed (exit != 0, banner, lifecycle error text on a path of L).
+  if (errorText !== undefined) {
+    const wanted = normalizeSpaces(input.installCommand);
+    const dockerFailedLines = after.filter((line) => DOCKER_STEP_FAILED.test(line));
+    const installFailedLine = dockerFailedLines.find((line) => dockerFailedCommand(line) === wanted);
+    if (dockerFailedLines.length === 0 || installFailedLine !== undefined) {
+      const matched = [lines[bannerIndex], errorText.cannotFind];
+      if (errorText.codeLine !== undefined) matched.push(errorText.codeLine);
+      if (errorText.commandLine !== undefined) matched.push(errorText.commandLine);
+      if (installFailedLine !== undefined) matched.push(installFailedLine);
+      const complete = errorText.codeLine !== undefined && errorText.commandLine !== undefined;
       return classification('FAIL', complete ? RED_REASON_CODE : RED_TRUNCATED_REASON_CODE, matched);
     }
   }
 
-  // 3. PASS -- for THIS probe's asserted behavior only (solution-neutral contract).
-  if (input.exitStatus === 0) return classification('PASS', 'INSTALL_COMPLETED', []);
-  const npmCode = lines.find((line) => NPM_ERROR_CODE.test(line));
-  const dockerFailed = lines.find((line) => DOCKER_STEP_FAILED.test(line));
-  const matched: string[] = [];
-  if (npmCode !== undefined) matched.push(npmCode);
-  if (dockerFailed !== undefined) matched.push(dockerFailed);
-  return classification('PASS', 'INSTALL_FAILED_OTHER', matched);
+  // 3. PASS -- the lifecycle script was found and ran; the asserted failure mode is absent.
+  return classification('PASS', INSTALL_FAILED_AFTER_LIFECYCLE_STARTED_REASON_CODE, [
+    lines[bannerIndex],
+    ...failureContextLines(lines),
+  ]);
 }

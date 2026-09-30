@@ -434,7 +434,7 @@ describe('(c) control flow with stubbed Workflow globals (T4)', () => {
     expect(gate).toContain('MECHANICAL');
     expect(red).toContain(`${validate} red-plan`);
     expect(red).toContain(
-      `npx tsx packages/mps-pattern-proof/scripts/ppe-cli.ts run --dir ${ARGS.evidenceDir} --mode BOOTSTRAP_RED_ONLY --repo-root . --run-id ${ARGS.runStamp} --json`,
+      `npx tsx packages/mps-pattern-proof/scripts/ppe-cli.ts run --dir ${ARGS.evidenceDir} --mode BOOTSTRAP_RED_ONLY --repo-root . --run-id ${ARGS.runStamp} --base-sha ${ARGS.baseSha} --json`,
     );
     for (const stage of ARGS.target.stages) {
       expect(red).toContain(

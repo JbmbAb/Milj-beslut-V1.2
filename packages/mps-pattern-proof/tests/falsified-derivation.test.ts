@@ -138,7 +138,9 @@ function probe(stage: Stage): DerivedProbe {
     output: execution.output,
     exitStatus: execution.exitStatus,
     timedOut: false,
-    // host executor semantics: the process was spawned, so the install step started (executors.ts)
+    // host executor semantics: the process was spawned, so the install step started (executors.ts);
+    // after R1 (F1/F2/F6/F11) the classifier inputs are unchanged: the captured RED outputs still
+    // carry exit 1 + banner + MODULE_NOT_FOUND on a path of L, the controls exit 0
     installStepStarted: true,
     lifecyclePaths: LIFECYCLE_PATHS,
     lifecycleScriptStrings: LIFECYCLE_STRINGS,

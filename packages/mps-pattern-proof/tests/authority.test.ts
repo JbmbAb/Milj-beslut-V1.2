@@ -198,6 +198,59 @@ describe('RepositoryAuthorityResolver: git_object', () => {
     });
   });
 
+  it('F4: resolves a <sha>..<sha> range only when BOTH objects exist (hook called per object)', async () => {
+    const base = 'e617c7b7bb4613b95c6934004201eb14bec89ba0';
+    const cand = '0123456789abcdef0123456789abcdef01234567';
+    const seen: string[] = [];
+    const both = new RepositoryAuthorityResolver({
+      repoRoot: root,
+      gitObjectExists: async (ref) => {
+        seen.push(ref);
+        return true;
+      },
+    });
+    expect(await both.resolve(loc('git_object', `${base}..${cand}`, 'baseSha..candidateSha'))).toEqual({
+      resolved: true,
+      resolvedTo: `${base}..${cand}`,
+    });
+    expect(seen).toEqual([base, cand]);
+    const onlyBase = new RepositoryAuthorityResolver({
+      repoRoot: root,
+      gitObjectExists: async (ref) => ref === base,
+    });
+    expect(await onlyBase.resolve(loc('git_object', `${base}..${cand}`))).toEqual({
+      resolved: false,
+      reason: 'GIT_OBJECT_NOT_FOUND',
+    });
+    expect(await onlyBase.resolve(loc('git_object', `${cand}..${base}`))).toEqual({
+      resolved: false,
+      reason: 'GIT_OBJECT_NOT_FOUND',
+    });
+    const broken = new RepositoryAuthorityResolver({
+      repoRoot: root,
+      gitObjectExists: async () => {
+        throw new Error('git down');
+      },
+    });
+    expect(await broken.resolve(loc('git_object', `${base}..${cand}`))).toEqual({
+      resolved: false,
+      reason: 'GIT_UNAVAILABLE',
+    });
+    const permissive = new RepositoryAuthorityResolver({ repoRoot: root, gitObjectExists: async () => true });
+    for (const ref of [
+      `${base}..`,
+      `..${cand}`,
+      `${base}..${cand}:Dockerfile`,
+      `${base}...${cand}`,
+      `${base}..HEAD`,
+    ]) {
+      expect(await permissive.resolve(loc('git_object', ref)), ref).toEqual({
+        resolved: false,
+        reason: 'GIT_OBJECT_REF_MALFORMED',
+      });
+    }
+  });
+
   it('rejects malformed object refs before touching git', async () => {
     const resolver = new RepositoryAuthorityResolver({ repoRoot: root, gitObjectExists: async () => true });
     for (const ref of [
@@ -229,6 +282,16 @@ describe('RepositoryAuthorityResolver: git_object', () => {
     const resolver = new RepositoryAuthorityResolver({ repoRoot: REPO_ROOT });
     expect(await resolver.resolve(loc('git_object', sha))).toEqual({ resolved: true, resolvedTo: sha });
     expect((await resolver.resolve(loc('git_object', `${sha}:Dockerfile`))).resolved).toBe(true);
+    // F4: a range over two real objects resolves; one over a missing object does not
+    const parent = spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' });
+    if (parent.status === 0) {
+      const range = `${parent.stdout.trim()}..${sha}`;
+      expect(await resolver.resolve(loc('git_object', range))).toEqual({ resolved: true, resolvedTo: range });
+    }
+    expect(await resolver.resolve(loc('git_object', `${sha}..${'0'.repeat(40)}`))).toEqual({
+      resolved: false,
+      reason: 'GIT_OBJECT_NOT_FOUND',
+    });
     expect(await resolver.resolve(loc('git_object', '0'.repeat(40)))).toEqual({
       resolved: false,
       reason: 'GIT_OBJECT_NOT_FOUND',

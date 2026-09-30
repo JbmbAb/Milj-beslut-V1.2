@@ -4,7 +4,9 @@ import {
   lifecycleScriptPaths,
   lifecycleScriptStrings,
   nodeScriptPathsOf,
+  normalizeScriptPath,
   packageIdentity,
+  scriptCommandsOf,
 } from '../src/docker/lifecycle-scripts';
 import {
   PACKAGE_JSON_WITH_POSTINSTALL,
@@ -58,6 +60,67 @@ describe('lifecycle scripts: solution neutrality and tokenization', () => {
     expect(nodeScriptPathsOf('node --no-warnings --env-file .env run.mjs')).toEqual(['run.mjs']);
     expect(nodeScriptPathsOf('echo skip; tsx scripts/x.ts')).toEqual([]);
     expect(nodeScriptPathsOf('node')).toEqual([]);
+  });
+
+  it('splits commands on &&, ||, | and ; (R1 F1)', () => {
+    expect(scriptCommandsOf('node a.mjs && node b.mjs || node c.mjs | tee log; node d.mjs')).toEqual([
+      ['node', 'a.mjs'],
+      ['node', 'b.mjs'],
+      ['node', 'c.mjs'],
+      ['tee', 'log'],
+      ['node', 'd.mjs'],
+    ]);
+    expect(nodeScriptPathsOf('node scripts/a.mjs || node scripts/b.mjs')).toEqual([
+      'scripts/a.mjs',
+      'scripts/b.mjs',
+    ]);
+    expect(nodeScriptPathsOf('node scripts/a.mjs | cat')).toEqual(['scripts/a.mjs']);
+    expect(nodeScriptPathsOf('NODE_ENV=production node scripts/a.mjs')).toEqual(['scripts/a.mjs']);
+  });
+
+  it('normalizes derived paths: ./ stripped, dot and doubled segments collapsed, absolute kept (R1 F1)', () => {
+    expect(normalizeScriptPath('./scripts/x.mjs')).toBe('scripts/x.mjs');
+    expect(normalizeScriptPath('scripts//./x.mjs')).toBe('scripts/x.mjs');
+    expect(normalizeScriptPath('/app/scripts/../scripts/x.mjs')).toBe('/app/scripts/x.mjs');
+    expect(normalizeScriptPath('../x.mjs')).toBe('../x.mjs');
+    expect(
+      lifecycleScriptPaths({
+        name: 'x',
+        version: '1.0.0',
+        scripts: {
+          postinstall:
+            'node ./scripts/postinstall-prisma-generate.mjs && node scripts//copy-cesium-assets.cjs',
+        },
+      }),
+    ).toEqual([...PROBED_LIFECYCLE_PATHS]);
+  });
+
+  it('resolves `npm run <name>` one level into scripts[name], never two (R1 F1)', () => {
+    const scripts = {
+      postinstall: 'npm run gen && npm run-script assets',
+      gen: 'node ./scripts/postinstall-prisma-generate.mjs',
+      assets: 'node scripts/copy-cesium-assets.cjs',
+      nested: 'npm run gen',
+      prepare: 'npm run nested',
+      missing: 'npm run does-not-exist',
+    };
+    expect(lifecycleScriptPaths({ name: 'x', version: '1.0.0', scripts })).toEqual([
+      ...PROBED_LIFECYCLE_PATHS,
+    ]);
+    expect(nodeScriptPathsOf('npm run nested', scripts)).toEqual([]);
+    expect(nodeScriptPathsOf('npm run missing', scripts)).toEqual([]);
+    expect(nodeScriptPathsOf('npm run gen')).toEqual([]);
+    // the raw lifecycle strings stay raw (the `npm error command sh -c` line names them verbatim)
+    expect(lifecycleScriptStrings({ name: 'x', version: '1.0.0', scripts })).toEqual([
+      'npm run gen && npm run-script assets',
+      'npm run nested',
+    ]);
+  });
+
+  it('a runner-only lifecycle script (npx/tsx/sh) derives no path and is visible as a declared script', () => {
+    const packageJson = { name: 'x', version: '1.0.0', scripts: { postinstall: 'npx prisma generate' } };
+    expect(lifecycleScriptPaths(packageJson)).toEqual([]);
+    expect(lifecycleScriptStrings(packageJson)).toEqual(['npx prisma generate']);
   });
 
   it('rejects a package.json without name/version or that is not an object', () => {

@@ -6,6 +6,7 @@
  * not the definition of one.
  */
 import { PatternProofError } from './errors';
+import { isPlainObject } from './internal/plain-object';
 
 export const EVIDENCE_LOCATOR_KINDS = [
   'file_line',
@@ -27,12 +28,6 @@ export interface EvidenceLocator {
 
 export function isEvidenceLocatorKind(value: unknown): value is EvidenceLocatorKind {
   return typeof value === 'string' && (EVIDENCE_LOCATOR_KINDS as readonly string[]).includes(value);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
 }
 
 /**

@@ -161,6 +161,41 @@ describe('ppe-cli validate', () => {
 });
 
 describe('ppe-cli run (BOOTSTRAP_RED_ONLY over the frozen target artifacts)', () => {
+  it('records --base-sha in the run state and rejects a malformed one as a harness fault (exit 2)', () => {
+    const dir = seedEvidenceDir('base-sha');
+    const baseSha = 'e617c7b7bb4613b95c6934004201eb14bec89ba0';
+    const run = runCli([
+      'run',
+      '--dir',
+      dir,
+      '--mode',
+      'BOOTSTRAP_RED_ONLY',
+      '--repo-root',
+      REPO_ROOT,
+      '--run-id',
+      'ppe-cli-test-base-sha',
+      '--base-sha',
+      baseSha,
+      '--json',
+    ]);
+    expect(run.status, run.stdout + run.stderr).toBe(0);
+    const state = asRecord(JSON.parse(fs.readFileSync(path.join(dir, 'run-state.json'), 'utf8')));
+    expect(state.baseSha).toBe(baseSha);
+
+    const bad = runCli([
+      'run',
+      '--dir',
+      dir,
+      '--mode',
+      'BOOTSTRAP_RED_ONLY',
+      '--base-sha',
+      'not-a-sha',
+      '--json',
+    ]);
+    expect(bad.status).toBe(2);
+    expect(bad.stdout + bad.stderr).toContain('--base-sha must be a 40-hex git sha');
+  });
+
   it(
     'happy path: exit 0, run-state.json written, printed summary stoppedAtPhase RED_SYNTHESIS with the four artifacts stored',
     () => {

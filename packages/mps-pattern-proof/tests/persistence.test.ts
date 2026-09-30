@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { isPatternProofError } from '../src/errors';
 import { artifactIdFor, artifactTypeFor, digestOf, PATTERN_PROOF_ARTIFACT_KINDS } from '../src/identity';
 import {
+  canonicalBodyOf,
   kindFromArtifactType,
   PatternProofArtifactStore,
   persistedRefFromArtifactId,
 } from '../src/persistence';
 import { validateArtifact } from '../src/validators';
-import { FIXTURE_BUILDERS, validCandidate } from './fixtures/artifacts';
+import { FIXTURE_BUILDERS, validCandidate, validManifest } from './fixtures/artifacts';
 
 /**
  * Tests never touch the port directly (plan D5): every write goes through PatternProofArtifactStore,
@@ -65,6 +66,45 @@ describe('PatternProofArtifactStore: round trip for every artifact kind', () => 
         validateArtifact('candidate', validCandidate()),
       ),
     ).resolves.toEqual(first);
+  });
+
+  it('F9: canonically-equal bodies with permuted record key order persist to the SAME bytes (no WORM violation)', async () => {
+    const store = newStore();
+    const manifest = validManifest();
+    const permuted = {
+      ...manifest,
+      environmentConfig: Object.fromEntries(Object.entries(manifest.environmentConfig).reverse()),
+      fixtureContentHashes: Object.fromEntries(Object.entries(manifest.fixtureContentHashes).reverse()),
+    };
+    expect(Object.keys(permuted.environmentConfig)).not.toEqual(Object.keys(manifest.environmentConfig));
+    expect(JSON.stringify(permuted)).not.toBe(JSON.stringify(manifest));
+    expect(digestOf(permuted)).toBe(digestOf(manifest));
+
+    const first = await store.persistArtifact('input-manifest', manifest);
+    // before F9 this threw `WORM violation`: same id, different JSON.stringify bytes
+    const second = await store.persistArtifact('input-manifest', permuted);
+    expect(second).toEqual(first);
+    const loaded = await store.loadArtifact({ ...first, kind: 'input-manifest' });
+    expect(loaded).toEqual(manifest);
+    // the stored body is the canonical form: record keys in canonical (sorted) order
+    expect(Object.keys(loaded.environmentConfig)).toEqual(
+      [...Object.keys(manifest.environmentConfig)].sort(),
+    );
+    expect(JSON.stringify(canonicalBodyOf(manifest))).toBe(JSON.stringify(canonicalBodyOf(permuted)));
+    // a real content change is still a different artifact (and a WORM violation under the old id)
+    await expect(
+      store.persistUnderId(first.artifactId, first.artifactType, { ...permuted, toolchainIdentity: 'other' }),
+    ).rejects.toThrow(/WORM violation/);
+  });
+
+  it('F9: persistUnderId stores the canonical form and the returned digest is the body digest', async () => {
+    const store = newStore();
+    const body = { items: [{ classification: 'MECHANICAL', item: 'x', derivation: 'd' }] };
+    const ref = await store.persistUnderId(`ppe:decision-gate:${'2'.repeat(64)}`, 'PPE_DECISION_GATE', body);
+    expect(ref.digest).toBe(digestOf(body));
+    expect(Object.isFrozen(canonicalBodyOf(body))).toBe(true);
+    expect(() => canonicalBodyOf([1, 2])).toThrow(/PPE_SCHEMA_INVALID/);
+    expect(() => canonicalBodyOf({ a: undefined })).toThrow(/PPE_DIGEST_INPUT_INVALID/);
   });
 
   it('different artifacts get different content-addressed ids', async () => {

@@ -12,7 +12,12 @@
  * digest, which makes storage content-addressed and WORM-friendly (same body => same id; different
  * body under an existing id => the backend's WORM violation, which this module never catches).
  * `loadArtifact` recomputes the content hash on read and fails closed on any mismatch.
+ *
+ * The STORED body is the canonical form of the validated body (R1 F9): `canonicalizeStrict` sorts
+ * record keys, so two canonically-equal bodies (same digest, same id) also serialize to identical
+ * bytes in the backend and never trip a spurious WORM violation on the second put.
  */
+import { canonicalizeStrict } from '@miljobeslut/mimers-brunn-core';
 import type { ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import { PatternProofError } from './errors';
 import type { EvidenceLocator } from './evidence';
@@ -28,6 +33,8 @@ import {
   type PatternProofContentHash,
 } from './identity';
 import type { PatternProofArtifactByKind } from './artifacts';
+import { deepFreeze } from './internal/deep-freeze';
+import { isPlainObject } from './internal/plain-object';
 import { validateArtifact } from './validators';
 
 export interface PersistedArtifactRef {
@@ -68,6 +75,21 @@ export function persistedRefFromArtifactId(artifactId: string): PersistedArtifac
   });
 }
 
+/**
+ * The canonical body: `JSON.parse(canonicalizeStrict(body))`, i.e. the same value with record keys in
+ * canonical order at every level. Its digest is the body's digest (canonicalization is what digestOf
+ * hashes); its JSON bytes are identical for every canonically-equal input. Fails closed through
+ * `digestOf` first so a non-canonicalizable body reports PPE_DIGEST_INPUT_INVALID, never a JSON error.
+ */
+export function canonicalBodyOf(body: unknown): unknown {
+  digestOf(body);
+  const canonical: unknown = JSON.parse(canonicalizeStrict(body));
+  if (!isPlainObject(canonical)) {
+    throw new PatternProofError('PPE_SCHEMA_INVALID', 'a persisted artifact body must be a plain object');
+  }
+  return deepFreeze(canonical);
+}
+
 function buildRef(
   kind: PatternProofArtifactKind,
   artifactId: string,
@@ -92,8 +114,9 @@ export class PatternProofArtifactStore {
   }
 
   /**
-   * Validates `artifact` as `kind`, then persists the FROZEN validated copy under its
-   * content-addressed id. Persisting the same artifact twice is idempotent (same bytes, same id).
+   * Validates `artifact` as `kind`, then persists the CANONICAL form of the validated copy under its
+   * content-addressed id. Persisting the same artifact twice -- including with permuted record key
+   * order -- is idempotent (same bytes, same id, no WORM violation).
    */
   async persistArtifact<K extends PatternProofArtifactKind>(
     kind: K,
@@ -110,7 +133,8 @@ export class PatternProofArtifactStore {
    * derived from the body. This is the primitive the FALSIFIED fixture uses to attempt a re-put of
    * a modified candidate under the ORIGINAL id so that the backend's WORM check fires (frozen design
    * section 6: a candidate is never edited in place). The backend error is deliberately not caught.
-   * `artifactType` must be one this package owns (so the returned ref carries a kind).
+   * `artifactType` must be one this package owns (so the returned ref carries a kind). The stored
+   * bytes are the canonical form of `body` (R1 F9), whose digest equals `body`'s digest.
    */
   async persistUnderId(
     artifactId: string,
@@ -124,10 +148,11 @@ export class PatternProofArtifactStore {
     if (typeof artifactId !== 'string' || artifactId.trim().length === 0) {
       throw new PatternProofError('PPE_SCHEMA_INVALID', 'artifactId must be a non-empty string');
     }
-    const digest = digestOf(body);
-    const contentHash = contentHashOf(body);
+    const canonical = canonicalBodyOf(body);
+    const digest = digestOf(canonical);
+    const contentHash = contentHashOf(canonical);
     const { repository } = this;
-    await repository.put({ artifact_id: artifactId, content_hash: contentHash, body });
+    await repository.put({ artifact_id: artifactId, content_hash: contentHash, body: canonical });
     return buildRef(kind, artifactId, artifactType, digest);
   }
 

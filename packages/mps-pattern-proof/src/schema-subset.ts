@@ -9,6 +9,7 @@
  * This is NOT a schema library and NOT the semantic authority: ./validators.ts is. It exists so the
  * package can prove, in tests, that every artifact schema and every fixture agree.
  */
+import { isPlainObject } from './internal/plain-object';
 
 export const PPE_SCHEMA_KEYWORDS = [
   'type',
@@ -39,12 +40,6 @@ export interface SubsetSchema {
 export interface SubsetSchemaResult {
   ok: boolean;
   errors: string[];
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
 }
 
 function typeOf(value: unknown): string {

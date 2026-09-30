@@ -41,6 +41,11 @@ import {
 import { PatternProofError } from './errors';
 import { validateEvidenceLocator, validateEvidenceLocators, type EvidenceLocator } from './evidence';
 import { isDigest, isPatternProofArtifactKind, type PatternProofArtifactKind } from './identity';
+import { deepFreeze } from './internal/deep-freeze';
+import { isPlainObject } from './internal/plain-object';
+
+// The package-wide deep-freeze lives in ./internal (R1 F18); callers keep importing it from here.
+export { deepFreeze } from './internal/deep-freeze';
 
 // ---------------------------------------------------------------------------------------------
 // shared primitives
@@ -48,11 +53,10 @@ import { isDigest, isPatternProofArtifactKind, type PatternProofArtifactKind } f
 
 export const GIT_SHA_RE = /^[0-9a-f]{40}$/;
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
-}
+/** A bare git object id or a `<baseSha>..<candidateSha>` range: the only admissible diff identities. */
+export const GIT_SHA_OR_RANGE_RE = /^[0-9a-f]{40}(?:\.\.[0-9a-f]{40})?$/;
+/** Whole-token git object ids inside free text (stripped before scanning a diff identity for blobs). */
+const GIT_SHA_TOKEN_RE = /\b[0-9a-f]{40}\b/g;
 
 function requireObject(input: unknown, path: string, what: string): Record<string, unknown> {
   if (!isPlainObject(input)) {
@@ -141,39 +145,47 @@ function requireStringRecord(value: unknown, path: string): Readonly<Record<stri
   return out;
 }
 
-/** Recursively freezes plain objects and arrays in place and returns the same reference. */
-export function deepFreeze<T>(value: T): T {
-  if (typeof value !== 'object' || value === null) return value;
-  if (Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  for (const key of Object.keys(value as object)) {
-    deepFreeze((value as Record<string, unknown>)[key]);
-  }
-  return value;
-}
-
 // ---------------------------------------------------------------------------------------------
 // allow-list matching (candidate; plan section 3 + D10)
 // ---------------------------------------------------------------------------------------------
 
-/** Proof-policy surfaces that a writer allow-list may never cover (D10). */
+/**
+ * Proof-policy surfaces that a writer allow-list may never cover (D10, extended per R1 F17 with the
+ * repo surfaces that register packages, alias imports, run the acceptance commands or hold audit
+ * records). A prefix ending in `-` is a file-name prefix; an entry naming a top-level file matches
+ * exactly that file; every other entry is a directory prefix.
+ */
 export const PROOF_POLICY_PATH_PREFIXES: readonly string[] = Object.freeze([
   'packages/mps-pattern-proof',
   'governance/devgov',
   'scripts/audit',
+  'scripts/devgov',
   'docs/architecture/PATTERN-PROOF-ENGINE-01-',
+  'docs/architecture/audits',
   '.claude',
+  '.github',
+  'vitest.config.ts',
+  'tsconfig.json',
+  'package.json',
+  'package-lock.json',
 ]);
 
-/** Representative proof-policy paths that every allow-list entry is tested against (D10). */
+/** Representative proof-policy paths that every allow-list entry is tested against (D10 + F17). */
 const PROOF_POLICY_PROBE_PATHS: readonly string[] = Object.freeze([
   'packages/mps-pattern-proof/package.json',
   'packages/mps-pattern-proof/src/index.ts',
   'governance/devgov/units/unit.json',
   'scripts/audit/master-boundary-audit.test.ts',
+  'scripts/devgov/run-red.mjs',
   'docs/architecture/PATTERN-PROOF-ENGINE-01-DESIGN-V1-FROZEN.md',
+  'docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-AUDIT.md',
   '.claude/settings.json',
   '.claude/workflows/ppe-v1.js',
+  '.github/workflows/deploy-gcp.yml',
+  'vitest.config.ts',
+  'tsconfig.json',
+  'package.json',
+  'package-lock.json',
 ]);
 
 function normalizePath(value: string): string {
@@ -512,6 +524,18 @@ export function validateRedPlanArtifact(input: unknown): RedPlanArtifact {
 const CANDIDATE_KEYS = ['candidateSha', 'baseSha', 'diffRef', 'allowedPathsCompliance'] as const;
 const COMPLIANCE_KEYS = ['result', 'allowedPaths', 'evidence'] as const;
 
+/** The admissible `diffRef` identities of a candidate: `<baseSha>..<candidateSha>` or `<candidateSha>`. */
+export function candidateDiffRefs(baseSha: string, candidateSha: string): readonly string[] {
+  return Object.freeze([`${baseSha}..${candidateSha}`, candidateSha]);
+}
+
+/** True iff `locator` is a git_object whose (trimmed) ref is one of `candidateDiffRefs`. */
+export function isCandidateDiffRef(locator: EvidenceLocator, baseSha: string, candidateSha: string): boolean {
+  return (
+    locator.kind === 'git_object' && candidateDiffRefs(baseSha, candidateSha).includes(locator.ref.trim())
+  );
+}
+
 function validateAllowedPathsCompliance(input: unknown, path: string): AllowedPathsCompliance {
   const record = requireObject(input, path, 'AllowedPathsCompliance');
   rejectUnknownKeys(record, COMPLIANCE_KEYS, path);
@@ -549,6 +573,16 @@ export function validateCandidateArtifact(input: unknown): CandidateArtifact {
   const candidateSha = requireGitSha(record.candidateSha, `${path}.candidateSha`);
   const baseSha = requireGitSha(record.baseSha, `${path}.baseSha`);
   const diffRef = validateEvidenceLocator(record.diffRef, `${path}.diffRef`);
+  // BOOTSTRAP section 2: diffRef must resolve to the exact baseSha..candidateSha diff (R1 F4). A
+  // `git_object` naming that range (or the candidate object itself) is the only admissible form;
+  // a runtime_result, a file_line or a git_object naming any other object is not this candidate's diff.
+  if (!isCandidateDiffRef(diffRef, baseSha, candidateSha)) {
+    throw new PatternProofError(
+      'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT',
+      `diffRef must be a git_object naming ${baseSha}..${candidateSha} (or ${candidateSha}); got ${diffRef.kind} "${diffRef.ref}"`,
+      { path: `${path}.diffRef` },
+    );
+  }
   const allowedPathsCompliance = validateAllowedPathsCompliance(
     record.allowedPathsCompliance,
     `${path}.allowedPathsCompliance`,
@@ -651,6 +685,17 @@ export function validateInputManifest(input: unknown): InputManifest {
     });
   }
   const candidateShaOrDiff = requireString(record.candidateShaOrDiff, `${path}.candidateShaOrDiff`);
+  if (!GIT_SHA_OR_RANGE_RE.test(candidateShaOrDiff)) {
+    // R1 F10: a value that is not a git identity is scanned for secret material FIRST (so a PEM or a
+    // token is named as such; whole git object ids -- what this field is for -- are not blobs), then
+    // rejected as malformed. A well-formed sha/range is, by its form, not secret material.
+    rejectSecretValue(candidateShaOrDiff.replace(GIT_SHA_TOKEN_RE, ' '), `${path}.candidateShaOrDiff`);
+    throw new PatternProofError(
+      'PPE_MANIFEST_INVALID',
+      'candidateShaOrDiff must be a 40-hex git object id or <baseSha>..<candidateSha>',
+      { path: `${path}.candidateShaOrDiff` },
+    );
+  }
   const dependencyLockHash = requireString(record.dependencyLockHash, `${path}.dependencyLockHash`);
   if (!isDigest(dependencyLockHash)) {
     throw new PatternProofError('PPE_MANIFEST_INVALID', 'dependencyLockHash must be sha256:<64 hex>', {
@@ -662,9 +707,15 @@ export function validateInputManifest(input: unknown): InputManifest {
     `${path}.fixtureContentHashes`,
   );
   for (const key of Object.keys(fixtureContentHashes)) {
-    requireString(fixtureContentHashes[key], `${path}.fixtureContentHashes.${key}`);
+    // frozen design section 7: "content hashes for every fixture" -- a hash, never free text (R1 F10)
+    if (!isDigest(fixtureContentHashes[key])) {
+      throw new PatternProofError('PPE_MANIFEST_INVALID', 'fixture content hashes must be sha256:<64 hex>', {
+        path: `${path}.fixtureContentHashes.${key}`,
+      });
+    }
   }
   const toolchainIdentity = requireString(record.toolchainIdentity, `${path}.toolchainIdentity`);
+  rejectSecretValue(toolchainIdentity, `${path}.toolchainIdentity`);
   const environmentConfig = requireStringRecord(record.environmentConfig, `${path}.environmentConfig`);
   for (const key of Object.keys(environmentConfig)) {
     const value = environmentConfig[key];

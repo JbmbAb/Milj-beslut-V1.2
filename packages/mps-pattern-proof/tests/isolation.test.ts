@@ -10,11 +10,15 @@ import { digestOf } from '../src/identity';
 import {
   VERIFIER_INPUT_BUNDLE_KEYS,
   VERIFIER_INPUT_BUNDLE_PREDICATE_TYPE,
+  VERIFIER_PROMPT_NOTE_MAX_LENGTH,
   VERIFIER_PROMPT_TEMPLATE_VERSION,
+  VERIFIER_RUNTIME_INPUT_KEY_RE,
+  VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH,
   assertVerifyOnlyProvider,
   attestVerifierInputBundle,
   createVerifierContext,
   isVerifyOnlyProvider,
+  promptNoteText,
   renderVerifierPrompt,
   validateVerifierInputBundle,
   type VerifierInputBundle,
@@ -52,9 +56,10 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
         },
       ],
       redPlanDigest: digestOf({ probes: [] }),
+      // R1 F12: declared runtime-input keys are PPE_-namespaced (was zeta/alpha before the bound)
       verifierRuntimeInputs: {
-        zeta: 'last',
-        alpha: 'first',
+        PPE_ZETA: 'last',
+        PPE_ALPHA: 'first',
         PPE_DOCKER_CA_BUNDLE: '/root/.ccr/ca-bundle.crt',
       },
     };
@@ -140,7 +145,7 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
       /PPE_SCHEMA_INVALID/,
     );
     expect(() =>
-      validateVerifierInputBundle({ ...base, verifierRuntimeInputs: { count: 1 as unknown as string } }),
+      validateVerifierInputBundle({ ...base, verifierRuntimeInputs: { PPE_COUNT: 1 as unknown as string } }),
     ).toThrow(/PPE_SCHEMA_INVALID/);
     expect(() =>
       validateVerifierInputBundle({
@@ -148,6 +153,118 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
         candidate: { ...base.candidate, diffRef: { kind: 'url', ref: 'x' } },
       }),
     ).toThrow(/PPE_EVIDENCE_KIND_INVALID/);
+  });
+
+  // ------------------------------------------------- 1b. BOUNDED DECLARED SLOTS (R1 F12)
+
+  it('a runtime-input key outside the PPE_ namespace is an undeclared input, whatever its value', () => {
+    const base = bundleFixture();
+    for (const key of [
+      'zeta',
+      'NOTE',
+      'writerTranscript',
+      'ppe_lower',
+      'PPE_',
+      'PPE-DASH',
+      `PPE_${'X'.repeat(65)}`,
+    ]) {
+      expect(VERIFIER_RUNTIME_INPUT_KEY_RE.test(key), key).toBe(false);
+      expect(() =>
+        validateVerifierInputBundle({
+          ...base,
+          verifierRuntimeInputs: { ...base.verifierRuntimeInputs, [key]: 'x' },
+        }),
+      ).toThrow(/PPE_ISOLATION_UNDECLARED_INPUT/);
+    }
+    expect(VERIFIER_RUNTIME_INPUT_KEY_RE.test(`PPE_${'X'.repeat(64)}`)).toBe(true);
+  });
+
+  it('a transcript-shaped VALUE (multi-line) in a declared key is rejected as an undeclared input', () => {
+    const base = bundleFixture();
+    const transcript = 'writer transcript: tests pass, trust me\n$ npm test\n> 337 passed';
+    expect(() =>
+      validateVerifierInputBundle({
+        ...base,
+        verifierRuntimeInputs: { ...base.verifierRuntimeInputs, PPE_NOTE: transcript },
+      }),
+    ).toThrow(/PPE_ISOLATION_UNDECLARED_INPUT/);
+    for (const value of ['a\rb', 'a\u2028b', 'a\u2029b']) {
+      expect(() =>
+        validateVerifierInputBundle({
+          ...base,
+          verifierRuntimeInputs: { ...base.verifierRuntimeInputs, PPE_NOTE: value },
+        }),
+      ).toThrow(/PPE_ISOLATION_UNDECLARED_INPUT/);
+    }
+  });
+
+  it('a value longer than the bound is rejected; a value at the bound is accepted', () => {
+    const base = bundleFixture();
+    expect(VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH).toBe(512);
+    const atBound = 'v'.repeat(VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH);
+    expect(
+      validateVerifierInputBundle({
+        ...base,
+        verifierRuntimeInputs: { ...base.verifierRuntimeInputs, PPE_LONG: atBound },
+      }).verifierRuntimeInputs.PPE_LONG,
+    ).toBe(atBound);
+    expect(() =>
+      validateVerifierInputBundle({
+        ...base,
+        verifierRuntimeInputs: { ...base.verifierRuntimeInputs, PPE_LONG: `${atBound}v` },
+      }),
+    ).toThrow(/PPE_ISOLATION_UNDECLARED_INPUT/);
+  });
+
+  it('an over-long or multi-line runtime value never reaches attestation or the prompt', async () => {
+    const generated = LocalPemSigningKeyProvider.generate(SIGNER_KEY_ID);
+    const base = bundleFixture();
+    const smuggled: VerifierInputBundle = {
+      ...base,
+      verifierRuntimeInputs: { ...base.verifierRuntimeInputs, PPE_NOTE: 'line one\nline two' },
+    };
+    expect(await codeOf(attestVerifierInputBundle(smuggled, generated.provider))).toBe(
+      'PPE_ISOLATION_UNDECLARED_INPUT',
+    );
+    const { attested, verifyOnly } = await attestedFixture();
+    const context = await createVerifierContext({
+      bundle: validateVerifierInputBundle(base),
+      attestation: attested.attestation,
+      verification: verifyOnly,
+      expectedSignerKeyId: SIGNER_KEY_ID,
+    });
+    expect(() => renderVerifierPrompt({ ...context, inputs: smuggled })).toThrow(
+      /PPE_ISOLATION_UNDECLARED_INPUT/,
+    );
+  });
+
+  it('locator notes rendered into the prompt are capped and single-line', async () => {
+    expect(VERIFIER_PROMPT_NOTE_MAX_LENGTH).toBe(200);
+    const longNote = `${'n'.repeat(500)}\nsecond line`;
+    expect(promptNoteText(longNote)).toHaveLength(VERIFIER_PROMPT_NOTE_MAX_LENGTH + '...'.length);
+    expect(promptNoteText(longNote)).not.toContain('\n');
+    expect(promptNoteText('a\r\nb\nc')).toBe('a b c');
+    expect(promptNoteText('short')).toBe('short');
+
+    const { attested, verifyOnly } = await attestedFixture();
+    const base = bundleFixture();
+    const noisy: VerifierInputBundle = {
+      ...base,
+      frozenSpec: [{ kind: 'file_line', ref: 'a:1', note: longNote }],
+    };
+    const context = await createVerifierContext({
+      bundle: validateVerifierInputBundle(base),
+      attestation: attested.attestation,
+      verification: verifyOnly,
+      expectedSignerKeyId: SIGNER_KEY_ID,
+    });
+    const rendered = renderVerifierPrompt({ ...context, inputs: noisy });
+    const noteLine = rendered.text.split('\n').find((line) => line.includes('file_line a:1'));
+    expect(noteLine).toBeDefined();
+    expect(noteLine).not.toContain('second line');
+    expect(noteLine).toContain(`${'n'.repeat(VERIFIER_PROMPT_NOTE_MAX_LENGTH)}...`);
+    expect(noteLine).not.toContain('n'.repeat(VERIFIER_PROMPT_NOTE_MAX_LENGTH + 1));
+    expect(rendered.text.split('\n').filter((line) => line.startsWith('  - '))).toHaveLength(4);
   });
 
   // ------------------------------------------------------ 2. VERIFY-ONLY PROVIDER SHAPE
@@ -426,12 +543,12 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
       expect(first.text).not.toContain(forbidden);
     }
     // Runtime inputs are emitted sorted by key regardless of insertion order.
-    const alpha = first.text.indexOf('alpha=first');
+    const alpha = first.text.indexOf('PPE_ALPHA=first');
     const ca = first.text.indexOf('PPE_DOCKER_CA_BUNDLE=');
-    const zeta = first.text.indexOf('zeta=last');
-    expect(ca).toBeGreaterThan(-1);
-    expect(ca).toBeLessThan(alpha);
-    expect(alpha).toBeLessThan(zeta);
+    const zeta = first.text.indexOf('PPE_ZETA=last');
+    expect(alpha).toBeGreaterThan(-1);
+    expect(alpha).toBeLessThan(ca);
+    expect(ca).toBeLessThan(zeta);
   });
 
   it('prompt digest changes when, and only when, a declared input changes', async () => {
@@ -445,12 +562,12 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
     const reordered: VerifierInputBundle = {
       ...bundle,
       verifierRuntimeInputs: {
-        zeta: 'last',
+        PPE_ZETA: 'last',
         PPE_DOCKER_CA_BUNDLE: '/root/.ccr/ca-bundle.crt',
-        alpha: 'first',
+        PPE_ALPHA: 'first',
       },
     };
-    const changed: VerifierInputBundle = { ...bundle, verifierRuntimeInputs: { alpha: 'changed' } };
+    const changed: VerifierInputBundle = { ...bundle, verifierRuntimeInputs: { PPE_ALPHA: 'changed' } };
 
     expect(renderVerifierPrompt({ ...context, inputs: reordered }).digest).toBe(
       renderVerifierPrompt(context).digest,

@@ -831,7 +831,7 @@ if (nonMechanical !== undefined) {
     terminalCandidate: nonMechanical.classification,
     blockingReason: typeof nonMechanical.blockingReason === 'string' ? nonMechanical.blockingReason : null,
     item: nonMechanical.item,
-    authoritativeVerdict: `${PPE_CLI} run --dir ${evidenceDir} --mode ${MODE} --repo-root . --run-id ${runStamp} --json (not executed by this script; RED_SYNTHESIS was not called)`,
+    authoritativeVerdict: `${PPE_CLI} run --dir ${evidenceDir} --mode ${MODE} --repo-root . --run-id ${runStamp} --base-sha ${baseSha} --json (not executed by this script; RED_SYNTHESIS was not called)`,
     artifactPaths,
   };
 }
@@ -844,7 +844,7 @@ log(
 // ---------------------------------------------------------------------------------------------
 
 phase('RED_SYNTHESIS');
-const runCommand = `${PPE_CLI} run --dir ${evidenceDir} --mode ${MODE} --repo-root . --run-id ${runStamp} --json`;
+const runCommand = `${PPE_CLI} run --dir ${evidenceDir} --mode ${MODE} --repo-root . --run-id ${runStamp} --base-sha ${baseSha} --json`;
 const probeCommands = stages.map(
   (stage) =>
     `${RED_PROBE_CLI} --dockerfile ${dockerfile} --stage ${stage} --executor auto --json --out ${evidenceDir}/probe-${stage}.json`,

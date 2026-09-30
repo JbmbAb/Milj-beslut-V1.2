@@ -3,15 +3,21 @@
  *
  * Solution-neutral by construction: everything below is derived from the CANDIDATE Dockerfile text.
  * The prefix of a target stage is every instruction of every ancestor stage (root base first) plus
- * the target stage's own instructions up to and including its INSTALL step -- the first RUN whose
- * shell text matches `/\bnpm\s+(ci|install|i)\b/` (so `npm cache ...` and `npm run ...` never
- * qualify). A candidate that adds `--ignore-scripts`, copies `scripts/` before the RUN, or removes
- * the lifecycle hook is reflected in the derived state, never re-asserted from a base snapshot.
+ * the target stage's own instructions up to and including its INSTALL step -- the RUN whose shell
+ * text (split on `&&` and `;`) contains a PROJECT install command: `npm ci` / `npm install` / `npm i`
+ * followed only by flags (no positional package specs, no `-g`/`--global`), so `npm cache ...`,
+ * `npm run ...` and `npm install -g npm@10` never qualify (R1 F3). Exactly one such RUN may exist in
+ * the target stage; two or more fail closed with PPE_INSTALL_STEP_NOT_FOUND "ambiguous install step"
+ * (BLOCKED at the CLI). A candidate that adds `--ignore-scripts`, copies `scripts/` before the RUN,
+ * or removes the lifecycle hook is reflected in the derived state, never re-asserted from a base
+ * snapshot.
  *
  * Documented limits: `$VAR` substitution is not performed (ENV/ARG values are recorded as declared);
  * `COPY --from=<stage>` instructions are kept verbatim in the prefix but excluded from the build
  * context (their sources are not context files); if such an instruction references a stage outside
  * the lineage, a docker probe fails before the install step and classifies BLOCKED (never PASS).
+ * The host executor refuses (BLOCKED HOST_FIDELITY_UNSUPPORTED) a prefix with any `COPY --from` or an
+ * install command carrying an unexpanded `$` (R1 F8); it applies `args` as environment defaults.
  */
 import path from 'node:path';
 import { PatternProofError } from '../errors';
@@ -25,7 +31,34 @@ import {
   type ParsedStage,
 } from './dockerfile-parse';
 
+/** Coarse pre-filter of install RUNs; the project-install predicate below decides. */
 export const DEFAULT_INSTALL_PATTERN = /\bnpm\s+(ci|install|i)\b/;
+
+const INSTALL_SUBCOMMANDS: ReadonlySet<string> = new Set(['ci', 'install', 'i']);
+const GLOBAL_FLAGS: ReadonlySet<string> = new Set(['-g', '--global']);
+
+/**
+ * True when one shell command (already split on `&&` / `;`) is a PROJECT install: leading
+ * `KEY=value` assignments skipped, `npm (ci|install|i)` followed only by `-`-prefixed flags, none of
+ * them `-g`/`--global`. An unexpanded `$VAR` / `${VAR}` token is admitted as a flag position (docker
+ * expands it; the host executor refuses the prefix as HOST_FIDELITY_UNSUPPORTED, R1 F8).
+ */
+export function isProjectInstallCommand(command: string): boolean {
+  const tokens = command
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+  let k = 0;
+  while (k < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[k])) k += 1;
+  if (tokens[k] !== 'npm' || !INSTALL_SUBCOMMANDS.has(tokens[k + 1] ?? '')) return false;
+  const rest = tokens.slice(k + 2);
+  return rest.every((token) => (token.startsWith('-') && !GLOBAL_FLAGS.has(token)) || token.startsWith('$'));
+}
+
+/** True when the RUN shell text contains a project install command among its `&&` / `;` commands. */
+export function isProjectInstallShellText(shellText: string): boolean {
+  return shellText.split(/\s*(?:&&|;)\s*/).some((command) => isProjectInstallCommand(command));
+}
 
 /** One plain COPY/ADD instruction of the prefix (no `--from`), with its in-image destination. */
 export interface StageContextCopy {
@@ -50,6 +83,8 @@ export interface StagePrefix {
   readonly contextCopies: readonly StageContextCopy[];
   /** shell text of the install RUN */
   readonly installCommand: string;
+  /** the install RUN instruction itself (exec-form header matching at docker fidelity, R1 F7) */
+  readonly installInstruction: ParsedInstruction;
   /** 1-based line of the install RUN in the candidate Dockerfile */
   readonly installLine: number;
   /** last WORKDIR seen in the prefix (default '/') */
@@ -62,6 +97,7 @@ export interface StagePrefix {
 }
 
 export interface DeriveStagePrefixOptions {
+  /** overrides the project-install predicate with a plain regex on the RUN shell text (tests) */
   readonly installPattern?: RegExp;
 }
 
@@ -105,14 +141,19 @@ function lineageOf(parsed: ParsedDockerfile, target: ParsedStage): ParsedStage[]
 /**
  * Derives the stage prefix of `stageName` from a parsed candidate Dockerfile.
  * Throws PPE_STAGE_NOT_FOUND when the stage does not exist and PPE_INSTALL_STEP_NOT_FOUND when the
- * target stage has no RUN matching the install pattern.
+ * target stage has no project-install RUN, or more than one ("ambiguous install step").
  */
 export function deriveStagePrefix(
   parsed: ParsedDockerfile,
   stageName: string,
   opts: DeriveStagePrefixOptions = {},
 ): StagePrefix {
-  const pattern = opts.installPattern ?? DEFAULT_INSTALL_PATTERN;
+  const pattern = opts.installPattern;
+  const qualifies = (instruction: ParsedInstruction): boolean => {
+    if (instruction.keyword !== 'RUN') return false;
+    const shellText = instructionShellText(instruction);
+    return pattern === undefined ? isProjectInstallShellText(shellText) : pattern.test(shellText);
+  };
   const target = findStage(parsed, stageName);
   if (target === undefined) {
     throw new PatternProofError('PPE_STAGE_NOT_FOUND', `stage "${stageName}" not found in Dockerfile`, {
@@ -120,16 +161,26 @@ export function deriveStagePrefix(
     });
   }
   const chain = lineageOf(parsed, target);
-  const installInstruction = target.instructions.find(
-    (instruction) => instruction.keyword === 'RUN' && pattern.test(instructionShellText(instruction)),
-  );
-  if (installInstruction === undefined) {
+  const candidates = target.instructions.filter(qualifies);
+  if (candidates.length === 0) {
     throw new PatternProofError(
       'PPE_INSTALL_STEP_NOT_FOUND',
-      `stage "${target.name}" has no RUN matching ${pattern.source}`,
+      `stage "${target.name}" has no RUN with a project install command${
+        pattern === undefined ? '' : ` (pattern ${pattern.source})`
+      }`,
       { details: { stage: target.name } },
     );
   }
+  if (candidates.length > 1) {
+    throw new PatternProofError(
+      'PPE_INSTALL_STEP_NOT_FOUND',
+      `ambiguous install step: stage "${target.name}" has ${candidates.length} project-install RUNs at lines ${candidates
+        .map((instruction) => instruction.line)
+        .join(', ')}`,
+      { details: { stage: target.name, lines: candidates.map((instruction) => instruction.line) } },
+    );
+  }
+  const installInstruction = candidates[0];
 
   const instructions: ParsedInstruction[] = [];
   for (const stage of chain) {
@@ -200,6 +251,7 @@ export function deriveStagePrefix(
     contextSources: Object.freeze(contextSources),
     contextCopies: Object.freeze(contextCopies),
     installCommand: instructionShellText(installInstruction),
+    installInstruction,
     installLine: installInstruction.line,
     workdir,
     env: Object.freeze(env),

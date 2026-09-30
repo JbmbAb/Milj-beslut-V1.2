@@ -5,7 +5,12 @@
  *   - `docker-stage-prefix`: a real `docker build` of the rendered prefix Dockerfile against a
  *     context that holds exactly the prefix's context sources (+ the optional CA bundle prelude input).
  *   - `host-npm`: the prefix's context laid out in a temp dir and the derived install command run with
- *     `/bin/sh -c` on the host (reduced fidelity, recorded as such).
+ *     `/bin/sh -c` on the host (reduced fidelity, recorded as such). It refuses BEFORE spawning, with a
+ *     BLOCKED-classifiable execution (`spawnError.code`), a prefix it cannot reproduce faithfully
+ *     (any `COPY/ADD --from`, or an install command with an unexpanded `$`: HOST_FIDELITY_UNSUPPORTED,
+ *     R1 F8) and a context in which package.json did not land in the host root (CONTEXT_INCOMPLETE,
+ *     R1 F2). ARG defaults are applied as environment defaults (docker semantics: args, then ENV,
+ *     then the caller's env).
  * Both return a RawProbeExecution whose merged output is classified by ./classify.ts. Neither tags
  * images, starts a daemon or writes outside os.tmpdir().
  *
@@ -17,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ProbeSpawnError } from './classify';
+import { execFormTokens, instructionShellText, type ParsedInstruction } from './dockerfile-parse';
 import { renderStagePrefixDockerfile, type StageContextCopy, type StagePrefix } from './stage-prefix';
 
 export type ProbeFidelity = 'host-npm' | 'docker-stage-prefix';
@@ -82,7 +88,7 @@ export interface DockerignoreRule {
   readonly regex: RegExp;
 }
 
-function globToRegExp(pattern: string): RegExp {
+function dockerignoreGlobToRegExp(pattern: string): RegExp {
   let source = '';
   for (let k = 0; k < pattern.length; k += 1) {
     const ch = pattern[k];
@@ -111,7 +117,7 @@ export function parseDockerignore(text: string): readonly DockerignoreRule[] {
     const negate = line.startsWith('!');
     const pattern = (negate ? line.slice(1) : line).replace(/^(\.\/|\/)+/, '').replace(/\/+$/, '');
     if (pattern === '') continue;
-    rules.push(Object.freeze({ negate, pattern, regex: globToRegExp(pattern) }));
+    rules.push(Object.freeze({ negate, pattern, regex: dockerignoreGlobToRegExp(pattern) }));
   }
   return Object.freeze(rules);
 }
@@ -166,7 +172,7 @@ function expandSegments(
   }
   const absoluteDir = path.join(root, dir);
   if (!fs.existsSync(absoluteDir) || !fs.statSync(absoluteDir).isDirectory()) return;
-  const regex = globToRegExp(segment);
+  const regex = dockerignoreGlobToRegExp(segment);
   for (const entry of fs.readdirSync(absoluteDir).sort()) {
     if (!regex.test(entry)) continue;
     expandSegments(root, dir === '' ? entry : `${dir}/${entry}`, segments, index + 1, out);
@@ -427,14 +433,37 @@ function normalizeSpaces(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * The step-header texts BuildKit may print for an install RUN: the shell text (shell form, or the
+ * exec tokens joined) and, for an exec-form RUN, the raw JSON array text as written plus its
+ * canonical `["a", "b"]` re-serialization (R1 F7: BuildKit prints `RUN ["node", "-e", "1"]`).
+ */
+export function installStepHeaders(installCommand: string, instruction?: ParsedInstruction): string[] {
+  const headers = [normalizeSpaces(installCommand)];
+  if (instruction !== undefined) {
+    headers.push(normalizeSpaces(instructionShellText(instruction)));
+    const tokens = execFormTokens(instruction.args);
+    if (tokens !== null) {
+      headers.push(normalizeSpaces(instruction.args));
+      headers.push(`[${tokens.map((token) => JSON.stringify(token)).join(', ')}]`);
+    }
+  }
+  return [...new Set(headers.filter((header) => header.length > 0))];
+}
+
 /** True when the BuildKit plain-progress step header for the install RUN appears in the output. */
-export function dockerInstallStepStarted(output: string, installCommand: string): boolean {
-  const wanted = normalizeSpaces(installCommand);
+export function dockerInstallStepStarted(
+  output: string,
+  installCommand: string,
+  instruction?: ParsedInstruction,
+): boolean {
+  const wantedHeaders = installStepHeaders(installCommand, instruction);
   for (const line of output.split(/\r?\n/)) {
     const match = /^#\d+ \[[^\]]*\] RUN (.*)$/.exec(line);
     if (match === null) continue;
     const header = normalizeSpaces(match[1]);
-    if (header === wanted || (header.length > 0 && wanted.startsWith(header))) return true;
+    if (header.length === 0) continue;
+    if (wantedHeaders.some((wanted) => header === wanted || wanted.startsWith(header))) return true;
   }
   return false;
 }
@@ -486,9 +515,67 @@ function buildExecution(
   return Object.freeze(execution);
 }
 
+export const HOST_FIDELITY_UNSUPPORTED_CODE = 'HOST_FIDELITY_UNSUPPORTED';
+export const CONTEXT_INCOMPLETE_CODE = 'CONTEXT_INCOMPLETE';
+
+/**
+ * Why the host executor cannot reproduce this prefix faithfully (R1 F8), or undefined when it can:
+ * a `COPY/ADD --from` (its sources are another stage's filesystem) or an install command with an
+ * unexpanded `$` (no ARG/ENV substitution is performed; docker would expand it).
+ */
+export function hostFidelityLimitation(prefix: StagePrefix): string | undefined {
+  const fromCopy = prefix.instructions.find(
+    (instruction) =>
+      (instruction.keyword === 'COPY' || instruction.keyword === 'ADD') &&
+      instruction.flags.from !== undefined,
+  );
+  if (fromCopy !== undefined) {
+    return `${fromCopy.keyword} --from=${fromCopy.flags.from} at line ${fromCopy.line} cannot be laid out on the host`;
+  }
+  if (prefix.installCommand.includes('$')) {
+    return `install command "${prefix.installCommand}" carries an unexpanded $ substitution`;
+  }
+  return undefined;
+}
+
+function refusedExecution(
+  fidelity: ProbeFidelity,
+  code: string,
+  message: string,
+  toolchain: ProbeToolchain,
+  contextFiles: readonly string[],
+  startedAt: string,
+  started: number,
+  workdir: string,
+): RawProbeExecution {
+  return buildExecution(
+    { output: '', exitStatus: null, timedOut: false, spawnError: { code, message } },
+    {
+      fidelity,
+      installStepStarted: false,
+      toolchain,
+      contextFiles,
+      startedAt,
+      elapsedMs: Date.now() - started,
+      workdir,
+    },
+  );
+}
+
+/** ARG defaults (docker semantics: an ARG without a value does not override the environment). */
+function argDefaults(prefix: StagePrefix): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(prefix.args)) {
+    if (value.length > 0) out[key] = value;
+  }
+  return out;
+}
+
 /**
  * host-npm fidelity: context laid out in a temp dir, install command via `/bin/sh -c`, whole process
  * group SIGKILLed on timeout (npm ignores SIGTERM). The npm cache of $HOME is shared (recorded input).
+ * Refuses before spawning (BLOCKED-classifiable, installStepStarted false) when the prefix exceeds
+ * host fidelity (R1 F8) or package.json did not land in the host root (R1 F2).
  */
 export async function runHostStagePrefixProbe(
   prefix: StagePrefix,
@@ -496,10 +583,40 @@ export async function runHostStagePrefixProbe(
 ): Promise<RawProbeExecution> {
   const startedAt = new Date().toISOString();
   const started = Date.now();
+  const limitation = hostFidelityLimitation(prefix);
+  if (limitation !== undefined) {
+    return refusedExecution(
+      'host-npm',
+      HOST_FIDELITY_UNSUPPORTED_CODE,
+      `host executor cannot reproduce the prefix: ${limitation}`,
+      hostToolchain(),
+      [],
+      startedAt,
+      started,
+      '',
+    );
+  }
   const hostRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ppe-host-probe-'));
   try {
     const contextFiles = materializeHostLayout(prefix.contextCopies, prefix.workdir, opts.repoRoot, hostRoot);
-    const env: NodeJS.ProcessEnv = { ...process.env, ...prefix.env, ...(opts.env ?? {}) };
+    if (!fs.existsSync(path.join(hostRoot, 'package.json'))) {
+      return refusedExecution(
+        'host-npm',
+        CONTEXT_INCOMPLETE_CODE,
+        `package.json did not land in the host root (WORKDIR ${prefix.workdir}) from context sources [${prefix.contextSources.join(', ')}]`,
+        hostToolchain(),
+        contextFiles,
+        startedAt,
+        started,
+        hostRoot,
+      );
+    }
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...argDefaults(prefix),
+      ...prefix.env,
+      ...(opts.env ?? {}),
+    };
     const result = await spawnCollect('/bin/sh', ['-c', prefix.installCommand], {
       cwd: hostRoot,
       env,
@@ -579,7 +696,11 @@ export async function runDockerStagePrefixProbe(
     if (digestMatch !== null) toolchain.baseImageDigest = digestMatch[1];
     return buildExecution(result, {
       fidelity: 'docker-stage-prefix',
-      installStepStarted: dockerInstallStepStarted(result.output, prefix.installCommand),
+      installStepStarted: dockerInstallStepStarted(
+        result.output,
+        prefix.installCommand,
+        prefix.installInstruction,
+      ),
       toolchain,
       contextFiles,
       startedAt,

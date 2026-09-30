@@ -138,7 +138,12 @@ export function validCandidate(): CandidateArtifact {
   return {
     candidateSha: FIXTURE_CANDIDATE_SHA,
     baseSha: FIXTURE_BASE_SHA,
-    diffRef: { kind: 'git_object', ref: FIXTURE_CANDIDATE_SHA, note: 'baseSha..candidateSha' },
+    // BOOTSTRAP section 2: diffRef resolves to the exact baseSha..candidateSha diff (R1 F4)
+    diffRef: {
+      kind: 'git_object',
+      ref: `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
+      note: 'baseSha..candidateSha',
+    },
     allowedPathsCompliance: {
       result: 'PASS',
       allowedPaths: ['Dockerfile'],

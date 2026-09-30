@@ -15,6 +15,8 @@ import { CasBackedArtifactRepository, MemoryByteStorageBackend } from '@miljobes
 import { describe, expect, it } from 'vitest';
 import type { DecisionGateArtifact, PatternVerificationArtifact } from '../src/artifacts';
 import { InMemoryAuthorityResolver } from '../src/authority';
+import { executeRedProbe, type RedProbeExecutionResult } from '../src/docker/red-probe';
+import { verificationFromRedProbeResults } from '../src/docker/verification-from-probes';
 import { isPatternProofError } from '../src/errors';
 import type { EvidenceLocator } from '../src/evidence';
 import { digestOf } from '../src/identity';
@@ -36,6 +38,7 @@ import {
 import { validatePatternVerificationArtifact } from '../src/validators';
 import {
   FIXTURE_CANDIDATE_SHA,
+  FIXTURE_VERIFIER_KEY_ID,
   validCandidate,
   validDiscovery,
   validGate,
@@ -78,6 +81,45 @@ const ISOLATION_EVIDENCE: readonly EvidenceLocator[] = [
   { kind: 'runtime_result', ref: `verifier-context:sha256:${'cd'.repeat(32)}` },
 ];
 
+/** A verifier-owned probe result of the given classification, shaped exactly as executeRedProbe returns it. */
+function probeResult(
+  stageName: 'builder' | 'production-base',
+  classification: RedProbeExecutionResult['classification'],
+  reasonCode: string,
+): RedProbeExecutionResult {
+  const probeId = `red-${stageName}-npm-ci-postinstall`;
+  return {
+    probeId,
+    stageName,
+    assertedBehavior: `The ${stageName} stage must execute its declared npm install step without failing on absent lifecycle-script dependencies.`,
+    authorityEvidence: { kind: 'file_line', ref: 'docker-compose.staging.yml:6-8' },
+    classification,
+    reasonCode,
+    matched: [],
+    fidelity: 'host-npm',
+    executorRequested: 'host',
+    executorUsed: 'host',
+    prefix: {
+      lineage: ['base', stageName],
+      contextSources: ['package*.json'],
+      installCommand: 'npm ci --legacy-peer-deps',
+      installLine: stageName === 'builder' ? 20 : 37,
+      baseImage: 'node:22-alpine',
+    },
+    toolchainIdentity: 'node v22.22.2; npm 10.9.7; linux x64',
+    evidence: [
+      { kind: 'runtime_result', ref: `ppe-red-probe:${probeId}:2026-09-30T00:00:00.000Z:${classification}` },
+    ],
+    startedAt: '2026-09-30T00:00:00.000Z',
+    elapsedMs: 1,
+    outputExcerpt: '',
+    exitStatus: classification === 'PASS' ? 0 : 1,
+    timedOut: false,
+    installStepStarted: true,
+    contextFiles: ['package-lock.json', 'package.json'],
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
 // 1. HUMAN_DECISION_REQUIRED (synthetic contract fixture, not the Docker target)
 // ---------------------------------------------------------------------------------------------
@@ -105,12 +147,20 @@ describe('terminal 1: HUMAN_DECISION_REQUIRED', () => {
     const halted = applyDecisionGate(state, ownerLevelGate);
 
     expectTerminalContract(halted, 'HUMAN_DECISION_REQUIRED', 'applyDecisionGate');
+    // R1 F16: the record cites the blocking item (index 1) -- it is never evidence-free
     expect(halted.terminal).toEqual({
       state: 'HUMAN_DECISION_REQUIRED',
       atPhase: 'DECISION_GATE',
       blockingReason: 'ska C-anmälan visa hela verdictet eller en förenklad projektion?',
-      evidence: [],
+      evidence: [
+        {
+          kind: 'runtime_result',
+          ref: 'decision-gate-item:1:HUMAN_DECISION_REQUIRED',
+          note: 'Should C-anmälan show the whole verdict or a simplified projection?',
+        },
+      ],
     });
+    expect(halted.terminal?.evidence).not.toEqual([]);
     expect(halted.phase).toBe('DECISION_GATE');
     expect(halted.artifacts.decisionGate).toEqual(ownerLevelGate);
     expect(halted.artifacts.redPlan).toBeUndefined();
@@ -137,6 +187,10 @@ describe('terminal 1: HUMAN_DECISION_REQUIRED', () => {
       expectTerminalContract(halted, classification, 'applyDecisionGate');
       expect(halted.terminal?.atPhase).toBe('DECISION_GATE');
       expect(halted.terminal?.blockingReason).toBe(`reason: ${classification}`);
+      // F16: the FIRST blocking item (index 2, after the two MECHANICAL fixture items) is the evidence
+      expect(halted.terminal?.evidence).toEqual([
+        { kind: 'runtime_result', ref: `decision-gate-item:2:${classification}`, note: 'first stop' },
+      ]);
     }
   });
 });
@@ -284,7 +338,14 @@ describe('terminal 3: SCOPE_VIOLATION', () => {
     });
     expectTerminalContract(halted, 'SCOPE_VIOLATION', 'applyCandidate');
     expect(halted.terminal?.reasonCode).toBe('PPE_CANDIDATE_COMPLIANCE_INCONSISTENT');
-    expect(halted.terminal?.evidence).toEqual([]);
+    // R1 F16: no offending path exists, so the record cites the derivation itself (never evidence: [])
+    expect(halted.terminal?.evidence).toEqual([
+      {
+        kind: 'runtime_result',
+        ref: 'derived-compliance:PASS;claimed:FAIL',
+        note: 'independently derived 1 changed path(s), none outside allowedPaths',
+      },
+    ]);
 
     const admitted = await applyCandidate(state, validCandidate(), {
       diffResolver: diffResolverReturning(['Dockerfile']),
@@ -329,6 +390,69 @@ describe('terminal 4: FALSIFIED', () => {
         (c) => c.materialInvariant && c.evidenceGrounds.includes('VERIFIER_OWNED_PROBE'),
       ),
     ).toBe(true);
+  });
+
+  it('F14: through src verificationFromRedProbeResults, a FAIL probe result yields FALSIFIED (any FAIL, no BLOCKED)', async () => {
+    const results = [
+      probeResult('builder', 'FAIL', 'LIFECYCLE_SCRIPT_MODULE_NOT_FOUND'),
+      probeResult('production-base', 'PASS', 'INSTALL_COMPLETED'),
+    ];
+    const verification = verificationFromRedProbeResults(results, {
+      isolationEvidence: ISOLATION_EVIDENCE,
+      verifierAuthority: FIXTURE_VERIFIER_KEY_ID,
+    });
+    expect(verification.verdict).toBe('FALSIFIED');
+    expect(verification.reasonCode).toBeUndefined();
+    expect(verification.claims).toHaveLength(2);
+    expect(
+      verification.claims.every(
+        (c) => c.materialInvariant && c.evidenceGrounds.includes('VERIFIER_OWNED_PROBE'),
+      ),
+    ).toBe(true);
+    expect(verification.claims[0].claim).toContain('red-builder-npm-ci-postinstall');
+    expect(verification.claims[0].claim).toContain('FAIL LIFECYCLE_SCRIPT_MODULE_NOT_FOUND');
+    expect(verification.claims[0].claim).toContain(FIXTURE_VERIFIER_KEY_ID);
+    expect(Object.isFrozen(verification)).toBe(true);
+    // all PASS -> ACCEPT; the verdict is derived, not fixed
+    expect(
+      verificationFromRedProbeResults(
+        [
+          probeResult('builder', 'PASS', 'INSTALL_COMPLETED'),
+          probeResult('production-base', 'PASS', 'INSTALL_COMPLETED'),
+        ],
+        { isolationEvidence: ISOLATION_EVIDENCE, verifierAuthority: FIXTURE_VERIFIER_KEY_ID },
+      ).verdict,
+    ).toBe('ACCEPT');
+    // zero results / an unknown classification / no authority are inadmissible, never a verdict
+    expect(() =>
+      verificationFromRedProbeResults([], {
+        isolationEvidence: ISOLATION_EVIDENCE,
+        verifierAuthority: FIXTURE_VERIFIER_KEY_ID,
+      }),
+    ).toThrow(/PPE_SCHEMA_INVALID/);
+    expect(() =>
+      verificationFromRedProbeResults([{ ...results[1], classification: 'GREEN' as never }], {
+        isolationEvidence: ISOLATION_EVIDENCE,
+        verifierAuthority: FIXTURE_VERIFIER_KEY_ID,
+      }),
+    ).toThrow(/PPE_SCHEMA_INVALID/);
+    expect(() =>
+      verificationFromRedProbeResults(results, {
+        isolationEvidence: ISOLATION_EVIDENCE,
+        verifierAuthority: ' ',
+      }),
+    ).toThrow(/PPE_SCHEMA_INVALID/);
+    // and the machine takes the derived FALSIFIED to the terminal state (isolation evidence resolvable, D1)
+    const resolver = seededResolver(
+      validDiscovery(),
+      validGraph(),
+      validRedPlan(),
+      validCandidate(),
+      ISOLATION_EVIDENCE,
+    );
+    const halted = await applyVerification(await driveToVerify(resolver), verification, resolver);
+    expectTerminalContract(halted, 'FALSIFIED', 'applyVerification');
+    expect(halted.terminal?.evidence).toEqual(ISOLATION_EVIDENCE);
   });
 
   it('terminal FALSIFIED at VERIFY+ADVERSARIAL_PROBES; the frozen candidate cannot be edited in place (WORM)', async () => {
@@ -409,6 +533,63 @@ describe('terminal 4: FALSIFIED', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('terminal 5: NOT_PROVEN', () => {
+  it('F14: a REAL BLOCKED executeRedProbe result (unreachable docker daemon) -> NOT_PROVEN / VERIFICATION_BLOCKED through src, never ACCEPT or FALSIFIED', async () => {
+    const blocked = await executeRedProbe({
+      repoRoot: process.cwd(),
+      stageName: 'production-base',
+      executor: 'docker',
+      dockerHost: 'unix:///nonexistent/ppe.sock',
+      timeoutMs: 60_000,
+    });
+    expect(blocked.classification).toBe('BLOCKED');
+    expect(blocked.reasonCode).toBe('DOCKER_UNAVAILABLE');
+    expect(blocked.executorUsed).toBe('none');
+
+    // one PASS probe beside the BLOCKED one must not rescue the verdict
+    const results = [blocked, probeResult('builder', 'PASS', 'INSTALL_COMPLETED')];
+    const verification = verificationFromRedProbeResults(results, {
+      isolationEvidence: ISOLATION_EVIDENCE,
+      verifierAuthority: FIXTURE_VERIFIER_KEY_ID,
+    });
+    expect(verification.verdict).toBe('NOT_PROVEN');
+    expect(verification.verdict).not.toBe('ACCEPT');
+    expect(verification.verdict).not.toBe('FALSIFIED');
+    expect(verification.reasonCode).toBe('VERIFICATION_BLOCKED');
+    expect(verification.claims).toHaveLength(2);
+    expect(verification.claims[0]).toMatchObject({
+      materialInvariant: false,
+      evidenceGrounds: ['VERIFIER_OWNED_PROBE'],
+    });
+    expect(verification.claims[0].claim).toContain('could not execute: BLOCKED DOCKER_UNAVAILABLE');
+    expect(verification.claims[1]).toMatchObject({
+      materialInvariant: true,
+      evidenceGrounds: ['VERIFIER_OWNED_PROBE'],
+    });
+    // a BLOCKED beside a FAIL is NOT_PROVEN as well (BLOCKED outranks FAIL)
+    expect(
+      verificationFromRedProbeResults(
+        [probeResult('builder', 'FAIL', 'LIFECYCLE_SCRIPT_MODULE_NOT_FOUND'), blocked],
+        {
+          isolationEvidence: ISOLATION_EVIDENCE,
+          verifierAuthority: FIXTURE_VERIFIER_KEY_ID,
+        },
+      ).verdict,
+    ).toBe('NOT_PROVEN');
+
+    const atVerify = await driveToVerify();
+    const halted = await applyVerification(atVerify, verification, happyPathResolver());
+    expectTerminalContract(halted, 'NOT_PROVEN', 'applyVerification');
+    expect(halted.terminal).toEqual({
+      state: 'NOT_PROVEN',
+      atPhase: VERIFY_PHASE_LABEL,
+      reasonCode: 'VERIFICATION_BLOCKED',
+      evidence: ISOLATION_EVIDENCE,
+    });
+    expect(halted.phase).toBe('VERIFY');
+    expect(halted.artifacts.verification?.verdict).toBe('NOT_PROVEN');
+    expect(halted.artifacts.proofPackage).toBeUndefined();
+  }, 120_000);
+
   it('an unavailable probe runner yields verdict NOT_PROVEN / VERIFICATION_BLOCKED and the machine halts there', async () => {
     const runner: VerifierProbeRunner = new UnavailableVerifierProbeRunner('docker daemon unreachable');
     const availability = await runner.run('red-production-base-npm-ci-postinstall');
@@ -425,11 +606,13 @@ describe('terminal 5: NOT_PROVEN', () => {
     const atVerify = await driveToVerify();
     const halted = await applyVerification(atVerify, verification, happyPathResolver());
     expectTerminalContract(halted, 'NOT_PROVEN', 'applyVerification');
+    // A NOT_PROVEN record is never evidence-free (R1 F16 follow-up): with an empty isolationEvidence
+    // the record names the declared reason as a runtime_result locator.
     expect(halted.terminal).toEqual({
       state: 'NOT_PROVEN',
       atPhase: VERIFY_PHASE_LABEL,
       reasonCode: 'VERIFICATION_BLOCKED',
-      evidence: [],
+      evidence: [{ kind: 'runtime_result', ref: 'verification:NOT_PROVEN:VERIFICATION_BLOCKED' }],
     });
     expect(halted.phase).toBe('VERIFY');
     expect(halted.artifacts.verification?.verdict).toBe('NOT_PROVEN');
@@ -514,7 +697,10 @@ describe('terminal 6: NON_REPRODUCIBLE', () => {
     const expectedPackage = buildFixtureProofPackage('A');
     const manifest = validManifest();
     expect(expectedPackage.inputManifest).toEqual(manifest);
-    expect(Object.keys(manifest)).not.toContain(FIXTURE_MODE_ENV);
+    // R1 F15: the leaked input is absent from the DECLARED environment yet present in the RESULT
+    expect(Object.keys(manifest.environmentConfig)).not.toContain(FIXTURE_MODE_ENV);
+    expect(expectedPackage.provenInvariants).toContain('fixture-mode:A');
+    expect(JSON.stringify(manifest)).not.toContain('fixture-mode');
 
     const comparison = await replayForReproducibility(regenerateWith(['A', 'B']), {
       manifest,

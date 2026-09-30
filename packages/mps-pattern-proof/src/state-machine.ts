@@ -26,6 +26,12 @@
  *
  * Determinism: transitions carry no timestamps (`at?: never`), so the same inputs always produce
  * byte-identical states (digestable with ./identity.ts). No key on a state is ever `undefined`.
+ *
+ * Binding (R1 F4): a run may carry the `baseSha` it was started for; an admitted candidate must be
+ * built on it, its `diffRef` must be the git_object `baseSha..candidateSha` (or the candidate object)
+ * and must resolve; a ProofPackage must name the admitted candidate's shas, a manifest consistent
+ * with them and only probes of the stored RedPlan (else PPE_PROOF_PACKAGE_UNBOUND: an inadmissible
+ * artifact, never a terminal state). Terminal records are never evidence-free (R1 F16).
  */
 import type {
   CandidateArtifact,
@@ -40,9 +46,12 @@ import { resolveAll, type AuthorityLocatorResolver, type UnresolvedAuthority } f
 import { PatternProofError } from './errors';
 import { locatorKey, type EvidenceLocator } from './evidence';
 import { digestOf, type PatternProofArtifactKind } from './identity';
+import { deepFreeze } from './internal/deep-freeze';
 import { divergentObservations, validateReplayComparison, type ReplayComparison } from './replay';
 import {
-  deepFreeze,
+  candidateDiffRefs,
+  GIT_SHA_RE,
+  isCandidateDiffRef,
   isPathAllowed,
   validateCandidateArtifact,
   validateDecisionGateArtifact,
@@ -136,6 +145,8 @@ export interface PatternProofStoppedByMode {
 export interface PatternProofRunState {
   readonly runId: string;
   readonly mode: PatternProofMode;
+  /** the base git object this run was started for (40 hex); a candidate must be built on it (F4) */
+  readonly baseSha?: string;
   readonly phase: PatternProofPhase;
   readonly artifacts: PatternProofStoredArtifacts;
   readonly terminal?: PatternProofTerminalRecord;
@@ -146,6 +157,7 @@ export interface PatternProofRunState {
 export interface PatternProofRunSummary {
   readonly runId: string;
   readonly mode: PatternProofMode;
+  readonly baseSha?: string;
   readonly phase: PatternProofPhase;
   readonly terminal?: PatternProofTerminalRecord;
   readonly stoppedByMode?: PatternProofStoppedByMode;
@@ -162,6 +174,7 @@ export interface CandidateTransitionDeps {
 export interface BootstrapSequenceInput {
   readonly runId: string;
   readonly mode: PatternProofMode;
+  readonly baseSha?: string;
   readonly discovery: unknown;
   readonly dependencyGraph: unknown;
   readonly decisionGate: unknown;
@@ -213,6 +226,7 @@ function nextState(state: PatternProofRunState, options: NextStateOptions): Patt
   const out: {
     runId: string;
     mode: PatternProofMode;
+    baseSha?: string;
     phase: PatternProofPhase;
     artifacts: PatternProofStoredArtifacts;
     terminal?: PatternProofTerminalRecord;
@@ -225,6 +239,7 @@ function nextState(state: PatternProofRunState, options: NextStateOptions): Patt
     artifacts: artifacts as PatternProofStoredArtifacts,
     history: [...state.history, options.transition],
   };
+  if (state.baseSha !== undefined) out.baseSha = state.baseSha;
   if (options.terminal !== undefined) out.terminal = options.terminal;
   if (options.stoppedByMode !== undefined) out.stoppedByMode = options.stoppedByMode;
   return deepFreeze(out);
@@ -324,9 +339,11 @@ export function assertPhase(state: PatternProofRunState, expected: PatternProofP
 // Transitions
 // ---------------------------------------------------------------------------------------------
 
+/** Starts a run; an optional `baseSha` (40 hex) is recorded and binds every later candidate (F4). */
 export function startPatternProofRun(input: {
   readonly runId: string;
   readonly mode: PatternProofMode;
+  readonly baseSha?: string;
 }): PatternProofRunState {
   if (typeof input.runId !== 'string' || input.runId.trim().length === 0) {
     throw new PatternProofError('PPE_SCHEMA_INVALID', 'runId must be a non-empty string', { path: 'runId' });
@@ -340,13 +357,21 @@ export function startPatternProofRun(input: {
       },
     );
   }
-  return deepFreeze({
-    runId: input.runId,
-    mode: input.mode,
-    phase: 'DISCOVER' as const,
-    artifacts: {},
-    history: [],
-  });
+  if (input.baseSha !== undefined && (typeof input.baseSha !== 'string' || !GIT_SHA_RE.test(input.baseSha))) {
+    throw new PatternProofError('PPE_SCHEMA_INVALID', 'baseSha must be a 40-hex lowercase git object id', {
+      path: 'baseSha',
+    });
+  }
+  const out: {
+    runId: string;
+    mode: PatternProofMode;
+    baseSha?: string;
+    phase: PatternProofPhase;
+    artifacts: PatternProofStoredArtifacts;
+    history: readonly PatternProofTransition[];
+  } = { runId: input.runId, mode: input.mode, phase: 'DISCOVER', artifacts: {}, history: [] };
+  if (input.baseSha !== undefined) out.baseSha = input.baseSha;
+  return deepFreeze(out);
 }
 
 /** DISCOVER -> BUILD_GRAPH. */
@@ -375,17 +400,25 @@ export function applyDependencyGraph(state: PatternProofRunState, input: unknown
  * DECISION_GATE -> RED_SYNTHESIS, or terminal HUMAN_DECISION_REQUIRED / MISSING_AUTHORITY /
  * SCOPE_VIOLATION: the first non-MECHANICAL item wins, its blockingReason is copied verbatim
  * (D9: DECISION_GATE is an additional SCOPE_VIOLATION trigger source). The gate artifact is
- * stored in both outcomes -- it is the artifact a human decision blocks on.
+ * stored in both outcomes -- it is the artifact a human decision blocks on. The terminal record
+ * cites the blocking item as a runtime_result locator `decision-gate-item:<index>:<classification>`
+ * (R1 F16: terminal records are never evidence-free).
  */
 export function applyDecisionGate(state: PatternProofRunState, input: unknown): PatternProofRunState {
   assertPhase(state, 'DECISION_GATE');
   const decisionGate = validateDecisionGateArtifact(input);
-  const blocking = decisionGate.items.find((item) => item.classification !== 'MECHANICAL');
+  const blockingIndex = decisionGate.items.findIndex((item) => item.classification !== 'MECHANICAL');
+  const blocking = blockingIndex === -1 ? undefined : decisionGate.items[blockingIndex];
   if (blocking !== undefined && blocking.classification !== 'MECHANICAL') {
+    const evidence: EvidenceLocator = {
+      kind: 'runtime_result',
+      ref: `decision-gate-item:${blockingIndex}:${blocking.classification}`,
+      note: blocking.item,
+    };
     return terminate(
       state,
       'applyDecisionGate',
-      terminalRecord(blocking.classification, 'DECISION_GATE', [], {
+      terminalRecord(blocking.classification, 'DECISION_GATE', [evidence], {
         blockingReason: blocking.blockingReason ?? '',
       }),
       { decisionGate },
@@ -450,13 +483,17 @@ export async function applyRedSynthesis(
 }
 
 /**
- * WRITER -> VERIFY, or terminal SCOPE_VIOLATION (D10). `candidate.diffRef` must resolve (an
- * unresolvable diff reference is a candidate-integrity fault, thrown as
- * PPE_CANDIDATE_COMPLIANCE_INCONSISTENT, never a verdict). The changed paths are derived
- * INDEPENDENTLY through `diffResolver` and checked with `isPathAllowed`; the writer's own claim is
- * never trusted. Derived FAIL -> SCOPE_VIOLATION (evidence: one git_object locator per offending
- * path). Claimed != derived in either direction -> SCOPE_VIOLATION with reasonCode
- * PPE_CANDIDATE_COMPLIANCE_INCONSISTENT. A candidate that is not admitted is not stored.
+ * WRITER -> VERIFY, or terminal SCOPE_VIOLATION (D10). The candidate must be bound to the run (F4):
+ * `candidate.baseSha` equals the run's `baseSha` when one was recorded (else
+ * PPE_CANDIDATE_SHA_INVALID), `candidate.diffRef` is the git_object `baseSha..candidateSha` (or
+ * the candidate object) and resolves (an unresolvable or foreign diff reference is a
+ * candidate-integrity fault, thrown as PPE_CANDIDATE_COMPLIANCE_INCONSISTENT, never a verdict).
+ * The changed paths are derived INDEPENDENTLY through `diffResolver` and checked with
+ * `isPathAllowed`; the writer's own claim is never trusted. Derived FAIL -> SCOPE_VIOLATION
+ * (evidence: one git_object locator per offending path). Claimed != derived in either direction ->
+ * SCOPE_VIOLATION with reasonCode PPE_CANDIDATE_COMPLIANCE_INCONSISTENT; when the derivation found
+ * nothing offending (claimed FAIL, derived PASS) the record cites the runtime_result
+ * `derived-compliance:PASS;claimed:FAIL` (R1 F16). A candidate that is not admitted is not stored.
  */
 export async function applyCandidate(
   state: PatternProofRunState,
@@ -465,6 +502,23 @@ export async function applyCandidate(
 ): Promise<PatternProofRunState> {
   assertPhase(state, 'WRITER');
   const candidate = validateCandidateArtifact(input);
+  if (state.baseSha !== undefined && candidate.baseSha !== state.baseSha) {
+    throw new PatternProofError(
+      'PPE_CANDIDATE_SHA_INVALID',
+      `candidate.baseSha ${candidate.baseSha} is not the run's baseSha ${state.baseSha}`,
+      {
+        path: 'candidate.baseSha',
+        details: { runBaseSha: state.baseSha, candidateBaseSha: candidate.baseSha },
+      },
+    );
+  }
+  if (!isCandidateDiffRef(candidate.diffRef, candidate.baseSha, candidate.candidateSha)) {
+    throw new PatternProofError(
+      'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT',
+      `candidate.diffRef must be a git_object naming one of ${candidateDiffRefs(candidate.baseSha, candidate.candidateSha).join(' | ')}`,
+      { path: 'candidate.diffRef', details: { locator: candidate.diffRef } },
+    );
+  }
   const diffResolution = await deps.resolver.resolve(candidate.diffRef);
   if (!diffResolution.resolved) {
     throw new PatternProofError(
@@ -483,6 +537,13 @@ export async function applyCandidate(
       ref: `${candidate.candidateSha}:${changed}`,
       note: 'changed path outside allowedPaths (independently derived)',
     }));
+    if (evidence.length === 0) {
+      evidence.push({
+        kind: 'runtime_result',
+        ref: `derived-compliance:${derived};claimed:${claimed}`,
+        note: `independently derived ${changedPaths.length} changed path(s), none outside allowedPaths`,
+      });
+    }
     return terminate(
       state,
       'applyCandidate',
@@ -514,12 +575,17 @@ export async function applyVerification(
   assertPhase(state, 'VERIFY');
   const verification = validatePatternVerificationArtifact(input);
   if (verification.verdict === 'NOT_PROVEN') {
+    const reasonCode = verification.reasonCode ?? VERIFICATION_BLOCKED;
+    // A NOT_PROVEN record is never evidence-free: the validator allows an empty isolationEvidence for
+    // this verdict, so the record then carries a runtime_result locator naming the declared reason.
+    const evidence: readonly EvidenceLocator[] =
+      verification.isolationEvidence.length > 0
+        ? verification.isolationEvidence
+        : [Object.freeze({ kind: 'runtime_result' as const, ref: `verification:NOT_PROVEN:${reasonCode}` })];
     return terminate(
       state,
       'applyVerification',
-      terminalRecord('NOT_PROVEN', VERIFY_PHASE_LABEL, verification.isolationEvidence, {
-        reasonCode: verification.reasonCode ?? VERIFICATION_BLOCKED,
-      }),
+      terminalRecord('NOT_PROVEN', VERIFY_PHASE_LABEL, evidence, { reasonCode }),
       { verification },
     );
   }
@@ -549,13 +615,71 @@ export async function applyVerification(
   });
 }
 
+function requireProofPackageBinding(state: PatternProofRunState, proofPackage: ProofPackage): void {
+  const candidate = requireStored(state, 'candidate');
+  const redPlan = requireStored(state, 'redPlan');
+  const unbound = (message: string, path: string, details: Record<string, unknown>): PatternProofError =>
+    new PatternProofError('PPE_PROOF_PACKAGE_UNBOUND', message, { path, details });
+  if (proofPackage.candidateSha !== candidate.candidateSha) {
+    throw unbound(
+      `proofPackage.candidateSha ${proofPackage.candidateSha} is not the admitted candidate ${candidate.candidateSha}`,
+      'proof-package.candidateSha',
+      { expected: candidate.candidateSha, actual: proofPackage.candidateSha },
+    );
+  }
+  if (proofPackage.baseSha !== candidate.baseSha) {
+    throw unbound(
+      `proofPackage.baseSha ${proofPackage.baseSha} is not the admitted candidate's baseSha ${candidate.baseSha}`,
+      'proof-package.baseSha',
+      { expected: candidate.baseSha, actual: proofPackage.baseSha },
+    );
+  }
+  const manifest = proofPackage.inputManifest;
+  if (manifest.baseSha !== candidate.baseSha) {
+    throw unbound(
+      `inputManifest.baseSha ${manifest.baseSha} is not the admitted candidate's baseSha ${candidate.baseSha}`,
+      'proof-package.inputManifest.baseSha',
+      { expected: candidate.baseSha, actual: manifest.baseSha },
+    );
+  }
+  const admissibleDiffs = candidateDiffRefs(candidate.baseSha, candidate.candidateSha);
+  if (!admissibleDiffs.includes(manifest.candidateShaOrDiff)) {
+    throw unbound(
+      `inputManifest.candidateShaOrDiff "${manifest.candidateShaOrDiff}" is not one of ${admissibleDiffs.join(' | ')}`,
+      'proof-package.inputManifest.candidateShaOrDiff',
+      { expected: admissibleDiffs, actual: manifest.candidateShaOrDiff },
+    );
+  }
+  const plannedProbes = new Set(redPlan.probes.map((probe) => probe.id));
+  if (proofPackage.probeIdentities.length === 0) {
+    throw unbound(
+      'probeIdentities must name at least one stored RedPlan probe',
+      'proof-package.probeIdentities',
+      {
+        planned: [...plannedProbes],
+      },
+    );
+  }
+  const foreign = proofPackage.probeIdentities.filter((id) => !plannedProbes.has(id));
+  if (foreign.length > 0) {
+    throw unbound(
+      `probeIdentities name probes outside the stored RedPlan: ${foreign.join(', ')}`,
+      'proof-package.probeIdentities',
+      { foreign, planned: [...plannedProbes] },
+    );
+  }
+}
+
 /**
- * ASSEMBLE_EVIDENCE -> DONE, or terminal NON_REPRODUCIBLE (D4). The comparison must be BOUND to this
- * package: manifestDigest === digestOf(proofPackage.inputManifest) and expectedPackageDigest ===
- * digestOf(proofPackage) (both over the validated canonical form), else PPE_REPLAY_UNBOUND. The
- * machine recomputes divergence from the digests itself; any observed digest that differs is
- * recorded as a `runtime_result` locator `replay-iteration:<i>:<digest>`. DONE is evidence, not
- * PROVEN (frozen design section 12).
+ * ASSEMBLE_EVIDENCE -> DONE, or terminal NON_REPRODUCIBLE (D4). The package must be BOUND to the run
+ * (R1 F4): its candidateSha/baseSha are the admitted candidate's, its manifest names that base and
+ * that candidate (sha or `base..candidate`), and its probeIdentities are a non-empty subset of the
+ * stored RedPlan's probe ids -- else PPE_PROOF_PACKAGE_UNBOUND (inadmissible artifact, no terminal
+ * state). The comparison must be BOUND to this package: manifestDigest ===
+ * digestOf(proofPackage.inputManifest) and expectedPackageDigest === digestOf(proofPackage) (both
+ * over the validated canonical form), else PPE_REPLAY_UNBOUND. The machine recomputes divergence
+ * from the digests itself; any observed digest that differs is recorded as a `runtime_result`
+ * locator `replay-iteration:<i>:<digest>`. DONE is evidence, not PROVEN (frozen design section 12).
  */
 export function applyProofPackage(
   state: PatternProofRunState,
@@ -564,6 +688,7 @@ export function applyProofPackage(
 ): PatternProofRunState {
   assertPhase(state, 'ASSEMBLE_EVIDENCE');
   const proofPackage = validateProofPackage(input);
+  requireProofPackageBinding(state, proofPackage);
   const bound = validateReplayComparison(comparison);
   const manifestDigest = digestOf(proofPackage.inputManifest);
   if (bound.manifestDigest !== manifestDigest) {
@@ -616,7 +741,11 @@ export async function driveBootstrapSequence(
   input: BootstrapSequenceInput,
   resolver: AuthorityLocatorResolver,
 ): Promise<PatternProofRunState> {
-  let state = startPatternProofRun({ runId: input.runId, mode: input.mode });
+  let state = startPatternProofRun(
+    input.baseSha === undefined
+      ? { runId: input.runId, mode: input.mode }
+      : { runId: input.runId, mode: input.mode, baseSha: input.baseSha },
+  );
   state = applyDiscovery(state, input.discovery);
   state = applyDependencyGraph(state, input.dependencyGraph);
   state = applyDecisionGate(state, input.decisionGate);
@@ -639,11 +768,13 @@ export function summarizeRunState(state: PatternProofRunState): PatternProofRunS
   const out: {
     runId: string;
     mode: PatternProofMode;
+    baseSha?: string;
     phase: PatternProofPhase;
     terminal?: PatternProofTerminalRecord;
     stoppedByMode?: PatternProofStoppedByMode;
     storedArtifacts: readonly PatternProofArtifactKind[];
   } = { runId: state.runId, mode: state.mode, phase: state.phase, storedArtifacts };
+  if (state.baseSha !== undefined) out.baseSha = state.baseSha;
   if (state.terminal !== undefined) out.terminal = state.terminal;
   if (state.stoppedByMode !== undefined) out.stoppedByMode = state.stoppedByMode;
   return deepFreeze(out);

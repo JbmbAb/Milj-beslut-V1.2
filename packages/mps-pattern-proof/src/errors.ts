@@ -34,6 +34,7 @@ export type PatternProofErrorCode =
   | 'PPE_RUN_TERMINAL'
   | 'PPE_RUN_STOPPED'
   | 'PPE_REPLAY_UNBOUND'
+  | 'PPE_PROOF_PACKAGE_UNBOUND'
   // isolation (frozen design section 4)
   | 'PPE_ISOLATION_UNDECLARED_INPUT'
   | 'PPE_ISOLATION_SIGNER_IN_VERIFIER_LANE'

@@ -4,18 +4,23 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { isPatternProofError } from '../src/errors';
 import { parseDockerfile } from '../src/docker/dockerfile-parse';
+import { classifyInstallProbeOutput } from '../src/docker/classify';
 import {
   expandContextSource,
+  hostFidelityLimitation,
   isDockerignored,
   loadDockerignore,
   materializeDockerContext,
   materializeHostLayout,
   parseDockerignore,
+  runHostStagePrefixProbe,
 } from '../src/docker/executors';
 import { lifecycleScriptPaths } from '../src/docker/lifecycle-scripts';
 import {
   caPreludeLines,
   deriveStagePrefix,
+  isProjectInstallCommand,
+  isProjectInstallShellText,
   renderStagePrefixDockerfile,
   type StagePrefix,
 } from '../src/docker/stage-prefix';
@@ -96,6 +101,13 @@ describe('deriveStagePrefix: the real root Dockerfile (today = RED state)', () =
     expect(prefix.instructions.every((instruction) => instruction.line <= 37)).toBe(true);
   });
 
+  it('carries the install RUN instruction itself (exec-form header matching, R1 F7)', () => {
+    const prefix = derive(ROOT_DOCKERFILE, 'builder');
+    expect(prefix.installInstruction).toBe(prefix.instructions.at(-1));
+    expect(prefix.installInstruction.line).toBe(20);
+    expect(prefix.installInstruction.args).toBe('npm ci --legacy-peer-deps');
+  });
+
   it('web (three-level lineage) has no install step of its own -> PPE_INSTALL_STEP_NOT_FOUND', () => {
     expectPpeError(() => derive(ROOT_DOCKERFILE, 'web'), 'PPE_INSTALL_STEP_NOT_FOUND');
   });
@@ -147,6 +159,239 @@ describe('deriveStagePrefix: solution neutrality (each candidate reflects its ow
     ]);
     expect(lifecycleScriptPaths(PACKAGE_JSON_WITHOUT_POSTINSTALL)).toEqual([]);
     expect(derive(ROOT_DOCKERFILE, 'production-base').installCommand).toBe(PRODUCTION_BASE_INSTALL_COMMAND);
+  });
+});
+
+describe('deriveStagePrefix: the install step is the PROJECT install, and exactly one (R1 F3)', () => {
+  it('a preceding `RUN npm install -g npm@10` is not the install step: the real npm ci is still derived', () => {
+    const text = ROOT_DOCKERFILE.replace(
+      'RUN npm ci --omit=dev --legacy-peer-deps\n',
+      'RUN npm install -g npm@10\nRUN npm ci --omit=dev --legacy-peer-deps\n',
+    );
+    expect(text).not.toBe(ROOT_DOCKERFILE);
+    const prefix = derive(text, 'production-base');
+    expect(prefix.installCommand).toBe(PRODUCTION_BASE_INSTALL_COMMAND);
+    expect(prefix.installLine).toBe(38);
+    expect(prefix.instructions.map((instruction) => instruction.line)).toEqual([
+      1, 4, 7, 11, 13, 32, 33, 35, 37, 38,
+    ]);
+    expect(prefix.instructions.at(-2)?.args).toBe('npm install -g npm@10');
+    // still no scripts/ in the derived context: the stage is still RED
+    expect(prefix.contextSources).toEqual(['package*.json']);
+  });
+
+  it('two project-install RUNs in the target stage fail closed: PPE_INSTALL_STEP_NOT_FOUND "ambiguous install step"', () => {
+    const text = ROOT_DOCKERFILE.replace(
+      'RUN npm ci --legacy-peer-deps\n',
+      'RUN npm ci --legacy-peer-deps\nRUN npm install --no-audit\n',
+    );
+    let caught: unknown;
+    try {
+      derive(text, 'builder');
+    } catch (error) {
+      caught = error;
+    }
+    expect(isPatternProofError(caught, 'PPE_INSTALL_STEP_NOT_FOUND')).toBe(true);
+    expect((caught as Error).message).toContain('ambiguous install step');
+    expect((caught as { details?: unknown }).details).toEqual({ stage: 'builder', lines: [20, 21] });
+    // the other stage is unaffected
+    expect(derive(text, 'production-base').installLine).toBe(38);
+  });
+
+  it('isProjectInstallCommand: flags only, no positional specs, no -g/--global', () => {
+    for (const yes of [
+      'npm ci',
+      'npm install',
+      'npm i',
+      'npm ci --omit=dev --legacy-peer-deps',
+      'npm install --no-audit --prefer-offline --ignore-scripts',
+      'NODE_ENV=production npm ci',
+      '  npm   ci  ',
+      'npm ci $NPM_FLAGS',
+      'npm ci --omit=dev ${NPM_FLAGS}',
+    ]) {
+      expect(isProjectInstallCommand(yes), yes).toBe(true);
+    }
+    for (const no of [
+      'npm install -g npm@10',
+      'npm i --global typescript',
+      'npm install express',
+      'npm install --save-dev vitest',
+      'npm ci --omit=dev ./local-package',
+      'npm install $PKG_SPEC extra',
+      'npm cache clean --force',
+      'npm run build',
+      'npx prisma generate',
+      'yarn install',
+      'npm',
+      '',
+    ]) {
+      expect(isProjectInstallCommand(no), no).toBe(false);
+    }
+    expect(isProjectInstallShellText('npm cache clean --force && npm run build')).toBe(false);
+    expect(
+      isProjectInstallShellText('npm install -g npm@10 && npm ci --omit=dev; npm cache clean --force'),
+    ).toBe(true);
+    expect(isProjectInstallShellText('mkdir -p x; npm ci')).toBe(true);
+  });
+
+  it('a stage whose only npm RUNs are global or positional installs has no install step', () => {
+    const text = [
+      'FROM node:22-alpine AS base',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm install -g npm@10',
+      'RUN npm install express',
+      '',
+    ].join('\n');
+    expectPpeError(() => derive(text, 'base'), 'PPE_INSTALL_STEP_NOT_FOUND');
+  });
+});
+
+describe('host executor preconditions: BLOCKED-classifiable refusals before spawning (R1 F2/F8)', () => {
+  function tempRepo(files: Readonly<Record<string, string>>): string {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ppe-host-pre-'));
+    tmpDirs.push(repo);
+    for (const [relative, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(repo, relative)), { recursive: true });
+      fs.writeFileSync(path.join(repo, relative), content);
+    }
+    return repo;
+  }
+  const PACKAGE_JSON = JSON.stringify({
+    name: 'x',
+    version: '1.0.0',
+    scripts: { postinstall: 'node scripts/x.mjs' },
+  });
+  const CLASSIFY_BASE = {
+    timedOut: false,
+    lifecyclePaths: ['scripts/x.mjs'],
+    lifecycleScriptStrings: ['node scripts/x.mjs'],
+    installCommand: 'npm ci',
+    packageIdentity: { name: 'x', version: '1.0.0' },
+  } as const;
+
+  it('COPY --from in the prefix -> HOST_FIDELITY_UNSUPPORTED (documented docker outcome is BLOCKED, never a host FAIL)', async () => {
+    const repo = tempRepo({ 'package.json': PACKAGE_JSON });
+    const text = [
+      'FROM node:22-alpine AS scripts-stage',
+      'WORKDIR /src',
+      'FROM node:22-alpine AS web',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'COPY --from=scripts-stage /src/scripts ./scripts',
+      'RUN npm ci',
+      '',
+    ].join('\n');
+    const prefix = derive(text, 'web');
+    expect(hostFidelityLimitation(prefix)).toContain('COPY --from=scripts-stage at line 6');
+    const execution = await runHostStagePrefixProbe(prefix, { repoRoot: repo, timeoutMs: 10_000 });
+    expect(execution.fidelity).toBe('host-npm');
+    expect(execution.installStepStarted).toBe(false);
+    expect(execution.exitStatus).toBeNull();
+    expect(execution.spawnError?.code).toBe('HOST_FIDELITY_UNSUPPORTED');
+    expect(execution.contextFiles).toEqual([]);
+    const classified = classifyInstallProbeOutput({
+      ...CLASSIFY_BASE,
+      output: execution.output,
+      exitStatus: execution.exitStatus,
+      spawnError: execution.spawnError as { code?: string; message: string },
+      installStepStarted: execution.installStepStarted,
+      workdir: execution.workdir,
+    });
+    expect(classified.classification).toBe('BLOCKED');
+    expect(classified.reasonCode).toBe('HOST_FIDELITY_UNSUPPORTED');
+  });
+
+  it('an install command with an unexpanded $ -> HOST_FIDELITY_UNSUPPORTED', async () => {
+    const repo = tempRepo({ 'package.json': PACKAGE_JSON });
+    const text = [
+      'FROM node:22-alpine AS web',
+      'ARG NPM_FLAGS=--ignore-scripts',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci $NPM_FLAGS',
+      '',
+    ].join('\n');
+    const prefix = derive(text, 'web');
+    expect(prefix.installCommand).toBe('npm ci $NPM_FLAGS');
+    expect(hostFidelityLimitation(prefix)).toContain('unexpanded $');
+    const execution = await runHostStagePrefixProbe(prefix, { repoRoot: repo, timeoutMs: 10_000 });
+    expect(execution.spawnError?.code).toBe('HOST_FIDELITY_UNSUPPORTED');
+    expect(execution.installStepStarted).toBe(false);
+    expect(hostFidelityLimitation(derive(ROOT_DOCKERFILE, 'builder'))).toBeUndefined();
+    expect(hostFidelityLimitation(derive(ROOT_DOCKERFILE, 'production-base'))).toBeUndefined();
+  });
+
+  it('package.json not landing in the host root (broken COPY glob) -> CONTEXT_INCOMPLETE, not a spawned npm', async () => {
+    const repo = tempRepo({ 'package.json': PACKAGE_JSON, 'package-lock.json': '{}' });
+    const text = [
+      'FROM node:22-alpine AS web',
+      'WORKDIR /app',
+      'COPY pakage*.json ./',
+      'RUN npm ci',
+      '',
+    ].join('\n');
+    const prefix = derive(text, 'web');
+    expect(prefix.contextSources).toEqual(['pakage*.json']);
+    const execution = await runHostStagePrefixProbe(prefix, { repoRoot: repo, timeoutMs: 10_000 });
+    expect(execution.spawnError?.code).toBe('CONTEXT_INCOMPLETE');
+    expect(execution.spawnError?.message).toContain('package.json did not land');
+    expect(execution.installStepStarted).toBe(false);
+    expect(execution.contextFiles).toEqual([]);
+    expect(execution.output).toBe('');
+    const classified = classifyInstallProbeOutput({
+      ...CLASSIFY_BASE,
+      output: execution.output,
+      exitStatus: execution.exitStatus,
+      spawnError: execution.spawnError as { code?: string; message: string },
+      installStepStarted: execution.installStepStarted,
+      workdir: execution.workdir,
+    });
+    expect(classified).toEqual({
+      classification: 'BLOCKED',
+      reasonCode: 'CONTEXT_INCOMPLETE',
+      matched: [execution.spawnError?.message],
+    });
+    expect(fs.existsSync(execution.workdir)).toBe(false);
+  });
+
+  it('applies ARG defaults as environment defaults (args, then ENV, then the caller env; empty ARG never clobbers)', async () => {
+    const repo = tempRepo({ 'package.json': PACKAGE_JSON });
+    const text = [
+      'ARG PPE_TEST_PREAMBLE=from-preamble',
+      'FROM node:22-alpine AS web',
+      'ARG PPE_TEST_FLAGS=--ignore-scripts',
+      'ARG PPE_TEST_BOTH=from-arg',
+      'ARG PPE_TEST_KEEP',
+      'ENV PPE_TEST_BOTH=from-env',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN printenv PPE_TEST_PREAMBLE PPE_TEST_FLAGS PPE_TEST_BOTH PPE_TEST_KEEP',
+      '',
+    ].join('\n');
+    const prefix = deriveStagePrefix(parseDockerfile(text), 'web', { installPattern: /^printenv\b/ });
+    expect(prefix.args).toEqual({
+      PPE_TEST_PREAMBLE: 'from-preamble',
+      PPE_TEST_FLAGS: '--ignore-scripts',
+      PPE_TEST_BOTH: 'from-arg',
+      PPE_TEST_KEEP: '',
+    });
+    const execution = await runHostStagePrefixProbe(prefix, {
+      repoRoot: repo,
+      timeoutMs: 10_000,
+      env: { PPE_TEST_KEEP: 'from-caller' },
+    });
+    expect(execution.spawnError).toBeUndefined();
+    expect(execution.exitStatus).toBe(0);
+    expect(execution.installStepStarted).toBe(true);
+    expect(execution.contextFiles).toEqual(['package.json']);
+    expect(execution.output.split('\n').filter((line) => line.length > 0)).toEqual([
+      'from-preamble',
+      '--ignore-scripts',
+      'from-env',
+      'from-caller',
+    ]);
   });
 });
 

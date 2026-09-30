@@ -4,7 +4,16 @@
  * `L` in the classification predicate: the file paths a candidate's npm lifecycle scripts execute
  * with `node <path>`. Derived from the candidate's own package.json so that removing the hook (or
  * pointing it elsewhere) is reflected in the derived state.
+ *
+ * Derivation rules (R1 F1): a script string is split into commands on `&&`, `||`, `|` and `;`;
+ * `npm run <name>` is resolved ONE level into `scripts[name]`; every derived path is normalized with
+ * path.posix.normalize (so `./scripts/x.mjs`, `scripts//x.mjs` and `scripts/x.mjs` are the same
+ * member of `L`). Absolute paths are kept absolute here and relativised to the probe's workdir by the
+ * classifier. A lifecycle script that derives NO node path (npx/tsx/sh runners) is reported by the
+ * classifier as BLOCKED LIFECYCLE_RUNNER_UNSUPPORTED when the install fails, never silently PASS.
  */
+import path from 'node:path';
+import { isPlainObject } from '../internal/plain-object';
 import { PatternProofError } from '../errors';
 
 export const LIFECYCLE_SCRIPT_NAMES = ['preinstall', 'install', 'postinstall', 'prepare'] as const;
@@ -28,10 +37,6 @@ const NODE_VALUE_FLAGS: ReadonlySet<string> = new Set([
   '-C',
 ]);
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function scriptsOf(packageJson: unknown): Record<string, unknown> {
   if (!isPlainObject(packageJson)) {
     throw new PatternProofError('PPE_SCHEMA_INVALID', 'package.json must be a plain object', {
@@ -53,29 +58,76 @@ export function lifecycleScriptStrings(packageJson: unknown): string[] {
   return out;
 }
 
-/** Path tokens following `node ` in one script string, split on `&&` and `;`. */
-export function nodeScriptPathsOf(script: string): string[] {
+/** Shell command separators recognised in a script string: `&&`, `||`, `|`, `;`. */
+const COMMAND_SEPARATOR = /\s*(?:&&|\|\||\||;)\s*/;
+
+/** posix-normalizes a script path and drops a leading `./` (path.posix.normalize keeps `../`). */
+export function normalizeScriptPath(scriptPath: string): string {
+  const normalized = path.posix.normalize(scriptPath.replace(/\\/g, '/'));
+  return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+}
+
+/** Splits one script string into its commands (on `&&`, `||`, `|`, `;`), each as a token list. */
+export function scriptCommandsOf(script: string): string[][] {
+  return script
+    .split(COMMAND_SEPARATOR)
+    .map((command) =>
+      command
+        .trim()
+        .split(/\s+/)
+        .filter((token) => token.length > 0),
+    )
+    .filter((tokens) => tokens.length > 0);
+}
+
+/** Skips leading `KEY=value` environment assignments of a command. */
+function commandWord(tokens: readonly string[]): number {
+  let k = 0;
+  while (k < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[k])) k += 1;
+  return k;
+}
+
+/**
+ * Path tokens following `node ` in one script string (commands split on `&&`, `||`, `|`, `;`),
+ * normalized. When `scripts` is given, `npm run <name>` / `npm run-script <name>` is resolved ONE
+ * level into `scripts[name]` (a nested `npm run` inside that script is not followed).
+ */
+export function nodeScriptPathsOf(script: string, scripts: Readonly<Record<string, unknown>> = {}): string[] {
   const out: string[] = [];
-  for (const command of script.split(/\s*(?:&&|;)\s*/)) {
-    const tokens = command
-      .trim()
-      .split(/\s+/)
-      .filter((token) => token.length > 0);
-    if (tokens[0] !== 'node') continue;
-    let k = 1;
-    while (k < tokens.length && tokens[k].startsWith('-')) {
-      k += NODE_VALUE_FLAGS.has(tokens[k]) ? 2 : 1;
+  const visit = (text: string, depth: number): void => {
+    for (const tokens of scriptCommandsOf(text)) {
+      const start = commandWord(tokens);
+      const word = tokens[start];
+      if (word === 'npm' && depth === 0) {
+        const sub = tokens[start + 1];
+        const name = tokens[start + 2];
+        if ((sub === 'run' || sub === 'run-script') && name !== undefined) {
+          const target = scripts[name];
+          if (typeof target === 'string') visit(target, depth + 1);
+        }
+        continue;
+      }
+      if (word !== 'node') continue;
+      let k = start + 1;
+      while (k < tokens.length && tokens[k].startsWith('-')) {
+        k += NODE_VALUE_FLAGS.has(tokens[k]) ? 2 : 1;
+      }
+      if (k < tokens.length) out.push(normalizeScriptPath(tokens[k]));
     }
-    if (k < tokens.length) out.push(tokens[k]);
-  }
+  };
+  visit(script, 0);
   return out;
 }
 
-/** `L`: every `node <path>` target of the candidate's lifecycle scripts, ordered, de-duplicated. */
+/**
+ * `L`: every `node <path>` target of the candidate's lifecycle scripts (one level of `npm run`
+ * resolved against the same package.json), ordered, de-duplicated, normalized.
+ */
 export function lifecycleScriptPaths(packageJson: unknown): string[] {
+  const scripts = scriptsOf(packageJson);
   const out: string[] = [];
   for (const script of lifecycleScriptStrings(packageJson)) {
-    for (const scriptPath of nodeScriptPathsOf(script)) {
+    for (const scriptPath of nodeScriptPathsOf(script, scripts)) {
       if (!out.includes(scriptPath)) out.push(scriptPath);
     }
   }

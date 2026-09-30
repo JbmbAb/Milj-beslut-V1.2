@@ -37,16 +37,21 @@ import { allLocatorsOf, hasNoUndefinedKeys, isDeepFrozen } from './fixtures/stat
 
 const REPO_ROOT = process.cwd();
 
-/** The runtime_result refs the frozen section 5 JSON cites (three in 5.1, one in 5.2). */
-const RUNTIME_LEDGER: readonly string[] = allLocatorsOf(
-  FROZEN_TARGET_DISCOVERY,
-  FROZEN_TARGET_DEPENDENCY_GRAPH,
-)
-  .filter((locator) => locator.kind === 'runtime_result')
-  .map((locator) => locator.ref);
+/**
+ * The runtime_result refs the frozen section 5 JSON cites (three in 5.1, one in 5.2), copied as
+ * LITERALS from docs/architecture/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-DESIGN-FROZEN.md --
+ * deliberately NOT harvested from the artifacts under test (R1 F13), so the ledger is an independent
+ * witness and a citation the artifacts happen to contain does not resolve merely by being cited.
+ */
+const RUNTIME_LEDGER: readonly string[] = Object.freeze([
+  'local npm-ci reproduction, 2026-09-30, exit 1, MODULE_NOT_FOUND on scripts/postinstall-prisma-generate.mjs',
+  'local npm-ci reproduction, 2026-09-30, package.json+package-lock.json+tsconfig.json only: exit 1, MODULE_NOT_FOUND on scripts/postinstall-prisma-generate.mjs',
+  "repo-wide grep for 'docker build'/'-f Dockerfile', 2026-09-30: only deploy-gcp.yml and build-postgres-image.yml (unrelated Postgres image) match",
+  'local npm-ci reproduction, 2026-09-30: MODULE_NOT_FOUND for exactly this path',
+]);
 
-function targetResolver(): RepositoryAuthorityResolver {
-  return new RepositoryAuthorityResolver({ repoRoot: REPO_ROOT, runtimeLedger: RUNTIME_LEDGER });
+function targetResolver(ledger: readonly string[] = RUNTIME_LEDGER): RepositoryAuthorityResolver {
+  return new RepositoryAuthorityResolver({ repoRoot: REPO_ROOT, runtimeLedger: ledger });
 }
 
 describe('frozen target artifacts (section 5) pass the validators verbatim', () => {
@@ -69,9 +74,13 @@ describe('frozen target artifacts (section 5) pass the validators verbatim', () 
     ]);
   });
 
-  it('the runtime ledger holds exactly the four reproduction refs the frozen JSON cites', () => {
+  it('the literal runtime ledger holds exactly the four reproduction refs the frozen JSON cites', () => {
     expect(RUNTIME_LEDGER).toHaveLength(4);
     expect(RUNTIME_LEDGER.every((ref) => ref.includes('2026-09-30'))).toBe(true);
+    const cited = allLocatorsOf(FROZEN_TARGET_DISCOVERY, FROZEN_TARGET_DEPENDENCY_GRAPH)
+      .filter((locator) => locator.kind === 'runtime_result')
+      .map((locator) => locator.ref);
+    expect([...cited].sort()).toEqual([...RUNTIME_LEDGER].sort());
   });
 });
 
@@ -90,6 +99,46 @@ describe('frozen target evidence resolves against this checkout', () => {
     expect(forms).toContain('Dockerfile:58');
     expect(forms).toContain('Dockerfile:32-37');
     expect(forms).toContain('Dockerfile.gcp:26,28,51,53');
+  });
+
+  it('F13 NEGATIVE: one reproduction ref removed from the ledger -> that citation is RUNTIME_RESULT_NOT_IN_LEDGER', async () => {
+    for (const removed of RUNTIME_LEDGER) {
+      const partial = RUNTIME_LEDGER.filter((ref) => ref !== removed);
+      expect(partial).toHaveLength(3);
+      const summary = await resolveAll(
+        targetResolver(partial),
+        allLocatorsOf(FROZEN_TARGET_DISCOVERY, FROZEN_TARGET_DEPENDENCY_GRAPH),
+      );
+      expect(summary.allResolved).toBe(false);
+      expect(summary.unresolved).toEqual([
+        { locator: { kind: 'runtime_result', ref: removed }, reason: 'RUNTIME_RESULT_NOT_IN_LEDGER' },
+      ]);
+    }
+    // and the machine turns that into MISSING_AUTHORITY only when a probe cites it; the frozen RedPlan
+    // cites file_line authorities, so the bootstrap run still stops by mode with a partial ledger
+    const halted = await applyRedSynthesis(
+      applyDecisionGate(
+        applyDependencyGraph(
+          applyDiscovery(
+            startPatternProofRun({ runId: 'ppe-target-partial-ledger', mode: 'BOOTSTRAP_RED_ONLY' }),
+            FROZEN_TARGET_DISCOVERY,
+          ),
+          FROZEN_TARGET_DEPENDENCY_GRAPH,
+        ),
+        FROZEN_TARGET_DECISION_GATE,
+      ),
+      {
+        probes: [
+          {
+            ...FROZEN_TARGET_RED_PLAN.probes[0],
+            authorityEvidence: { kind: 'runtime_result', ref: RUNTIME_LEDGER[0] },
+          },
+        ],
+      },
+      targetResolver(RUNTIME_LEDGER.slice(1)),
+    );
+    expect(halted.terminal?.state).toBe('MISSING_AUTHORITY');
+    expect(halted.terminal?.reasonCode).toBe('RUNTIME_RESULT_NOT_IN_LEDGER');
   });
 
   it('a resolver without the ledger fails closed on the runtime_result citations', async () => {
