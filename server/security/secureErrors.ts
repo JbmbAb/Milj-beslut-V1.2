@@ -10,6 +10,7 @@ export class SecureError extends Error {
     message: string,
     public readonly publicMessage: string = 'Internal server error',
     public readonly statusCode: number = 500,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'SecureError';
@@ -31,7 +32,7 @@ export function toSafeErrorResponse(error: unknown): {
     return {
       ok: false,
       error: error.publicMessage,
-      code: error.statusCode.toString(),
+      code: error.code ?? error.statusCode.toString(),
       statusCode: error.statusCode,
     };
   }
