@@ -40,11 +40,21 @@ export function calculatePredictiveScores(plan: ProjectPlan, carbonResult?: Carb
 
   const envScore = groundwaterImpact * 0.5 + biodiversityImpact * 0.3 + floodingImpact * 0.2;
 
+  // W3d -- D3: a tracked layer absent from `enabled` because it could not be checked is
+  // indistinguishable, in the three impact values above, from one genuinely assessed as low-risk.
+  // This does not change those values or envScore/fundingScore -- it only names which of the three
+  // came from an unresolved input, so a consumer can see the blind spot rather than read a
+  // fabricated low-risk number as a checked, clean result.
+  const unresolvedLayers = (['GROUNDWATER', 'NATURA2000', 'FLOOD_RISK'] as const).filter((layer) =>
+    plan.mapLayerSelection.unavailable.includes(layer),
+  );
+
   const envRisk = {
     score: Math.round(envScore * 100) / 100,
     groundwaterImpact,
     biodiversityImpact,
     floodingImpact,
+    unresolvedLayers,
   };
 
   // 3. Funding Risk (ABC Rating for Green Loans)
