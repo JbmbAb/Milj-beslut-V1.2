@@ -604,7 +604,7 @@ registers authorities, not packages; PPE owns none); resolve the §0.1 commit-id
 
 ## 18. Cold-review outcome
 
-Pending. Nothing in this record is self-approved. Before the push, three adversarial review rounds were run inside the
+Pending. Nothing in this record is self-approved. Before the push, four adversarial review rounds were run inside the
 producing session by reviewer agents that had not written the code (each instructed to refute, with a reproduction
 probe per finding): R1 returned 18 findings, corrected in `e3f3e4f3` (five residuals were re-raised by R2 and closed in `41ad8001`); R2
 returned 11 findings (F1 the stale record, F2–F10 code, F11 wording), corrected in `41ad8001` and by this rewrite;
