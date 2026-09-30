@@ -130,7 +130,53 @@ question. Implementation complete: both RED probes still fail on a fresh base, b
 this candidate (8/8 combined), a real bug in the unit's own test design was caught and fixed during
 GREEN verification (not glossed over), typecheck clean (zero errors in this unit's own files,
 identical pre-existing package errors on the candidate matching every prior unit's own scoped
-check). Awaiting cold review of the implementation itself before freezing the exact SHA, then the
-established chain: cold verification -> owner push-go -> PR (branch
-`w4-project-context-readiness-canonical-projection`, the unit's own `remote.branch`) -> dispatch
-(owner only) -> attestation -> merge.
+check). Cold-reviewed a second time by an independent peer, from scratch, with no corrections
+needed. Pushed, PR opened, and Jimmy issued dispatch-go on `ec0c8a6d`.
+
+## 6. Real dispatch failure on `ec0c8a6d`, root cause, and fix (K-118-class reproducibility defect)
+
+The first real trusted-execution dispatch on `ec0c8a6d` **failed**: `GREEN /
+w4-resolve-project-context-readiness` returned `BLOCKED_ENVIRONMENT` (exit code 2) in under 1.2
+seconds -- far too fast to have run `prisma generate` + vitest, and `devgov.mjs`'s own
+`runManifestCommand()` confirms exit code 2 is only ever produced by this unit's own
+`blocked_exit_codes: [2]` convention, i.e. this candidate's own embedded script hit its own
+harness-error path, not a real test failure.
+
+**Root cause, confirmed by direct inspection, not assumed:** after fixing the bootstrap-side-effect
+test's regex bug (§2) during implementation, the scratch probe-generator scripts were correctly
+regenerated from the fixed test file -- but the actual **committed unit-JSON was never rebuilt from
+them**, so it still embedded the *original, pre-fix* `TEST_SOURCE` for both the RED and GREEN
+`w4-resolve-project-context-readiness` entries, while the *committed test file* already had the fix.
+This is the exact same reproducibility-defect class as K-118 (W3c's own incident earlier in this
+program): RED/GREEN provably exercising different test text than what is actually committed. It
+evaded this candidate's own local verification because that verification (and the independent peer
+review) both ran against the *scratch* probe files on disk, which *were* correctly regenerated --
+never against the actual embedded content of the committed unit-JSON itself. Confirmed directly:
+extracting `TEST_SOURCE` from the committed `governance/devgov/units/
+lu-w4-project-context-readiness-canonical-projection-v1.json` and diffing it against the committed
+`tests/unit/resolveProjectContextReadiness.test.ts` showed a real byte mismatch (5007 vs. 5610
+characters) for both its RED and GREEN entries; the sibling `w4-resolve-canonical-lu-projection`
+pair (whose test file was never touched after the RED-only candidate) was unaffected in both
+entries -- confirmed by checking all four pairs, not just the one that broke, matching the K-118
+precedent's own remediation discipline.
+
+**Fix:** rebuilt the unit-JSON from the (already-correct) scratch probes, re-verified byte-identity
+for all four RED/GREEN pairs against their committed files (all four now match), and -- going one
+step further than checking the scratch files -- extracted each of the four commands **directly from
+the rebuilt unit-JSON itself** (not from the scratch probe files) and ran each one again against a
+freshly isolated `44e3e3df` worktree (RED) and this candidate (GREEN): all four reproduce the
+expected result. This directly closes the exact verification gap that let the defect through
+undetected the first time -- local verification from now on in this unit checks the committed
+artifact itself, not a proxy for it.
+
+## 7. Final disposition (updated)
+
+The candidate now dispatched to the real trusted-execution pipeline (`ec0c8a6d`) failed once, for a
+confirmed, fixed reproducibility defect (§6) -- not a semantic problem with the design or
+implementation, which the failure did not reach (RED and both GREEN entries for the unaffected pair
+ran and passed on the trusted runner before the affected GREEN entry's harness error). The fix
+changes only the committed `governance/devgov/units/
+lu-w4-project-context-readiness-canonical-projection-v1.json` file -- no production or test code
+changed. Awaiting cold review of this fix specifically, then a fresh dispatch-go from Jimmy on the
+new candidate SHA, since the prior dispatch's own record is now stale (it recorded a real failure
+against the pre-fix unit-JSON).
