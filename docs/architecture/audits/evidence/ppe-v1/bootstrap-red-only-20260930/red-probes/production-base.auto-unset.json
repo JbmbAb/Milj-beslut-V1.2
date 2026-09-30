@@ -1,0 +1,61 @@
+{
+  "probeId": "red-production-base-npm-ci-postinstall",
+  "stageName": "production-base",
+  "assertedBehavior": "The root Dockerfile's production-base stage must be able to execute its declared npm dependency-install step without failing because package.json lifecycle-script dependencies are absent from the filesystem state established by that stage before the install step.",
+  "authorityEvidence": {
+    "kind": "file_line",
+    "ref": "docker-compose.staging.yml:6-8",
+    "note": "direct declared staging web-build contract: root Dockerfile, target web"
+  },
+  "classification": "FAIL",
+  "reasonCode": "LIFECYCLE_SCRIPT_MODULE_NOT_FOUND",
+  "matched": [
+    "> miljobeslut-se-2.0@0.0.0 postinstall",
+    "Error: Cannot find module '/tmp/ppe-host-probe-p4FG7t/scripts/postinstall-prisma-generate.mjs'",
+    "  code: 'MODULE_NOT_FOUND',",
+    "npm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs"
+  ],
+  "fidelity": "host-npm",
+  "executorRequested": "auto",
+  "executorUsed": "host",
+  "prefix": {
+    "lineage": [
+      "base",
+      "production-base"
+    ],
+    "contextSources": [
+      "package*.json"
+    ],
+    "installCommand": "npm ci --omit=dev --legacy-peer-deps",
+    "installLine": 37,
+    "baseImage": "node:22-alpine"
+  },
+  "toolchainIdentity": "node v22.22.2; npm 10.9.7; linux x64 6.18.44-fc-v50",
+  "evidence": [
+    {
+      "kind": "runtime_result",
+      "ref": "ppe-red-probe:red-production-base-npm-ci-postinstall:2026-09-30T13:10:50.372Z:FAIL",
+      "note": "host-npm; reason LIFECYCLE_SCRIPT_MODULE_NOT_FOUND"
+    },
+    {
+      "kind": "file_line",
+      "ref": "Dockerfile:37",
+      "note": "install step of the probed stage"
+    },
+    {
+      "kind": "git_object",
+      "ref": "a3b31b8eda0280c2a899cebdaf856a3eacbfd103",
+      "note": "blob of Dockerfile as probed"
+    }
+  ],
+  "startedAt": "2026-09-30T13:10:50.372Z",
+  "elapsedMs": 36500,
+  "outputExcerpt": "> miljobeslut-se-2.0@0.0.0 postinstall\nError: Cannot find module '/tmp/ppe-host-probe-p4FG7t/scripts/postinstall-prisma-generate.mjs'\n  code: 'MODULE_NOT_FOUND',\nnpm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs",
+  "exitStatus": 1,
+  "timedOut": false,
+  "installStepStarted": true,
+  "contextFiles": [
+    "package-lock.json",
+    "package.json"
+  ]
+}
