@@ -10,7 +10,10 @@
  *
  * Section 2b covers a fifth finding raised by the review of the fix for (2): symlinks inside copied
  * context entries (an absolute link to an outside file, a path through a link to an outside
- * directory) carried outside content into the host layout and the docker context.
+ * directory) carried outside content into the host layout and the docker context. The review of that
+ * fix showed `fs.cpSync` also rewrites a relative link whose target stays INSIDE the repository to an
+ * absolute path into the source checkout, so every symlink among copied entries is refused
+ * (PPE_PROBE_BLOCKED), whatever its target.
  *
  * Sections 5 and 6 cover two findings raised by the review of the hardening delta itself, both
  * reproduced before they were fixed: a global ARG before the first FROM was dropped from the rendered
@@ -257,7 +260,19 @@ describe('2b. symlinks in copied context entries cannot carry outside content in
     mkdirSync(path.join(repo, 'good'));
     writeFileSync(path.join(repo, 'good', 'real.txt'), 'real\n');
     symlinkSync('real.txt', path.join(repo, 'good', 'alias.txt')); // inside
+    symlinkSync('inside-dir', path.join(repo, 'inside-link')); // directory link, inside
+    mkdirSync(path.join(repo, 'plain', 'nested'), { recursive: true });
+    writeFileSync(path.join(repo, 'plain', 'real.txt'), 'plain\n');
+    writeFileSync(path.join(repo, 'plain', 'nested', 'deep.txt'), 'deep\n');
   });
+
+  function symlinksIn(root: string): string[] {
+    return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(root, entry.name);
+      if (entry.isSymbolicLink()) return [full];
+      return entry.isDirectory() ? symlinksIn(full) : [];
+    });
+  }
 
   const prefixFor = (copy: string) =>
     deriveStagePrefix(
@@ -315,22 +330,67 @@ describe('2b. symlinks in copied context entries cannot carry outside content in
     }
   });
 
-  it('still copies entries and links that stay inside the repository', () => {
-    const prefix = prefixFor('good ./good');
+  it.each([
+    ['a relative link in a copied directory whose target stays inside the repository', 'good ./good'],
+    ['an inside link given directly as the COPY source', 'good/alias.txt ./'],
+    ['a symlinked directory that stays inside the repository', 'inside-link ./il'],
+  ])('refuses %s (cpSync would rewrite it to an absolute link into the checkout)', (_label, copy) => {
+    const prefix = prefixFor(copy);
     const hostRoot = mkdtempSync(path.join(base, 'host-'));
-    expect(materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot)).toEqual(
-      expect.arrayContaining(['good/real.txt']),
+    expect(() => materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot)).toThrow(
+      /PPE_PROBE_BLOCKED.*is a symlink/,
     );
+    expect(symlinksIn(hostRoot)).toEqual([]);
     const contextDir = mkdtempSync(path.join(base, 'ctx-'));
-    expect(materializeDockerContext(prefix, repo, contextDir)).toEqual(
-      expect.arrayContaining(['good/real.txt']),
+    expect(() => materializeDockerContext(prefix, repo, contextDir)).toThrow(
+      /PPE_PROBE_BLOCKED.*is a symlink/,
     );
+    expect(symlinksIn(contextDir)).toEqual([]);
+  });
+
+  it('still copies regular files and directories (nested too), and the layout never holds a link', () => {
+    const prefix = prefixFor('plain ./plain');
+    const hostRoot = mkdtempSync(path.join(base, 'host-'));
+    expect(materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot)).toEqual([
+      'plain/nested/deep.txt',
+      'plain/real.txt',
+    ]);
+    expect(symlinksIn(hostRoot)).toEqual([]);
+    const contextDir = mkdtempSync(path.join(base, 'ctx-'));
+    expect(materializeDockerContext(prefix, repo, contextDir)).toEqual([
+      'plain/nested/deep.txt',
+      'plain/real.txt',
+    ]);
+    expect(symlinksIn(contextDir)).toEqual([]);
     // a copied manifest that is a plain file keeps working
     const manifest = prefixFor('package.json ./');
     const root2 = mkdtempSync(path.join(base, 'host-'));
     expect(materializeHostLayout(manifest.contextCopies, manifest.workdir, repo, root2)).toEqual([
       'package.json',
     ]);
+  });
+});
+
+describe('2c. a repository root that is itself reached through a symlink is not mistaken for a copied link', () => {
+  it('copies a plain tree via COPY . when repoRoot is a symlink to it (host layout and docker context)', () => {
+    const base = tmp('ppe-root-link-');
+    const real = path.join(base, 'real-repo');
+    mkdirSync(path.join(real, 'plain'), { recursive: true });
+    writeFileSync(path.join(real, 'package.json'), '{}');
+    writeFileSync(path.join(real, 'plain', 'real.txt'), 'plain\n');
+    const viaLink = path.join(base, 'repo-link');
+    symlinkSync(real, viaLink);
+    const prefix = deriveStagePrefix(
+      parseDockerfile(['FROM node:22-alpine AS base', 'WORKDIR /app', 'COPY . ./', 'RUN npm ci'].join('\n')),
+      'base',
+    );
+    const hostRoot = mkdtempSync(path.join(base, 'host-'));
+    expect(materializeHostLayout(prefix.contextCopies, prefix.workdir, viaLink, hostRoot)).toEqual([
+      'package.json',
+      'plain/real.txt',
+    ]);
+    const contextDir = mkdtempSync(path.join(base, 'ctx-'));
+    expect(materializeDockerContext(prefix, viaLink, contextDir)).toEqual(['package.json', 'plain/real.txt']);
   });
 });
 

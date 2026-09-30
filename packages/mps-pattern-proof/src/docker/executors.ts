@@ -254,6 +254,28 @@ function assertEntryInsideRepo(realRoot: string, candidate: string): void {
   }
 }
 
+/**
+ * Throws PPE_PROBE_BLOCKED when `candidate` is itself a symlink, whatever its target. `fs.cpSync` does not
+ * preserve a link: it rewrites even a relative link whose target stays inside the repository to an absolute
+ * path into the source checkout, so the install would read and write repository files outside the
+ * isolated layout (PR #205 review). The probe refuses rather than copy a link or follow it.
+ */
+function assertEntryIsNotSymlink(repoRoot: string, candidate: string): void {
+  let isLink: boolean;
+  try {
+    isLink = fs.lstatSync(candidate).isSymbolicLink();
+  } catch {
+    return; // not statable: cpSync reports the failure itself
+  }
+  if (isLink) {
+    throw new PatternProofError(
+      'PPE_PROBE_BLOCKED',
+      `context entry "${path.relative(repoRoot, candidate)}" is a symlink; the probe refuses to copy or follow it (BLOCKED, no link is materialized)`,
+      { path: 'COPY/ADD source', details: { entry: path.relative(repoRoot, candidate) } },
+    );
+  }
+}
+
 function copyEntry(
   sourceAbsolute: string,
   destAbsolute: string,
@@ -266,6 +288,7 @@ function copyEntry(
     recursive: true,
     filter: (candidate) => {
       if (isDockerignored(rules, path.relative(repoRoot, candidate))) return false;
+      assertEntryIsNotSymlink(repoRoot, candidate);
       assertEntryInsideRepo(realRoot, candidate);
       return true;
     },
@@ -330,6 +353,8 @@ export function materializeHostLayout(
     for (const relative of matches) {
       const sourceAbsolute = relative === '' ? repoRoot : path.join(repoRoot, relative);
       if (relative === '' || fs.statSync(sourceAbsolute).isDirectory()) {
+        // a directory source is enumerated, not handed to cpSync, so a symlinked one is refused here
+        if (relative !== '') assertEntryIsNotSymlink(repoRoot, sourceAbsolute);
         for (const entry of fs.readdirSync(sourceAbsolute)) {
           const entryRelative = relative === '' ? entry : `${relative}/${entry}`;
           if (isDockerignored(rules, entryRelative)) continue;
