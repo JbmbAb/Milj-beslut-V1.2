@@ -1,10 +1,11 @@
 # SECURITY-HARDENING-HD04-HD09-V1 -- HD-04..HD-09 findings from A9
 
-**Status:** four candidates COLD_VERIFIED by the independent verifier (K-159, no remarks) and
-pushed to origin on Jimmy's explicit go ("push all four"). Pushed branches were then rebased once
-more (main advanced significantly while cold review + push were in flight) and are being
-re-verified and re-sent for a second cold review before the next dispatch-go. **Not yet dispatched
-into the Dev-Gov gate/attestation pipeline.**
+**Status:** four candidates COLD_VERIFIED twice (K-159 first round, second round after a rebase),
+pushed to origin both times on Jimmy's explicit go, and dispatched into the Dev-Gov
+orchestrate/gate pipeline on his "dispatch" -- **all four failed at the RED execution step** (see
+§9). Root cause found, fixed, and re-verified locally; not yet re-reviewed, re-pushed, or
+re-dispatched as of this writing. Details in §9, at the end of this document.
+
 **Units:** four, see `governance/devgov/units/devgov-security-hardening-hd04a-hd04b-hd05-v1.json`,
 `devgov-security-hardening-hd06-v1.json`, `devgov-security-hardening-hd07-hd08-v1.json`,
 `devgov-security-hardening-hd09-v1.json`
@@ -23,22 +24,25 @@ route-reachability sweep (`A9-ROUTE-REACHABILITY-SWEEP-FINAL-2026-09-29.md`). HD
 (replace the client-supplied `bankidId` with a verified-session `orderRef`) was confirmed with
 Jimmy in-session before any code was written.
 
-**Candidate SHAs, current (post-rebase, second round):**
+**Candidate SHAs, current (post-rebase + RED-command fix, not yet re-reviewed/pushed):**
 
-| Unit | Branch | Candidate SHA | First-round SHA (COLD_VERIFIED K-159, pushed) |
-|---|---|---|---|
-| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `28a35880db799d87f4daec3b6f4d31a1e2957738` | `1911598925613370d42a2ace506eb0add08829d8` |
-| B (HD-06) | `claude/security-hardening-hd06-v1` | `ab5489fee2d5a728eeced5e9353584c2e5ee8443` | `3615e94ca6e5ff8546897fa22facac1a6f576354` |
-| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `d0b8acb8322744ee0103a4922eab73400fc66d2f` | `c696e562f31504ecb4d397fbe6b8a4da6463c68e` |
-| D (HD-09) | `claude/security-hardening-hd09-v1` | `df2385223b3f6f12d74d5e68db8de8114f8d39c6` | `0c7817a5e031446d6400767ef312414d5c6fd27f` |
+| Unit | Branch | Candidate SHA | Pushed+dispatched SHA (failed, §9) | First-round SHA (COLD_VERIFIED K-159, pushed) |
+|---|---|---|---|---|
+| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `b6b8e323554cf6b3f9466c6a720f8012ab9b34f2` | `428cd71c2f2eea960b3b74e3043fd7c0d4ef54f3` | `1911598925613370d42a2ace506eb0add08829d8` |
+| B (HD-06) | `claude/security-hardening-hd06-v1` | `494c5e401ceb16a52aecc5445c9538a898368168` | `89e3b29a1cc7f75a7926895f466df4f6c3c49c2d` | `3615e94ca6e5ff8546897fa22facac1a6f576354` |
+| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `1ec1d2238bfdf932165a0b7ed317cab4402386fd` | `387df4e11114165ab1b9a824fa6f71a4d19af292` | `c696e562f31504ecb4d397fbe6b8a4da6463c68e` |
+| D (HD-09) | `claude/security-hardening-hd09-v1` | `d84779543e22cc505462939133962cbc7f892f8a` | `f56f40e5c48bf7a01c19324cf6bb62cdd0e621cc` | `0c7817a5e031446d6400767ef312414d5c6fd27f` |
 
-Each current SHA is a merge commit (`origin/main` at `dc78d44c` merged in, no force, no conflicts)
-plus one `base_sha`-bump commit on top of the first-round SHA already pushed and cold-reviewed --
-no production-code or test-content changes in this round, only the base pointer. The rebase and
-re-verification were authorized in-session by Jimmy ("fortsätt godkänner") after a separate,
-unverified cross-session message claiming the same authorization under the display name "Boss"
-was identified and explicitly refused -- see the security-hardening session's own transcript for
-that exchange; not repeated here since it is process history, not part of this unit's code.
+Each current SHA is one `fix(devgov)` commit -- patching only `required_red` in that unit's own
+JSON, per §9 -- on top of the pushed+dispatched SHA in the middle column. No production code or
+test content changed in this commit, only the RED probe's execution mechanism. The pushed+dispatched
+SHA is itself a merge commit (`origin/main` at `dc78d44c`, no force, no conflicts) plus a
+`base_sha`-bump commit on top of the first-round SHA already pushed and cold-reviewed once. The
+rebase and re-verification that produced the middle column were authorized in-session by Jimmy
+("fortsätt godkänner") after a separate, unverified cross-session message claiming the same
+authorization under the display name "Boss" was identified and explicitly refused -- see the
+security-hardening session's own transcript for that exchange; not repeated here since it is
+process history, not part of this unit's code.
 
 ## 0. Grouping rationale
 
@@ -246,3 +250,62 @@ What this document does *not* assert, so the next reader doesn't have to guess:
 - `scrubProjectData`'s identical swallow-and-continue pattern (see §3) -- explicitly out of scope.
 - HD-01/02/03 and HD-10..HD-16 from the same A9 round -- different lanes per HDR20 (Dev-Gov for
   this batch; C-anmälan lane and/or "stäng av nu" one-liners for the rest), not this startbrief.
+
+## 9. Dispatch failure and fix: RED probes cannot write inside the checkout
+
+All four `devgov-v0-orchestrate` runs (ids 36616724494/34693/43793/47314) -- dispatched from the
+pushed+dispatched SHAs in the candidate-SHA table above, on Jimmy's explicit "dispatch" -- failed at
+`RED / <unit> / Execute declared proof without signer authority`, exit code 3, zero stdout (the
+`stdout_sha256` in the log is literally the SHA-256 of an empty string -- the script crashed before
+printing anything). GREEN, signing, and the gate itself never ran (skipped as a consequence).
+
+**Root cause**, confirmed directly from `devgov-v0-attest.yml`: the trusted-execution sandbox
+freezes the *entire* candidate checkout read-only for the code under test --
+`sudo chmod -R a-w candidate` and `sudo chmod -R a-w "$execution_root"`, with write access restored
+only for `node_modules`. Every unit's `required_red` command wrote its temp probe test file to
+`tests/unit/__<unit>-red-N.probe.test.ts` -- a path inside that now-frozen tree. The write fails
+immediately, before any of the command's own error handling can run.
+
+This does not call the underlying security fixes into question -- both RED and GREEN had already
+been verified as behaving correctly by running the real commands directly (this session and,
+independently, the verifier, twice), against real production code. The break is specific to the
+temp-file mechanism RED used to prove the vulnerability, which had only ever been exercised on an
+ordinary (non-sandboxed) local checkout.
+
+**Fix**, verified locally against both fixed and reverted code for all four units (identical
+pass/fail counts to every prior verification round -- see each unit's own `fix(devgov)` commit
+message, listed in the candidate-SHA table above, for its exact numbers):
+- RED's temp probe file(s) now live under `os.tmpdir()`, never inside the checkout.
+- Every relative `import`/`vi.mock()` specifier in the embedded test source is rewritten to an
+  absolute path, resolved against the checkout root *at runtime* (`process.cwd()`, which
+  `devgov.mjs`'s `execute-proof` sets to the execution worktree) -- `vi.mock('../../server/x', ...)`
+  must resolve to the exact same path as the corresponding `import ... from '../../server/x'` for
+  Vitest to apply the mock, so a single whole-file specifier rewrite correctly covers both without
+  needing to distinguish import statements from mock calls.
+- Vitest is invoked with `--root` pointing at that temp directory, because Vitest's own file
+  discovery (and CLI-supplied file arguments) only considers files that are descendants of its
+  configured root -- a bare `os.tmpdir()` path is invisible to it regardless of whether it matches
+  the `include` glob's shape. The temp root mirrors only what the "unit" project's root-relative
+  settings actually need: a copied `tests/setup/env.ts` (`setupFiles: ['tests/setup/env.ts']` is
+  root-relative; every `resolve.alias` entry uses `path.resolve(__dirname, ...)` instead, anchored
+  to the config file's real location and therefore unaffected by `--root`) and a symlinked
+  `node_modules` (bare-specifier imports like `dotenv`/`express`/`vitest` resolve via Node's upward
+  `node_modules` search from the importing file, which finds nothing under a bare temp root).
+
+**How this was caught before a second failed dispatch, not after:** rather than re-dispatch
+directly, the fix was verified locally first by extracting each unit's exact `required_red`/
+`required_green` command from its committed JSON and executing it exactly as the controller would
+(`node -e "<body>"`, not a saved script file -- `node -e` defaults to CommonJS regardless of this
+repo's `"type": "module"`, but a saved `.js` file does not) -- the same method used for every prior
+RED/GREEN verification round in this document.
+
+A second, independent catch during this fix, flagged by Jimmy relaying a line-by-line review before
+any of the above was implemented: the initial fix draft rewrote `import` statement specifiers but
+would have missed `vi.mock()` call specifiers, which -- per Vitest's own mock-to-import path
+matching -- would have caused every embedded test's mocks to silently stop intercepting, running
+the real implementation instead without producing a visible error. Confirmed by inspection that
+every `vi.mock()` call in this work's test files uses the identical specifier string as its
+corresponding `import`, which is exactly why a single non-context-aware rewrite correctly fixes
+both at once.
+
+**Not yet done:** this fix has not been reviewed by the verifier, not pushed, and not re-dispatched.
