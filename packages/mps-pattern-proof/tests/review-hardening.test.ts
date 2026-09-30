@@ -7,8 +7,21 @@
  *     docker materializer wrote outside its temporary context);
  *  3. a symlink inside the repository pointing outside it resolved as repository-governed evidence;
  *  4. a rejecting attestation lookup escaped `resolve`/`resolveAll` instead of failing closed.
+ *
+ * Section 2b covers a fifth finding raised by the review of the fix for (2): symlinks inside copied
+ * context entries (an absolute link to an outside file, a path through a link to an outside
+ * directory) carried outside content into the host layout and the docker context.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -206,6 +219,104 @@ describe('2. COPY/ADD sources and destinations cannot leave their sandbox', () =
     );
     expect(materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot)).toEqual([
       'package-lock.json',
+      'package.json',
+    ]);
+  });
+});
+
+describe('2b. symlinks in copied context entries cannot carry outside content into the layout', () => {
+  let base = '';
+  let repo = '';
+  beforeAll(() => {
+    base = tmp('ppe-ctx-symlink-');
+    repo = path.join(base, 'repo');
+    mkdirSync(path.join(repo, 'pkgs'), { recursive: true });
+    mkdirSync(path.join(repo, 'inside-dir'));
+    writeFileSync(path.join(repo, 'package.json'), '{}');
+    writeFileSync(path.join(repo, 'pkgs', 'ok.txt'), 'inside\n');
+    writeFileSync(path.join(base, 'outside.txt'), 'OUTSIDE CONTENT\n');
+    mkdirSync(path.join(base, 'outside-dir'));
+    writeFileSync(path.join(base, 'outside-dir', 'inner.txt'), 'OUTSIDE DIR CONTENT\n');
+    symlinkSync(path.join(base, 'outside.txt'), path.join(repo, 'pkgs', 'abs-leak.txt')); // absolute, outside
+    symlinkSync('../../outside.txt', path.join(repo, 'pkgs', 'rel-leak.txt')); // relative, outside
+    symlinkSync(path.join(base, 'outside-dir'), path.join(repo, 'linked-dir')); // directory link, outside
+    mkdirSync(path.join(repo, 'dang'));
+    symlinkSync(path.join(base, 'no-such-file'), path.join(repo, 'dang', 'dangling-out')); // dangling, outside
+    mkdirSync(path.join(repo, 'good'));
+    writeFileSync(path.join(repo, 'good', 'real.txt'), 'real\n');
+    symlinkSync('real.txt', path.join(repo, 'good', 'alias.txt')); // inside
+  });
+
+  const prefixFor = (copy: string) =>
+    deriveStagePrefix(
+      parseDockerfile(
+        ['FROM node:22-alpine AS base', 'WORKDIR /app', `COPY ${copy}`, 'RUN npm ci'].join('\n'),
+      ),
+      'base',
+    );
+
+  function noOutsideContent(root: string): boolean {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        return entry.isDirectory() ? walk(full) : [full];
+      });
+    return walk(root).every((file) => {
+      try {
+        return !readFileSync(file, 'utf8').includes('OUTSIDE');
+      } catch {
+        return true;
+      }
+    });
+  }
+
+  it.each([
+    ['an absolute symlink to an outside file', 'pkgs ./pkgs'],
+    ['a path through a symlinked directory', 'linked-dir/inner.txt ./'],
+    ['a directory link pointing outside', 'linked-dir ./linked'],
+  ])('the host layout refuses %s', (_label, copy) => {
+    const prefix = prefixFor(copy);
+    const hostRoot = mkdtempSync(path.join(base, 'host-'));
+    expect(() => materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot)).toThrow(
+      /PPE_PROBE_BLOCKED.*symlink/,
+    );
+    expect(noOutsideContent(hostRoot)).toBe(true);
+  });
+
+  it.each([
+    ['an absolute symlink to an outside file', 'pkgs ./pkgs'],
+    ['a path through a symlinked directory', 'linked-dir/inner.txt ./'],
+  ])('the docker context refuses %s', (_label, copy) => {
+    const prefix = prefixFor(copy);
+    const contextDir = mkdtempSync(path.join(base, 'ctx-'));
+    expect(() => materializeDockerContext(prefix, repo, contextDir)).toThrow(/PPE_PROBE_BLOCKED.*symlink/);
+    expect(noOutsideContent(contextDir)).toBe(true);
+  });
+
+  it('refuses a relative link that climbs out, and a directory holding a dangling link that points outside', () => {
+    for (const copy of ['pkgs/rel-leak.txt ./', 'dang ./dang']) {
+      const prefix = prefixFor(copy);
+      const hostRoot = mkdtempSync(path.join(base, 'host-'));
+      expect(() => materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot), copy).toThrow(
+        /PPE_PROBE_BLOCKED/,
+      );
+    }
+  });
+
+  it('still copies entries and links that stay inside the repository', () => {
+    const prefix = prefixFor('good ./good');
+    const hostRoot = mkdtempSync(path.join(base, 'host-'));
+    expect(materializeHostLayout(prefix.contextCopies, prefix.workdir, repo, hostRoot)).toEqual(
+      expect.arrayContaining(['good/real.txt']),
+    );
+    const contextDir = mkdtempSync(path.join(base, 'ctx-'));
+    expect(materializeDockerContext(prefix, repo, contextDir)).toEqual(
+      expect.arrayContaining(['good/real.txt']),
+    );
+    // a copied manifest that is a plain file keeps working
+    const manifest = prefixFor('package.json ./');
+    const root2 = mkdtempSync(path.join(base, 'host-'));
+    expect(materializeHostLayout(manifest.contextCopies, manifest.workdir, repo, root2)).toEqual([
       'package.json',
     ]);
   });

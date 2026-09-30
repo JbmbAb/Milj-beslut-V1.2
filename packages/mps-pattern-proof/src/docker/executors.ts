@@ -227,16 +227,48 @@ function listFiles(root: string, dir: string, out: string[]): void {
   }
 }
 
+/**
+ * Throws PPE_PROBE_BLOCKED unless `candidate`, with every symlink on its path resolved, is inside
+ * `realRoot`. `fs.cpSync` keeps a symlink as a link (the install then follows it) and follows a
+ * symlinked directory on the way to a file, so both an absolute link to an outside file and a path
+ * through a link to an outside directory would otherwise put outside content into the layout (PR #205
+ * review). A dangling link has no real path; its own target is judged lexically instead.
+ */
+function assertEntryInsideRepo(realRoot: string, candidate: string): void {
+  let real: string;
+  try {
+    real = fs.realpathSync(candidate);
+  } catch {
+    try {
+      real = path.resolve(path.dirname(candidate), fs.readlinkSync(candidate));
+    } catch {
+      return; // not a link and not resolvable: cpSync reports the failure itself
+    }
+  }
+  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) {
+    throw new PatternProofError(
+      'PPE_PROBE_BLOCKED',
+      `context entry "${path.relative(realRoot, candidate)}" resolves outside the repository through a symlink; the probe refuses it (BLOCKED, nothing outside is copied)`,
+      { path: 'COPY/ADD source', details: { entry: path.relative(realRoot, candidate) } },
+    );
+  }
+}
+
 function copyEntry(
   sourceAbsolute: string,
   destAbsolute: string,
   rules: readonly DockerignoreRule[],
   repoRoot: string,
 ): void {
+  const realRoot = fs.realpathSync(repoRoot);
   fs.mkdirSync(path.dirname(destAbsolute), { recursive: true });
   fs.cpSync(sourceAbsolute, destAbsolute, {
     recursive: true,
-    filter: (candidate) => !isDockerignored(rules, path.relative(repoRoot, candidate)),
+    filter: (candidate) => {
+      if (isDockerignored(rules, path.relative(repoRoot, candidate))) return false;
+      assertEntryInsideRepo(realRoot, candidate);
+      return true;
+    },
   });
 }
 
