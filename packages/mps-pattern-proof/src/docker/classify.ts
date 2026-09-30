@@ -37,6 +37,7 @@
  *                  is never reported as PASS.
  */
 import path from 'node:path';
+import { npmErrorCommandOf } from '../internal/linear-text';
 import { normalizeScriptPath, type PackageIdentity } from './lifecycle-scripts';
 
 export type ProbeClassificationKind = 'PASS' | 'FAIL' | 'BLOCKED';
@@ -118,7 +119,6 @@ export const INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT_REASON_CODE =
 // the `imported from` operand is not consulted; a missing sibling of an entry is not the asserted failure).
 const CANNOT_FIND_MODULE = /Error(?: \[ERR_MODULE_NOT_FOUND\])?: Cannot find module '([^']+)'/;
 const MODULE_NOT_FOUND_CODE = /code: '(?:MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND)'/;
-const NPM_ERROR_COMMAND = /npm error command sh -c (.+?)\s*$/;
 const NPM_ERROR_CODE = /npm error code (\S+)/;
 const DOCKER_STEP_FAILED = /process "((?:[^"\\]|\\.)*)" did not complete successfully: exit code: (\d+)/;
 
@@ -203,8 +203,8 @@ function lifecycleErrorTextOf(
   if (cannotFind === undefined) return undefined;
   const codeLine = after.find((line) => MODULE_NOT_FOUND_CODE.test(line));
   const commandLine = after.find((line) => {
-    const match = NPM_ERROR_COMMAND.exec(line);
-    return match !== null && input.lifecycleScriptStrings.includes(match[1]);
+    const command = npmErrorCommandOf(line);
+    return command !== undefined && input.lifecycleScriptStrings.includes(command);
   });
   const text: { cannotFind: string; codeLine?: string; commandLine?: string } = { cannotFind };
   if (codeLine !== undefined) text.codeLine = codeLine;

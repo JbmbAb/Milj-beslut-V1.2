@@ -13,6 +13,7 @@
  * classifier as BLOCKED LIFECYCLE_RUNNER_UNSUPPORTED when the install fails, never silently PASS.
  */
 import path from 'node:path';
+import { splitShellCommands } from '../internal/linear-text';
 import { isPlainObject } from '../internal/plain-object';
 import { PatternProofError } from '../errors';
 
@@ -60,9 +61,10 @@ export function lifecycleScriptStrings(packageJson: unknown): string[] {
 
 /**
  * Shell command separators recognised in a script string or a RUN shell text: `&&`, `||`, `|`, `;`.
- * Shared with the stage-prefix install predicate (R2 F8) so both split identically.
+ * `splitShellCommands` is shared with the stage-prefix install predicate (R2 F8) so both split
+ * identically; it is linear where the former `\s*(...)\s*` expression was quadratic.
  */
-export const SHELL_COMMAND_SEPARATOR_RE = /\s*(?:&&|\|\||\||;)\s*/;
+export { splitShellCommands };
 
 /** Drops one pair of surrounding single or double quotes from a token (`'scripts/x.mjs'`, R2 F2). */
 const SURROUNDING_QUOTES_RE = /^(['"])(.*)\1$/;
@@ -79,8 +81,7 @@ export function normalizeScriptPath(scriptPath: string): string {
  * names the same file as `node scripts/x.mjs`).
  */
 export function scriptCommandsOf(script: string): string[][] {
-  return script
-    .split(SHELL_COMMAND_SEPARATOR_RE)
+  return splitShellCommands(script)
     .map((command) =>
       command
         .trim()

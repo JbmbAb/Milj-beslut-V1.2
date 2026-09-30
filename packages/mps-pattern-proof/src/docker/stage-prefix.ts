@@ -35,6 +35,7 @@
  */
 import path from 'node:path';
 import { PatternProofError } from '../errors';
+import { isCombinedShortGlobalFlag, trimTrailingSlashes } from '../internal/linear-text';
 import {
   execFormTokens,
   findStage,
@@ -44,7 +45,7 @@ import {
   type ParsedInstruction,
   type ParsedStage,
 } from './dockerfile-parse';
-import { SHELL_COMMAND_SEPARATOR_RE } from './lifecycle-scripts';
+import { splitShellCommands } from './lifecycle-scripts';
 
 /** Coarse pre-filter of install RUNs; the project-install predicate below decides. */
 export const DEFAULT_INSTALL_PATTERN = /\bnpm\s+(ci|install|i)\b/;
@@ -57,13 +58,12 @@ const GLOBAL_FLAGS: ReadonlySet<string> = new Set([
   '-g=true',
   '--location=global',
 ]);
-/** A combined short-flag group containing `g` (`-gf`, `-fg`): a global install (R2 F8). */
-const COMBINED_SHORT_GLOBAL_FLAG_RE = /^-[A-Za-z]*g[A-Za-z]*$/;
 /** A leading `NPM_CONFIG_GLOBAL=true` / `npm_config_global=true` assignment: a global install (R3 F5). */
 const GLOBAL_ENV_ASSIGNMENT_RE = /^npm_config_global=true$/i;
 
 function isGlobalInstallFlag(token: string): boolean {
-  return GLOBAL_FLAGS.has(token) || COMBINED_SHORT_GLOBAL_FLAG_RE.test(token);
+  // a combined short-flag group containing `g` (`-gf`, `-fg`) is a global install (R2 F8)
+  return GLOBAL_FLAGS.has(token) || isCombinedShortGlobalFlag(token);
 }
 
 /**
@@ -95,10 +95,10 @@ export function isProjectInstallCommand(command: string): boolean {
 
 /**
  * True when the RUN shell text contains a project install command among its commands, split on
- * `&&`, `||`, `|` and `;` (SHELL_COMMAND_SEPARATOR_RE, shared with lifecycle-scripts.ts; R2 F8).
+ * `&&`, `||`, `|` and `;` (`splitShellCommands`, shared with lifecycle-scripts.ts; R2 F8).
  */
 export function isProjectInstallShellText(shellText: string): boolean {
-  return shellText.split(SHELL_COMMAND_SEPARATOR_RE).some((command) => isProjectInstallCommand(command));
+  return splitShellCommands(shellText).some((command) => isProjectInstallCommand(command));
 }
 
 /** One plain COPY/ADD instruction of the prefix (no `--from`), with its in-image destination. */
@@ -302,7 +302,7 @@ export function deriveStagePrefix(
 }
 
 function stripTrailingSlash(value: string): string {
-  return value.length > 1 ? value.replace(/\/+$/, '') : value;
+  return value.length > 1 ? trimTrailingSlashes(value) : value;
 }
 
 function argDeclaration(args: string): Record<string, string> {

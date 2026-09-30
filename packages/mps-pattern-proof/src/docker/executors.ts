@@ -22,6 +22,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { stripLeadingDotSlash, trimTrailingSlashes } from '../internal/linear-text';
 import type { ProbeSpawnError } from './classify';
 import { execFormTokens, instructionShellText, type ParsedInstruction } from './dockerfile-parse';
 import { renderStagePrefixDockerfile, type StageContextCopy, type StagePrefix } from './stage-prefix';
@@ -116,7 +117,7 @@ export function parseDockerignore(text: string): readonly DockerignoreRule[] {
     const line = rawLine.trim();
     if (line === '' || line.startsWith('#')) continue;
     const negate = line.startsWith('!');
-    const pattern = (negate ? line.slice(1) : line).replace(/^(\.\/|\/)+/, '').replace(/\/+$/, '');
+    const pattern = trimTrailingSlashes(stripLeadingDotSlash(negate ? line.slice(1) : line));
     if (pattern === '') continue;
     rules.push(Object.freeze({ negate, pattern, regex: dockerignoreGlobToRegExp(pattern) }));
   }
@@ -186,10 +187,7 @@ export function expandContextSource(
   source: string,
   rules: readonly DockerignoreRule[],
 ): readonly string[] {
-  const clean = source
-    .replace(/\\/g, '/')
-    .replace(/^(\.\/|\/)+/, '')
-    .replace(/\/+$/, '');
+  const clean = trimTrailingSlashes(stripLeadingDotSlash(source.replace(/\\/g, '/')));
   if (clean === '' || clean === '.') return Object.freeze(['']);
   const out: string[] = [];
   expandSegments(repoRoot, '', clean.split('/'), 0, out);
