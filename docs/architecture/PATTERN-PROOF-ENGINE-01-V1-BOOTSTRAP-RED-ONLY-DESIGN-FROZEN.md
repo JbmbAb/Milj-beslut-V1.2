@@ -37,11 +37,11 @@ before the phase this engine exists to perform autonomously; (3) §6's `MISSING_
 `NON_REPRODUCIBLE` fixtures replaced -- the priors tested schema validation, not the actual
 authority-resolution and semantic-input-closure properties each state exists to catch; (4) §4's
 verifier-isolation paragraph replaced with an explicit, adapter-proven-not-assumed contract, and
-`VerificationArtifact` (§2) gained a mandatory `isolationEvidence` field plus the isolation
+`PatternVerificationArtifact` (§2) gained a mandatory `isolationEvidence` field plus the isolation
 invariant; (5) §5.4's first (production-base) probe's `authorityEvidence` corrected from
 `Dockerfile.gcp` (a working precedent, not this target's authority) to `docker-compose.staging.yml`
 directly, matching what the second probe already cited. Also applied: §4 now states `VERIFY` and
-`ADVERSARIAL_PROBES` jointly produce one final `VerificationArtifact`, not an early `ACCEPT` locked
+`ADVERSARIAL_PROBES` jointly produce one final `PatternVerificationArtifact`, not an early `ACCEPT` locked
 in before adversarial probes run.
 
 **Revision note, round 3 (2026-09-30):** Jimmy's delta-check of round 2 confirmed §2, §4, §5.3, §6
@@ -61,6 +61,19 @@ fixtures, and the executable solution-neutral Docker RED probes above, then stop
 throughout: the authority is now consistently named "the declared staging web build must succeed"
 (`docker-compose.staging.yml -> Dockerfile:web`) rather than "the production image," since
 `production-base` is only an internal stage name, not the authority itself.
+
+**Revision note, round 4 (2026-09-30, ADR reconciliation before `BOOTSTRAP_RED_ONLY` starts):**
+before creating the `PATTERN-PROOF-ENGINE-V1` routine, Jimmy cross-checked the frozen protocol
+against existing normative ADRs (full detail in the main design's new §12). Applied here: every
+`VerificationArtifact` reference renamed to `PatternVerificationArtifact` (avoids a real naming
+collision with `ADR-24-22-Signature-Attestation.md`'s own canonical use of that name); §3's `DONE`
+description sharpened to state this engine is not itself `PROVEN`/promotion authority (Dev-Gov/
+trusted execution remains that authority, unchanged); §7 clarifies `BOOTSTRAP_RED_ONLY` builds
+engine infrastructure under this program's normal practice, while the frozen design's writer-commit
+constraint (§12 point 4, reconciling `development-governance.md`'s current "GitHub Copilot Agent
+only" commit rule) applies from `FULL_PATTERN_PROOF` onward, when `WRITER` actually produces a
+target candidate. No architectural rework -- Jimmy's own verdict: *"PPE-idén: kompatibel. Ingen
+större ADR-krock... Efter dem skulle jag vara bekväm med att starta BOOTSTRAP_RED_ONLY."*
 
 ## 0. Jimmy's own scoping, verbatim
 
@@ -254,14 +267,14 @@ interface VerificationClaim {
   readonly materialInvariant: boolean;
 }
 type VerificationVerdict = 'ACCEPT' | 'FALSIFIED' | 'NOT_PROVEN';
-interface VerificationArtifact {
+interface PatternVerificationArtifact {
   readonly claims: readonly VerificationClaim[];
   readonly verdict: VerificationVerdict;
   readonly reasonCode?: string; // e.g. "VERIFICATION_BLOCKED", required when verdict === 'NOT_PROVEN'
   readonly isolationEvidence: readonly EvidenceLocator[]; // non-empty for ACCEPT or FALSIFIED (§4)
 }
 /*
-VerificationArtifact isolation invariant (§4):
+PatternVerificationArtifact isolation invariant (§4):
 ACCEPT or FALSIFIED requires non-empty, resolvable isolationEvidence.
 If isolation cannot be demonstrated, the only valid verifier verdict is
 NOT_PROVEN with reasonCode: VERIFICATION_BLOCKED.
@@ -305,8 +318,10 @@ states (frozen design §3, all six required to have contract-test coverage per �
 | `NOT_PROVEN` | `VERIFY` or `ADVERSARIAL_PROBES` | a mandatory probe could not execute at all (`reasonCode: VERIFICATION_BLOCKED`) |
 | `NON_REPRODUCIBLE` | `ASSEMBLE_EVIDENCE` | replay from the declared `InputManifest` alone produces a different result |
 
-`DONE` is reached only by producing a `ProofPackage` -- which, per the frozen design, is itself
-only the trigger for "proceed to owner push-go," not an autonomous merge/deploy action.
+`DONE` is reached only by producing a `ProofPackage` -- which, per the frozen design (§3, §12), is
+itself only the trigger for "proceed to owner push-go," not an autonomous merge/deploy action, and
+not `PROVEN` status in its own right -- final `PROVEN`/promotion remains with Dev-Gov/trusted
+execution, unchanged by this engine existing.
 
 ## 4. Orchestrator boundary (Workflow as first adapter, not the protocol)
 
@@ -329,13 +344,13 @@ adapter, without that mapping becoming part of the protocol itself.
 - Fresh-context isolation is an adapter precondition, not an assumption. The Workflow adapter must
   produce resolvable runtime evidence that the verifier context was instantiated with only those
   declared inputs. A second `agent()` call is not, by itself, proof of isolation.
-- `VerificationArtifact` (§2) therefore carries a non-empty `isolationEvidence: EvidenceLocator[]`,
+- `PatternVerificationArtifact` (§2) therefore carries a non-empty `isolationEvidence: EvidenceLocator[]`,
   identifying the runtime/orchestrator evidence for that separation.
 - If the Workflow runtime cannot demonstrate this property, the verifier is not labelled
   independent. The run terminates fail-closed as `verdict: NOT_PROVEN`,
   `reasonCode: VERIFICATION_BLOCKED` -- making isolation something the engine must **prove**, not a
   comment in a prompt.
-- `VERIFY` and `ADVERSARIAL_PROBES` together produce a single, final `VerificationArtifact` --
+- `VERIFY` and `ADVERSARIAL_PROBES` together produce a single, final `PatternVerificationArtifact` --
   the verify phase cannot already lock in `ACCEPT` before the adversarial probes (§6 of the frozen
   design) have run; there is one verdict per round, not an early one revised later.
 - `ASSEMBLE_EVIDENCE` is a final `agent()` (or plain script logic) that composes the `ProofPackage`
@@ -506,7 +521,7 @@ work, out of scope here per §0).
 | `MISSING_AUTHORITY` | Supply a syntactically valid discovery/dependency input whose required authority `EvidenceLocator` cannot be resolved to an already-produced governed source. No `RedPlanArtifact` is emitted. Assert that authority resolution fails closed and the engine terminates with `MISSING_AUTHORITY` before RED synthesis can authorize a probe. |
 | `SCOPE_VIOLATION` | Supply a valid `CandidateArtifact` whose resolved `baseSha..candidateSha` diff contains a path outside its frozen allow-list (e.g. only `Dockerfile` allowed, but the candidate also changes `package.json`). Assert `allowedPathsCompliance.result === 'FAIL'` and that the engine halts before verifier execution. |
 | `FALSIFIED` | Supply a frozen candidate that closes only one of the two Docker RED probes. The verifier-owned adversarial probe independently exercises the other stage and breaks the candidate. Assert terminal state `FALSIFIED`; the candidate is not edited in place. |
-| `NOT_PROVEN` | Make a mandatory verifier probe unavailable before execution (simulated missing required runtime/tool is sufficient). Assert `VerificationArtifact.verdict === 'NOT_PROVEN'` and `reasonCode === 'VERIFICATION_BLOCKED'`; never convert inability to execute into `ACCEPT` or `FALSIFIED`. |
+| `NOT_PROVEN` | Make a mandatory verifier probe unavailable before execution (simulated missing required runtime/tool is sufficient). Assert `PatternVerificationArtifact.verdict === 'NOT_PROVEN'` and `reasonCode === 'VERIFICATION_BLOCKED'`; never convert inability to execute into `ACCEPT` or `FALSIFIED`. |
 | `NON_REPRODUCIBLE` | Supply a **schema-valid and apparently complete** `InputManifest`, but make the fixture execution also depend on an intentionally undeclared input such as `PPE_FIXTURE_MODE`. Replay the identical declared manifest once with `PPE_FIXTURE_MODE=A` and once with `PPE_FIXTURE_MODE=B`, producing different results. Assert `NON_REPRODUCIBLE`. This tests semantic input closure rather than JSON/schema validation. |
 
 **Corrected in this revision** (per Jimmy's cold review): the prior `MISSING_AUTHORITY` fixture
@@ -527,7 +542,7 @@ Per Jimmy's own explicit instruction (§0): this document stops here. Not built,
   verified manually in §1 as grounding evidence, which is discovery/RED-synthesis work per the
   frozen design -- not the same as building the writer/verifier machinery itself).
 - Implementation of any of §6's fixtures as actual runnable tests.
-- A `VerificationArtifact`, `ProofPackage`, or any GREEN state for this target.
+- A `PatternVerificationArtifact`, `ProofPackage`, or any GREEN state for this target.
 
 **Corrected in this revision -- stale next-step, per Jimmy's own decided sequence:** the next step
 is *not* writer-GREEN for the Docker probes. It is creating the reusable, on-demand
@@ -538,3 +553,12 @@ that run. `FULL_PATTERN_PROOF` (writer builds a Docker candidate -> freeze -> fr
 adversarial probes -> clean-room replay -> `ProofPackage`) is a separate, later unit requiring its
 own review and its own separate go -- not taken by this session, and not triggered automatically by
 `BOOTSTRAP_RED_ONLY` completing.
+
+**Added per Jimmy's ADR-reconciliation pass (frozen design §12):** `BOOTSTRAP_RED_ONLY` builds the
+engine's own infrastructure (schemas, state machine, orchestrator adapter, isolation proof,
+fixtures, the two RED probes) -- it follows this program's own established practice for that kind of
+work (a new branch, real code, real verification, push, stop for cold review; no PR, no merge). It
+does not itself invoke the `WRITER` role against a target candidate, so the frozen design's
+writer-commit constraint (§12, point 4 -- the writer produces a diff, not a commit, pending
+`development-governance.md`'s current commit-authority policy) applies from `FULL_PATTERN_PROOF`
+onward, not to this bootstrap run's own engine-building work.

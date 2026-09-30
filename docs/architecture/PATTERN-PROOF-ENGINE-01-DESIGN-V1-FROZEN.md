@@ -18,7 +18,7 @@ unchanged from v1 to keep the remaining delta-review scoped to just these edits,
 **Revision note (v3, 2026-09-30):** Jimmy's delta-review of v2 returned
 `ACCEPT_WITH_MINOR_CHANGES`, then, once these are applied, `ACCEPT / FREEZE-READY` -- two
 must-fix internal inconsistencies (§3's `MISSING_AUTHORITY` wording had not been updated to match
-§8's generalized `EvidenceLocator` language; `VerificationArtifact.claims[]` needed an array of
+§8's generalized `EvidenceLocator` language; `PatternVerificationArtifact.claims[]` needed an array of
 evidence grounds, not exactly one, to actually represent §5's own "writer-regression plus a
 verifier-owned ground" case) and two recommended hardenings (canonical `NOT_PROVEN` verdict with a
 `reasonCode` rather than a double-barreled state name; `InputManifest` must identify
@@ -37,6 +37,21 @@ contracts (§3 now points at the `InputManifest`). Both fixed; mechanically conf
 the live document afterward (only the correction notes themselves now quote the old wording, to
 explain what changed). Per Jimmy's own stated verdict once these two land:
 **`PATTERN-PROOF-ENGINE-01 DESIGN -- ACCEPT / FREEZE-READY`.** No further cold review is expected.
+
+**Revision note (v5, 2026-09-30, ADR reconciliation before `BOOTSTRAP_RED_ONLY`):** with the core
+design already frozen, Jimmy cross-checked it against existing normative ADRs before any code gets
+written. Four boundary reconciliations found, all independently re-verified against the actual ADR
+text (not taken on trust) before applying: `VerificationArtifact` renamed to
+`PatternVerificationArtifact` throughout, avoiding a real naming collision with
+`ADR-24-22-Signature-Attestation.md`'s own canonical use of that name; replay/equivalence semantics
+now explicitly deferred to `ADR-24-23-Audit-Reconstruction-and-Replay.md`'s existing model rather
+than redefined; this engine's `ProofPackage`/`DONE` explicitly clarified as evidence for, not a
+substitute for, Dev-Gov/trusted-execution's own `PROVEN`/promotion authority; and the writer lane
+explicitly barred from performing the `git commit` action itself, deferring to this repository's
+current commit-authority policy in `development-governance.md`. Full detail in the new §12. Per
+Jimmy's own words: *"PPE-idén: kompatibel. Ingen större ADR-krock. Fyra små
+boundary-reconciliations före implementation. Efter dem skulle jag vara bekväm med att starta
+BOOTSTRAP_RED_ONLY."*
 
 **Relationship to today's other work:** explicitly a separate platform track from W4
 (project-context readiness + canonical LU projection). Not blocked by W4, does not block W4. The
@@ -122,7 +137,7 @@ each artifact *is* writer-lane implementation detail -- but each artifact's **ma
 fields and invariants are not**. Because artifacts are the only permitted communication channel
 between phases, their semantics are part of the proof protocol itself, not an ordinary
 implementation choice any given writer round gets to make. The writer lane implements how an
-artifact is serialized; it does not get to decide what a `VerificationArtifact` must contain to
+artifact is serialized; it does not get to decide what a `PatternVerificationArtifact` must contain to
 count as evidence, or what an edge in a `DependencyGraphArtifact` must carry to count as real. Full
 JSON Schema is not frozen here (that remains real implementation work) -- the mandatory fields
 below are.
@@ -138,7 +153,7 @@ to "exist in the codebase" (this sharpens §8's rule the same way).
 
 ```
 DiscoveryArtifact -> DependencyGraphArtifact -> DecisionGateArtifact -> RedPlanArtifact
--> CandidateArtifact -> VerificationArtifact -> ProofPackage
+-> CandidateArtifact -> PatternVerificationArtifact -> ProofPackage
 ```
 
 - **`DiscoveryArtifact`**: what the discovery phase found -- candidate consumer sites, duplicated
@@ -175,7 +190,7 @@ DiscoveryArtifact -> DependencyGraphArtifact -> DecisionGateArtifact -> RedPlanA
   **Mandatory fields:** `candidateSha`, `baseSha`, `diff` (or a resolvable reference to it), and an
   explicit `allowedPathsCompliance` result with its own supporting evidence, not a bare boolean
   assertion.
-- **`VerificationArtifact`**: the independent verifier's own findings, evidence, and probes --
+- **`PatternVerificationArtifact`**: the independent verifier's own findings, evidence, and probes --
   never a copy of or reference to the writer's own reasoning (§4-5).
   **Mandatory fields, per Jimmy's cold review point 2, corrected in the v2 delta-review:**
   `claims[]`, each with an `evidenceGrounds[]` (an array, at least one entry, not exactly one field
@@ -237,12 +252,17 @@ states instead of always forcing itself toward producing code:
   earn. **`NOT_PROVEN` is the one canonical verdict/state name** (not the double-barrelled
   `NOT_PROVEN`/`VERIFICATION_BLOCKED` v2 wording, which risked two different implementation rounds
   inventing two different enum values for the same state) -- the specific reason is carried as
-  `reasonCode: VERIFICATION_BLOCKED` (or another future reason code) on the `VerificationArtifact`
+  `reasonCode: VERIFICATION_BLOCKED` (or another future reason code) on the `PatternVerificationArtifact`
   (§2), not as a second state name.
 
 A run that reaches none of these and instead produces a `ProofPackage` is the only path to
 "proceed to owner push-go" -- matching, not replacing, this program's existing human-authorizes-
-promotion rule.
+promotion rule. **Sharpened per Jimmy's ADR-reconciliation pass (§12, point 3):** a `ProofPackage`
+is evidence, not authority -- reaching `DONE` does not itself mean the candidate is `PROVEN`, and
+this engine is not a new proof or promotion authority. Final `PROVEN` status and promotion remain
+with Dev-Gov / trusted execution, exactly as for every other unit in this program; a `ProofPackage`
+is input to that existing process, the same relationship a cold-reviewed, RED/GREEN-verified
+candidate already has to it today.
 
 ## 4. Writer/verifier isolation (exact boundary)
 
@@ -254,6 +274,11 @@ and the `RedPlanArtifact`'s RED contract (what must fail, and why). Nothing more
   VIOLATION` terminal state per §3 if it tries).
 - Write outside its allowed-paths list.
 - See or influence what the verifier lane will independently derive.
+- **Added per Jimmy's ADR-reconciliation pass (§12, point 4):** commit its own `CandidateArtifact`
+  to the repository. `CandidateArtifact` (§2) is a diff/patch representation the writer produces;
+  performing the actual `git commit` is a separate action gated by this repository's own current
+  commit-authority policy (`docs/architecture/development-governance.md`), not something this
+  design resolves or overrides. See §12 for the exact reconciliation.
 
 **Verifier lane receives:** the source repository, the base SHA, the candidate SHA, and the frozen
 spec/`RedPlanArtifact` -- exactly the same design-level authority the writer had, not the writer's
@@ -272,7 +297,7 @@ was correct -- the same discipline this section formalizes as a hard boundary, n
 ## 5. Verifier must produce its own evidence (the ACCEPT bar)
 
 Per Jimmy's explicit requirement: **"review complete" is never sufficient.** Every claim in a
-`VerificationArtifact` (§2) must cite at least one of three evidence grounds in its
+`PatternVerificationArtifact` (§2) must cite at least one of three evidence grounds in its
 `evidenceGrounds[]` array (an array, not a single field -- corrected in the v2 delta-review so a
 claim can legitimately carry more than one, e.g. writer-regression *plus* a verifier-owned probe):
 - **Verifier-owned probes** -- the verifier's own executed tests/scripts/queries against the
@@ -297,7 +322,7 @@ surfaced from re-running an already-written test unmodified). Non-material claim
 is exactly N files") may still rest on writer-test regression evidence or a direct code derivation
 alone.
 
-A `VerificationArtifact` that cannot cite which ground(s) each of its claims stands on is incomplete,
+A `PatternVerificationArtifact` that cannot cite which ground(s) each of its claims stands on is incomplete,
 not merely weakly-worded -- this is a structural field on the artifact (§2), not a stylistic norm.
 
 ## 6. Candidate freeze before adversarial review
@@ -341,6 +366,14 @@ The governing principle: **every input that can affect the result must be identi
 content-addressed.** A `ProofPackage` whose `InputManifest` omits an input that turns out to affect
 the outcome is, by definition, not clean-room -- and should be caught by attempted replay producing
 a different result, which is exactly what `NON_REPRODUCIBLE` exists to name.
+
+**Reconciled per Jimmy's ADR pass (§12, point 2):** `NON_REPRODUCIBLE` remains this engine's own
+workflow-state name, and `InputManifest` remains the mechanism for declaring a `ProofPackage`'s own
+inputs -- but where a candidate's actual replay/equivalence semantics are being verified (not just
+"can this `ProofPackage` be regenerated"), this engine reuses `ADR-24-23`'s existing canonical
+replay/equivalence model (`ReplayVerificationArtifact`, `ReplayEquivalenceReportArtifact`,
+operationalizing the constitution's `MIMER-20-I7` replay-determinism invariant) rather than defining
+a second, competing canonical replay concept. See §12.
 
 ## 8. Authority-discovery before RED synthesis (the hard rule)
 
@@ -409,7 +442,45 @@ of these kinds.
   of this design, and still requires Jimmy's own explicit opt-in in his own words when the time
   comes, separately from approving this design.
 
-## 11. Non-claims
+## 12. Reconciliation with existing ADRs (2026-09-30, per Jimmy's own review)
+
+Per this program's own established discipline for exactly this situation (`ADR-24-20-Constitution.md`'s
+own "Relationship to Existing ADRs" section, `ADR-MPS-HARVEST-GOVERNED-INGESTION-ORCHESTRATOR.md`'s
+own provenance note distinguishing itself from a same-numbered historical draft): this design is
+compatible with existing normative ADRs, with no larger collision, subject to four boundary
+reconciliations, all independently re-verified against the actual ADR text before being applied:
+
+1. **Naming collision with `ADR-24-22-Signature-Attestation.md`.** That ADR already owns
+   `VerificationArtifact` as a canonical, normative name (signature/attestation verification,
+   `SHALL be deterministically reproducible`, references exactly one `SignatureProfileArtifact`).
+   This is a different concept from this engine's own verifier-evidence artifact. **Renamed
+   throughout this document and its V1 companion: `VerificationArtifact` -> `PatternVerificationArtifact`.**
+2. **Replay model must not compete with `ADR-24-23-Audit-Reconstruction-and-Replay.md`.** That ADR
+   already defines the canonical replay/equivalence model (`ReplayVerificationArtifact`,
+   `ReplayEquivalenceReportArtifact`, operationalizing the constitution's `MIMER-20-I7`
+   replay-determinism invariant). `NON_REPRODUCIBLE` (§3) remains this engine's own workflow-state
+   name and `InputManifest` (§7) remains its own input-declaration mechanism, but actual
+   replay/equivalence verification reuses `ADR-24-23`'s existing model rather than redefining one.
+3. **This engine is not a new proof or promotion authority.** It orchestrates
+   `discover -> RED -> writer -> verifier -> evidence`; final `PROVEN` status and promotion remain
+   with Dev-Gov / trusted execution, unchanged (§3's `DONE` description sharpened accordingly).
+   `ProofPackage` is evidence/input to that existing authority, never self-authorizing proof.
+4. **Writer-commit must reconcile `docs/architecture/development-governance.md`.** That document
+   currently states, verbatim: *"GitHub Copilot Agent är den ENDA AI som får commita kod till
+   repot"* (GitHub Copilot Agent is the ONLY AI permitted to commit code to the repo). This design
+   does not resolve or supersede that policy. The writer lane (§4) produces a `CandidateArtifact` --
+   a diff/patch representation -- but does not itself perform the `git commit` action; that remains
+   gated by whatever this repository's current commit-authority policy is at execution time, formal
+   update or not.
+
+**Not a collision, explicitly:** `docs/architecture/ADR-DRAFT-Autonomy-Qualification-Engine.md`
+governs a different question -- whether a given capability/configuration may act autonomously at
+all, computing a transient, never-persisted `effective_level`. This engine governs how a candidate
+is discovered, built, and falsified once qualified to be worked on. This engine **never mints
+authority or `effective_level`** itself; a `ProofPackage` it eventually produces may become future
+input to that qualification process, not a substitute for it.
+
+## 13. Non-claims
 
 This document does not claim to have selected V1's actual target (§10, Q-PPE-1 narrows the
 selection criteria but does not name a target), written any workflow script or orchestrator
