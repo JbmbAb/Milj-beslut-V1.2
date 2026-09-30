@@ -169,6 +169,33 @@ he judged cheap and in-scope for a fail-closed tool, explicitly ruling out furth
 
 Also removed the dead `execFileSync` import (note-level finding).
 
+**Two defects in this repair itself, found by the implementing session before the delta review was
+launched (both fixed in the same candidate that goes to review, so reviewers see the corrected
+version -- disclosed here rather than silently folded in):**
+
+- **Item 8 was wrong as first written.** `git merge` writes its `CONFLICT` / `Automatic merge
+  failed` lines to **stdout**, not stderr (reproduced live in a scratch repo: real conflict, exit 1,
+  stderr empty). `main()` passed only `mergeResult.stderr` to `classifyMergeFailure`, so every real
+  conflict would have been filed as `STOP_MERGE_FAILED`. The proof-unit did not catch this because
+  it only exercises the pure function with a hand-written string. Fixed: `main()` now classifies on
+  stdout + stderr combined. **Known remaining gap:** the integration itself (which stream
+  `main()` hands the classifier) still has no executed proof; the live scratch-repo probe above is
+  evidence, not a committed test.
+- **`reverify-phases:` executed candidate code.** As first written it imported
+  `phase1VerifyOriginalIdentity`/`phase2VerifyOwnEdit` from the *candidate's* checkout, so a
+  candidate could ship a modified function that always answers OK -- contradicting the trust model
+  `plan:`/`sign:` already follow ("checkout exact candidate without executing candidate code").
+  Fixed: the verification logic is now imported from a protected default-branch `controller/`
+  checkout; the candidate is only ever read as git data (`git -C candidate show`), including the
+  post-edit unit definition (previously read via `fs` from a payload-supplied path with no
+  containment check). Also anchored Phase 2's `base_sha` comparison to reality: because the
+  expected new `base_sha` is read from the file itself in CI, that comparison alone was vacuous; the
+  job now additionally requires it to be a 40-hex SHA that is an ancestor of the candidate (i.e. the
+  base was actually merged). The job's embedded Node step was extracted from the real YAML and run
+  against synthetic git histories: honest base bump passes; an edit that also tampers with `unit`
+  fails Phase 2; a `base_sha` never merged fails; a branch drifted before the automation ran fails
+  Phase 1. This is a local simulation of the step's logic, not a GitHub Actions run.
+
 **Local verification of the repair:** all 7 exported pure functions re-tested with fixtures
 (`phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`, `classifyStaleness`, plus the 2 new
 `assertNonEmptyManifest`, `classifyMergeFailure`) -- all correct. The proof-unit now declares 5

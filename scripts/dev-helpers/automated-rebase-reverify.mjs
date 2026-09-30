@@ -484,7 +484,9 @@ async function main() {
   const mergeResult = runAllowFail('git', ['-C', worktree, 'merge', '--no-edit', `origin/${view.baseRefName}`]);
   if (mergeResult.status !== 0) {
     runAllowFail('git', ['-C', worktree, 'merge', '--abort']);
-    const classification = classifyMergeFailure(mergeResult.stderr);
+    // git merge writes its CONFLICT / "Automatic merge failed" lines to STDOUT, not stderr
+    // (verified live 2026-09-30) -- classify on both streams or every real conflict is misfiled.
+    const classification = classifyMergeFailure(`${mergeResult.stdout}\n${mergeResult.stderr}`);
     console.log(
       JSON.stringify(stopResult(classification.stop, classification.reason, { pr: opts.pr, newBaseSha }), null, 2),
     );

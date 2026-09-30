@@ -188,9 +188,11 @@ jobs:
   # hardcoded literal text, never actually checked by this workflow -- it fully trusted the
   # repository_dispatch payload's own narrative. This job independently re-derives both results from
   # real git history at the three SHAs the payload names (never re-reading the dispatching script's
-  # local run), using the same phase1VerifyOriginalIdentity/phase2VerifyOwnEdit functions the
-  # candidate itself ships (reusing the real logic under independent, CI-fetched inputs -- not a
-  # second, divergent reimplementation). red/green/sign all depend on this job passing.
+  # local run). The verification LOGIC (phase1VerifyOriginalIdentity/phase2VerifyOwnEdit) is loaded
+  # from the protected default-branch controller checkout, never from the candidate: the candidate
+  # is untrusted input here, exactly as in plan:/sign: ("checkout exact candidate without executing
+  # candidate code"), so it is only ever read as git data (git show), never imported or run.
+  # red/green/sign all depend on this job passing.
   reverify-phases:
     name: Independently re-verify Phase 1 / Phase 2
     needs: [plan]
@@ -208,7 +210,14 @@ jobs:
         run: |
           test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
 
-      - name: Checkout exact candidate with full history
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Checkout exact candidate with full history, as data only
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.candidate_sha }}
@@ -231,12 +240,12 @@ jobs:
       - name: Independently re-derive Phase 1 and Phase 2 from git history
         id: reverify
         env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
           PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
           UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
         run: |
           set -euo pipefail
-          cd candidate
           node - "$GITHUB_OUTPUT" <<'NODE'
           const { execFileSync } = require('node:child_process');
           const fs = require('node:fs');
@@ -245,14 +254,15 @@ jobs:
 
           (async () => {
             const outputPath = process.argv[2];
-            const scriptPath = pathToFileURL(path.resolve('scripts/dev-helpers/automated-rebase-reverify.mjs')).href;
+            // Logic comes from the PROTECTED controller checkout. The candidate is data only.
+            const scriptPath = pathToFileURL(path.resolve('controller/scripts/dev-helpers/automated-rebase-reverify.mjs')).href;
             const mod = await import(scriptPath);
-            const show = (ref, file) => execFileSync('git', ['show', `${ref}:${file}`]);
+            const show = (ref, file) => execFileSync('git', ['-C', 'candidate', 'show', `${ref}:${file}`]);
 
             const unitPath = process.env.UNIT_DEFINITION_PATH;
             const currentTipBytes = show(process.env.PRE_MERGE_TIP_SHA, unitPath);
             const priorApprovedBytes = show(process.env.OLD_CANDIDATE_SHA, unitPath);
-            const postEditBytes = fs.readFileSync(unitPath);
+            const postEditBytes = show(process.env.CANDIDATE_SHA, unitPath);
 
             const phase1 = mod.phase1VerifyOriginalIdentity(currentTipBytes, priorApprovedBytes);
             if (!phase1.ok) {
@@ -264,6 +274,20 @@ jobs:
             const phase2 = mod.phase2VerifyOwnEdit(currentTipBytes, postEditBytes, expectedNewBaseSha);
             if (!phase2.ok) {
               console.error('PHASE2_REVERIFICATION_FAILED: ' + JSON.stringify(phase2));
+              process.exit(1);
+            }
+
+            // phase2VerifyOwnEdit takes the expected base_sha from the file itself here, so on its
+            // own that comparison is vacuous. Anchor it to reality: the new base_sha must be a real
+            // 40-hex commit that is actually an ancestor of the candidate (i.e. it was really merged).
+            if (!/^[0-9a-f]{40}$/.test(expectedNewBaseSha)) {
+              console.error('PHASE2_REVERIFICATION_FAILED: new base_sha is not a 40-hex SHA');
+              process.exit(1);
+            }
+            try {
+              execFileSync('git', ['-C', 'candidate', 'merge-base', '--is-ancestor', expectedNewBaseSha, process.env.CANDIDATE_SHA]);
+            } catch {
+              console.error('PHASE2_REVERIFICATION_FAILED: new base_sha is not an ancestor of the candidate (base was never actually merged)');
               process.exit(1);
             }
 
