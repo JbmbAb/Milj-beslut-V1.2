@@ -76,8 +76,8 @@ flagged its absence (DGL-020) on the first draft.
 
 All of the following ran against real local worktrees
 (`C:\wt-automated-rebase-reverify-01`, most recently re-run at candidate
-`32b69914bdc0bd035dff3ffa66e0864c8c247109` after the lint-fix commit below -- and identically, before
-that, at the prior commit `0a5a4f1a7e07d772d8fbb3a841aa5dfc324e8720`;
+`aee374ce2ac9e96e75b59c9aefb25456c14d18a8` (the §7 repair commit) -- and identically, before that,
+at `32b69914bdc0bd035dff3ffa66e0864c8c247109` and `0a5a4f1a7e07d772d8fbb3a841aa5dfc324e8720`;
 `C:\wt-automated-rebase-reverify-01-base`, detached at `740b2fdfa1faffb19b922d4eaeb187ce492521cf`)
 via the **real, unmodified controller** (`node scripts/devgov/devgov.mjs run-red` /
 `run-green`), not a hand-rolled test harness:
@@ -87,11 +87,13 @@ via the **real, unmodified controller** (`node scripts/devgov/devgov.mjs run-red
 | phase1-rejects-pre-existing-base-sha-drift | FAIL (expected FAIL) | PASS |
 | phase2-rejects-edit-disguised-as-base-sha-only | FAIL (expected FAIL) | PASS |
 | staleness-gate-excludes-conflicting-prs | FAIL (expected FAIL) | PASS |
+| empty-manifest-fails-closed | FAIL (expected FAIL) | PASS |
+| merge-failure-classification | FAIL (expected FAIL) | PASS |
 
-All 6/6 match their `expected_classification`. `devgov-helper.mjs lint` was re-run after the
-`blocked_exit_codes`/`timeout_ms` fix and is clean (0 errors; the remaining DGL-022 warnings on the
-RED entries -- "path exists at candidate but not base_sha" -- are the intentional, hint-blessed case:
-"ignore only if absence of that artefact IS the property under test", which it is here).
+All 10/10 match their `expected_classification`. `devgov-helper.mjs lint` re-run clean at
+`aee374ce` (0 errors; the remaining 5 DGL-022 warnings on the RED entries -- "path exists at
+candidate but not base_sha" -- are the intentional, hint-blessed case: "ignore only if absence of
+that artefact IS the property under test", which it is here).
 
 Separately verified directly (scratch script, not part of the committed proof) that the *naive,
 rejected* single-phase check really does wrongly accept the Phase-1 adversarial fixture, to avoid
@@ -171,11 +173,9 @@ Also removed the dead `execFileSync` import (note-level finding).
 (`phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`, `classifyStaleness`, plus the 2 new
 `assertNonEmptyManifest`, `classifyMergeFailure`) -- all correct. The proof-unit now declares 5
 RED/GREEN pairs (2 new); `devgov-helper.mjs lint` re-run clean (0 errors, same 5 intentional,
-hint-blessed DGL-022 warnings). Full 5-pair RED/GREEN regression re-run through the real,
-unmodified controller against the repaired candidate -- see the updated table in §4's location once
-committed (this section is written before that final commit; the exact post-repair candidate SHA is
-recorded in STATUS-NOW.md and the git log, not duplicated here to avoid the same self-reference lag
-noted in earlier revisions of this document).
+hint-blessed DGL-022 warnings). Full 5-pair (10-entry) RED/GREEN regression re-run through the
+real, unmodified controller against the repaired candidate `aee374ce2ac9e96e75b59c9aefb25456c14d18a8`
+-- 10/10 match `expected_classification`; see the updated table in §4.
 
 **What this repair explicitly did NOT do** (no scope expansion, per Jimmy's own instruction): no
 real PR was exercised, nothing was pushed, `reverify-phases:`'s own CI-side logic (the embedded
