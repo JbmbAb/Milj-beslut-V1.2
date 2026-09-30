@@ -4,13 +4,21 @@
  * Solution-neutral by construction: everything below is derived from the CANDIDATE Dockerfile text.
  * The prefix of a target stage is every instruction of every ancestor stage (root base first) plus
  * the target stage's own instructions up to and including its INSTALL step -- the RUN whose shell
- * text (split on `&&` and `;`) contains a PROJECT install command: `npm ci` / `npm install` / `npm i`
- * followed only by flags (no positional package specs, no `-g`/`--global`), so `npm cache ...`,
- * `npm run ...` and `npm install -g npm@10` never qualify (R1 F3). Exactly one such RUN may exist in
- * the target stage; two or more fail closed with PPE_INSTALL_STEP_NOT_FOUND "ambiguous install step"
- * (BLOCKED at the CLI). A candidate that adds `--ignore-scripts`, copies `scripts/` before the RUN,
- * or removes the lifecycle hook is reflected in the derived state, never re-asserted from a base
- * snapshot.
+ * text (split on `&&`, `||`, `|` and `;`, the same separators as lifecycle-scripts.ts) contains a
+ * PROJECT install command: `npm ci` / `npm install` / `npm i` followed only by flags (no positional
+ * package specs, no global install: `-g`, `--global`, `--location=global` or a combined short-flag
+ * group containing `g` such as `-gf`), so `npm cache ...`, `npm run ...` and `npm install -g npm@10`
+ * never qualify (R1 F3, R2 F8). Exactly one such RUN may exist in the target stage; two or more fail
+ * closed with PPE_INSTALL_STEP_NOT_FOUND "ambiguous install step" (BLOCKED at the CLI). A candidate
+ * that adds `--ignore-scripts`, copies `scripts/` before the RUN, or removes the lifecycle hook is
+ * reflected in the derived state, never re-asserted from a base snapshot.
+ *
+ * Documented FAIL-CLOSED rejections of the install predicate (R2 F8; deliberately NOT widened): a
+ * value-taking flag whose value is a separate token (`npm ci --loglevel verbose`), a shell
+ * redirection (`npm ci 2>&1`, `npm ci > log`), an inline `#` comment (`npm ci # prod`) and the
+ * `npm clean-install` / `npm install-clean` aliases are not recognised as a project install. A
+ * target stage whose only install is written that way has no derivable install step:
+ * PPE_INSTALL_STEP_NOT_FOUND, reported BLOCKED at the CLI -- never PASS, never a guessed prefix.
  *
  * Documented limits: `$VAR` substitution is not performed (ENV/ARG values are recorded as declared);
  * `COPY --from=<stage>` instructions are kept verbatim in the prefix but excluded from the build
@@ -30,18 +38,28 @@ import {
   type ParsedInstruction,
   type ParsedStage,
 } from './dockerfile-parse';
+import { SHELL_COMMAND_SEPARATOR_RE } from './lifecycle-scripts';
 
 /** Coarse pre-filter of install RUNs; the project-install predicate below decides. */
 export const DEFAULT_INSTALL_PATTERN = /\bnpm\s+(ci|install|i)\b/;
 
 const INSTALL_SUBCOMMANDS: ReadonlySet<string> = new Set(['ci', 'install', 'i']);
-const GLOBAL_FLAGS: ReadonlySet<string> = new Set(['-g', '--global']);
+const GLOBAL_FLAGS: ReadonlySet<string> = new Set(['-g', '--global', '--location=global']);
+/** A combined short-flag group containing `g` (`-gf`, `-fg`): a global install (R2 F8). */
+const COMBINED_SHORT_GLOBAL_FLAG_RE = /^-[A-Za-z]*g[A-Za-z]*$/;
+
+function isGlobalInstallFlag(token: string): boolean {
+  return GLOBAL_FLAGS.has(token) || COMBINED_SHORT_GLOBAL_FLAG_RE.test(token);
+}
 
 /**
- * True when one shell command (already split on `&&` / `;`) is a PROJECT install: leading
- * `KEY=value` assignments skipped, `npm (ci|install|i)` followed only by `-`-prefixed flags, none of
- * them `-g`/`--global`. An unexpanded `$VAR` / `${VAR}` token is admitted as a flag position (docker
- * expands it; the host executor refuses the prefix as HOST_FIDELITY_UNSUPPORTED, R1 F8).
+ * True when one shell command (already split on `&&` / `||` / `|` / `;`) is a PROJECT install:
+ * leading `KEY=value` assignments skipped, `npm (ci|install|i)` followed only by `-`-prefixed flags,
+ * none of them a global-install flag (`-g`, `--global`, `--location=global`, `-gf`). An unexpanded
+ * `$VAR` / `${VAR}` token is admitted as a flag position (docker expands it; the host executor
+ * refuses the prefix as HOST_FIDELITY_UNSUPPORTED, R1 F8). Anything else after the subcommand (a
+ * positional spec, a separate flag value, a redirection, a `#` comment) fails closed: see the module
+ * header.
  */
 export function isProjectInstallCommand(command: string): boolean {
   const tokens = command
@@ -52,12 +70,17 @@ export function isProjectInstallCommand(command: string): boolean {
   while (k < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[k])) k += 1;
   if (tokens[k] !== 'npm' || !INSTALL_SUBCOMMANDS.has(tokens[k + 1] ?? '')) return false;
   const rest = tokens.slice(k + 2);
-  return rest.every((token) => (token.startsWith('-') && !GLOBAL_FLAGS.has(token)) || token.startsWith('$'));
+  return rest.every(
+    (token) => (token.startsWith('-') && !isGlobalInstallFlag(token)) || token.startsWith('$'),
+  );
 }
 
-/** True when the RUN shell text contains a project install command among its `&&` / `;` commands. */
+/**
+ * True when the RUN shell text contains a project install command among its commands, split on
+ * `&&`, `||`, `|` and `;` (SHELL_COMMAND_SEPARATOR_RE, shared with lifecycle-scripts.ts; R2 F8).
+ */
 export function isProjectInstallShellText(shellText: string): boolean {
-  return shellText.split(/\s*(?:&&|;)\s*/).some((command) => isProjectInstallCommand(command));
+  return shellText.split(SHELL_COMMAND_SEPARATOR_RE).some((command) => isProjectInstallCommand(command));
 }
 
 /** One plain COPY/ADD instruction of the prefix (no `--from`), with its in-image destination. */

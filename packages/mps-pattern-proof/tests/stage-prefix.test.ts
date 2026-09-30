@@ -235,6 +235,52 @@ describe('deriveStagePrefix: the install step is the PROJECT install, and exactl
     expect(isProjectInstallShellText('mkdir -p x; npm ci')).toBe(true);
   });
 
+  it('R2 F8: --location=global and combined short flags containing g are global installs; `||` and `|` split like lifecycle scripts', () => {
+    for (const no of [
+      'npm install --location=global npm@10',
+      'npm install --location=global',
+      'npm ci --location=global',
+      'npm install -gf',
+      'npm i -fg',
+      'npm install -g',
+    ]) {
+      expect(isProjectInstallCommand(no), no).toBe(false);
+      expect(isProjectInstallShellText(no), no).toBe(false);
+    }
+    // a short-flag group without g is still a project install; a long flag merely containing g too
+    expect(isProjectInstallCommand('npm ci -f')).toBe(true);
+    expect(isProjectInstallCommand('npm ci --ignore-scripts')).toBe(true);
+    // the same separators as lifecycle-scripts.ts: `||` and `|` split commands
+    expect(isProjectInstallShellText('npm ci --omit=dev --legacy-peer-deps || true')).toBe(true);
+    expect(isProjectInstallShellText('npm ci --omit=dev --legacy-peer-deps | tee install.log')).toBe(true);
+    expect(isProjectInstallShellText('npm install -g npm@10 || npm ci')).toBe(true);
+    expect(isProjectInstallShellText('npm install --location=global npm@10 | cat')).toBe(false);
+  });
+
+  it('R2 F8: documented fail-closed shapes are NOT recognised (separate flag value, redirection, inline comment, aliases)', () => {
+    for (const no of [
+      'npm ci --loglevel verbose',
+      'npm ci 2>&1',
+      'npm ci > install.log',
+      'npm ci --omit=dev # prod',
+      'npm clean-install',
+      'npm install-clean',
+      'npm ci -- lodash',
+    ]) {
+      expect(isProjectInstallCommand(no), no).toBe(false);
+      expect(isProjectInstallShellText(no), no).toBe(false);
+    }
+    // a stage whose only install is written that way has no derivable install step (BLOCKED at the CLI)
+    const text = [
+      'FROM node:22-alpine AS base',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --loglevel verbose',
+      '',
+    ].join('\n');
+    expectPpeError(() => derive(text, 'base'), 'PPE_INSTALL_STEP_NOT_FOUND');
+  });
+
   it('a stage whose only npm RUNs are global or positional installs has no install step', () => {
     const text = [
       'FROM node:22-alpine AS base',

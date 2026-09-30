@@ -58,8 +58,14 @@ export function lifecycleScriptStrings(packageJson: unknown): string[] {
   return out;
 }
 
-/** Shell command separators recognised in a script string: `&&`, `||`, `|`, `;`. */
-const COMMAND_SEPARATOR = /\s*(?:&&|\|\||\||;)\s*/;
+/**
+ * Shell command separators recognised in a script string or a RUN shell text: `&&`, `||`, `|`, `;`.
+ * Shared with the stage-prefix install predicate (R2 F8) so both split identically.
+ */
+export const SHELL_COMMAND_SEPARATOR_RE = /\s*(?:&&|\|\||\||;)\s*/;
+
+/** Drops one pair of surrounding single or double quotes from a token (`'scripts/x.mjs'`, R2 F2). */
+const SURROUNDING_QUOTES_RE = /^(['"])(.*)\1$/;
 
 /** posix-normalizes a script path and drops a leading `./` (path.posix.normalize keeps `../`). */
 export function normalizeScriptPath(scriptPath: string): string {
@@ -67,14 +73,20 @@ export function normalizeScriptPath(scriptPath: string): string {
   return normalized.startsWith('./') ? normalized.slice(2) : normalized;
 }
 
-/** Splits one script string into its commands (on `&&`, `||`, `|`, `;`), each as a token list. */
+/**
+ * Splits one script string into its commands (on `&&`, `||`, `|`, `;`), each as a token list.
+ * Surrounding single/double quotes are stripped from every token (R2 F2: `node 'scripts/x.mjs'`
+ * names the same file as `node scripts/x.mjs`).
+ */
 export function scriptCommandsOf(script: string): string[][] {
   return script
-    .split(COMMAND_SEPARATOR)
+    .split(SHELL_COMMAND_SEPARATOR_RE)
     .map((command) =>
       command
         .trim()
         .split(/\s+/)
+        .filter((token) => token.length > 0)
+        .map((token) => token.replace(SURROUNDING_QUOTES_RE, '$2'))
         .filter((token) => token.length > 0),
     )
     .filter((tokens) => tokens.length > 0);

@@ -177,7 +177,8 @@ export function validVerification(): PatternVerificationArtifact {
 export function validManifest(): InputManifest {
   return {
     baseSha: FIXTURE_BASE_SHA,
-    candidateShaOrDiff: FIXTURE_CANDIDATE_SHA,
+    // R2 F6: the run binds the manifest to the exact baseSha..candidateSha range, never a bare sha
+    candidateShaOrDiff: `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
     dependencyLockHash: FIXTURE_LOCK_HASH,
     fixtureContentHashes: {
       Dockerfile: `sha256:${'d4'.repeat(32)}`,

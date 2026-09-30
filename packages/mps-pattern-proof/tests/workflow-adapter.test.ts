@@ -530,6 +530,101 @@ describe('(c) control flow with stubbed Workflow globals (T4)', () => {
     expect(asRecord(noSummary.result)).toMatchObject({ failedClosed: true, atPhase: 'RED_SYNTHESIS' });
   });
 
+  it('R2 F3: a relay that passes the harness schema but is incomplete or inconsistent fails closed at RED_SYNTHESIS', async () => {
+    const cases: readonly [string, Record<string, unknown>][] = [
+      ['empty probeResults', { probeResults: [] }],
+      ['one probe result for two stages', { probeResults: [PROBE_RESULTS[0]] }],
+      ['the same stage twice', { probeResults: [PROBE_RESULTS[0], PROBE_RESULTS[0]] }],
+      ['a foreign stage', { probeResults: [PROBE_RESULTS[0], { ...PROBE_RESULTS[1], stage: 'web' }] }],
+      [
+        'a probe result without classification',
+        { probeResults: [PROBE_RESULTS[0], { ...PROBE_RESULTS[1], classification: undefined }] },
+      ],
+      ['a foreign phase', { runSummary: { ...HAPPY_RUN_SUMMARY, phase: 'DISCOVER' } }],
+      ['missing stoppedByMode', { runSummary: { ...HAPPY_RUN_SUMMARY, stoppedByMode: undefined } }],
+      [
+        'stoppedByMode with another reason',
+        {
+          runSummary: {
+            ...HAPPY_RUN_SUMMARY,
+            stoppedByMode: { atPhase: 'RED_SYNTHESIS', reason: 'FULL_PATTERN_PROOF' },
+          },
+        },
+      ],
+      [
+        'stoppedByMode at another phase',
+        {
+          runSummary: {
+            ...HAPPY_RUN_SUMMARY,
+            stoppedByMode: { atPhase: 'WRITER', reason: 'BOOTSTRAP_RED_ONLY' },
+          },
+        },
+      ],
+      [
+        'storedArtifacts without red-plan',
+        {
+          runSummary: {
+            ...HAPPY_RUN_SUMMARY,
+            storedArtifacts: ['discovery', 'dependency-graph', 'decision-gate'],
+          },
+        },
+      ],
+      ['empty storedArtifacts', { runSummary: { ...HAPPY_RUN_SUMMARY, storedArtifacts: [] } }],
+    ];
+    for (const [label, overrides] of cases) {
+      const run = await runAdapter(ARGS, (phase) =>
+        phase === 'RED_SYNTHESIS' ? okStage(phase, overrides) : okStage(phase),
+      );
+      expect(run.calls, label).toHaveLength(4);
+      const result = asRecord(run.result);
+      expect(result, label).toMatchObject({ failedClosed: true, atPhase: 'RED_SYNTHESIS' });
+      expect(result.stoppedAt, label).toBeUndefined();
+      expect(result.terminal, label).toBeUndefined();
+      expect(typeof result.reason, label).toBe('string');
+    }
+  });
+
+  it('R2 F3: the harness schema requires at least one probe result and describes stoppedByMode', async () => {
+    const run = await runAdapter(ARGS, happyResponder);
+    const redSchema = run.calls[3].opts.schema as SubsetSchema;
+    expect(redSchema.properties?.probeResults?.minItems).toBe(1);
+    expect(redSchema.properties?.runSummary?.properties?.stoppedByMode?.required).toEqual([
+      'atPhase',
+      'reason',
+    ]);
+    expect(redSchema.properties?.runSummary?.required).toEqual(['exitCode', 'phase', 'storedArtifacts']);
+    const emptyProbes = validateAgainstSubsetSchema(
+      redSchema,
+      okStage('RED_SYNTHESIS', { probeResults: [] }),
+    );
+    expect(emptyProbes.errors).not.toEqual([]);
+    expect(validateAgainstSubsetSchema(redSchema, okStage('RED_SYNTHESIS')).errors).toEqual([]);
+  });
+
+  it('R2 F3: baseSha, evidenceDir and runStamp are constrained before interpolation; refused with no agent call', async () => {
+    for (const args of [
+      { ...ARGS, baseSha: 'e617c7b7' },
+      { ...ARGS, baseSha: ARGS.baseSha.toUpperCase() },
+      { ...ARGS, baseSha: `${ARGS.baseSha} --json` },
+      { ...ARGS, evidenceDir: 'docs/evidence dir' },
+      { ...ARGS, evidenceDir: 'docs/evidence; rm -rf /' },
+      { ...ARGS, evidenceDir: '$HOME/evidence' },
+      { ...ARGS, evidenceDir: 'docs/evidence|tee' },
+      { ...ARGS, runStamp: '2026-09-30 12:00' },
+      { ...ARGS, runStamp: 'run`id`' },
+      { ...ARGS, runStamp: 'a&&b' },
+    ]) {
+      const run = await runAdapter(args, happyResponder);
+      expect(typeof asRecord(run.result).refused, JSON.stringify(args)).toBe('string');
+      expect(run.calls, JSON.stringify(args)).toHaveLength(0);
+      expect(run.phases, JSON.stringify(args)).toHaveLength(0);
+    }
+    // the happy args themselves pass the same constraints
+    const happy = await runAdapter(ARGS, happyResponder);
+    expect(asRecord(happy.result).refused).toBeUndefined();
+    expect(happy.calls).toHaveLength(4);
+  });
+
   it('runSummary.exitCode 3 (a terminal state decided by ppe-cli run) is returned as a terminal stop, not a failure', async () => {
     const terminalSummary = {
       ok: true,

@@ -296,9 +296,28 @@ describe('RepositoryAuthorityResolver: git_object', () => {
       resolved: false,
       reason: 'GIT_OBJECT_NOT_FOUND',
     });
-    // a temp dir that is not a git repository
+    // R2 F10: git refusing the repository itself (exit 128 `fatal: not a git repository`, `cannot
+    // change to`) is GIT_UNAVAILABLE, never "not found"...
     const notARepo = new RepositoryAuthorityResolver({ repoRoot: root });
-    expect((await notARepo.resolve(loc('git_object', sha))).resolved).toBe(false);
+    expect(await notARepo.resolve(loc('git_object', sha))).toEqual({
+      resolved: false,
+      reason: 'GIT_UNAVAILABLE',
+    });
+    expect(await notARepo.resolve(loc('git_object', `${sha}..${sha}`))).toEqual({
+      resolved: false,
+      reason: 'GIT_UNAVAILABLE',
+    });
+    const missingDir = new RepositoryAuthorityResolver({ repoRoot: path.join(root, 'no-such-dir') });
+    expect(await missingDir.resolve(loc('git_object', sha))).toEqual({
+      resolved: false,
+      reason: 'GIT_UNAVAILABLE',
+    });
+    // ...while a missing path INSIDE an existing object (also exit 128, `fatal: path ... does not
+    // exist in`) is still the object being absent
+    expect(await resolver.resolve(loc('git_object', `${sha}:no-such-file.txt`))).toEqual({
+      resolved: false,
+      reason: 'GIT_OBJECT_NOT_FOUND',
+    });
   });
 });
 

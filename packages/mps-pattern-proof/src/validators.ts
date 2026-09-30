@@ -300,13 +300,18 @@ function isKeyIdValue(value: string): boolean {
 
 /**
  * Returns the reason a VALUE looks like secret material, or undefined when it is clean (D12).
- * `sha256:<64 hex>` fingerprints and `ed25519:`-prefixed key ids are exempt from the blob rule.
+ * `sha256:<64 hex>` fingerprints, `ed25519:`-prefixed key ids and WHOLE-TOKEN 40-hex git object ids
+ * (R2 F9: a declared commit id is an input, not a secret) are exempt from the blob rule; a hex run
+ * of 41 or more characters, or a 40-hex run embedded in a longer word, is still a blob.
  */
 export function secretMaterialReason(value: string): string | undefined {
   if (PEM_HEADER_RE.test(value)) return 'PEM header';
   if (URL_CREDENTIALS_RE.test(value)) return 'URL-embedded credentials';
   if (JWT_RE.test(value)) return 'JWT-shaped token';
-  const stripped = value.replace(FINGERPRINT_TOKEN_RE, ' ').replace(KEY_ID_TOKEN_RE, ' ');
+  const stripped = value
+    .replace(FINGERPRINT_TOKEN_RE, ' ')
+    .replace(KEY_ID_TOKEN_RE, ' ')
+    .replace(GIT_SHA_TOKEN_RE, ' ');
   if (HEX_BLOB_RE.test(stripped)) return 'hex blob of 40+ characters';
   for (const match of stripped.match(BASE64_BLOB_RE) ?? []) {
     if (/[A-Z]/.test(match) && /[a-z]/.test(match) && /[0-9]/.test(match)) {
@@ -524,9 +529,14 @@ export function validateRedPlanArtifact(input: unknown): RedPlanArtifact {
 const CANDIDATE_KEYS = ['candidateSha', 'baseSha', 'diffRef', 'allowedPathsCompliance'] as const;
 const COMPLIANCE_KEYS = ['result', 'allowedPaths', 'evidence'] as const;
 
-/** The admissible `diffRef` identities of a candidate: `<baseSha>..<candidateSha>` or `<candidateSha>`. */
+/**
+ * The admissible `diffRef` identities of a candidate: exactly the range `<baseSha>..<candidateSha>`.
+ * BOOTSTRAP section 2: "diffRef must resolve to the exact baseSha..candidateSha diff" -- a bare
+ * candidate object names a commit, not a diff (its parent is unverified), so it is not admissible
+ * (R2 F6). Kept as a list so callers render "one of ..." uniformly.
+ */
 export function candidateDiffRefs(baseSha: string, candidateSha: string): readonly string[] {
-  return Object.freeze([`${baseSha}..${candidateSha}`, candidateSha]);
+  return Object.freeze([`${baseSha}..${candidateSha}`]);
 }
 
 /** True iff `locator` is a git_object whose (trimmed) ref is one of `candidateDiffRefs`. */
@@ -574,12 +584,13 @@ export function validateCandidateArtifact(input: unknown): CandidateArtifact {
   const baseSha = requireGitSha(record.baseSha, `${path}.baseSha`);
   const diffRef = validateEvidenceLocator(record.diffRef, `${path}.diffRef`);
   // BOOTSTRAP section 2: diffRef must resolve to the exact baseSha..candidateSha diff (R1 F4). A
-  // `git_object` naming that range (or the candidate object itself) is the only admissible form;
-  // a runtime_result, a file_line or a git_object naming any other object is not this candidate's diff.
+  // `git_object` naming that RANGE is the only admissible form (R2 F6: a bare candidate object is a
+  // commit, not the diff); a runtime_result, a file_line or a git_object naming anything else is not
+  // this candidate's diff.
   if (!isCandidateDiffRef(diffRef, baseSha, candidateSha)) {
     throw new PatternProofError(
       'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT',
-      `diffRef must be a git_object naming ${baseSha}..${candidateSha} (or ${candidateSha}); got ${diffRef.kind} "${diffRef.ref}"`,
+      `diffRef must be a git_object naming ${baseSha}..${candidateSha}; got ${diffRef.kind} "${diffRef.ref}"`,
       { path: `${path}.diffRef` },
     );
   }

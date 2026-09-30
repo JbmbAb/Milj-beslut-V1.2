@@ -23,6 +23,7 @@ import {
   FIXTURE_BASE_SHA,
   FIXTURE_BUILDERS,
   FIXTURE_CANDIDATE_SHA,
+  FIXTURE_VERIFIER_KEY_ID,
   validCandidate,
   validDiscovery,
   validGate,
@@ -420,11 +421,11 @@ describe('CandidateArtifact', () => {
     }
   });
 
-  it('diffRef must be the git_object baseSha..candidateSha (or the candidate object) -- F4, BOOTSTRAP section 2', () => {
+  it('diffRef must be the git_object baseSha..candidateSha RANGE -- F4 / R2 F6, BOOTSTRAP section 2', () => {
     const candidate = validCandidate();
+    // R2 F6: exactly the range; a bare candidate object is a commit, not the diff
     expect(candidateDiffRefs(FIXTURE_BASE_SHA, FIXTURE_CANDIDATE_SHA)).toEqual([
       `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
-      FIXTURE_CANDIDATE_SHA,
     ]);
     expect(candidate.diffRef).toEqual({
       kind: 'git_object',
@@ -432,8 +433,14 @@ describe('CandidateArtifact', () => {
       note: 'baseSha..candidateSha',
     });
     expect(isCandidateDiffRef(candidate.diffRef, FIXTURE_BASE_SHA, FIXTURE_CANDIDATE_SHA)).toBe(true);
+    expect(
+      isCandidateDiffRef(
+        { kind: 'git_object', ref: FIXTURE_CANDIDATE_SHA },
+        FIXTURE_BASE_SHA,
+        FIXTURE_CANDIDATE_SHA,
+      ),
+    ).toBe(false);
     for (const diffRef of [
-      { kind: 'git_object', ref: FIXTURE_CANDIDATE_SHA },
       { kind: 'git_object', ref: ` ${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA} `, note: 'trimmed' },
     ]) {
       expect(validateCandidateArtifact({ ...candidate, diffRef }).diffRef.ref).toBe(diffRef.ref);
@@ -442,6 +449,8 @@ describe('CandidateArtifact', () => {
       { kind: 'runtime_result', ref: 'local npm-ci reproduction, 2026-09-30, exit 1, MODULE_NOT_FOUND' },
       { kind: 'file_line', ref: 'Dockerfile:37' },
       { kind: 'git_object', ref: FIXTURE_BASE_SHA },
+      // R2 F6: the bare candidate sha
+      { kind: 'git_object', ref: FIXTURE_CANDIDATE_SHA },
       { kind: 'git_object', ref: `${FIXTURE_CANDIDATE_SHA}..${FIXTURE_BASE_SHA}` },
       { kind: 'git_object', ref: `${FIXTURE_BASE_SHA}..${'f'.repeat(40)}` },
       { kind: 'git_object', ref: `${FIXTURE_CANDIDATE_SHA}:Dockerfile` },
@@ -705,7 +714,10 @@ describe('InputManifest', () => {
       jwt: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
       base64: 'AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       hex64: 'c0ffee'.repeat(11),
-      hex40: '0123456789abcdef0123456789abcdef01234567',
+      // R2 F9: a whole-token 40-hex git object id is exempt; 41+ hex, or 40 hex inside a longer word, is not
+      hex41: `${'0123456789abcdef0123456789abcdef01234567'}8`,
+      hex40InWord: `x${'0123456789abcdef0123456789abcdef01234567'}`,
+      hex40Upper: '0123456789ABCDEF0123456789ABCDEF01234567',
       signature: 'ed25519:GlYmq7Xk3pQ9zR1tB4vN8cW2yF6hJ0dL5sAmNoEpQrStUvWxYz0123456789AbCdEfGh==',
     };
     for (const [name, value] of Object.entries(positives)) {
@@ -729,6 +741,11 @@ describe('InputManifest', () => {
       'production',
       `fingerprint=sha256:${'ab'.repeat(32)} signer=ed25519:ppe-verifier-fixture`,
       '1.2.3',
+      // R2 F9: whole-token 40-hex git object ids are declared inputs, not secret material
+      FIXTURE_BASE_SHA,
+      `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
+      `commit ${FIXTURE_CANDIDATE_SHA} (main)`,
+      `${FIXTURE_BASE_SHA}:Dockerfile`,
     ];
     for (const value of negatives) {
       expect(secretMaterialReason(value), value).toBeUndefined();
@@ -736,6 +753,32 @@ describe('InputManifest', () => {
         validateInputManifest({ ...validManifest(), environmentConfig: { HARMLESS_NAME: value } })
           .environmentConfig.HARMLESS_NAME,
       ).toBe(value);
+    }
+  });
+
+  it('R2 F9: a git sha may be an environment input, a toolchain identity or a provider ref; longer hex blobs stay rejected', () => {
+    const manifest = validManifest();
+    const sha = 'e617c7b7bb4613b95c6934004201eb14bec89ba0';
+    const ok = validateInputManifest({
+      ...manifest,
+      environmentConfig: {
+        ...manifest.environmentConfig,
+        GIT_SHA: sha,
+        GIT_RANGE: `${sha}..${FIXTURE_CANDIDATE_SHA}`,
+      },
+      toolchainIdentity: `node v22.22.2; npm 10.9.7; ppe ${sha}`,
+      secretBackedAuthority: [
+        { keyId: FIXTURE_VERIFIER_KEY_ID, providerRef: `local-pem:verify-only@${sha}` },
+      ],
+    });
+    expect(ok.environmentConfig.GIT_SHA).toBe(sha);
+    expect(ok.toolchainIdentity).toContain(sha);
+    for (const blob of [`${sha}8`, `x${sha}`, 'c0ffee'.repeat(11)]) {
+      const error = expectCode(
+        () => validateInputManifest({ ...manifest, environmentConfig: { GIT_SHA: blob } }),
+        'PPE_MANIFEST_SECRET_MATERIAL',
+      );
+      expect(error.message, blob).toContain('hex blob');
     }
   });
 

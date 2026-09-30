@@ -336,18 +336,21 @@ describe('state machine: assertPhase and transition guards', () => {
     await expect(applyCandidate(state, reversed, deps(reversed))).rejects.toSatisfy((error) =>
       isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'),
     );
-    // both admissible forms are accepted when they resolve
+    // R2 F6: a bare candidate object is a commit, not the diff -- inadmissible even though it resolves
     const bareObject = {
       ...validCandidate(),
       diffRef: { kind: 'git_object' as const, ref: FIXTURE_CANDIDATE_SHA },
     };
-    expect((await applyCandidate(state, bareObject, deps(bareObject))).phase).toBe('VERIFY');
+    await expect(applyCandidate(state, bareObject, deps(bareObject))).rejects.toSatisfy((error) =>
+      isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'),
+    );
+    // the range form is accepted when it resolves
     expect((await applyCandidate(state, validCandidate(), deps(validCandidate()))).phase).toBe('VERIFY');
-    // the admissible form that does NOT resolve is still a candidate-integrity fault
+    // the range form that does NOT resolve is still a candidate-integrity fault
     await expect(
-      applyCandidate(state, bareObject, {
+      applyCandidate(state, validCandidate(), {
         diffResolver: diffResolverReturning(['Dockerfile']),
-        resolver: seededResolver(validDiscovery(), validGraph(), validRedPlan(), validCandidate()),
+        resolver: seededResolver(validDiscovery(), validGraph(), validRedPlan()),
       }),
     ).rejects.toSatisfy((error) => isPatternProofError(error, 'PPE_CANDIDATE_COMPLIANCE_INCONSISTENT'));
   });
@@ -415,18 +418,42 @@ describe('state machine: applyProofPackage binds the package to the admitted can
         candidateShaOrDiff: `${FIXTURE_CANDIDATE_SHA}..${FIXTURE_BASE_SHA}`,
       },
     });
+    // R2 F6: the bare candidate sha names a commit, not the exact baseSha..candidateSha diff
+    await expectUnbound({
+      ...validProofPackage(),
+      inputManifest: { ...validManifest(), candidateShaOrDiff: FIXTURE_CANDIDATE_SHA },
+    });
   });
 
-  it('probeIdentities must be a NON-EMPTY subset of the stored RedPlan probe ids', async () => {
+  it('probeIdentities must be EXACTLY the stored RedPlan probe ids (set equality, R2 F6)', async () => {
+    const planned = validProofPackage().probeIdentities;
+    expect(planned).toHaveLength(2);
     await expectUnbound({ ...validProofPackage(), probeIdentities: [] });
     await expectUnbound({ ...validProofPackage(), probeIdentities: ['not-a-red-plan-probe'] });
     await expectUnbound({
       ...validProofPackage(),
-      probeIdentities: [...validProofPackage().probeIdentities, 'red-invented-later'],
+      probeIdentities: [...planned, 'red-invented-later'],
     });
+    // a strict subset omits a planned probe: unbound, naming the omitted probe
+    for (const subset of [[planned[0]], [planned[1]], [planned[0], planned[0]]]) {
+      await expectUnbound({ ...validProofPackage(), probeIdentities: subset });
+      const state = await driveToAssembleEvidence();
+      const pkg = { ...validProofPackage(), probeIdentities: subset };
+      let caught: unknown;
+      try {
+        applyProofPackage(state, pkg, boundComparison(pkg));
+      } catch (error) {
+        caught = error;
+      }
+      expect(isPatternProofError(caught, 'PPE_PROOF_PACKAGE_UNBOUND')).toBe(true);
+      const omitted = planned.filter((id) => !subset.includes(id));
+      for (const id of omitted) expect(String((caught as Error).message), subset.join(',')).toContain(id);
+      expect(String((caught as Error).message), subset.join(',')).toContain('omit');
+    }
   });
 
-  it('a bound package (both diff forms, any non-empty probe subset) reaches DONE', async () => {
+  it('a bound package (range manifest, the full probe set in any order) reaches DONE', async () => {
+    const planned = validProofPackage().probeIdentities;
     for (const pkg of [
       validProofPackage(),
       {
@@ -436,7 +463,7 @@ describe('state machine: applyProofPackage binds the package to the admitted can
           candidateShaOrDiff: `${FIXTURE_BASE_SHA}..${FIXTURE_CANDIDATE_SHA}`,
         },
       },
-      { ...validProofPackage(), probeIdentities: [validProofPackage().probeIdentities[1]] },
+      { ...validProofPackage(), probeIdentities: [planned[1], planned[0]] },
     ]) {
       const done = applyProofPackage(await driveToAssembleEvidence(), pkg, boundComparison(pkg));
       expect(done.phase).toBe('DONE');

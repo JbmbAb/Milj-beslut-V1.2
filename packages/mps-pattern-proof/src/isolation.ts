@@ -94,6 +94,12 @@ export const VERIFIER_RUNTIME_INPUT_KEY_RE = /^PPE_[A-Z0-9_]{1,64}$/;
 export const VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH = 512;
 /** Locator notes rendered into the prompt are capped at this many characters (R1 F12). */
 export const VERIFIER_PROMPT_NOTE_MAX_LENGTH = 200;
+/**
+ * Every other declared free-text slot -- `repositoryIdentity.remote`, `candidate.diffRef.ref` and
+ * each `frozenSpec[i].ref` -- is single-line and at most this many characters (R2 F5); a longer or
+ * multi-line value is an undeclared input (PPE_ISOLATION_UNDECLARED_INPUT), not a schema typo.
+ */
+export const VERIFIER_DECLARED_TEXT_MAX_LENGTH = 512;
 
 /**
  * Compile-time counterpart of the runtime `sign`-member rejection. A `SigningKeyProvider` is not
@@ -168,11 +174,35 @@ function requireSha(value: unknown, path: string): string {
   return sha;
 }
 
+/**
+ * A declared free-text slot is BOUNDED (R2 F5): single-line and at most
+ * VERIFIER_DECLARED_TEXT_MAX_LENGTH characters. A transcript-shaped value riding a declared slot is
+ * an undeclared input, whatever the slot's name.
+ */
+function requireBoundedDeclaredText(value: string, path: string, what: string): string {
+  if (LINE_BREAK_RE.test(value) || value.length > VERIFIER_DECLARED_TEXT_MAX_LENGTH) {
+    throw new PatternProofError(
+      'PPE_ISOLATION_UNDECLARED_INPUT',
+      `${what} must be a single line of at most ${VERIFIER_DECLARED_TEXT_MAX_LENGTH} characters (got ${value.length} characters${LINE_BREAK_RE.test(value) ? ', multi-line' : ''})`,
+      { path },
+    );
+  }
+  return value;
+}
+
+/** Validates a locator and bounds its `ref` (R2 F5); the note is bounded at render time (R1 F12). */
+function validateBoundedLocator(input: unknown, path: string): EvidenceLocator {
+  const locator = validateEvidenceLocator(input, path);
+  requireBoundedDeclaredText(locator.ref, `${path}.ref`, 'locator ref');
+  return locator;
+}
+
 function validateRepositoryIdentity(input: unknown, path: string): VerifierRepositoryIdentity {
   const value = requirePlainObject(input, path);
   rejectUndeclaredKeys(value, ['remote', 'baseSha'], path);
+  const remote = requireNonEmptyString(value.remote, `${path}.remote`);
   return Object.freeze({
-    remote: requireNonEmptyString(value.remote, `${path}.remote`),
+    remote: requireBoundedDeclaredText(remote, `${path}.remote`, 'repositoryIdentity.remote'),
     baseSha: requireSha(value.baseSha, `${path}.baseSha`),
   });
 }
@@ -182,7 +212,7 @@ function validateCandidateIdentity(input: unknown, path: string): VerifierCandid
   rejectUndeclaredKeys(value, ['candidateSha', 'diffRef'], path);
   return Object.freeze({
     candidateSha: requireSha(value.candidateSha, `${path}.candidateSha`),
-    diffRef: validateEvidenceLocator(value.diffRef, `${path}.diffRef`),
+    diffRef: validateBoundedLocator(value.diffRef, `${path}.diffRef`),
   });
 }
 
@@ -242,10 +272,14 @@ export function validateVerifierInputBundle(
       path: `${path}.redPlanDigest`,
     });
   }
+  const frozenSpec = validateEvidenceLocators(value.frozenSpec, `${path}.frozenSpec`);
+  frozenSpec.forEach((locator, index) =>
+    requireBoundedDeclaredText(locator.ref, `${path}.frozenSpec[${index}].ref`, 'locator ref'),
+  );
   return Object.freeze({
     repositoryIdentity: validateRepositoryIdentity(value.repositoryIdentity, `${path}.repositoryIdentity`),
     candidate: validateCandidateIdentity(value.candidate, `${path}.candidate`),
-    frozenSpec: validateEvidenceLocators(value.frozenSpec, `${path}.frozenSpec`),
+    frozenSpec,
     redPlanDigest,
     verifierRuntimeInputs: validateRuntimeInputs(
       value.verifierRuntimeInputs,
@@ -432,18 +466,31 @@ export async function createVerifierContext(args: CreateVerifierContextArgs): Pr
 // Prompt rendering (deterministic, inputs-only)
 // ---------------------------------------------------------------------------------------------
 
+/** Free text as rendered into the prompt: newlines folded to spaces, capped at `maxLength`. */
+function foldPromptText(text: string, maxLength: number): string {
+  const folded = text.replace(/\r\n|[\r\n\u2028\u2029]/g, ' ');
+  return folded.length > maxLength ? `${folded.slice(0, maxLength)}...` : folded;
+}
+
 /** A note as rendered into the prompt: newlines folded to spaces, capped (R1 F12). */
 export function promptNoteText(note: string): string {
-  const folded = note.replace(/\r\n|[\r\n\u2028\u2029]/g, ' ');
-  return folded.length > VERIFIER_PROMPT_NOTE_MAX_LENGTH
-    ? `${folded.slice(0, VERIFIER_PROMPT_NOTE_MAX_LENGTH)}...`
-    : folded;
+  return foldPromptText(note, VERIFIER_PROMPT_NOTE_MAX_LENGTH);
+}
+
+/**
+ * A declared text slot (remote, locator ref) as rendered into the prompt: the same folding as notes,
+ * capped at VERIFIER_DECLARED_TEXT_MAX_LENGTH (R2 F5). Validation already bounds these, so this is
+ * the rendering-side guarantee that no multi-line text reaches the verifier through a declared slot.
+ */
+export function promptDeclaredText(text: string): string {
+  return foldPromptText(text, VERIFIER_DECLARED_TEXT_MAX_LENGTH);
 }
 
 function renderLocator(locator: EvidenceLocator): string {
+  const ref = promptDeclaredText(locator.ref);
   return locator.note === undefined
-    ? `${locator.kind} ${locator.ref}`
-    : `${locator.kind} ${locator.ref} (${promptNoteText(locator.note)})`;
+    ? `${locator.kind} ${ref}`
+    : `${locator.kind} ${ref} (${promptNoteText(locator.note)})`;
 }
 
 /**
@@ -463,7 +510,7 @@ export function renderVerifierPrompt(context: VerifierContext): RenderedVerifier
     'derivation or writer-test regression); a material invariant needs a probe or a derivation.',
     '',
     `Declared input bundle digest: ${digestOf(inputs)}`,
-    `Repository remote: ${inputs.repositoryIdentity.remote}`,
+    `Repository remote: ${promptDeclaredText(inputs.repositoryIdentity.remote)}`,
     `Base sha: ${inputs.repositoryIdentity.baseSha}`,
     `Candidate sha: ${inputs.candidate.candidateSha}`,
     `Candidate diff: ${renderLocator(inputs.candidate.diffRef)}`,

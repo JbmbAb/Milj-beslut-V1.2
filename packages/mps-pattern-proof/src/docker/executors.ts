@@ -451,7 +451,11 @@ export function installStepHeaders(installCommand: string, instruction?: ParsedI
   return [...new Set(headers.filter((header) => header.length > 0))];
 }
 
-/** True when the BuildKit plain-progress step header for the install RUN appears in the output. */
+/**
+ * True when the BuildKit plain-progress step header for the install RUN appears in the output:
+ * the normalized header text must EQUAL one of `installStepHeaders` (R2 F7: no prefix rule, so an
+ * ancestor stage's shorter `RUN npm ci` never marks the target's `npm ci --omit=dev ...` as started).
+ */
 export function dockerInstallStepStarted(
   output: string,
   installCommand: string,
@@ -463,7 +467,7 @@ export function dockerInstallStepStarted(
     if (match === null) continue;
     const header = normalizeSpaces(match[1]);
     if (header.length === 0) continue;
-    if (wantedHeaders.some((wanted) => header === wanted || wanted.startsWith(header))) return true;
+    if (wantedHeaders.some((wanted) => header === wanted)) return true;
   }
   return false;
 }

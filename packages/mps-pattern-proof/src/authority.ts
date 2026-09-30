@@ -59,6 +59,27 @@ function unresolved(reason: string): AuthorityResolution {
   return Object.freeze({ resolved: false, reason });
 }
 
+/**
+ * `git cat-file -e` diagnostics (exit 128, `fatal:`-prefixed) that name the OBJECT or the path inside
+ * it: the repository was opened and the thing is absent. Everything else at exit 128 / `fatal:` is
+ * git refusing the repository itself (`not a git repository`, `detected dubious ownership`, `cannot
+ * change to '<dir>'`), which is GIT_UNAVAILABLE, never "not found" (R2 F10).
+ */
+const GIT_OBJECT_NAMING_FATAL_RE =
+  /^fatal: (?:Not a valid object name|invalid object name|path '.*' (?:does not exist|exists on disk, but not) in)/m;
+
+/** Maps a non-zero `git cat-file -e` exit to its unresolved reason (R2 F10). */
+function gitCatFileFailure(
+  status: number | null,
+  stderr: string,
+): 'GIT_OBJECT_NOT_FOUND' | 'GIT_UNAVAILABLE' {
+  // exit 1: the only silent failure of `cat-file -e` -- the object does not exist
+  if (status === 1) return 'GIT_OBJECT_NOT_FOUND';
+  if (GIT_OBJECT_NAMING_FATAL_RE.test(stderr)) return 'GIT_OBJECT_NOT_FOUND';
+  // exit 128, any other `fatal:`, or killed by the timeout (status null): git could not be used here
+  return 'GIT_UNAVAILABLE';
+}
+
 /** Resolves every locator (sequentially, deterministic order) and lists the ones that failed. */
 export async function resolveAll(
   resolver: AuthorityLocatorResolver,
@@ -272,12 +293,14 @@ export class RepositoryAuthorityResolver implements AuthorityLocatorResolver {
       }
     }
     const result = spawnSync('git', ['-C', this.repoRoot, 'cat-file', '-e', object], {
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', 'pipe'],
       shell: false,
       timeout: 10_000,
+      encoding: 'utf8',
     });
     if (result.error !== undefined) return 'GIT_UNAVAILABLE';
-    return result.status === 0 ? 'present' : 'GIT_OBJECT_NOT_FOUND';
+    if (result.status === 0) return 'present';
+    return gitCatFileFailure(result.status, typeof result.stderr === 'string' ? result.stderr : '');
   }
 
   private async resolveCasArtifact(ref: string): Promise<AuthorityResolution> {

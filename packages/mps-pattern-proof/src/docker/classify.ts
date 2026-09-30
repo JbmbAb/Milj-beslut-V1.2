@@ -13,8 +13,9 @@
  *                  non-zero exit -- the candidate declares lifecycle scripts none of which derives a
  *                  `node <path>` (LIFECYCLE_RUNNER_UNSUPPORTED: the FAIL predicate cannot be evaluated).
  *   2. FAIL     -- RED confirmed: exit status != 0 AND install step started AND lifecycle banner of the
- *                  probed package AND `Cannot find module` on a lifecycle-script path (both sides
- *                  normalized and relativised to the workdir) AND `code: 'MODULE_NOT_FOUND'` AND
+ *                  probed package AND `Cannot find module` (CJS or ESM loader shape, R2 F2) on a
+ *                  lifecycle-script path (both sides resolved against the workdir) AND
+ *                  `code: 'MODULE_NOT_FOUND'` (or `ERR_MODULE_NOT_FOUND`) AND
  *                  `npm error command sh -c <exact lifecycle script>`; at docker fidelity the
  *                  `did not complete successfully` line, when present, must name the install command.
  *                  A truncated log that still shows the banner followed by `Cannot find module` on a
@@ -105,8 +106,11 @@ export const INSTALL_COMPLETED_REASON_CODE = 'INSTALL_COMPLETED';
 export const INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT_REASON_CODE =
   'INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT';
 
-const CANNOT_FIND_MODULE = /Error: Cannot find module '([^']+)'/;
-const MODULE_NOT_FOUND_CODE = /code: 'MODULE_NOT_FOUND'/;
+// R2 F2: the CJS loader prints `Error: Cannot find module '<path>'` / `code: 'MODULE_NOT_FOUND'`; the
+// ESM loader prints `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '<path>' imported from ...` /
+// `code: 'ERR_MODULE_NOT_FOUND'`. Both are the asserted failure.
+const CANNOT_FIND_MODULE = /Error(?: \[ERR_MODULE_NOT_FOUND\])?: Cannot find module '([^']+)'/;
+const MODULE_NOT_FOUND_CODE = /code: '(?:MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND)'/;
 const NPM_ERROR_COMMAND = /npm error command sh -c (.+?)\s*$/;
 const NPM_ERROR_CODE = /npm error code (\S+)/;
 const DOCKER_STEP_FAILED = /process "((?:[^"\\]|\\.)*)" did not complete successfully: exit code: (\d+)/;
@@ -133,6 +137,18 @@ export function canonicalLifecyclePath(scriptPath: string, workdir: string): str
   if (!path.posix.isAbsolute(normalized)) return normalized;
   const relative = relativeToWorkdir(normalized, path.posix.normalize(workdir));
   return path.posix.isAbsolute(relative) ? relative : normalizeScriptPath(relative);
+}
+
+/**
+ * Absolute form of a lifecycle/module path for membership in `L` (R2 F2): `path.posix.resolve` of
+ * the (normalized) path against the workdir, so `../scripts/x.mjs` under `/app/nested` and the
+ * `/app/scripts/x.mjs` node prints are the same member. The workdir is always absolute (an in-image
+ * WORKDIR or a host temp dir); a relative one is rooted at `/` so the result never depends on cwd.
+ */
+export function resolvedLifecyclePath(scriptPath: string, workdir: string): string {
+  const normalizedWorkdir = path.posix.normalize(workdir);
+  const root = path.posix.isAbsolute(normalizedWorkdir) ? normalizedWorkdir : `/${normalizedWorkdir}`;
+  return path.posix.resolve(root, normalizeScriptPath(scriptPath));
 }
 
 /** The command a BuildKit `did not complete successfully` line names (shell-form wrapper removed). */
@@ -171,10 +187,11 @@ function lifecycleErrorTextOf(
   after: readonly string[],
   input: InstallProbeOutputInput,
 ): LifecycleErrorText | undefined {
-  const lifecycle = new Set(input.lifecyclePaths.map((p) => canonicalLifecyclePath(p, input.workdir)));
+  // R2 F2: both sides resolved against the workdir (`../` in L, absolute in the node output)
+  const lifecycle = new Set(input.lifecyclePaths.map((p) => resolvedLifecyclePath(p, input.workdir)));
   const cannotFind = after.find((line) => {
     const match = CANNOT_FIND_MODULE.exec(line);
-    return match !== null && lifecycle.has(canonicalLifecyclePath(match[1], input.workdir));
+    return match !== null && lifecycle.has(resolvedLifecyclePath(match[1], input.workdir));
   });
   if (cannotFind === undefined) return undefined;
   const codeLine = after.find((line) => MODULE_NOT_FOUND_CODE.test(line));

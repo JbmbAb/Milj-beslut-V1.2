@@ -27,11 +27,12 @@
  * Determinism: transitions carry no timestamps (`at?: never`), so the same inputs always produce
  * byte-identical states (digestable with ./identity.ts). No key on a state is ever `undefined`.
  *
- * Binding (R1 F4): a run may carry the `baseSha` it was started for; an admitted candidate must be
- * built on it, its `diffRef` must be the git_object `baseSha..candidateSha` (or the candidate object)
- * and must resolve; a ProofPackage must name the admitted candidate's shas, a manifest consistent
- * with them and only probes of the stored RedPlan (else PPE_PROOF_PACKAGE_UNBOUND: an inadmissible
- * artifact, never a terminal state). Terminal records are never evidence-free (R1 F16).
+ * Binding (R1 F4, R2 F6): a run may carry the `baseSha` it was started for; an admitted candidate
+ * must be built on it, its `diffRef` must be the git_object RANGE `baseSha..candidateSha` (a bare
+ * candidate object is not the diff) and must resolve; a ProofPackage must name the admitted
+ * candidate's shas, a manifest consistent with them and EXACTLY the probe ids of the stored RedPlan
+ * (set equality: an omitted probe is as unbound as a foreign one; else PPE_PROOF_PACKAGE_UNBOUND, an
+ * inadmissible artifact, never a terminal state). Terminal records are never evidence-free (R1 F16).
  */
 import type {
   CandidateArtifact,
@@ -485,9 +486,9 @@ export async function applyRedSynthesis(
 /**
  * WRITER -> VERIFY, or terminal SCOPE_VIOLATION (D10). The candidate must be bound to the run (F4):
  * `candidate.baseSha` equals the run's `baseSha` when one was recorded (else
- * PPE_CANDIDATE_SHA_INVALID), `candidate.diffRef` is the git_object `baseSha..candidateSha` (or
- * the candidate object) and resolves (an unresolvable or foreign diff reference is a
- * candidate-integrity fault, thrown as PPE_CANDIDATE_COMPLIANCE_INCONSISTENT, never a verdict).
+ * PPE_CANDIDATE_SHA_INVALID), `candidate.diffRef` is the git_object range `baseSha..candidateSha`
+ * (R2 F6: never a bare candidate object) and resolves (an unresolvable or foreign diff reference is
+ * a candidate-integrity fault, thrown as PPE_CANDIDATE_COMPLIANCE_INCONSISTENT, never a verdict).
  * The changed paths are derived INDEPENDENTLY through `diffResolver` and checked with
  * `isPathAllowed`; the writer's own claim is never trusted. Derived FAIL -> SCOPE_VIOLATION
  * (evidence: one git_object locator per offending path). Claimed != derived in either direction ->
@@ -650,10 +651,12 @@ function requireProofPackageBinding(state: PatternProofRunState, proofPackage: P
       { expected: admissibleDiffs, actual: manifest.candidateShaOrDiff },
     );
   }
+  // R2 F6: SET EQUALITY with the stored RedPlan -- a package that omits a planned probe claims
+  // proof over a narrower plan than the run established; a foreign id claims a probe never planned.
   const plannedProbes = new Set(redPlan.probes.map((probe) => probe.id));
   if (proofPackage.probeIdentities.length === 0) {
     throw unbound(
-      'probeIdentities must name at least one stored RedPlan probe',
+      'probeIdentities must name every stored RedPlan probe (got none)',
       'proof-package.probeIdentities',
       {
         planned: [...plannedProbes],
@@ -668,13 +671,22 @@ function requireProofPackageBinding(state: PatternProofRunState, proofPackage: P
       { foreign, planned: [...plannedProbes] },
     );
   }
+  const named = new Set(proofPackage.probeIdentities);
+  const omitted = [...plannedProbes].filter((id) => !named.has(id));
+  if (omitted.length > 0) {
+    throw unbound(
+      `probeIdentities omit stored RedPlan probes: ${omitted.join(', ')}`,
+      'proof-package.probeIdentities',
+      { omitted, planned: [...plannedProbes] },
+    );
+  }
 }
 
 /**
  * ASSEMBLE_EVIDENCE -> DONE, or terminal NON_REPRODUCIBLE (D4). The package must be BOUND to the run
- * (R1 F4): its candidateSha/baseSha are the admitted candidate's, its manifest names that base and
- * that candidate (sha or `base..candidate`), and its probeIdentities are a non-empty subset of the
- * stored RedPlan's probe ids -- else PPE_PROOF_PACKAGE_UNBOUND (inadmissible artifact, no terminal
+ * (R1 F4, R2 F6): its candidateSha/baseSha are the admitted candidate's, its manifest names that
+ * base and the `base..candidate` range, and its probeIdentities are EXACTLY the stored RedPlan's
+ * probe ids (set equality) -- else PPE_PROOF_PACKAGE_UNBOUND (inadmissible artifact, no terminal
  * state). The comparison must be BOUND to this package: manifestDigest ===
  * digestOf(proofPackage.inputManifest) and expectedPackageDigest === digestOf(proofPackage) (both
  * over the validated canonical form), else PPE_REPLAY_UNBOUND. The machine recomputes divergence

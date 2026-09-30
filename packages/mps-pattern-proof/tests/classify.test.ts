@@ -10,6 +10,7 @@ import {
   LIFECYCLE_RUNNER_UNSUPPORTED_REASON_CODE,
   RED_REASON_CODE,
   RED_TRUNCATED_REASON_CODE,
+  resolvedLifecyclePath,
   type InstallProbeOutputInput,
 } from '../src/docker/classify';
 import { parseDockerfile } from '../src/docker/dockerfile-parse';
@@ -290,6 +291,76 @@ describe('classifyInstallProbeOutput: lifecycle-path normalization on the UNCHAN
   });
 });
 
+describe('classifyInstallProbeOutput: R2 F2 shapes on the UNCHANGED captured RED output (exit 1) stay FAIL', () => {
+  it('a `../` lifecycle path is resolved against the workdir on both sides', () => {
+    // WORKDIR /app/nested with `node ../scripts/x.mjs`: node prints /app/scripts/x.mjs
+    const nested = classifyInstallProbeOutput(
+      input({
+        ...DOCKER_PB,
+        workdir: '/app/nested',
+        lifecyclePaths: ['../scripts/postinstall-prisma-generate.mjs'],
+      }),
+    );
+    expect(nested.classification).toBe('FAIL');
+    expect(nested.reasonCode).toBe(RED_REASON_CODE);
+    // WORKDIR /app with `node ../app/scripts/x.mjs`
+    const roundTrip = classifyInstallProbeOutput(
+      input({ ...DOCKER_PB, lifecyclePaths: ['../app/scripts/postinstall-prisma-generate.mjs'] }),
+    );
+    expect(roundTrip.classification).toBe('FAIL');
+    expect(roundTrip.reasonCode).toBe(RED_REASON_CODE);
+    expect(resolvedLifecyclePath('../scripts/x.mjs', '/app/nested')).toBe('/app/scripts/x.mjs');
+    expect(resolvedLifecyclePath('/app/scripts/x.mjs', '/app/nested')).toBe('/app/scripts/x.mjs');
+    expect(resolvedLifecyclePath('./scripts/x.mjs', '/app/')).toBe('/app/scripts/x.mjs');
+    // a relative workdir never consults process.cwd()
+    expect(resolvedLifecyclePath('scripts/x.mjs', 'app')).toBe('/app/scripts/x.mjs');
+    // a `../` path that resolves to ANOTHER file is honestly not a member of L
+    const elsewhere = classifyInstallProbeOutput(
+      input({ ...DOCKER_PB, lifecyclePaths: ['../scripts/postinstall-prisma-generate.mjs'] }),
+    );
+    expect(elsewhere.classification).toBe('PASS');
+    expect(elsewhere.reasonCode).toBe(INSTALL_FAILED_AFTER_LIFECYCLE_STARTED_REASON_CODE);
+  });
+
+  it('a quoted script path in package.json derives the unquoted member of L', () => {
+    for (const postinstall of [
+      "node 'scripts/postinstall-prisma-generate.mjs'",
+      'node "scripts/postinstall-prisma-generate.mjs"',
+    ]) {
+      const packageJson = { ...PROBED_PACKAGE_IDENTITY, scripts: { postinstall } };
+      const lifecyclePaths = lifecycleScriptPaths(packageJson);
+      expect(lifecyclePaths, postinstall).toEqual(['scripts/postinstall-prisma-generate.mjs']);
+      const result = classifyInstallProbeOutput(
+        input({ ...DOCKER_PB, lifecyclePaths, lifecycleScriptStrings: lifecycleScriptStrings(packageJson) }),
+      );
+      expect(result.classification, postinstall).toBe('FAIL');
+      expect([RED_REASON_CODE, RED_TRUNCATED_REASON_CODE], postinstall).toContain(result.reasonCode);
+    }
+  });
+
+  it('the ESM loader shape (`Error [ERR_MODULE_NOT_FOUND]: ... imported from`, `code: ERR_MODULE_NOT_FOUND`) is the same FAIL', () => {
+    const esm = DOCKER_PRODUCTION_BASE_RED_OUTPUT.replace(
+      "Error: Cannot find module '/app/scripts/postinstall-prisma-generate.mjs'",
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/app/scripts/postinstall-prisma-generate.mjs' imported from /app/scripts/postinstall.mjs",
+    ).replace("code: 'MODULE_NOT_FOUND'", "code: 'ERR_MODULE_NOT_FOUND'");
+    expect(esm).not.toBe(DOCKER_PRODUCTION_BASE_RED_OUTPUT);
+    expect(esm).not.toContain("code: 'MODULE_NOT_FOUND'");
+    const result = classifyInstallProbeOutput(input({ ...DOCKER_PB, output: esm }));
+    expect(result.classification).toBe('FAIL');
+    expect(result.reasonCode).toBe(RED_REASON_CODE);
+    expect(result.matched.some((line) => line.includes('[ERR_MODULE_NOT_FOUND]: Cannot find module'))).toBe(
+      true,
+    );
+    expect(result.matched.some((line) => line.includes("code: 'ERR_MODULE_NOT_FOUND'"))).toBe(true);
+    // the ESM shape on a path outside L is still not the asserted failure
+    const foreign = classifyInstallProbeOutput(
+      input({ ...DOCKER_PB, output: esm, lifecyclePaths: ['scripts/other.mjs'] }),
+    );
+    expect(foreign.classification).toBe('PASS');
+    expect(foreign.reasonCode).toBe(INSTALL_FAILED_AFTER_LIFECYCLE_STARTED_REASON_CODE);
+  });
+});
+
 describe('classifyInstallProbeOutput: positive controls PASS', () => {
   it('--ignore-scripts host runs (exit 0) PASS as INSTALL_COMPLETED', () => {
     for (const output of [HOST_PRODUCTION_BASE_IGNORE_SCRIPTS_STDOUT, HOST_BUILDER_IGNORE_SCRIPTS_STDOUT]) {
@@ -536,6 +607,29 @@ describe('dockerInstallStepStarted', () => {
     expect(dockerInstallStepStarted(DOCKER_BUILDER_RED_OUTPUT, PRODUCTION_BASE_INSTALL_COMMAND)).toBe(false);
     expect(dockerInstallStepStarted(DOCKER_TLS_FAILURE_OUTPUT, PRODUCTION_BASE_INSTALL_COMMAND)).toBe(false);
     expect(dockerInstallStepStarted(DOCKER_NETWORK_BRIDGE_FAILURE_OUTPUT, 'npm ci')).toBe(false);
+  });
+
+  it('an ancestor `RUN npm` / `RUN npm ci` header with no target header is NOT the target install step (R2 F7)', () => {
+    const output = [
+      '#4 [base 2/3] RUN npm',
+      '#4 DONE 1.0s',
+      '#5 [base 3/3] RUN npm ci',
+      '#5 DONE 9.0s',
+      '#6 [production-base 1/2] COPY package*.json ./',
+      '#6 DONE 0.1s',
+      '',
+    ].join('\n');
+    // exact equality only: the ancestor headers are prefixes of the target command, never a match
+    expect(dockerInstallStepStarted(output, PRODUCTION_BASE_INSTALL_COMMAND)).toBe(false);
+    expect(dockerInstallStepStarted(output, BUILDER_INSTALL_COMMAND)).toBe(false);
+    expect(dockerInstallStepStarted(output, 'npm ci')).toBe(true);
+    // a header that extends the target command is not the target step either
+    expect(
+      dockerInstallStepStarted(
+        `#7 [x 1/1] RUN ${PRODUCTION_BASE_INSTALL_COMMAND} --no-audit\n`,
+        PRODUCTION_BASE_INSTALL_COMMAND,
+      ),
+    ).toBe(false);
   });
 
   it('matches the captured exec-form header `RUN ["node", "-e", "1"]` when given the install instruction (R1 F7)', () => {

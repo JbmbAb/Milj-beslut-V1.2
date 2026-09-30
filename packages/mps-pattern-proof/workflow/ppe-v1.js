@@ -600,6 +600,18 @@ for (const required of ['evidenceDir', 'runStamp', 'baseSha']) {
     return { refused: `args.${required} is required (a non-empty string); nothing was run` };
   }
 }
+// R2 F3: these values are interpolated into the command lines handed to agents, so they are
+// constrained to a safe charset BEFORE any interpolation (no spaces, no shell metacharacters).
+if (!/^[0-9a-f]{40}$/.test(input.baseSha)) {
+  return { refused: 'args.baseSha must be a 40-hex git object id; nothing was run' };
+}
+for (const pathLike of ['evidenceDir', 'runStamp']) {
+  if (!/^[A-Za-z0-9_./-]+$/.test(input[pathLike])) {
+    return {
+      refused: `args.${pathLike} must match ^[A-Za-z0-9_./-]+$ (no spaces, no shell metacharacters); nothing was run`,
+    };
+  }
+}
 
 const runStamp = input.runStamp;
 const baseSha = input.baseSha;
@@ -643,6 +655,12 @@ const RUN_SUMMARY_SCHEMA = {
     phase: { type: 'string' },
     terminalState: { type: 'string' },
     stoppedAtPhase: { type: 'string' },
+    // R2 F3: the machine's own stop record as ppe-cli prints it; required by the success gate below
+    stoppedByMode: {
+      type: 'object',
+      properties: { atPhase: { type: 'string' }, reason: { type: 'string' } },
+      required: ['atPhase', 'reason'],
+    },
     storedArtifacts: { type: 'array', items: { type: 'string' } },
   },
   required: ['exitCode', 'phase', 'storedArtifacts'],
@@ -650,6 +668,7 @@ const RUN_SUMMARY_SCHEMA = {
 
 const PROBE_RESULTS_SCHEMA = {
   type: 'array',
+  minItems: 1,
   items: {
     type: 'object',
     properties: {
@@ -726,6 +745,44 @@ function describeStageFailure(result) {
 
 function validateCommand(kind, artifactPath) {
   return `${PPE_CLI} validate --kind ${kind} --file ${artifactPath}`;
+}
+
+/** What `ppe-cli run` must have stored for a stop-by-mode at RED_SYNTHESIS to be the real one. */
+const REQUIRED_STORED_ARTIFACTS = ['discovery', 'dependency-graph', 'decision-gate', 'red-plan'];
+const PROBE_CLASSIFICATIONS = ['PASS', 'FAIL', 'BLOCKED'];
+
+/**
+ * R2 F3: the RED_SYNTHESIS relay must be complete and self-consistent before the success return:
+ * the machine's phase is RED_SYNTHESIS, it stopped by THIS mode there, every artifact of the four
+ * stages is stored, and there is exactly one classified probe result per target stage. Returns the
+ * fault text, or null when the relay is admissible.
+ */
+function describeRelayFault(runSummary, probeResults) {
+  if (runSummary.phase !== 'RED_SYNTHESIS') {
+    return `ppe-cli run reports phase ${runSummary.phase}, not RED_SYNTHESIS`;
+  }
+  const stop = runSummary.stoppedByMode;
+  if (stop === null || typeof stop !== 'object' || stop.reason !== MODE || stop.atPhase !== 'RED_SYNTHESIS') {
+    return `ppe-cli run did not record stoppedByMode { atPhase: RED_SYNTHESIS, reason: ${MODE} } (got ${JSON.stringify(stop === undefined ? null : stop)})`;
+  }
+  const stored = Array.isArray(runSummary.storedArtifacts) ? runSummary.storedArtifacts : [];
+  const missing = REQUIRED_STORED_ARTIFACTS.filter((kind) => !stored.includes(kind));
+  if (missing.length > 0)
+    return `ppe-cli run did not store ${missing.join(', ')} (storedArtifacts ${JSON.stringify(stored)})`;
+  if (probeResults.length !== stages.length) {
+    return `expected exactly ${stages.length} probe result(s), one per stage [${stages.join(', ')}], got ${probeResults.length}`;
+  }
+  for (const stage of stages) {
+    const forStage = probeResults.filter(
+      (result) => result !== null && typeof result === 'object' && result.stage === stage,
+    );
+    if (forStage.length !== 1)
+      return `stage ${stage} has ${forStage.length} probe result(s), expected exactly one`;
+    if (!PROBE_CLASSIFICATIONS.includes(forStage[0].classification)) {
+      return `probe result for stage ${stage} carries no classification (PASS | FAIL | BLOCKED)`;
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -900,6 +957,12 @@ if (runSummary.exitCode !== 0 || runSummary.stoppedAtPhase !== 'RED_SYNTHESIS') 
     { runSummary, probeResults },
   );
 }
+// R2 F3: what this script sees is the agent's RELAY of the `ppe-cli run` summary and the probe
+// outputs, never those outputs themselves (no fs/exec by design). The relay must be complete and
+// self-consistent before the success return; the routine's independent `ppe-cli run` and probe
+// re-execution over the evidence directory are the check on the relay itself.
+const relayFault = describeRelayFault(runSummary, probeResults);
+if (relayFault !== null) return failClosed('RED_SYNTHESIS', relayFault, { runSummary, probeResults });
 
 log(
   `ppe-v1 ${runStamp}: stopped by mode at RED_SYNTHESIS; ${probeResults.length} probe result(s); WRITER never entered`,

@@ -55,17 +55,22 @@ stops. It never invokes a writer against the target and never modifies `Dockerfi
 
 ## 4. Verify the run independently of the agents
 
-1. The adapter writes its artifacts under `evidenceDir`. Re-run the state machine over those files yourself:
-   `npx tsx packages/mps-pattern-proof/scripts/ppe-cli.ts run --dir <evidenceDir> --mode BOOTSTRAP_RED_ONLY --json`
+1. The adapter's RED_SYNTHESIS stage wrote the authoritative run state to `<evidenceDir>/run-state.json`
+   (run id `<runStamp>`, bound to `baseSha`). Re-run the state machine over the same artifact files yourself,
+   into a SEPARATE file so the stage's record is never overwritten:
+   `npx tsx packages/mps-pattern-proof/scripts/ppe-cli.ts run --dir <evidenceDir> --mode BOOTSTRAP_RED_ONLY --repo-root . --run-id <runStamp> --base-sha <baseSha> --out <evidenceDir>/run-state.routine.json --json`
    and require one of: `stoppedByMode.atPhase === 'RED_SYNTHESIS'` (normal), or a terminal state
-   (`HUMAN_DECISION_REQUIRED`, `MISSING_AUTHORITY`, `SCOPE_VIOLATION`). Any other outcome is a failed run.
-2. Run each RED probe once more yourself and compare classifications with the adapter's:
-   `npx tsx packages/mps-pattern-proof/scripts/red-probe.ts --dockerfile Dockerfile --stage <stage> --executor auto --json`
-   (exit 1 = FAIL = RED confirmed, 0 = PASS, 2 = BLOCKED). A BLOCKED probe is reported as BLOCKED, never
-   as RED or GREEN.
-3. Write `run-summary.md` in `evidenceDir` with: mode, runStamp, baseSha, state-machine outcome, probe
-   classifications and fidelity (`docker-stage-prefix` or `host-npm`), toolchain identity, and any BLOCKED
-   reasons.
+   (`HUMAN_DECISION_REQUIRED`, `MISSING_AUTHORITY`, `SCOPE_VIOLATION`). Any other outcome is a failed run. The two
+   run-state files must agree on `phase`, `stoppedByMode` and `storedArtifacts`; a disagreement is a failed run
+   and must be reported as such, never reconciled by hand.
+2. Run each RED probe once more yourself, into separate files, and compare classifications with the adapter's
+   `<evidenceDir>/probe-<stage>.json`:
+   `npx tsx packages/mps-pattern-proof/scripts/red-probe.ts --dockerfile Dockerfile --stage <stage> --executor auto --json --out <evidenceDir>/probe-<stage>.routine.json`
+   (exit 1 = FAIL = RED confirmed, 0 = PASS, 2 = BLOCKED). A BLOCKED probe is reported as BLOCKED, never as RED or
+   GREEN; the adapter only relays what its agents observed, so this re-execution is the check on that relay.
+3. Write `run-summary.md` in `evidenceDir` with: mode, runStamp, baseSha, state-machine outcome from both run-state
+   files, probe classifications and fidelity (`docker-stage-prefix` or `host-npm`) from both runs, toolchain
+   identity, and any BLOCKED reasons.
 
 ## 5. Deliver for cold review — and stop
 
