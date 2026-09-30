@@ -3,46 +3,47 @@
 **Status:** four candidates COLD_VERIFIED twice (K-159 first round, second round after a rebase),
 pushed to origin both times on Jimmy's explicit go, and dispatched into the Dev-Gov
 orchestrate/gate pipeline on his "dispatch" -- **all four failed at the RED execution step** (see
-§9). Root cause found, fixed, and re-verified locally; not yet re-reviewed, re-pushed, or
+§9). Root cause found, fixed, and re-verified locally; main then advanced again (W3d #201) and was
+merged in on Jimmy's word ("bumpa base_sha till 44e3e3df"). Not yet re-reviewed, re-pushed, or
 re-dispatched as of this writing. Details in §9, at the end of this document.
 
 **Units:** four, see `governance/devgov/units/devgov-security-hardening-hd04a-hd04b-hd05-v1.json`,
 `devgov-security-hardening-hd06-v1.json`, `devgov-security-hardening-hd07-hd08-v1.json`,
 `devgov-security-hardening-hd09-v1.json`
-**Base:** `dc78d44cd47c9a9cc46ffc805a53751861221765` (origin/main tip after HD-sweep-A9-01 PR #196
-and V1-THROUGHPUT's same-run-signing restructure of `devgov-v0-attest.yml`/`devgov-v0-orchestrate.yml`).
-Bumped twice total: `760d5a15` (original) -> `b48ed5e2` (mid-session, before first push) ->
-`dc78d44c` (this bump, after push+cold-review+push-go, per Jimmy's explicit go to proceed once
-main had advanced again -- W3a, W3b, HD-sweep-A9-01, V1-THROUGHPUT all landed in between). Each
-bump confirmed zero file-level overlap with this work's own touched files before merging (verified
-via `git diff --name-only <old-base>..origin/main`, not assumed), and RED/GREEN were re-verified
-against each new base before committing the bump, per the startbrief's own "if main moves, bump
-and re-verify" instruction.
+**Base:** `44e3e3df68a3ed3f22515eed55f3068fdc742baa` (origin/main tip after W3d's funding-risk
+unavailable-layer fix, PR #201). Bumped four times total: `760d5a15` (original) -> `b48ed5e2`
+(mid-session, before first push) -> `dc78d44c` (after push+cold-review+push-go, once
+W3a/W3b/HD-sweep-A9-01/V1-THROUGHPUT had landed) -> `44e3e3df` (this bump, once W3d had landed, on
+Jimmy's explicit "bumpa base_sha till 44e3e3df"). Each bump confirmed zero file-level overlap with
+this work's own touched files before merging (verified via `git diff --name-only
+<old-base>..origin/main`, not assumed), and RED/GREEN were re-verified against each new base before
+committing the bump, per the startbrief's own "if main moves, bump and re-verify" instruction.
 **Design authority:** `Claude outputs/lu-maps-2026-09-26/SECURITY-HARDENING-SESSION-BRIEF-2026-09-29.md`,
 Jimmy's owner decision K-149 (`HDR20-OWNER-DECISION-ROUND-2026-09-29.md`), sourced from the A9
 route-reachability sweep (`A9-ROUTE-REACHABILITY-SWEEP-FINAL-2026-09-29.md`). HD-06's fix design
 (replace the client-supplied `bankidId` with a verified-session `orderRef`) was confirmed with
 Jimmy in-session before any code was written.
 
-**Candidate SHAs, current (post-rebase + RED-command fix + base_sha-regression fix, not yet
-re-reviewed/pushed):**
+**Candidate SHAs, current (post-2nd-rebase + RED-command fix + base_sha-regression fix + 3rd
+rebase to 44e3e3df, not yet re-reviewed/pushed):**
 
-| Unit | Branch | Candidate SHA | Pushed+dispatched SHA (failed, §9) | First-round SHA (COLD_VERIFIED K-159, pushed) |
+| Unit | Branch | Candidate SHA | Pre-3rd-rebase SHA (preflight-clean) | Pushed+dispatched SHA (failed, §9) |
 |---|---|---|---|---|
-| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `ed2a5146cb63b0f80ab6533eac387025b5dfe1b8` | `428cd71c2f2eea960b3b74e3043fd7c0d4ef54f3` | `1911598925613370d42a2ace506eb0add08829d8` |
-| B (HD-06) | `claude/security-hardening-hd06-v1` | `cc8047d72afde3afa2b0ce2ddb20fe50856df4b0` | `89e3b29a1cc7f75a7926895f466df4f6c3c49c2d` | `3615e94ca6e5ff8546897fa22facac1a6f576354` |
-| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `853d1d3f9f9423a1b4cf6368d195ee17bb0099f6` | `387df4e11114165ab1b9a824fa6f71a4d19af292` | `c696e562f31504ecb4d397fbe6b8a4da6463c68e` |
-| D (HD-09) | `claude/security-hardening-hd09-v1` | `1f4ba141945cdec4d8b04247264c142b50469185` | `f56f40e5c48bf7a01c19324cf6bb62cdd0e621cc` | `0c7817a5e031446d6400767ef312414d5c6fd27f` |
+| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `759d1b624b83707825167d3812ecf1a95eb4a01d` | `ed2a5146cb63b0f80ab6533eac387025b5dfe1b8` | `428cd71c2f2eea960b3b74e3043fd7c0d4ef54f3` |
+| B (HD-06) | `claude/security-hardening-hd06-v1` | `301fcc76a8b734a4d94a495506fb3d637c3ee7be` | `cc8047d72afde3afa2b0ce2ddb20fe50856df4b0` | `89e3b29a1cc7f75a7926895f466df4f6c3c49c2d` |
+| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `7bb7cdeb49570c8233455543989be2c0980f1c74` | `853d1d3f9f9423a1b4cf6368d195ee17bb0099f6` | `387df4e11114165ab1b9a824fa6f71a4d19af292` |
+| D (HD-09) | `claude/security-hardening-hd09-v1` | `40a4ca61e678c6e8f322797cad3c8965534418be` | `1f4ba141945cdec4d8b04247264c142b50469185` | `f56f40e5c48bf7a01c19324cf6bb62cdd0e621cc` |
 
-Each current SHA is two `fix(devgov)` commits on top of the pushed+dispatched SHA in the middle
-column: the `required_red` fix (§9), then a second commit correcting a `base_sha` regression that
-fix's own propagation accidentally introduced (§9, final paragraph) plus a `process.on('exit', ...)`
-cleanup improvement. No production code or test content changed in either commit, only the RED
-probe's execution mechanism and the unit definition's own metadata. `devgov-helper.mjs preflight`
-reports 0 errors on all four at these exact SHAs. The pushed+dispatched SHA is itself a merge commit
-(`origin/main` at `dc78d44c`, no force, no conflicts) plus a `base_sha`-bump commit on top of the
-first-round SHA already pushed and cold-reviewed once. The rebase and re-verification that produced
-the middle column were authorized in-session by Jimmy
+Each current SHA is a merge commit (`origin/main` at `44e3e3df`, W3d only, no force, no conflicts)
+plus a `base_sha`-bump commit on top of the pre-3rd-rebase SHA, which itself carries two
+`fix(devgov)` commits on top of the pushed+dispatched SHA: the `required_red` fix (§9), then a
+second commit correcting a `base_sha` regression that fix's own propagation accidentally
+introduced (§9) plus a `process.on('exit', ...)` cleanup improvement. No production code or test
+content changed by any of the `fix(devgov)`/`chore(devgov)` commits, only the RED probe's
+execution mechanism and the unit definition's own metadata. `devgov-helper.mjs preflight` reports
+0 errors on all four at these exact SHAs, and RED/GREEN were re-verified locally against the new
+base (identical pass/fail counts to every prior round). The rebase and re-verification that
+produced the pre-3rd-rebase column were authorized in-session by Jimmy
 ("fortsätt godkänner") after a separate, unverified cross-session message claiming the same
 authorization under the display name "Boss" was identified and explicitly refused -- see the
 security-hardening session's own transcript for that exchange; not repeated here since it is
