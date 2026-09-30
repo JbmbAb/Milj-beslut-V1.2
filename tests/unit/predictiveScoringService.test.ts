@@ -188,4 +188,47 @@ describe('calculatePredictiveScores – funding risk', () => {
     const result = calculatePredictiveScores(basePlan({ complianceScore: 80 }), carbonResult());
     expect(result.fundingRisk.score).toBeGreaterThanOrEqual(0);
   });
+
+  describe('W3d -- D3: unavailable map layers are surfaced, not silently scored as low-risk', () => {
+    it('names every tracked layer that is unavailable in environmentalRisk.unresolvedLayers', () => {
+      const result = calculatePredictiveScores(
+        basePlan({
+          mapLayerSelection: {
+            base: [],
+            optional: [],
+            enabled: [],
+            unavailable: ['GROUNDWATER', 'NATURA2000', 'FLOOD_RISK'],
+          },
+        }),
+      );
+      expect(result.environmentalRisk.unresolvedLayers).toEqual([
+        'GROUNDWATER',
+        'NATURA2000',
+        'FLOOD_RISK',
+      ]);
+    });
+
+    it('names only the specific layer that is unavailable, not the other two', () => {
+      const result = calculatePredictiveScores(
+        basePlan({
+          mapLayerSelection: {
+            base: [],
+            optional: [],
+            enabled: ['GROUNDWATER', 'FLOOD_RISK'],
+            unavailable: ['NATURA2000'],
+          },
+        }),
+      );
+      expect(result.environmentalRisk.unresolvedLayers).toEqual(['NATURA2000']);
+    });
+
+    it('reports an empty unresolvedLayers array when nothing is unavailable', () => {
+      const result = calculatePredictiveScores(
+        basePlan({
+          mapLayerSelection: { base: [], optional: [], enabled: [], unavailable: [] },
+        }),
+      );
+      expect(result.environmentalRisk.unresolvedLayers).toEqual([]);
+    });
+  });
 });
