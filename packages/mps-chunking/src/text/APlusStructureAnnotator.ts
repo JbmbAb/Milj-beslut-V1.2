@@ -186,7 +186,7 @@ function parseStructure(sourceText: string, documentType: string): SourceSegment
   const segments: SourceSegment[] = [];
   let role = defaultRole(documentType);
   let headingPath = [
-    role === 'GENERAL' ? 'GENERAL' : documentType === 'decision' ? 'BAKGRUND' : 'EGENKONTROLL',
+    role === 'GENERAL' ? 'GENERAL' : documentType === 'decision' ? 'BAKGRUND' : 'GENERAL',
   ];
   let paragraphNumber: string | null = null;
   let requirementBlockId: string | null = null;
