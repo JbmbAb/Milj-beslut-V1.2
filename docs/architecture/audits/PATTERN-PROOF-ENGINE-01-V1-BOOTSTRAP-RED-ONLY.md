@@ -104,9 +104,10 @@ Commits on the branch above the frozen base: `2b7146ba` scaffold, `957d3de4` CAS
 protocol/persistence/authority/isolation, `79e506b3` state machine/replay/fixtures/Docker probes, `924d2d45` adapter,
 CLI and schema generator, `1290f76f` unit definition, first draft of this record and the first executed probe evidence,
 `e3f3e4f3` cold-review round 1 corrections (R1, 18 findings), `21366c53` record §10, `41ad8001` cold-review round 2
-corrections (R2, findings F2–F10; F11 by the record rewrite in the evidence commit), then the evidence commit carrying this rewrite of the record (R2 F1), the adapter smoke-run evidence and the probes
-re-executed under the corrected code, and the packaging commit that fills §11, §13–§15 and §18 (a commit cannot contain
-its own SHA; the packaging commit names the evidence commit).
+corrections (R2, findings F2–F10; F11 by the record rewrite in the evidence commit), `306f1b56` this rewrite of the record (R2 F1) with the adapter smoke-run evidence and the probes re-executed under
+the corrected code, `203297a4` cold-review round 3 corrections (R3: code F1–F6, record F1–F9, routine prompt F7)
+with the positive-control and locator-resolution evidence, then the packaging commit that fills §11, §13–§15 and §18
+(a commit cannot contain its own SHA).
 
 ## 5. The engine, module by module
 
@@ -363,7 +364,8 @@ What the script sees, disclosed (R2 F3): having no filesystem or process access 
 `ppe-cli run` or the probes itself — it consumes the RED_SYNTHESIS agent's **relay** of their output. Before its
 success return it therefore requires exactly one probe result per requested stage, each with a classification,
 `runSummary.phase === 'RED_SYNTHESIS'`, `stoppedByMode.reason === 'BOOTSTRAP_RED_ONLY'` and the four stored
-artifacts, each relayed probe exit code must agree with its classification (0/1/2 ↔ `PASS`/`FAIL`/`BLOCKED`), a relayed `runId`/`mode`, when present, must be this run's, and an exit-3 relay counts as terminal only when it names one of the six frozen terminal states (R3 F6); it validates `baseSha` (40-hex), `evidenceDir`, `runStamp`, `target.dockerfile` and every `target.stages` entry (letters, digits, `_ . / -`: no spaces, no shell metacharacters; stages unique; a present but invalid `target` is refused, only an absent one defaults) before interpolating any of them into an agent command line (R2 F3, R3 F2). That character set still admits an
+artifacts, each relayed probe exit code must agree with its classification (0/1/2 ↔ `PASS`/`FAIL`/`BLOCKED`), a relayed `runId`/`mode`, when present, must be this run's, and an exit-3 relay counts as terminal only when it names one of the six frozen terminal states (R3 F6); it validates `baseSha` (40-hex), `evidenceDir`, `runStamp`, `target.dockerfile` and every `target.stages` entry (letters, digits, `_ . / -`: no spaces, no shell metacharacters; stages unique; a present `target` object whose `dockerfile` or `stages` is invalid is refused, while an absent or
+non-object `target` takes the defaults) before interpolating any of them into an agent command line (R2 F3, R3 F2). That character set still admits an
 absolute path and `..` segments — the smoke run itself used an absolute scratchpad path — so where the agents write is
 bounded by the stage prompts' "only under `evidenceDir`" rule and by the routine's relative `evidenceDir`, not by the
 script. The relay is checked rather than trusted: the routine (§11, prompt
@@ -398,7 +400,12 @@ consumer). The adapter exports no `Workflow*` name.
 
 ## 11. Routine
 
-_Trigger id filled in by the packaging commit._ `PATTERN-PROOF-ENGINE-V1`: environment `Default`
+Trigger id `trig_01JCNT2TtRe4m47MjNDzzjht` (created 2026-09-30 14:50 UTC from this session with `create_trigger`; `enabled`
+but with no cron expression and no one-shot time, so it never fires on its own; each firing starts a fresh session;
+the stored prompt was the verbatim content of the prompt file at `41ad8001` and was replaced with `update_trigger` at
+15:16 UTC by the file's content at `203297a4`, the R3 wording of §4.1). The server noted at creation that the
+routine stores no MCP connectors, so fired sessions run without `mcp__*` tools: the routine needs none (git, the
+Workflow tool and Bash only), and no connector grant was passed on purpose. `PATTERN-PROOF-ENGINE-V1`: environment `Default`
 (`env_01V7tB9AC4uxbjumaVZJjifR`), no schedule (fired manually), prompt versioned at
 `packages/mps-pattern-proof/routine/PATTERN-PROOF-ENGINE-V1.prompt.md`. The routine reads only `mode`, `branch` and
 `runStamp` from the fire payload, refuses any mode other than `BOOTSTRAP_RED_ONLY`, runs the adapter by `scriptPath`,
@@ -422,12 +429,38 @@ lines and the Dockerfile blob id.
 
 ## 13. RED (executed at `base_sha`)
 
-_Filled in by the packaging commit (executed with `devgov-helper preflight --execute --base-worktree` against a clean
-detached worktree at `e617c7b7`)._
+Executed in this session with `node scripts/dev-helpers/devgov-helper.mjs preflight <unit> --execute --base-worktree
+<detached worktree at e617c7b7> --no-remote --json` on a clean tree at `203297a4` (nothing touched the tree
+while it ran; `DOCKER_HOST` and `PPE_DOCKER_CA_BUNDLE` exported so `--executor auto` selected the docker executor).
+RED commands run in the base worktree; both must FAIL there (the engine is absent, the package unregistered):
+
+| Command id                 | Expected | Observed | Exit | OK  |
+| -------------------------- | -------- | -------- | ---- | --- |
+| `ppe-engine-absent`        | `FAIL`   | `FAIL`   | 1    | yes |
+| `ppe-package-unregistered` | `FAIL`   | `FAIL`   | 1    | yes |
+
+Preflight verdict: `LIKELY_TO_PASS_DRY_RUN_OK`. No preflight finding above INFO. INFO findings: `DGL-022` (RED `ppe-engine-absent`): six paths exist at the candidate but not at `base_sha` and the program handles ENOENT explicitly, so absence may be the property under test (it is); `DGL-060`: 2 RED + 6 GREEN proofs, 8 execute jobs and as many sign jobs; `PRE-APPROVALS`: a trusted run waits for the protected reviewer up to three times (RED signing, GREEN signing, the gate run) and the producer cannot approve.
 
 ## 14. GREEN (executed at the candidate)
 
-_Filled in by the packaging commit._
+Same preflight run, GREEN commands executed at the candidate `203297a4`:
+
+| Command id                             | Expected | Observed | Exit | OK  |
+| -------------------------------------- | -------- | -------- | ---- | --- |
+| `ppe-engine-absent`                    | `PASS`   | `PASS`   | 0    | yes |
+| `ppe-package-unregistered`             | `PASS`   | `PASS`   | 0    | yes |
+| `ppe-fixture-suite`                    | `PASS`   | `PASS`   | 0    | yes |
+| `ppe-package-lint-clean`               | `PASS`   | `PASS`   | 0    | yes |
+| `ppe-red-probe-builder-is-red`         | `PASS`   | `PASS`   | 0    | yes |
+| `ppe-red-probe-production-base-is-red` | `PASS`   | `PASS`   | 0    | yes |
+
+The preflight does not record probe fidelity; BuildKit cache records created in the session daemon during the run
+(15:17–15:18 UTC) show that `--executor auto` selected the docker executor for the two probe GREENs here. On the
+trusted runner they are expected to fall back to `host-npm` (§8 caveats). Wall clock of the whole preflight: 2 min
+43 s (15:16:07–15:18:50 UTC). An earlier run of the same preflight at `306f1b56` (before the R3 corrections) gave
+the identical result table and verdict. The record's later commits (this packaging commit) change only
+this document and no GREEN or RED input, so the trusted run at the final SHA re-executes the same commands; its result,
+not this table, is what §19 waits for.
 
 ## 14a. Adapter smoke run (executed through the Workflow tool in this session)
 
@@ -527,8 +560,22 @@ console.log(JSON.stringify({ total: out.total, byKind, unresolved: unresolved.le
 
 ## 15. Verification (local, this session)
 
-_Filled in by the packaging commit: prettier / eslint / package tsc / vitest counts, root typecheck and lint error
-counts before and after, compliance audits._
+All executed in this session at the final code `203297a4` (later commits touch only evidence files and this record):
+
+- `prettier --check "packages/mps-pattern-proof/**/*.{ts,js,md,json}"` and this record: clean.
+- `eslint packages/mps-pattern-proof packages/mps-pattern-proof/workflow/ppe-v1.js`: 0 problems.
+- `tsc --noEmit -p packages/mps-pattern-proof/tsconfig.json`: 0 errors inside the package.
+- `vitest run --config vitest.config.ts packages/mps-pattern-proof/tests`: 17 files, 415 tests passed, 2 skipped (the 2 skipped are
+  the opt-in live probe tests behind `PPE_RUN_LIVE_PROBES=1`).
+- `gen-workflow-adapter.ts`: `unchanged` (the generated schema block is byte-identical to the generator's output).
+- Compliance audits: `scripts/audit/final-freeze-audit.test.ts` passes; `scripts/audit/master-boundary-audit.test.ts`
+  fails only on the seven pre-existing `packages/mps-lu/tests` files (§0.6) and does not name the package.
+- Root `tsc --noEmit -p tsconfig.json`: 87 errors at the frozen base (measured in the detached base worktree
+  with the checkout's `node_modules` linked in, then unlinked), 87 at the final code, 0 of them in the
+  package. Root `eslint .`: 437 problems (53 errors, 384 warnings) at the frozen base, 437 problems (53 errors, 384 warnings) at the final code, 0 in the package.
+- `devgov-helper lint` on the unit definition: 0 errors, 0 warnings, 2 info (plan: 2 RED + 6 GREEN).
+- Six terminal-state fixtures, the frozen §5 artifacts through the machine, the adapter drift test and the CLI exit
+  contract are part of the vitest count above; the executed probe evidence is in §8 and §14a.
 
 ## 16. Known limitations, disclosed
 
@@ -561,7 +608,7 @@ Pending. Nothing in this record is self-approved. Before the push, three adversa
 producing session by reviewer agents that had not written the code (each instructed to refute, with a reproduction
 probe per finding): R1 returned 18 findings, corrected in `e3f3e4f3` (five residuals were re-raised by R2 and closed in `41ad8001`); R2
 returned 11 findings (F1 the stale record, F2–F10 code, F11 wording), corrected in `41ad8001` and by this rewrite;
-R3_OUTCOME. Those are the session's own
+R3 (two reviewers, code and record) returned 15 findings — 6 on the code (3 minor, 3 nit) and 9 on the record (1 minor, 8 nit) — corrected in `203297a4`; R4 (one verifier re-running every R3 probe on `203297a4`) confirmed all fifteen corrections and reported one wording nit in §10, corrected in this packaging commit, so the rounds ended dry. No round found a false GREEN reachable on the real Dockerfile or a proof-policy path admitted by an allow-list. Those are the session's own
 reviews and do not count as the cold review this record waits for.
 
 ## 19. Finalization rule
