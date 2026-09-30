@@ -281,6 +281,54 @@ describe('deriveStagePrefix: the install step is the PROJECT install, and exactl
     expectPpeError(() => derive(text, 'base'), 'PPE_INSTALL_STEP_NOT_FOUND');
   });
 
+  it('R3 F5: --global=true, -g=true and a leading NPM_CONFIG_GLOBAL=true / npm_config_global=true are global installs', () => {
+    for (const no of [
+      'npm install --global=true',
+      'npm install -g=true',
+      'NPM_CONFIG_GLOBAL=true npm install',
+      'npm_config_global=true npm ci',
+      'NODE_ENV=production NPM_CONFIG_GLOBAL=true npm ci --omit=dev',
+    ]) {
+      expect(isProjectInstallCommand(no), no).toBe(false);
+      expect(isProjectInstallShellText(no), no).toBe(false);
+    }
+    // an explicit non-global spelling and an unrelated assignment stay project installs
+    expect(isProjectInstallCommand('npm ci --global=false')).toBe(true);
+    expect(isProjectInstallCommand('NPM_CONFIG_LOGLEVEL=verbose npm ci')).toBe(true);
+    // a stage whose only install is a spec-less global install has no install step (never a guessed prefix)
+    const text = [
+      'FROM node:22-alpine AS base',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm install --global=true',
+      'RUN NPM_CONFIG_GLOBAL=true npm install',
+      '',
+    ].join('\n');
+    expectPpeError(() => derive(text, 'base'), 'PPE_INSTALL_STEP_NOT_FOUND');
+    // and on the real Dockerfile a preceding spec-less global install no longer makes the stage ambiguous
+    const real = ROOT_DOCKERFILE.replace(
+      'RUN npm ci --omit=dev --legacy-peer-deps\n',
+      'RUN npm install --global=true\nRUN npm ci --omit=dev --legacy-peer-deps\n',
+    );
+    expect(real).not.toBe(ROOT_DOCKERFILE);
+    expect(derive(real, 'production-base').installLine).toBe(38);
+  });
+
+  it('R3 F5: npm options placed before the subcommand are a documented fail-closed shape', () => {
+    for (const no of ['npm --loglevel=verbose ci', 'npm --prefix=/app ci', 'npm -g install']) {
+      expect(isProjectInstallCommand(no), no).toBe(false);
+      expect(isProjectInstallShellText(no), no).toBe(false);
+    }
+    const text = [
+      'FROM node:22-alpine AS base',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm --loglevel=verbose ci',
+      '',
+    ].join('\n');
+    expectPpeError(() => derive(text, 'base'), 'PPE_INSTALL_STEP_NOT_FOUND');
+  });
+
   it('a stage whose only npm RUNs are global or positional installs has no install step', () => {
     const text = [
       'FROM node:22-alpine AS base',
@@ -366,6 +414,60 @@ describe('host executor preconditions: BLOCKED-classifiable refusals before spaw
     expect(execution.spawnError?.code).toBe('HOST_FIDELITY_UNSUPPORTED');
     expect(execution.installStepStarted).toBe(false);
     expect(hostFidelityLimitation(derive(ROOT_DOCKERFILE, 'builder'))).toBeUndefined();
+    expect(hostFidelityLimitation(derive(ROOT_DOCKERFILE, 'production-base'))).toBeUndefined();
+  });
+
+  it('R3 F1: an install RUN carrying a BuildKit flag (--mount/--network/--security/any) is admitted by the derivation, rendered verbatim, and refused by the host executor', async () => {
+    const repo = tempRepo({ 'package.json': PACKAGE_JSON });
+    const mountLine = 'RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --legacy-peer-deps\n';
+    const text = ROOT_DOCKERFILE.replace('RUN npm ci --omit=dev --legacy-peer-deps\n', mountLine);
+    expect(text).not.toBe(ROOT_DOCKERFILE);
+    const prefix = derive(text, 'production-base');
+    // derivation admits the standard npm-cache idiom: the flag is not part of the shell text
+    expect(prefix.installCommand).toBe(PRODUCTION_BASE_INSTALL_COMMAND);
+    expect(prefix.installLine).toBe(37);
+    expect(prefix.installInstruction.flags).toEqual({ mount: 'type=cache,target=/root/.npm' });
+    expect(prefix.installInstruction.flagsText).toBe('--mount=type=cache,target=/root/.npm');
+    // the derived Dockerfile carries the instruction as written, flag included
+    expect(renderStagePrefixDockerfile(prefix)).toContain(mountLine);
+    // the host cannot reproduce a mount: refused before spawning, BLOCKED HOST_FIDELITY_UNSUPPORTED
+    expect(hostFidelityLimitation(prefix)).toContain('--mount=type=cache,target=/root/.npm');
+    expect(hostFidelityLimitation(prefix)).toContain('line 37');
+    const execution = await runHostStagePrefixProbe(prefix, { repoRoot: repo, timeoutMs: 10_000 });
+    expect(execution.spawnError?.code).toBe('HOST_FIDELITY_UNSUPPORTED');
+    expect(execution.installStepStarted).toBe(false);
+    expect(execution.exitStatus).toBeNull();
+    const classified = classifyInstallProbeOutput({
+      ...CLASSIFY_BASE,
+      output: execution.output,
+      exitStatus: execution.exitStatus,
+      spawnError: execution.spawnError as { code?: string; message: string },
+      installStepStarted: execution.installStepStarted,
+      workdir: execution.workdir,
+    });
+    expect(classified.classification).toBe('BLOCKED');
+    expect(classified.reasonCode).toBe('HOST_FIDELITY_UNSUPPORTED');
+    // every RUN flag is refused, not only mount: network, security and an unknown flag alike
+    for (const flags of [
+      '--network=none',
+      '--security=insecure',
+      '--mount=type=bind,source=scripts,target=/app/scripts',
+      '--mount=type=secret,id=npmrc',
+      '--future-flag',
+      '--mount=type=cache,target=/root/.npm --network=host',
+    ]) {
+      const variant = derive(
+        ROOT_DOCKERFILE.replace(
+          'RUN npm ci --legacy-peer-deps\n',
+          `RUN ${flags} npm ci --legacy-peer-deps\n`,
+        ),
+        'builder',
+      );
+      expect(variant.installCommand, flags).toBe(BUILDER_INSTALL_COMMAND);
+      expect(variant.installInstruction.flagsText, flags).toBe(flags);
+      expect(hostFidelityLimitation(variant), flags).toContain(flags);
+    }
+    // the unflagged real stages are still host-reproducible
     expect(hostFidelityLimitation(derive(ROOT_DOCKERFILE, 'production-base'))).toBeUndefined();
   });
 

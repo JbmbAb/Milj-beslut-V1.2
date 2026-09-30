@@ -104,7 +104,7 @@ Commits on the branch above the frozen base: `2b7146ba` scaffold, `957d3de4` CAS
 protocol/persistence/authority/isolation, `79e506b3` state machine/replay/fixtures/Docker probes, `924d2d45` adapter,
 CLI and schema generator, `1290f76f` unit definition, first draft of this record and the first executed probe evidence,
 `e3f3e4f3` cold-review round 1 corrections (R1, 18 findings), `21366c53` record §10, `41ad8001` cold-review round 2
-corrections (R2, findings F2–F11), then the evidence commit carrying this rewrite of the record (R2 F1), the adapter smoke-run evidence and the probes
+corrections (R2, findings F2–F10; F11 by the record rewrite in the evidence commit), then the evidence commit carrying this rewrite of the record (R2 F1), the adapter smoke-run evidence and the probes
 re-executed under the corrected code, and the packaging commit that fills §11, §13–§15 and §18 (a commit cannot contain
 its own SHA; the packaging commit names the evidence commit).
 
@@ -120,9 +120,12 @@ its own SHA; the packaging commit names the evidence commit).
   never cover a proof-policy path. The frozen list `PROOF_POLICY_PATH_PREFIXES` is `packages/mps-pattern-proof`,
   `governance/devgov`, `scripts/audit`, `scripts/devgov`, `docs/architecture/PATTERN-PROOF-ENGINE-01-*`,
   `docs/architecture/audits`, `.claude`, `.github`, `vitest.config.ts`, `tsconfig.json`, `package.json`,
-  `package-lock.json`. Plan D10 named the first, second, third, fifth and seventh of these; adding the Dev-Gov
+  `package-lock.json`. The implementation plan this unit was built from (a session artifact, not a file in the
+  repository; its decision "D10" fixed the list) named five of these — `packages/mps-pattern-proof`,
+  `governance/devgov`, `scripts/audit`, `docs/architecture/PATTERN-PROOF-ENGINE-01-*`, `.claude`; adding the Dev-Gov
   controller, the audit records and their evidence, CI, and the root registration and lockfile files is this unit's
-  documented extension of D10 (R1 F17). Every allow-list entry is additionally matched against representative
+  extension of that list, decided during review round 1 (R1 F17) and disclosed here in full so that it can be checked
+  without the plan. Every allow-list entry is additionally matched against representative
   proof-policy paths with the same matcher `isPathAllowed` uses, so glob entries (`*`, `**`, `docs/**`, `**/*.ts`,
   `packages/*/src/**`, `scripts/**`) are rejected while `scripts/*`, `Dockerfile*` and brace patterns are admitted.
   `materialInvariant` requires `VERIFIER_OWNED_PROBE` or `INDEPENDENT_CODE_DERIVATION`; `NOT_PROVEN` requires
@@ -165,7 +168,9 @@ its own SHA; the packaging commit names the evidence commit).
   stored `RedPlan`'s probe identities (no subset, no foreign id) — else `PPE_PROOF_PACKAGE_UNBOUND`, an inadmissible
   artifact, never a terminal state. (The standalone `InputManifest` validator still admits a bare candidate sha in
   `candidateShaOrDiff`, as the frozen field name allows; a run binds only the range form.) Terminal records are never evidence-free (R1 F16): a gate stop cites `decision-gate-item:<i>:<classification>`,
-  a scope stop cites `derived-compliance:<derived>;claimed:<claimed>`, and a `NOT_PROVEN` whose isolation evidence is
+  a scope stop cites one `git_object` locator per offending path or — when the derivation found nothing offending but
+  the writer claimed `FAIL` — the `runtime_result` `derived-compliance:PASS;claimed:FAIL`, and a `NOT_PROVEN` whose
+  isolation evidence is
   empty carries `runtime_result verification:NOT_PROVEN:<reasonCode>`. Storage rule: an artifact is stored iff the
   machine admitted it (a gate that stops the run is stored; an unauthorised red plan, an inadmissible candidate or a
   verification whose isolation did not resolve is not).
@@ -178,19 +183,15 @@ its own SHA; the packaging commit names the evidence commit).
   (`signed_attestation` = the attestation subject binding, `runtime_result` = `verifier-context:<digest>`). The verifier
   prompt is a deterministic function of the declared inputs only, and every declared slot is bounded so that none can
   smuggle a transcript: `verifierRuntimeInputs` keys match `PPE_[A-Z0-9_]{1,64}` with single-line values of at most
-  512 characters, the repository remote and every locator ref in the bundle are single-line and bounded, and notes are
-  folded and capped when rendered (R1 F12, R2 F5). What this proves and does not prove is stated in §9.
+  512 characters, the repository remote and every locator ref and note in the bundle are single-line and at most 512 characters at validation, at most 64 frozen-spec locators and 64 runtime-input keys may be declared, and notes are additionally folded and capped when rendered (R1 F12, R2 F5, R3 F3). What this proves and does not prove is stated in §9.
 - **Docker RED probes** (`src/docker/*`, `scripts/red-probe.ts`, BOOTSTRAP §5.4): solution-neutral by construction —
   everything is derived from the candidate Dockerfile and `package.json`, nothing from a base snapshot. The stage
   prefix is the lineage (root base first), every ancestor instruction, and the target stage's own instructions up to
   and including its single project-install RUN: a command among the RUN's `&&`/`;`/`||`/`|`-separated commands of the
-  form `npm ci|install|i` followed only by flags (positional package specs, `-g`, `--global`, `--location=global`,
-  `npm cache …`, `npm run …` and `npm install -g npm@10` never qualify, R1 F3, R2 F8). Zero or two such RUNs in the
+  form `npm ci|install|i` followed only by flags (positional package specs, `-g`, `--global`, `--location=global`, `--global=true`, `-g=true`, a leading `NPM_CONFIG_GLOBAL=true`/`npm_config_global=true` assignment, `npm cache …`, `npm run …` and `npm install -g npm@10` never qualify, R1 F3, R2 F8, R3 F5). Zero or two such RUNs in the
   target stage fail closed with `PPE_INSTALL_STEP_NOT_FOUND` ("ambiguous"; exit 2, `BLOCKED`), and so do install
-  commands the predicate does not model — value-taking flags with a separate argument, redirections, inline `#`
-  comments and the `clean-install`/`install-clean` aliases (documented in the module header): a candidate can make the
-  derivation refuse, never make it pass. Plain COPY/ADD sources (never `--from`), WORKDIR, ENV and ARG defaults are
-  recorded. The lifecycle set L is derived from the candidate `package.json` (`preinstall`, `install`, `postinstall`,
+  commands the predicate does not model — value-taking flags with a separate argument, npm options placed before the subcommand (`npm --loglevel=verbose ci`), redirections, inline `#` comments and the `clean-install`/`install-clean` aliases (documented in the module header): a candidate can make the
+  derivation refuse, never make it pass. Plain COPY/ADD sources (never `--from`), WORKDIR, ENV and ARG defaults are recorded. A BuildKit flag on the install RUN (`--mount=…`, `--network=…`, `--security=…`) is admitted by the predicate and rendered verbatim for the docker executor, whose install-step header match accepts the instruction both without and with its flags re-attached as written (exact equality either way, never a prefix); the host executor refuses any flagged install RUN before spawning as `HOST_FIDELITY_UNSUPPORTED`, since it cannot reproduce the flag (R3 F1). The lifecycle set L is derived from the candidate `package.json` (`preinstall`, `install`, `postinstall`,
   `prepare`, split on `&&`/`||`/`|`/`;`, `npm run <name>` resolved one level, quotes stripped, node script paths
   normalised against the derived WORKDIR); runner-only hooks (`npx`, `tsx`, `sh -c`, subshells) yield an empty L. The
   outcome is classified from the captured output, never from the exit code alone (npm exits 1 for RED and for a
@@ -202,8 +203,7 @@ its own SHA; the packaging commit names the evidence commit).
     lifecycle banner, R1 F2). The host executor refuses a prefix with `COPY --from` or an unexpanded `$` in the
     install command before spawning (`HOST_FIDELITY_UNSUPPORTED`, R1 F8), and refuses to run when `package.json` did
     not land in the materialised context.
-  - `FAIL` (RED confirmed) — exit ≠ 0, the banner `> <name>@<version> <hook>` of the probed package, `Cannot find module '<p>'` (CJS or `ERR_MODULE_NOT_FOUND` shape, R2 F2) with `<p>` resolving against the derived WORKDIR to a
-    member of L, `code: 'MODULE_NOT_FOUND'`, `npm error command sh -c <exact hook string>`, and in docker output the
+  - `FAIL` (RED confirmed) — exit ≠ 0, the banner `> <name>@<version> <hook>` of the probed package, `Cannot find module '<p>'` (CJS or `ERR_MODULE_NOT_FOUND` shape, R2 F2) with `<p>` resolving against the derived WORKDIR to a member of L — only the entry paths in L are detected: an existing entry importing an absent sibling (`Cannot find module '<sibling>' imported from <entry>`) is not the asserted failure and classifies `PASS`/`INSTALL_FAILED_AFTER_LIFECYCLE_STARTED` (R3 F4) — `code: 'MODULE_NOT_FOUND'`, `npm error command sh -c <exact hook string>`, and in docker output the
     failed-step line naming exactly the derived install command (a failed ancestor step never counts; the install-step
     header match is exact, R2 F7). Without the code or command line the reason is
     `LIFECYCLE_SCRIPT_MODULE_NOT_FOUND_TRUNCATED`.
@@ -274,17 +274,19 @@ not regenerated. Both probes were therefore re-executed under the corrected code
 | host equivalent                 | `production-base` | host → host               | **FAIL (RED)** | `LIFECYCLE_SCRIPT_MODULE_NOT_FOUND` | `host-npm`            | 35.6 s  | `production-base.host.json` `8fcd2af99107`   |
 | host equivalent                 | `builder`         | host → host               | **FAIL (RED)** | `LIFECYCLE_SCRIPT_MODULE_NOT_FOUND` | `host-npm`            | 40.1 s  | `builder.host.json` `b208a67888a3`           |
 
-The docker results under the corrected classifier carry five `matched` lines — the four of the first run plus the
-BuildKit failed-step line naming exactly the derived install command (`#12 ERROR: process "/bin/sh -c npm ci --omit=dev
---legacy-peer-deps" did not complete successfully: exit code: 1`, R1 F7/R2 F7); the host results carry four (no docker
-step line exists there). Each `.stderr` file beside a result holds the CLI's one-line verdict. Same Dockerfile blob,
+Both runs' docker results carry five `matched` lines (the lifecycle banner, `Cannot find module`, `code`, `npm error
+command`, and the BuildKit failed-step line `#12 ERROR: process "/bin/sh -c npm ci --omit=dev --legacy-peer-deps" did
+not complete successfully: exit code: 1`); what the corrected classifier adds is the requirement that this failed-step
+line name exactly the derived install command (R1 F7, R2 F7). The host results carry four (no docker step line exists
+there). Each `.stderr` file beside a result holds the CLI's one-line verdict. Same Dockerfile blob,
 same toolchain identity as the first run; the docker builds were faster because the base image was already present in
 the session daemon (the `--no-cache` rule applies to layers, not to the pulled image).
 
 Derived prefixes (from the candidate Dockerfile, not asserted): `builder` — lineage `base, builder`, context
 `package*.json, tsconfig.json`, install `npm ci --legacy-peer-deps` at line 20; `production-base` — lineage
 `base, production-base`, context `package*.json`, install `npm ci --omit=dev --legacy-peer-deps` at line 37. Decisive
-docker-run lines (production-base, step `#12`):
+docker-run lines (production-base, step `#12`, quoted from the first run's `red-probes/production-base.docker.json`;
+the `red-probes-r2` file carries the same five lines with `#12 37.29`-style timestamps):
 
 ```
 #12 42.51 > miljobeslut-se-2.0@0.0.0 postinstall
@@ -294,8 +296,14 @@ docker-run lines (production-base, step `#12`):
 #12 ERROR: process "/bin/sh -c npm ci --omit=dev --legacy-peer-deps" did not complete successfully: exit code: 1
 ```
 
-Positive controls from the grounding phase (same file sets with `--ignore-scripts`) install successfully; the failure
-is caused solely by the absent lifecycle-script dependency. Solution neutrality: `--ignore-scripts`, a `COPY scripts
+Positive controls, executed and recorded under
+`docs/architecture/audits/evidence/ppe-v1/bootstrap-red-only-20260930/positive-controls/`: the same two file sets
+(`package.json`, `package-lock.json` for `production-base`; plus `tsconfig.json` for `builder`, copied from this
+checkout) with the derived install command plus `--ignore-scripts` install successfully in an isolated directory —
+`production-base.ignore-scripts.json` (sha256 `ad5c157710bd`): exit 0, 558 `node_modules` entries, no lifecycle script
+ran, 32 s; `builder.ignore-scripts.json` (sha256 `b781d3b80b94`): exit 0, 716 entries, no lifecycle script ran, 37 s
+(host toolchain `node v22.22.2; npm 10.9.7`, 15:00 UTC). The smoke run's agent recorded the same builder control
+independently (§14a ledger entry 2). The failure is therefore caused solely by the absent lifecycle-script dependency. Solution neutrality: `--ignore-scripts`, a `COPY scripts
 ./scripts` before the install RUN, or a removed `postinstall` each change the derived prefix or lifecycle set and would
 classify `PASS` (`tests/stage-prefix.test.ts`, `tests/classify.test.ts`, `tests/falsified-derivation.test.ts`); today's
 Dockerfile classifies `FAIL` under both executors. Toolchain identity of the docker runs: `node v22.22.2; npm 10.9.7;
@@ -303,8 +311,9 @@ linux x64 6.18.44-fc-v50; docker client 29.3.1; docker server 29.3.1; base image
 node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402`.
 
 Caveats, disclosed: the docker executor runs with `--no-cache`, so each build rebuilds the apk layer (~2 min); failed-
-build layers stay in the session daemon's BuildKit cache (not pruned, nothing tagged); the in-image node version
-(`v22.23.3` in the build output) is not part of the identity line; `DOCKER_HOST` and `--network host` are process
+build layers stay in the session daemon's BuildKit cache (not pruned, nothing tagged); the node version inside the
+image differs from the host's and is not part of the identity line (the raw build log is not persisted; only the
+`matched` lines are); `DOCKER_HOST` and `--network host` are process
 inputs, not fields of the result; on the trusted runner the `devgov-candidate` user cannot reach a docker socket, so the
 unit's GREEN probes run with `--executor auto` and are expected to report `host-npm` fidelity there.
 
@@ -354,8 +363,7 @@ What the script sees, disclosed (R2 F3): having no filesystem or process access 
 `ppe-cli run` or the probes itself — it consumes the RED_SYNTHESIS agent's **relay** of their output. Before its
 success return it therefore requires exactly one probe result per requested stage, each with a classification,
 `runSummary.phase === 'RED_SYNTHESIS'`, `stoppedByMode.reason === 'BOOTSTRAP_RED_ONLY'` and the four stored
-artifacts, and it validates `baseSha` (40-hex) and `evidenceDir`/`runStamp` (letters, digits, `_ . / -`: no spaces,
-no shell metacharacters) before interpolating them into any agent command line. That character set still admits an
+artifacts, each relayed probe exit code must agree with its classification (0/1/2 ↔ `PASS`/`FAIL`/`BLOCKED`), a relayed `runId`/`mode`, when present, must be this run's, and an exit-3 relay counts as terminal only when it names one of the six frozen terminal states (R3 F6); it validates `baseSha` (40-hex), `evidenceDir`, `runStamp`, `target.dockerfile` and every `target.stages` entry (letters, digits, `_ . / -`: no spaces, no shell metacharacters; stages unique; a present but invalid `target` is refused, only an absent one defaults) before interpolating any of them into an agent command line (R2 F3, R3 F2). That character set still admits an
 absolute path and `..` segments — the smoke run itself used an absolute scratchpad path — so where the agents write is
 bounded by the stage prompts' "only under `evidenceDir`" rule and by the routine's relative `evidenceDir`, not by the
 script. The relay is checked rather than trusted: the routine (§11, prompt
@@ -466,12 +474,56 @@ and therefore the stored red plan inside `run-state.json`, carry the session scr
 
 Independent re-check (routine prompt §4, applied by hand under the corrected code `41ad8001`): `ppe-cli run --dir
 <copied dir> --mode BOOTSTRAP_RED_ONLY --repo-root . --run-id 20260930T135500Z --base-sha e3f3e4f3… --out
-run-state.routine.json --json` → exit 0, `stoppedAtPhase: RED_SYNTHESIS`, the same four stored artifacts, every
-`file_line`, `git_object` and ledger-backed `runtime_result` locator resolved against this checkout; the resulting
-`run-state.routine.json` (kept beside the original) is byte-identical to the adapter stage's `run-state.json` (sha256
-`6f3f198afc3c9a5e` for both), so the relayed state claim is reproduced by the pure state machine over the same files.
+run-state.routine.json --json` → exit 0, `stoppedAtPhase: RED_SYNTHESIS`, the same four stored artifacts (the machine
+validates all four and resolves the red plan's two `authorityEvidence` locators; it does not resolve discovery or graph
+locators); the resulting `run-state.routine.json` (kept beside the original) is byte-identical to the adapter stage's
+`run-state.json` (sha256 `6f3f198afc3c9a5e` for both), so the relayed state claim is reproduced by the pure state
+machine over the same files. Separately, a hand check with `RepositoryAuthorityResolver` (rooted at this checkout, the
+smoke run's ledger) over every locator of the three agent-written artifacts — 191 in all: 184 `file_line`, 5
+`git_object`, 2 `runtime_result` — resolved all of them; its output is `locator-resolution.json` in the same evidence
+directory (sha256 `7d8d33c933c4129b`), and the script that produced it is quoted at the end of this section.
 The probe half of the re-check is the `red-probes-r2` table in §8: the same Dockerfile blob, under the corrected code,
 on both executors.
+
+Locator-resolution script (run as `npx tsx <script> <evidence dir> <UTC time> <HEAD>` from the checkout; kept out of the
+package on purpose — it is a check on evidence, not engine code):
+
+```ts
+// Resolves every evidence locator of the smoke-run artifacts against the checkout (record §14a).
+import fs from 'node:fs';
+import { RepositoryAuthorityResolver } from '/home/user/Milj-beslut-V1.2/packages/mps-pattern-proof/src/authority';
+const dir = process.argv[2];
+const read = (f: string) => JSON.parse(fs.readFileSync(`${dir}/${f}`, 'utf8'));
+const ledger = read('runtime-ledger.json');
+const locators: any[] = [];
+for (const f of read('discovery.json').findings) locators.push(...f.evidence);
+const g = read('dependency-graph.json');
+for (const n of g.nodes) locators.push(...n.evidence);
+for (const e of g.edges) locators.push(...e.evidence);
+for (const p of read('red-plan.json').probes) locators.push(p.authorityEvidence);
+const r = new RepositoryAuthorityResolver({ repoRoot: '/home/user/Milj-beslut-V1.2', runtimeLedger: ledger });
+const byKind: Record<string, number> = {};
+const unresolved: any[] = [];
+for (const loc of locators) {
+  byKind[loc.kind] = (byKind[loc.kind] ?? 0) + 1;
+  const res: any = await r.resolve(loc);
+  if (!res.resolved) unresolved.push({ locator: loc, reason: res.reason });
+}
+const out = {
+  checkedAt: process.argv[3],
+  repoRoot: 'checkout at ' + process.argv[4],
+  artifacts: [
+    'discovery.json (findings)',
+    'dependency-graph.json (nodes, edges)',
+    'red-plan.json (probe authorityEvidence)',
+  ],
+  total: locators.length,
+  byKind,
+  unresolved,
+};
+fs.writeFileSync(`${dir}/locator-resolution.json`, JSON.stringify(out, null, 2) + '\n');
+console.log(JSON.stringify({ total: out.total, byKind, unresolved: unresolved.length }));
+```
 
 ## 15. Verification (local, this session)
 
@@ -507,8 +559,9 @@ registers authorities, not packages; PPE owns none); resolve the §0.1 commit-id
 
 Pending. Nothing in this record is self-approved. Before the push, three adversarial review rounds were run inside the
 producing session by reviewer agents that had not written the code (each instructed to refute, with a reproduction
-probe per finding): R1 returned 18 findings, all corrected in `e3f3e4f3`; R2 returned 11 findings (F1 the stale record,
-F2–F10 code, F11 wording), corrected in `41ad8001` and by this rewrite; R3_OUTCOME. Those are the session's own
+probe per finding): R1 returned 18 findings, corrected in `e3f3e4f3` (five residuals were re-raised by R2 and closed in `41ad8001`); R2
+returned 11 findings (F1 the stale record, F2–F10 code, F11 wording), corrected in `41ad8001` and by this rewrite;
+R3_OUTCOME. Those are the session's own
 reviews and do not count as the cold review this record waits for.
 
 ## 19. Finalization rule

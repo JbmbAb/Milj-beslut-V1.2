@@ -1,0 +1,26 @@
+{
+  "control": "production-base.ignore-scripts",
+  "command": "npm ci --omit=dev --legacy-peer-deps --ignore-scripts",
+  "contextFiles": [
+    "package.json",
+    "package-lock.json"
+  ],
+  "copiedFromCheckout": "306f1b562224a156dbda5abdabf419ab7142e2fb",
+  "env": {
+    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true"
+  },
+  "toolchainIdentity": "node v22.22.2; npm 10.9.7; linux x64",
+  "startedAt": "2026-09-30T15:00:07Z",
+  "endedAt": "2026-09-30T15:00:39Z",
+  "exitStatus": 0,
+  "nodeModulesEntries": 558,
+  "lifecycleScriptRan": false,
+  "outputTail": [
+    "10 vulnerabilities (2 moderate, 8 high)",
+    "To address issues that do not require attention, run:",
+    "  npm audit fix",
+    "To address all issues (including breaking changes), run:",
+    "  npm audit fix --force",
+    "Run `npm audit` for details."
+  ]
+}

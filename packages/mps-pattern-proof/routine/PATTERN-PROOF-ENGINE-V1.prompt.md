@@ -61,8 +61,9 @@ stops. It never invokes a writer against the target and never modifies `Dockerfi
    `npx tsx packages/mps-pattern-proof/scripts/ppe-cli.ts run --dir <evidenceDir> --mode BOOTSTRAP_RED_ONLY --repo-root . --run-id <runStamp> --base-sha <baseSha> --out <evidenceDir>/run-state.routine.json --json`
    and require one of: `stoppedByMode.atPhase === 'RED_SYNTHESIS'` (normal), or a terminal state
    (`HUMAN_DECISION_REQUIRED`, `MISSING_AUTHORITY`, `SCOPE_VIOLATION`). Any other outcome is a failed run. The two
-   run-state files must agree on `phase`, `stoppedByMode` and `storedArtifacts`; a disagreement is a failed run
-   and must be reported as such, never reconciled by hand.
+   run-state files must agree on `phase`, `stoppedByMode` and the keys of `artifacts` (the printed `--json`
+   summaries carry the same information as `storedArtifacts`); a disagreement is a failed run and must be
+   reported as such, never reconciled by hand.
 2. Run each RED probe once more yourself, into separate files, and compare classifications with the adapter's
    `<evidenceDir>/probe-<stage>.json`:
    `npx tsx packages/mps-pattern-proof/scripts/red-probe.ts --dockerfile Dockerfile --stage <stage> --executor auto --json --out <evidenceDir>/probe-<stage>.routine.json`

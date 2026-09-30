@@ -24,6 +24,12 @@ export interface ParsedInstruction {
   readonly args: string;
   /** leading `--name=value` flags (e.g. from, chown); a bare `--name` yields '' */
   readonly flags: Readonly<Record<string, string>>;
+  /**
+   * the leading flags exactly as written, in order, joined with one space ('' when none), e.g.
+   * `--mount=type=cache,target=/root/.npm` (R3 F1: BuildKit's step header prints the instruction as
+   * written, flags included)
+   */
+  readonly flagsText: string;
   /** verbatim physical lines joined with '\n' (comments/blank lines inside a continuation included) */
   readonly raw: string;
 }
@@ -202,11 +208,13 @@ function parseInstruction(logical: LogicalLine): ParsedInstruction {
   if (!/^[A-Z]+$/.test(keyword)) throw parseError(`invalid instruction keyword "${match[1]}"`, logical.line);
   let rest = match[2].trim();
   const flags: Record<string, string> = {};
+  const flagTexts: string[] = [];
   if (FLAG_KEYWORDS.has(keyword)) {
     for (;;) {
       const flag = /^--([a-zA-Z][\w-]*)(?:=(\S*))?(?:\s+|$)/.exec(rest);
       if (flag === null) break;
       flags[flag[1]] = flag[2] ?? '';
+      flagTexts.push(flag[0].trim());
       rest = rest.slice(flag[0].length);
     }
   }
@@ -216,6 +224,7 @@ function parseInstruction(logical: LogicalLine): ParsedInstruction {
     keyword,
     args: rest,
     flags: Object.freeze(flags),
+    flagsText: flagTexts.join(' '),
     raw: logical.raw,
   });
 }

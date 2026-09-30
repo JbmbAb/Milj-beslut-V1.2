@@ -13,13 +13,19 @@
  *                  non-zero exit -- the candidate declares lifecycle scripts none of which derives a
  *                  `node <path>` (LIFECYCLE_RUNNER_UNSUPPORTED: the FAIL predicate cannot be evaluated).
  *   2. FAIL     -- RED confirmed: exit status != 0 AND install step started AND lifecycle banner of the
- *                  probed package AND `Cannot find module` (CJS or ESM loader shape, R2 F2) on a
- *                  lifecycle-script path (both sides resolved against the workdir) AND
- *                  `code: 'MODULE_NOT_FOUND'` (or `ERR_MODULE_NOT_FOUND`) AND
- *                  `npm error command sh -c <exact lifecycle script>`; at docker fidelity the
- *                  `did not complete successfully` line, when present, must name the install command.
- *                  A truncated log that still shows the banner followed by `Cannot find module` on a
- *                  lifecycle path is FAIL (…_TRUNCATED), never PASS.
+ *                  probed package AND `Cannot find module '<path>'` (CJS or ESM loader shape, R2 F2)
+ *                  where `<path>` is ITSELF a member of `L` (the lifecycle ENTRY paths, both sides
+ *                  resolved against the workdir) AND `code: 'MODULE_NOT_FOUND'` (or
+ *                  `ERR_MODULE_NOT_FOUND`) AND `npm error command sh -c <exact lifecycle script>`; at
+ *                  docker fidelity the `did not complete successfully` line, when present, must name
+ *                  the install command. A truncated log that still shows the banner followed by
+ *                  `Cannot find module` on a lifecycle path is FAIL (…_TRUNCATED), never PASS.
+ *                  Documented contract (R3 F4): ONLY the entry paths in `L` are detected. A transitive
+ *                  script-local import failure -- an existing entry in `L` that imports an absent
+ *                  sibling, the ESM shape `Cannot find module '<sibling>' imported from <entry>` --
+ *                  is NOT the asserted failure and classifies PASS
+ *                  INSTALL_FAILED_AFTER_LIFECYCLE_STARTED (the entry script was found and ran);
+ *                  the `imported from` operand is deliberately not consulted.
  *   3. PASS     -- for THIS probe's asserted behavior only:
  *                  exit 0 (INSTALL_COMPLETED, or INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT when the
  *                  lifecycle error text is present although the install completed -- masking is made
@@ -108,7 +114,8 @@ export const INSTALL_COMPLETED_WITH_LIFECYCLE_ERROR_TEXT_REASON_CODE =
 
 // R2 F2: the CJS loader prints `Error: Cannot find module '<path>'` / `code: 'MODULE_NOT_FOUND'`; the
 // ESM loader prints `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '<path>' imported from ...` /
-// `code: 'ERR_MODULE_NOT_FOUND'`. Both are the asserted failure.
+// `code: 'ERR_MODULE_NOT_FOUND'`. Both are the asserted failure when `<path>` is a member of L (R3 F4:
+// the `imported from` operand is not consulted; a missing sibling of an entry is not the asserted failure).
 const CANNOT_FIND_MODULE = /Error(?: \[ERR_MODULE_NOT_FOUND\])?: Cannot find module '([^']+)'/;
 const MODULE_NOT_FOUND_CODE = /code: '(?:MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND)'/;
 const NPM_ERROR_COMMAND = /npm error command sh -c (.+?)\s*$/;

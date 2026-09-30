@@ -9,11 +9,13 @@ import { isPatternProofError } from '../src/errors';
 import { digestOf } from '../src/identity';
 import {
   VERIFIER_DECLARED_TEXT_MAX_LENGTH,
+  VERIFIER_FROZEN_SPEC_MAX_COUNT,
   VERIFIER_INPUT_BUNDLE_KEYS,
   VERIFIER_INPUT_BUNDLE_PREDICATE_TYPE,
   VERIFIER_PROMPT_NOTE_MAX_LENGTH,
   VERIFIER_PROMPT_TEMPLATE_VERSION,
   VERIFIER_RUNTIME_INPUT_KEY_RE,
+  VERIFIER_RUNTIME_INPUT_MAX_COUNT,
   VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH,
   assertVerifyOnlyProvider,
   attestVerifierInputBundle,
@@ -285,6 +287,123 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
     ).toThrow(/PPE_SCHEMA_INVALID/);
   });
 
+  it('R3 F3: a transcript chunked across many single-line frozenSpec refs is refused by the cardinality cap', () => {
+    expect(VERIFIER_FROZEN_SPEC_MAX_COUNT).toBe(64);
+    const base = bundleFixture();
+    const chunk = (i: number): { kind: 'file_line'; ref: string } => ({
+      kind: 'file_line',
+      ref: `transcript-line-${i}: ${'trust me '.repeat(40)}`,
+    });
+    const atCap = Array.from({ length: VERIFIER_FROZEN_SPEC_MAX_COUNT }, (_, i) => chunk(i));
+    expect(validateVerifierInputBundle({ ...base, frozenSpec: atCap }).frozenSpec).toHaveLength(
+      VERIFIER_FROZEN_SPEC_MAX_COUNT,
+    );
+    let caught: unknown;
+    try {
+      validateVerifierInputBundle({ ...base, frozenSpec: [...atCap, chunk(VERIFIER_FROZEN_SPEC_MAX_COUNT)] });
+    } catch (error) {
+      caught = error;
+    }
+    expect(isPatternProofError(caught, 'PPE_ISOLATION_UNDECLARED_INPUT')).toBe(true);
+    expect(String((caught as { path?: string }).path)).toBe('verifierInputBundle.frozenSpec');
+    expect((caught as Error).message).toContain('at most 64 frozenSpec locators');
+    const many = Array.from({ length: 2000 }, (_, i) => chunk(i));
+    expect(() => validateVerifierInputBundle({ ...base, frozenSpec: many })).toThrow(
+      /PPE_ISOLATION_UNDECLARED_INPUT/,
+    );
+  });
+
+  it('R3 F3: a transcript chunked across many verifierRuntimeInputs keys is refused by the cardinality cap', () => {
+    expect(VERIFIER_RUNTIME_INPUT_MAX_COUNT).toBe(64);
+    const base = bundleFixture();
+    const keys = (count: number): Record<string, string> =>
+      Object.fromEntries(
+        Array.from({ length: count }, (_, i) => [`PPE_K${i}`, `chunk ${i} ${'x'.repeat(490)}`]),
+      );
+    expect(
+      Object.keys(
+        validateVerifierInputBundle({
+          ...base,
+          verifierRuntimeInputs: keys(VERIFIER_RUNTIME_INPUT_MAX_COUNT),
+        }).verifierRuntimeInputs,
+      ),
+    ).toHaveLength(VERIFIER_RUNTIME_INPUT_MAX_COUNT);
+    let caught: unknown;
+    try {
+      validateVerifierInputBundle({
+        ...base,
+        verifierRuntimeInputs: keys(VERIFIER_RUNTIME_INPUT_MAX_COUNT + 1),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(isPatternProofError(caught, 'PPE_ISOLATION_UNDECLARED_INPUT')).toBe(true);
+    expect(String((caught as { path?: string }).path)).toBe('verifierInputBundle.verifierRuntimeInputs');
+    expect((caught as Error).message).toContain('at most 64 runtime input keys');
+    expect(() => validateVerifierInputBundle({ ...base, verifierRuntimeInputs: keys(10_000) })).toThrow(
+      /PPE_ISOLATION_UNDECLARED_INPUT/,
+    );
+  });
+
+  it('R3 F3: an oversized or multi-line locator note (frozenSpec or candidate.diffRef) is refused at validation', () => {
+    const base = bundleFixture();
+    const transcript = `WRITER TRANSCRIPT\n${'trust me '.repeat(2000)}`;
+    const cases: readonly [string, unknown, string][] = [
+      [
+        'multi-line frozenSpec note',
+        { ...base, frozenSpec: [{ kind: 'file_line', ref: 'a:1', note: transcript }] },
+        'verifierInputBundle.frozenSpec[0].note',
+      ],
+      [
+        'over-long single-line frozenSpec note',
+        {
+          ...base,
+          frozenSpec: [base.frozenSpec[0], { kind: 'file_line', ref: 'a:1', note: 'n'.repeat(513) }],
+        },
+        'verifierInputBundle.frozenSpec[1].note',
+      ],
+      [
+        'multi-line diffRef note',
+        {
+          ...base,
+          candidate: {
+            ...base.candidate,
+            diffRef: { ...base.candidate.diffRef, note: 'line one\nline two' },
+          },
+        },
+        'verifierInputBundle.candidate.diffRef.note',
+      ],
+      [
+        'over-long diffRef note',
+        {
+          ...base,
+          candidate: { ...base.candidate, diffRef: { ...base.candidate.diffRef, note: 'n'.repeat(513) } },
+        },
+        'verifierInputBundle.candidate.diffRef.note',
+      ],
+    ];
+    for (const [label, bundle, path] of cases) {
+      let caught: unknown;
+      try {
+        validateVerifierInputBundle(bundle);
+      } catch (error) {
+        caught = error;
+      }
+      expect(isPatternProofError(caught, 'PPE_ISOLATION_UNDECLARED_INPUT'), label).toBe(true);
+      expect(String((caught as { path?: string }).path), label).toBe(path);
+    }
+    // a note at the bound is accepted (and still folded to 200 at render time)
+    const atBound = 'n'.repeat(VERIFIER_DECLARED_TEXT_MAX_LENGTH);
+    const accepted = validateVerifierInputBundle({
+      ...base,
+      frozenSpec: [{ kind: 'file_line', ref: 'a:1', note: atBound }],
+      candidate: { ...base.candidate, diffRef: { ...base.candidate.diffRef, note: atBound } },
+    });
+    expect(accepted.frozenSpec[0].note).toBe(atBound);
+    expect(accepted.candidate.diffRef.note).toBe(atBound);
+    expect(promptNoteText(atBound)).toHaveLength(VERIFIER_PROMPT_NOTE_MAX_LENGTH + '...'.length);
+  });
+
   it('R2 F5: refs and the remote are rendered folded and capped like notes, and a smuggled ref never renders', async () => {
     const { attested, verifyOnly } = await attestedFixture();
     const base = bundleFixture();
@@ -344,20 +463,29 @@ describe('PATTERN-PROOF-ENGINE-01 -- verifier isolation', () => {
 
     const { attested, verifyOnly } = await attestedFixture();
     const base = bundleFixture();
-    const noisy: VerifierInputBundle = {
-      ...base,
-      frozenSpec: [{ kind: 'file_line', ref: 'a:1', note: longNote }],
-    };
     const context = await createVerifierContext({
       bundle: validateVerifierInputBundle(base),
       attestation: attested.attestation,
       verification: verifyOnly,
       expectedSignerKeyId: SIGNER_KEY_ID,
     });
+    // R3 F3: a multi-line note no longer reaches the renderer at all (refused at validation)
+    const smuggled: VerifierInputBundle = {
+      ...base,
+      frozenSpec: [{ kind: 'file_line', ref: 'a:1', note: longNote }],
+    };
+    expect(() => renderVerifierPrompt({ ...context, inputs: smuggled })).toThrow(
+      /PPE_ISOLATION_UNDECLARED_INPUT/,
+    );
+    // a single-line note within the declared bound (512) is still folded/capped at 200 when rendered
+    const noisy: VerifierInputBundle = {
+      ...base,
+      frozenSpec: [{ kind: 'file_line', ref: 'a:1', note: `${'n'.repeat(300)} tail` }],
+    };
     const rendered = renderVerifierPrompt({ ...context, inputs: noisy });
     const noteLine = rendered.text.split('\n').find((line) => line.includes('file_line a:1'));
     expect(noteLine).toBeDefined();
-    expect(noteLine).not.toContain('second line');
+    expect(noteLine).not.toContain('tail');
     expect(noteLine).toContain(`${'n'.repeat(VERIFIER_PROMPT_NOTE_MAX_LENGTH)}...`);
     expect(noteLine).not.toContain('n'.repeat(VERIFIER_PROMPT_NOTE_MAX_LENGTH + 1));
     expect(rendered.text.split('\n').filter((line) => line.startsWith('  - '))).toHaveLength(4);

@@ -600,28 +600,51 @@ for (const required of ['evidenceDir', 'runStamp', 'baseSha']) {
     return { refused: `args.${required} is required (a non-empty string); nothing was run` };
   }
 }
-// R2 F3: these values are interpolated into the command lines handed to agents, so they are
+// R2 F3 / R3 F2: these values are interpolated into the command lines handed to agents, so they are
 // constrained to a safe charset BEFORE any interpolation (no spaces, no shell metacharacters).
+const SAFE_ARG_RE = /^[A-Za-z0-9_./-]+$/;
+const SAFE_ARG_RULE = 'must match ^[A-Za-z0-9_./-]+$ (no spaces, no shell metacharacters)';
 if (!/^[0-9a-f]{40}$/.test(input.baseSha)) {
   return { refused: 'args.baseSha must be a 40-hex git object id; nothing was run' };
 }
 for (const pathLike of ['evidenceDir', 'runStamp']) {
-  if (!/^[A-Za-z0-9_./-]+$/.test(input[pathLike])) {
-    return {
-      refused: `args.${pathLike} must match ^[A-Za-z0-9_./-]+$ (no spaces, no shell metacharacters); nothing was run`,
-    };
+  if (!SAFE_ARG_RE.test(input[pathLike])) {
+    return { refused: `args.${pathLike} ${SAFE_ARG_RULE}; nothing was run` };
+  }
+}
+// R3 F2: target.dockerfile and every target.stages entry are interpolated into the red-probe
+// command lines and `--out` paths; when given, each must be a non-empty string of the same safe
+// charset (stages also unique). Absent (undefined) means the default target.
+const target = input.target !== null && typeof input.target === 'object' ? input.target : {};
+if (
+  target.dockerfile !== undefined &&
+  (typeof target.dockerfile !== 'string' || !SAFE_ARG_RE.test(target.dockerfile))
+) {
+  return {
+    refused: `args.target.dockerfile must be a non-empty string that ${SAFE_ARG_RULE}; nothing was run`,
+  };
+}
+if (target.stages !== undefined) {
+  if (!Array.isArray(target.stages) || target.stages.length === 0) {
+    return { refused: 'args.target.stages must be a non-empty array of stage names; nothing was run' };
+  }
+  for (const stage of target.stages) {
+    if (typeof stage !== 'string' || !SAFE_ARG_RE.test(stage)) {
+      return {
+        refused: `every args.target.stages entry must be a non-empty string that ${SAFE_ARG_RULE}; nothing was run`,
+      };
+    }
+  }
+  if (new Set(target.stages).size !== target.stages.length) {
+    return { refused: 'args.target.stages must not repeat a stage name; nothing was run' };
   }
 }
 
 const runStamp = input.runStamp;
 const baseSha = input.baseSha;
 const evidenceDir = input.evidenceDir;
-const target = input.target !== null && typeof input.target === 'object' ? input.target : {};
-const dockerfile =
-  typeof target.dockerfile === 'string' && target.dockerfile.length > 0
-    ? target.dockerfile
-    : DEFAULT_DOCKERFILE;
-const stages = Array.isArray(target.stages) && target.stages.length > 0 ? target.stages : DEFAULT_STAGES;
+const dockerfile = target.dockerfile === undefined ? DEFAULT_DOCKERFILE : target.dockerfile;
+const stages = target.stages === undefined ? DEFAULT_STAGES : target.stages;
 
 const artifactPaths = {
   discovery: `${evidenceDir}/discovery.json`,
@@ -652,6 +675,9 @@ const RUN_SUMMARY_SCHEMA = {
   type: 'object',
   properties: {
     exitCode: { type: 'number' },
+    // R3 F6: when relayed, these must equal this script's mode and runStamp (checked below)
+    runId: { type: 'string' },
+    mode: { type: 'string' },
     phase: { type: 'string' },
     terminalState: { type: 'string' },
     stoppedAtPhase: { type: 'string' },
@@ -750,14 +776,43 @@ function validateCommand(kind, artifactPath) {
 /** What `ppe-cli run` must have stored for a stop-by-mode at RED_SYNTHESIS to be the real one. */
 const REQUIRED_STORED_ARTIFACTS = ['discovery', 'dependency-graph', 'decision-gate', 'red-plan'];
 const PROBE_CLASSIFICATIONS = ['PASS', 'FAIL', 'BLOCKED'];
+/** red-probe's exit contract (scripts/red-probe.ts): 0 PASS, 1 FAIL, 2 BLOCKED (R3 F6). */
+const PROBE_EXIT_CODES = { PASS: 0, FAIL: 1, BLOCKED: 2 };
+/** The six frozen terminal states (frozen design section 3; state-machine PATTERN_PROOF_TERMINAL_STATES). */
+const TERMINAL_STATES = [
+  'HUMAN_DECISION_REQUIRED',
+  'MISSING_AUTHORITY',
+  'SCOPE_VIOLATION',
+  'FALSIFIED',
+  'NOT_PROVEN',
+  'NON_REPRODUCIBLE',
+];
+
+/**
+ * R3 F6: a relayed `ppe-cli run` summary that names a run id or a mode must name THIS run and
+ * THIS mode. Returns the fault text, or null.
+ */
+function describeSummaryIdentityFault(runSummary) {
+  if (runSummary.mode !== undefined && runSummary.mode !== MODE) {
+    return `ppe-cli run reports mode ${JSON.stringify(runSummary.mode)}, not ${MODE}`;
+  }
+  if (runSummary.runId !== undefined && runSummary.runId !== runStamp) {
+    return `ppe-cli run reports runId ${JSON.stringify(runSummary.runId)}, not ${runStamp}`;
+  }
+  return null;
+}
 
 /**
  * R2 F3: the RED_SYNTHESIS relay must be complete and self-consistent before the success return:
  * the machine's phase is RED_SYNTHESIS, it stopped by THIS mode there, every artifact of the four
- * stages is stored, and there is exactly one classified probe result per target stage. Returns the
- * fault text, or null when the relay is admissible.
+ * stages is stored, and there is exactly one classified probe result per target stage. R3 F6: the
+ * summary's runId/mode (when present) must be this run's, and every probe result's exitCode must
+ * agree with its classification (0 PASS, 1 FAIL, 2 BLOCKED). Returns the fault text, or null when
+ * the relay is admissible.
  */
 function describeRelayFault(runSummary, probeResults) {
+  const identityFault = describeSummaryIdentityFault(runSummary);
+  if (identityFault !== null) return identityFault;
   if (runSummary.phase !== 'RED_SYNTHESIS') {
     return `ppe-cli run reports phase ${runSummary.phase}, not RED_SYNTHESIS`;
   }
@@ -780,6 +835,10 @@ function describeRelayFault(runSummary, probeResults) {
       return `stage ${stage} has ${forStage.length} probe result(s), expected exactly one`;
     if (!PROBE_CLASSIFICATIONS.includes(forStage[0].classification)) {
       return `probe result for stage ${stage} carries no classification (PASS | FAIL | BLOCKED)`;
+    }
+    const expectedExit = PROBE_EXIT_CODES[forStage[0].classification];
+    if (forStage[0].exitCode !== expectedExit) {
+      return `probe result for stage ${stage} relays exitCode ${JSON.stringify(forStage[0].exitCode)} with classification ${forStage[0].classification} (red-probe exits ${expectedExit} for ${forStage[0].classification})`;
     }
   }
   return null;
@@ -935,7 +994,18 @@ if (runSummary === null || typeof runSummary !== 'object') {
   return failClosed('RED_SYNTHESIS', 'no runSummary returned from ppe-cli run', { probeResults });
 }
 if (runSummary.exitCode === 3) {
-  // A legitimate, evidenced stop decided by the state machine (MISSING_AUTHORITY etc.).
+  // A legitimate, evidenced stop decided by the state machine (MISSING_AUTHORITY etc.). R3 F6: only
+  // when the relay names one of the six frozen terminal states for THIS run; anything else is an
+  // inconsistent relay and fails closed.
+  const identityFault = describeSummaryIdentityFault(runSummary);
+  if (identityFault !== null) return failClosed('RED_SYNTHESIS', identityFault, { runSummary, probeResults });
+  if (!TERMINAL_STATES.includes(runSummary.terminalState)) {
+    return failClosed(
+      'RED_SYNTHESIS',
+      `ppe-cli run exit 3 relayed without a frozen terminal state (terminalState ${JSON.stringify(runSummary.terminalState === undefined ? null : runSummary.terminalState)}; expected one of ${TERMINAL_STATES.join(' | ')})`,
+      { runSummary, probeResults },
+    );
+  }
   log(`ppe-v1 ${runStamp}: state machine reached terminal ${runSummary.terminalState} (ppe-cli run exit 3)`);
   return {
     mode: MODE,
@@ -944,7 +1014,7 @@ if (runSummary.exitCode === 3) {
     evidenceDir,
     stoppedAt: 'RED_SYNTHESIS',
     terminal: true,
-    terminalState: typeof runSummary.terminalState === 'string' ? runSummary.terminalState : null,
+    terminalState: runSummary.terminalState,
     runSummary,
     probeResults,
     artifactPaths,

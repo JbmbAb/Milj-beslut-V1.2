@@ -7,7 +7,8 @@
  *   - `host-npm`: the prefix's context laid out in a temp dir and the derived install command run with
  *     `/bin/sh -c` on the host (reduced fidelity, recorded as such). It refuses BEFORE spawning, with a
  *     BLOCKED-classifiable execution (`spawnError.code`), a prefix it cannot reproduce faithfully
- *     (any `COPY/ADD --from`, or an install command with an unexpanded `$`: HOST_FIDELITY_UNSUPPORTED,
+ *     (any `COPY/ADD --from`, an install RUN carrying any RUN flag such as `--mount`/`--network`/
+ *     `--security` (R3 F1), or an install command with an unexpanded `$`: HOST_FIDELITY_UNSUPPORTED,
  *     R1 F8) and a context in which package.json did not land in the host root (CONTEXT_INCOMPLETE,
  *     R1 F2). ARG defaults are applied as environment defaults (docker semantics: args, then ENV,
  *     then the caller's env).
@@ -436,16 +437,24 @@ function normalizeSpaces(text: string): string {
 /**
  * The step-header texts BuildKit may print for an install RUN: the shell text (shell form, or the
  * exec tokens joined) and, for an exec-form RUN, the raw JSON array text as written plus its
- * canonical `["a", "b"]` re-serialization (R1 F7: BuildKit prints `RUN ["node", "-e", "1"]`).
+ * canonical `["a", "b"]` re-serialization (R1 F7: BuildKit prints `RUN ["node", "-e", "1"]`). When
+ * the instruction carries RUN flags (`--mount=...`, `--network=...`, ...), each shape is ALSO
+ * emitted with the flags re-attached exactly as written (`<flagsText> <shape>`, spaces
+ * normalized), because BuildKit prints the instruction as written, flags included (R3 F1); the
+ * exact-match rule of R2 F7 is unchanged.
  */
 export function installStepHeaders(installCommand: string, instruction?: ParsedInstruction): string[] {
   const headers = [normalizeSpaces(installCommand)];
   if (instruction !== undefined) {
-    headers.push(normalizeSpaces(instructionShellText(instruction)));
+    const shapes = [normalizeSpaces(instructionShellText(instruction))];
     const tokens = execFormTokens(instruction.args);
     if (tokens !== null) {
-      headers.push(normalizeSpaces(instruction.args));
-      headers.push(`[${tokens.map((token) => JSON.stringify(token)).join(', ')}]`);
+      shapes.push(normalizeSpaces(instruction.args));
+      shapes.push(`[${tokens.map((token) => JSON.stringify(token)).join(', ')}]`);
+    }
+    headers.push(...shapes);
+    if (instruction.flagsText.length > 0) {
+      headers.push(...shapes.map((shape) => normalizeSpaces(`${instruction.flagsText} ${shape}`)));
     }
   }
   return [...new Set(headers.filter((header) => header.length > 0))];
@@ -524,7 +533,9 @@ export const CONTEXT_INCOMPLETE_CODE = 'CONTEXT_INCOMPLETE';
 
 /**
  * Why the host executor cannot reproduce this prefix faithfully (R1 F8), or undefined when it can:
- * a `COPY/ADD --from` (its sources are another stage's filesystem) or an install command with an
+ * a `COPY/ADD --from` (its sources are another stage's filesystem), an install RUN carrying ANY
+ * RUN flag (`--mount`, `--network`, `--security` or any other: a bind/cache/secret mount, a network
+ * mode or a security profile has no host equivalent, R3 F1) or an install command with an
  * unexpanded `$` (no ARG/ENV substitution is performed; docker would expand it).
  */
 export function hostFidelityLimitation(prefix: StagePrefix): string | undefined {
@@ -535,6 +546,9 @@ export function hostFidelityLimitation(prefix: StagePrefix): string | undefined 
   );
   if (fromCopy !== undefined) {
     return `${fromCopy.keyword} --from=${fromCopy.flags.from} at line ${fromCopy.line} cannot be laid out on the host`;
+  }
+  if (Object.keys(prefix.installInstruction.flags).length > 0) {
+    return `install RUN at line ${prefix.installLine} carries the RUN flag(s) ${prefix.installInstruction.flagsText} that the host cannot reproduce`;
   }
   if (prefix.installCommand.includes('$')) {
     return `install command "${prefix.installCommand}" carries an unexpanded $ substitution`;

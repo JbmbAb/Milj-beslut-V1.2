@@ -658,4 +658,93 @@ describe('dockerInstallStepStarted', () => {
       ),
     ).toBe(true);
   });
+
+  it('R3 F1: a RUN with BuildKit flags matches the header printed as written (flags re-attached), exact-match rule kept', () => {
+    const flagged = parseDockerfile(
+      'FROM x\nRUN --mount=type=cache,target=/root/.npm   npm ci --omit=dev --legacy-peer-deps\n',
+    ).stages[0].instructions[1];
+    expect(flagged.flags).toEqual({ mount: 'type=cache,target=/root/.npm' });
+    expect(flagged.flagsText).toBe('--mount=type=cache,target=/root/.npm');
+    expect(installStepHeaders(PRODUCTION_BASE_INSTALL_COMMAND, flagged)).toEqual([
+      PRODUCTION_BASE_INSTALL_COMMAND,
+      `--mount=type=cache,target=/root/.npm ${PRODUCTION_BASE_INSTALL_COMMAND}`,
+    ]);
+    // the captured RED output with its header line rewritten to the instruction as written
+    const withFlagHeader = DOCKER_PRODUCTION_BASE_RED_OUTPUT.replace(
+      '#12 [production-base 2/2] RUN npm ci --omit=dev --legacy-peer-deps',
+      '#12 [production-base 2/2] RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --legacy-peer-deps',
+    );
+    expect(withFlagHeader).not.toBe(DOCKER_PRODUCTION_BASE_RED_OUTPUT);
+    // without the instruction (shell text only) the flagged header is not recognised ...
+    expect(dockerInstallStepStarted(withFlagHeader, PRODUCTION_BASE_INSTALL_COMMAND)).toBe(false);
+    // ... with the instruction it is, and the verbatim RED text then classifies FAIL, not BLOCKED
+    expect(dockerInstallStepStarted(withFlagHeader, PRODUCTION_BASE_INSTALL_COMMAND, flagged)).toBe(true);
+    const result = classifyInstallProbeOutput(
+      input({
+        output: withFlagHeader,
+        installStepStarted: dockerInstallStepStarted(
+          withFlagHeader,
+          PRODUCTION_BASE_INSTALL_COMMAND,
+          flagged,
+        ),
+      }),
+    );
+    expect(result.classification).toBe('FAIL');
+    expect(result.reasonCode).toBe(RED_REASON_CODE);
+    // exact match still: a different flag value, an extra flag or a flag on a different command never matches
+    for (const header of [
+      '#12 [production-base 2/2] RUN --mount=type=cache,target=/root/.cache npm ci --omit=dev --legacy-peer-deps',
+      '#12 [production-base 2/2] RUN --mount=type=cache,target=/root/.npm --network=none npm ci --omit=dev --legacy-peer-deps',
+      '#12 [production-base 2/2] RUN --mount=type=cache,target=/root/.npm npm ci',
+      '#12 [production-base 2/2] RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --legacy-peer-deps --no-audit',
+    ]) {
+      expect(dockerInstallStepStarted(`${header}\n`, PRODUCTION_BASE_INSTALL_COMMAND, flagged), header).toBe(
+        false,
+      );
+    }
+    // several flags are re-attached in the order written; an exec-form RUN gets every shape flagged
+    const two = parseDockerfile('FROM x\nRUN --mount=type=cache,target=/r --network=none npm ci\n').stages[0]
+      .instructions[1];
+    expect(installStepHeaders('npm ci', two)).toEqual([
+      'npm ci',
+      '--mount=type=cache,target=/r --network=none npm ci',
+    ]);
+    const exec = parseDockerfile('FROM x\nRUN --network=none ["npm","ci"]\n').stages[0].instructions[1];
+    expect(installStepHeaders('npm ci', exec)).toEqual([
+      'npm ci',
+      '["npm","ci"]',
+      '["npm", "ci"]',
+      '--network=none npm ci',
+      '--network=none ["npm","ci"]',
+      '--network=none ["npm", "ci"]',
+    ]);
+    // an unflagged instruction emits no flagged shapes
+    expect(
+      installStepHeaders('npm ci', parseDockerfile('FROM x\nRUN npm ci\n').stages[0].instructions[1]),
+    ).toEqual(['npm ci']);
+  });
+});
+
+describe('classifyInstallProbeOutput: documented contract on transitive script-local imports (R3 F4)', () => {
+  it('an existing lifecycle entry importing an absent sibling (ESM `imported from <entry>`) is PASS INSTALL_FAILED_AFTER_LIFECYCLE_STARTED', () => {
+    // the entry script in L was found and ran; the missing module is its sibling, not a member of L
+    const sibling = DOCKER_PRODUCTION_BASE_RED_OUTPUT.replace(
+      "Error: Cannot find module '/app/scripts/postinstall-prisma-generate.mjs'",
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/app/scripts/lib/helper.mjs' imported from /app/scripts/postinstall-prisma-generate.mjs",
+    ).replace("code: 'MODULE_NOT_FOUND'", "code: 'ERR_MODULE_NOT_FOUND'");
+    expect(sibling).not.toBe(DOCKER_PRODUCTION_BASE_RED_OUTPUT);
+    expect(sibling).toContain('imported from /app/scripts/postinstall-prisma-generate.mjs');
+    const result = classifyInstallProbeOutput(input({ ...DOCKER_PB, output: sibling }));
+    expect(result.classification).toBe('PASS');
+    expect(result.reasonCode).toBe(INSTALL_FAILED_AFTER_LIFECYCLE_STARTED_REASON_CODE);
+    expect(result.matched[0]).toBe(DOCKER_PB_BANNER);
+    // the `imported from` operand is not consulted: naming the entry there does not make it the asserted failure
+    expect(result.matched.some((line) => line.includes('Cannot find module'))).toBe(false);
+    // the same shape on a path that IS in L stays FAIL (the R2 F2 contract)
+    const entry = sibling.replace(
+      "'/app/scripts/lib/helper.mjs'",
+      "'/app/scripts/postinstall-prisma-generate.mjs'",
+    );
+    expect(classifyInstallProbeOutput(input({ ...DOCKER_PB, output: entry })).classification).toBe('FAIL');
+  });
 });

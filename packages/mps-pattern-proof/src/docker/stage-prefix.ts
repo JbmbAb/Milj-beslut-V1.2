@@ -6,17 +6,20 @@
  * the target stage's own instructions up to and including its INSTALL step -- the RUN whose shell
  * text (split on `&&`, `||`, `|` and `;`, the same separators as lifecycle-scripts.ts) contains a
  * PROJECT install command: `npm ci` / `npm install` / `npm i` followed only by flags (no positional
- * package specs, no global install: `-g`, `--global`, `--location=global` or a combined short-flag
- * group containing `g` such as `-gf`), so `npm cache ...`, `npm run ...` and `npm install -g npm@10`
- * never qualify (R1 F3, R2 F8). Exactly one such RUN may exist in the target stage; two or more fail
- * closed with PPE_INSTALL_STEP_NOT_FOUND "ambiguous install step" (BLOCKED at the CLI). A candidate
- * that adds `--ignore-scripts`, copies `scripts/` before the RUN, or removes the lifecycle hook is
- * reflected in the derived state, never re-asserted from a base snapshot.
+ * package specs, no global install: `-g`, `--global`, `--global=true`, `-g=true`,
+ * `--location=global`, a combined short-flag group containing `g` such as `-gf`, or a leading
+ * `NPM_CONFIG_GLOBAL=true` / `npm_config_global=true` assignment), so `npm cache ...`,
+ * `npm run ...` and `npm install -g npm@10` never qualify (R1 F3, R2 F8, R3 F5). Exactly one such
+ * RUN may exist in the target stage; two or more fail closed with PPE_INSTALL_STEP_NOT_FOUND
+ * "ambiguous install step" (BLOCKED at the CLI). A candidate that adds `--ignore-scripts`, copies
+ * `scripts/` before the RUN, or removes the lifecycle hook is reflected in the derived state, never
+ * re-asserted from a base snapshot.
  *
- * Documented FAIL-CLOSED rejections of the install predicate (R2 F8; deliberately NOT widened): a
- * value-taking flag whose value is a separate token (`npm ci --loglevel verbose`), a shell
- * redirection (`npm ci 2>&1`, `npm ci > log`), an inline `#` comment (`npm ci # prod`) and the
- * `npm clean-install` / `npm install-clean` aliases are not recognised as a project install. A
+ * Documented FAIL-CLOSED rejections of the install predicate (R2 F8, R3 F5; deliberately NOT
+ * widened): a value-taking flag whose value is a separate token (`npm ci --loglevel verbose`), npm
+ * options placed BEFORE the subcommand (`npm --loglevel=verbose ci`, `npm --prefix=/app ci`), a
+ * shell redirection (`npm ci 2>&1`, `npm ci > log`), an inline `#` comment (`npm ci # prod`) and
+ * the `npm clean-install` / `npm install-clean` aliases are not recognised as a project install. A
  * target stage whose only install is written that way has no derivable install step:
  * PPE_INSTALL_STEP_NOT_FOUND, reported BLOCKED at the CLI -- never PASS, never a guessed prefix.
  *
@@ -24,8 +27,11 @@
  * `COPY --from=<stage>` instructions are kept verbatim in the prefix but excluded from the build
  * context (their sources are not context files); if such an instruction references a stage outside
  * the lineage, a docker probe fails before the install step and classifies BLOCKED (never PASS).
- * The host executor refuses (BLOCKED HOST_FIDELITY_UNSUPPORTED) a prefix with any `COPY --from` or an
+ * The host executor refuses (BLOCKED HOST_FIDELITY_UNSUPPORTED) a prefix with any `COPY --from`, an
+ * install RUN carrying any RUN flag (`--mount`, `--network`, `--security`, ...; R3 F1) or an
  * install command carrying an unexpanded `$` (R1 F8); it applies `args` as environment defaults.
+ * A RUN flag on the install RUN is admitted by the predicate (the flag is not part of the shell
+ * text) and rendered verbatim into the derived Dockerfile for the docker executor.
  */
 import path from 'node:path';
 import { PatternProofError } from '../errors';
@@ -44,9 +50,17 @@ import { SHELL_COMMAND_SEPARATOR_RE } from './lifecycle-scripts';
 export const DEFAULT_INSTALL_PATTERN = /\bnpm\s+(ci|install|i)\b/;
 
 const INSTALL_SUBCOMMANDS: ReadonlySet<string> = new Set(['ci', 'install', 'i']);
-const GLOBAL_FLAGS: ReadonlySet<string> = new Set(['-g', '--global', '--location=global']);
+const GLOBAL_FLAGS: ReadonlySet<string> = new Set([
+  '-g',
+  '--global',
+  '--global=true',
+  '-g=true',
+  '--location=global',
+]);
 /** A combined short-flag group containing `g` (`-gf`, `-fg`): a global install (R2 F8). */
 const COMBINED_SHORT_GLOBAL_FLAG_RE = /^-[A-Za-z]*g[A-Za-z]*$/;
+/** A leading `NPM_CONFIG_GLOBAL=true` / `npm_config_global=true` assignment: a global install (R3 F5). */
+const GLOBAL_ENV_ASSIGNMENT_RE = /^npm_config_global=true$/i;
 
 function isGlobalInstallFlag(token: string): boolean {
   return GLOBAL_FLAGS.has(token) || COMBINED_SHORT_GLOBAL_FLAG_RE.test(token);
@@ -54,12 +68,13 @@ function isGlobalInstallFlag(token: string): boolean {
 
 /**
  * True when one shell command (already split on `&&` / `||` / `|` / `;`) is a PROJECT install:
- * leading `KEY=value` assignments skipped, `npm (ci|install|i)` followed only by `-`-prefixed flags,
- * none of them a global-install flag (`-g`, `--global`, `--location=global`, `-gf`). An unexpanded
+ * leading `KEY=value` assignments skipped (none of them `NPM_CONFIG_GLOBAL=true`, R3 F5),
+ * `npm (ci|install|i)` followed only by `-`-prefixed flags, none of them a global-install flag
+ * (`-g`, `--global`, `--global=true`, `-g=true`, `--location=global`, `-gf`). An unexpanded
  * `$VAR` / `${VAR}` token is admitted as a flag position (docker expands it; the host executor
  * refuses the prefix as HOST_FIDELITY_UNSUPPORTED, R1 F8). Anything else after the subcommand (a
- * positional spec, a separate flag value, a redirection, a `#` comment) fails closed: see the module
- * header.
+ * positional spec, a separate flag value, a redirection, a `#` comment) and any npm option placed
+ * before the subcommand fail closed: see the module header.
  */
 export function isProjectInstallCommand(command: string): boolean {
   const tokens = command
@@ -67,7 +82,10 @@ export function isProjectInstallCommand(command: string): boolean {
     .split(/\s+/)
     .filter((token) => token.length > 0);
   let k = 0;
-  while (k < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[k])) k += 1;
+  while (k < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[k])) {
+    if (GLOBAL_ENV_ASSIGNMENT_RE.test(tokens[k])) return false;
+    k += 1;
+  }
   if (tokens[k] !== 'npm' || !INSTALL_SUBCOMMANDS.has(tokens[k + 1] ?? '')) return false;
   const rest = tokens.slice(k + 2);
   return rest.every(

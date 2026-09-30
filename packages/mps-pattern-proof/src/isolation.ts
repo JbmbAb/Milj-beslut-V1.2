@@ -22,11 +22,15 @@
  *     subject and predicate (PPE_ISOLATION_BUNDLE_DIGEST_MISMATCH).
  *  4. `renderVerifierPrompt` is a deterministic function of `context.inputs` only; its digest is
  *     the evidence an adapter records for "the verifier saw exactly this".
- *  5. Declared slots are BOUNDED (R1 F12): `verifierRuntimeInputs` keys must match
- *     VERIFIER_RUNTIME_INPUT_KEY_RE and values must be single-line strings of at most
- *     VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH characters (PPE_ISOLATION_UNDECLARED_INPUT otherwise),
- *     so a transcript cannot be smuggled through a declared key; locator notes rendered into the
- *     prompt are capped at VERIFIER_PROMPT_NOTE_MAX_LENGTH characters with newlines folded.
+ *  5. Declared slots are BOUNDED (R1 F12, R2 F5, R3 F3), per value AND in cardinality:
+ *     `verifierRuntimeInputs` keys must match VERIFIER_RUNTIME_INPUT_KEY_RE and values must be
+ *     single-line strings of at most VERIFIER_RUNTIME_INPUT_VALUE_MAX_LENGTH characters; at most
+ *     VERIFIER_RUNTIME_INPUT_MAX_COUNT keys and at most VERIFIER_FROZEN_SPEC_MAX_COUNT frozenSpec
+ *     locators are declared; every locator `ref` AND `note` in the bundle (candidate.diffRef and each
+ *     frozenSpec entry) is single-line and at most VERIFIER_DECLARED_TEXT_MAX_LENGTH characters
+ *     (PPE_ISOLATION_UNDECLARED_INPUT otherwise), so a transcript cannot be smuggled through a
+ *     declared key, chunked across many refs/keys, or placed whole in a note; locator notes rendered
+ *     into the prompt are additionally folded and capped at VERIFIER_PROMPT_NOTE_MAX_LENGTH.
  *
  * Reuse map (frozen design section 13): no parallel signer/verifier abstraction, no parallel
  * hashing. Everything cryptographic is `@miljobeslut/mimers-brunn-core`.
@@ -100,6 +104,10 @@ export const VERIFIER_PROMPT_NOTE_MAX_LENGTH = 200;
  * multi-line value is an undeclared input (PPE_ISOLATION_UNDECLARED_INPUT), not a schema typo.
  */
 export const VERIFIER_DECLARED_TEXT_MAX_LENGTH = 512;
+/** At most this many frozenSpec locators may be declared (R3 F3: cardinality bound). */
+export const VERIFIER_FROZEN_SPEC_MAX_COUNT = 64;
+/** At most this many verifierRuntimeInputs keys may be declared (R3 F3: cardinality bound). */
+export const VERIFIER_RUNTIME_INPUT_MAX_COUNT = 64;
 
 /**
  * Compile-time counterpart of the runtime `sign`-member rejection. A `SigningKeyProvider` is not
@@ -190,11 +198,19 @@ function requireBoundedDeclaredText(value: string, path: string, what: string): 
   return value;
 }
 
-/** Validates a locator and bounds its `ref` (R2 F5); the note is bounded at render time (R1 F12). */
-function validateBoundedLocator(input: unknown, path: string): EvidenceLocator {
-  const locator = validateEvidenceLocator(input, path);
+/**
+ * Bounds a validated locator's `ref` (R2 F5) and `note` (R3 F3) as declared text; the note is
+ * additionally folded and capped at render time (R1 F12).
+ */
+function requireBoundedLocatorText(locator: EvidenceLocator, path: string): EvidenceLocator {
   requireBoundedDeclaredText(locator.ref, `${path}.ref`, 'locator ref');
+  if (locator.note !== undefined) requireBoundedDeclaredText(locator.note, `${path}.note`, 'locator note');
   return locator;
+}
+
+/** Validates a locator and bounds its `ref` and `note` (R2 F5, R3 F3). */
+function validateBoundedLocator(input: unknown, path: string): EvidenceLocator {
+  return requireBoundedLocatorText(validateEvidenceLocator(input, path), path);
 }
 
 function validateRepositoryIdentity(input: unknown, path: string): VerifierRepositoryIdentity {
@@ -223,8 +239,17 @@ function validateCandidateIdentity(input: unknown, path: string): VerifierCandid
  */
 function validateRuntimeInputs(input: unknown, path: string): Readonly<Record<string, string>> {
   const value = requirePlainObject(input, path);
+  const keys = Object.keys(value);
+  if (keys.length > VERIFIER_RUNTIME_INPUT_MAX_COUNT) {
+    // R3 F3: a transcript chunked across many declared keys is still an undeclared input
+    throw new PatternProofError(
+      'PPE_ISOLATION_UNDECLARED_INPUT',
+      `at most ${VERIFIER_RUNTIME_INPUT_MAX_COUNT} runtime input keys may be declared (got ${keys.length})`,
+      { path },
+    );
+  }
   const out: Record<string, string> = {};
-  for (const key of Object.keys(value)) {
+  for (const key of keys) {
     if (!VERIFIER_RUNTIME_INPUT_KEY_RE.test(key)) {
       throw new PatternProofError(
         'PPE_ISOLATION_UNDECLARED_INPUT',
@@ -273,9 +298,15 @@ export function validateVerifierInputBundle(
     });
   }
   const frozenSpec = validateEvidenceLocators(value.frozenSpec, `${path}.frozenSpec`);
-  frozenSpec.forEach((locator, index) =>
-    requireBoundedDeclaredText(locator.ref, `${path}.frozenSpec[${index}].ref`, 'locator ref'),
-  );
+  if (frozenSpec.length > VERIFIER_FROZEN_SPEC_MAX_COUNT) {
+    // R3 F3: a transcript chunked across many single-line refs is still an undeclared input
+    throw new PatternProofError(
+      'PPE_ISOLATION_UNDECLARED_INPUT',
+      `at most ${VERIFIER_FROZEN_SPEC_MAX_COUNT} frozenSpec locators may be declared (got ${frozenSpec.length})`,
+      { path: `${path}.frozenSpec` },
+    );
+  }
+  frozenSpec.forEach((locator, index) => requireBoundedLocatorText(locator, `${path}.frozenSpec[${index}]`));
   return Object.freeze({
     repositoryIdentity: validateRepositoryIdentity(value.repositoryIdentity, `${path}.repositoryIdentity`),
     candidate: validateCandidateIdentity(value.candidate, `${path}.candidate`),
@@ -472,7 +503,11 @@ function foldPromptText(text: string, maxLength: number): string {
   return folded.length > maxLength ? `${folded.slice(0, maxLength)}...` : folded;
 }
 
-/** A note as rendered into the prompt: newlines folded to spaces, capped (R1 F12). */
+/**
+ * A note as rendered into the prompt: newlines folded to spaces, capped (R1 F12). Validation already
+ * bounds notes at VERIFIER_DECLARED_TEXT_MAX_LENGTH single-line (R3 F3); the render cap is kept as
+ * the rendering-side guarantee and to keep the prompt short.
+ */
 export function promptNoteText(note: string): string {
   return foldPromptText(note, VERIFIER_PROMPT_NOTE_MAX_LENGTH);
 }
