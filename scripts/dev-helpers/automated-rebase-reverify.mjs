@@ -4,6 +4,12 @@
 // (design COLD_VERIFIED/ACCEPT for §1-4, 2026-09-30; this implementation is its own, separately
 // unverified candidate -- see feedback-design-verdict-does-not-inherit-to-implementation memory).
 //
+// Repaired 2026-09-30 per W1-VERIFY-DB's independent cold review (SOUND_WITH_CHANGES verdict) of
+// candidate b7ddef9f, on Jimmy's GO: pagination + bounded retry/backoff/timeout in
+// locatePriorApprovedSha, fail-closed on an empty RED/GREEN manifest, merge-conflict vs. other
+// git-failure classification, --pr shape validation, and a new pre_merge_tip_sha dispatch field so
+// the CI workflow can independently re-derive Phase 1/2 instead of trusting the payload narrative.
+//
 // On-demand only (§1.1) -- invoked explicitly per PR, never on a schedule. For one specific PR
 // that is BEHIND its base but otherwise mergeable, with a prior successful DEV-GOV run recorded
 // somewhere on its branch history:
@@ -48,7 +54,7 @@
 // THIS implementation can exercise it directly with synthetic fixtures, without needing a live
 // GitHub PR (see governance/devgov/units/automated-rebase-reverify-01-v1.json).
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
@@ -58,10 +64,17 @@ export const STOP = Object.freeze({
   NOT_STALE: 'STOP_NOT_STALE',
   NOT_MERGEABLE: 'STOP_NOT_MERGEABLE',
   NO_PRIOR_PROOF: 'STOP_NO_PRIOR_PROOF',
+  TOO_MANY_COMMITS_TO_WALK: 'STOP_TOO_MANY_COMMITS_TO_WALK',
   NEW_REVIEW_REQUIRED: 'STOP_NEW_REVIEW_REQUIRED',
   MERGE_CONFLICT: 'STOP_MERGE_CONFLICT',
+  MERGE_FAILED: 'STOP_MERGE_FAILED',
+  EMPTY_PROOF_MANIFEST: 'STOP_EMPTY_PROOF_MANIFEST',
   CANDIDATE_FAILURE: 'STOP_CANDIDATE_FAILURE',
 });
+
+const MAX_COMMITS_TO_WALK = 200;
+const DEFAULT_TIMEOUT_MS = 60_000;
+const DEVGOV_INVOCATION_TIMEOUT_MS = 150_000; // comfortably above devgov.mjs's own internal 120_000 default
 
 // ---------------------------------------------------------------------------------------------
 // Pure decision logic (§1.3). No I/O. Operates on already-read bytes/JSON so it is directly
@@ -152,14 +165,72 @@ export function classifyStaleness({ mergeStateStatus, mergeable }) {
   return { inScope: true };
 }
 
+/**
+ * W1-VERIFY-DB finding (2026-09-30): the local RED/GREEN dry-run's pass check is vacuously true on
+ * an empty manifest ([].every(...) === true), so a unit definition with no declared RED/GREEN
+ * entries would silently report PASS with zero checks executed. Fail closed instead: this tool's
+ * whole purpose is proof-preserving, so "no proof was run" must never look like "proof passed".
+ */
+export function assertNonEmptyManifest(definition) {
+  const redCount = (definition.required_red || []).length;
+  const greenCount = (definition.required_green || []).length;
+  if (redCount === 0 || greenCount === 0) {
+    return {
+      ok: false,
+      stop: STOP.EMPTY_PROOF_MANIFEST,
+      reason: `unit definition declares ${redCount} required_red and ${greenCount} required_green entries -- refusing to report a local dry-run PASS with zero checks actually executed`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * W1-VERIFY-DB finding (2026-09-30): any nonzero `git merge` exit was uniformly reported as
+ * STOP_MERGE_CONFLICT, even for an unrelated failure (locked ref, I/O error, unusual repo state).
+ * Distinguish a real conflict (git's own unambiguous markers) from anything else.
+ */
+export function classifyMergeFailure(stderr) {
+  const text = String(stderr || '');
+  if (/CONFLICT|Automatic merge failed/i.test(text)) {
+    return {
+      stop: STOP.MERGE_CONFLICT,
+      reason: 'git merge --no-edit produced conflicts; merge aborted, nothing pushed',
+    };
+  }
+  return {
+    stop: STOP.MERGE_FAILED,
+    reason: `git merge --no-edit failed for a reason other than a content conflict; merge aborted, nothing pushed -- stderr: ${text.slice(0, 500)}`,
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
-// I/O helpers (git/gh). Thin and literal -- no retries, no fallbacks, fail closed on anything
-// unexpected.
+// I/O helpers (git/gh). Thin and literal -- bounded timeouts, bounded retries on the one
+// identified transient-failure-prone call, fail closed on anything unexpected.
 // ---------------------------------------------------------------------------------------------
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function withRetry(fn, { attempts = 3, baseDelayMs = 500 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) sleepSync(baseDelayMs * 2 ** (attempt - 1));
+    }
+  }
+  throw lastError;
+}
+
 function run(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { encoding: 'utf8', ...opts });
+  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, ...opts });
   if (result.error) throw result.error;
+  if (result.signal && result.status === null) {
+    throw new Error(`${cmd} ${args.join(' ')} was killed by signal ${result.signal} (likely timed out)`);
+  }
   if (result.status !== 0) {
     throw new Error(`${cmd} ${args.join(' ')} exited ${result.status}\n${result.stderr}`);
   }
@@ -167,7 +238,7 @@ function run(cmd, args, opts = {}) {
 }
 
 function runAllowFail(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { encoding: 'utf8', ...opts });
+  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, ...opts });
   return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
 
@@ -186,6 +257,42 @@ function resolveRepoSlug(worktree, explicitRepo) {
 function ghApiJson(args) {
   const stdout = run('gh', ['api', ...args]);
   return JSON.parse(stdout);
+}
+
+/**
+ * W1-VERIFY-DB finding (2026-09-30): the combined-status endpoint (/commits/{sha}/status) was
+ * verified live to return only its first page of statuses, with no pagination handling in this
+ * script. Use the array-shaped, genuinely paginatable list endpoint instead
+ * (/commits/{sha}/statuses), with --paginate and an explicit per_page, and defensively parse
+ * either output shape gh's --paginate might produce for an array response.
+ */
+function listCommitStatuses(repo, sha) {
+  // --method GET is required and NOT the default here: gh api switches to POST by default the
+  // moment any -f/-F flag is present, which would hit this endpoint's CREATE-a-status handler
+  // instead of LIST -- verified live (2026-09-30): omitting --method GET produced a 422
+  // "State is not included in the list" error from the create-status validator.
+  const stdout = run('gh', [
+    'api',
+    '--method',
+    'GET',
+    '--paginate',
+    '-f',
+    'per_page=100',
+    `repos/${repo}/commits/${sha}/statuses`,
+  ]);
+  try {
+    const parsed = JSON.parse(stdout);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const parsed = JSON.parse(line);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      });
+  }
 }
 
 function readFileAtRef(worktree, ref, path) {
@@ -212,15 +319,23 @@ function detectStaleness(repo, prNumber) {
  * with the OLD base, since this design explicitly never chooses which historical proof is
  * "equivalent" across an unrelated line of history) and return the first commit whose GitHub
  * commit status includes a SUCCESS "DEV-GOV-V0 / trusted-execution" context. If the tip itself is
- * green, that's returned immediately (no extra commits landed since approval).
+ * green, that's returned immediately (no extra commits landed since approval). Bounded to
+ * MAX_COMMITS_TO_WALK commits and retries each transient-failure-prone gh api call with backoff.
  */
 function locatePriorApprovedSha(worktree, repo, headSha, oldBaseSha) {
   const mergeBase = git(worktree, ['merge-base', headSha, oldBaseSha]);
   const revList = git(worktree, ['rev-list', `${mergeBase}..${headSha}`]).split('\n').filter(Boolean);
   const candidates = [headSha, ...revList.filter((sha) => sha !== headSha)];
+  if (candidates.length > MAX_COMMITS_TO_WALK) {
+    const error = new Error(
+      `${candidates.length} commits between the old base_sha and the branch tip, over the ${MAX_COMMITS_TO_WALK}-commit walk cap -- refusing to make that many sequential gh api calls`,
+    );
+    error.code = 'TOO_MANY_COMMITS_TO_WALK';
+    throw error;
+  }
   for (const sha of candidates) {
-    const status = ghApiJson([`repos/${repo}/commits/${sha}/status`]);
-    const hit = (status.statuses || []).find(
+    const statuses = withRetry(() => listCommitStatuses(repo, sha));
+    const hit = statuses.find(
       (entry) => entry.context === 'DEV-GOV-V0 / trusted-execution' && entry.state === 'success',
     );
     if (hit) return sha;
@@ -246,20 +361,24 @@ function removeTmpWorktree(sourceWorktree, dir) {
 function runManifestEntries(definitionPath, candidateSha, definitionWorktree, executionWorktree, entries, verb) {
   const results = [];
   for (const entry of entries) {
-    const stdout = run('node', [
-      'scripts/devgov/devgov.mjs',
-      verb,
-      '--definition',
-      definitionPath,
-      '--candidate-sha',
-      candidateSha,
-      '--worktree',
-      definitionWorktree,
-      '--execution-worktree',
-      executionWorktree,
-      '--id',
-      entry.id,
-    ]);
+    const stdout = run(
+      'node',
+      [
+        'scripts/devgov/devgov.mjs',
+        verb,
+        '--definition',
+        definitionPath,
+        '--candidate-sha',
+        candidateSha,
+        '--worktree',
+        definitionWorktree,
+        '--execution-worktree',
+        executionWorktree,
+        '--id',
+        entry.id,
+      ],
+      { timeout: DEVGOV_INVOCATION_TIMEOUT_MS },
+    );
     results.push({ id: entry.id, ...JSON.parse(stdout) });
   }
   return results;
@@ -284,8 +403,11 @@ function parseArgs(argv) {
   }
   if (!out.pr || !out.definition || !out.worktree) {
     throw new Error(
-      'usage: node scripts/devgov/automated-rebase-reverify.mjs --pr <number> --definition <path> --worktree <path> [--repo <owner/repo>] [--base-worktree <path>] [--push] [--dispatch]',
+      'usage: node scripts/dev-helpers/automated-rebase-reverify.mjs --pr <number> --definition <path> --worktree <path> [--repo <owner/repo>] [--base-worktree <path>] [--push] [--dispatch]',
     );
+  }
+  if (!/^[1-9][0-9]*$/.test(out.pr)) {
+    throw new Error(`--pr must be a positive integer, got ${JSON.stringify(out.pr)}`);
   }
   if (out.dispatch && !out.push) {
     throw new Error('--dispatch requires --push (cannot dispatch CI against a candidate that was never pushed)');
@@ -324,7 +446,16 @@ async function main() {
   const oldBaseSha = currentDefinition.base_sha;
 
   // Step 2 (continued): locate the prior-approved candidate SHA.
-  const priorApprovedSha = locatePriorApprovedSha(worktree, repo, view.headRefOid, oldBaseSha);
+  let priorApprovedSha;
+  try {
+    priorApprovedSha = locatePriorApprovedSha(worktree, repo, view.headRefOid, oldBaseSha);
+  } catch (error) {
+    if (error.code === 'TOO_MANY_COMMITS_TO_WALK') {
+      console.log(JSON.stringify(stopResult(STOP.TOO_MANY_COMMITS_TO_WALK, error.message, { pr: opts.pr }), null, 2));
+      process.exit(1);
+    }
+    throw error;
+  }
   if (!priorApprovedSha) {
     console.log(
       JSON.stringify(
@@ -353,15 +484,9 @@ async function main() {
   const mergeResult = runAllowFail('git', ['-C', worktree, 'merge', '--no-edit', `origin/${view.baseRefName}`]);
   if (mergeResult.status !== 0) {
     runAllowFail('git', ['-C', worktree, 'merge', '--abort']);
+    const classification = classifyMergeFailure(mergeResult.stderr);
     console.log(
-      JSON.stringify(
-        stopResult(STOP.MERGE_CONFLICT, 'git merge --no-edit produced conflicts; merge aborted, nothing pushed', {
-          pr: opts.pr,
-          newBaseSha,
-        }),
-        null,
-        2,
-      ),
+      JSON.stringify(stopResult(classification.stop, classification.reason, { pr: opts.pr, newBaseSha }), null, 2),
     );
     process.exit(1);
   }
@@ -376,6 +501,15 @@ async function main() {
     console.log(JSON.stringify(stopResult(phase2.stop, phase2.reason, { pr: opts.pr, newBaseSha }), null, 2));
     process.exit(1);
   }
+
+  const manifestCheck = assertNonEmptyManifest(postMergeDefinition);
+  if (!manifestCheck.ok) {
+    console.log(
+      JSON.stringify(stopResult(manifestCheck.stop, manifestCheck.reason, { pr: opts.pr, newBaseSha }), null, 2),
+    );
+    process.exit(1);
+  }
+
   git(worktree, ['add', opts.definition]);
   git(worktree, [
     'commit',
@@ -467,6 +601,8 @@ async function main() {
       `client_payload[old_candidate_sha]=${priorApprovedSha}`,
       '-F',
       `client_payload[old_base_sha]=${oldBaseSha}`,
+      '-F',
+      `client_payload[pre_merge_tip_sha]=${view.headRefOid}`,
     ]);
     summary.dispatched = true;
   }

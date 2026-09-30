@@ -6,8 +6,8 @@ run-name: DEV-GOV rebase-reverify ${{ github.event.client_payload.candidate_sha 
 # 2026-09-30). This is NOT devgov-v0-orchestrate.yml with steps removed -- it is a separate file so
 # that neither workflow can silently grow the other's behavior. It covers only §1 steps 6 (sign) of
 # the design; steps 1-5 (staleness detection, Phase 1, merge, base_sha bump, Phase 2, local RED/GREEN
-# dry-run) run beforehand in scripts/devgov/automated-rebase-reverify.mjs, which dispatches this
-# workflow only after Phase 2 (§1.3) has already passed against the NEW candidate_sha below.
+# dry-run) run beforehand in scripts/dev-helpers/automated-rebase-reverify.mjs, which dispatches
+# this workflow only after Phase 2 (§1.3) has already passed against the NEW candidate_sha below.
 #
 # It deliberately has NO gate: job. devgov-v0-orchestrate.yml's own gate: job unconditionally
 # dispatches devgov-v0-gate.yml the moment sign: succeeds, with no way to stop earlier -- reusing
@@ -16,12 +16,23 @@ run-name: DEV-GOV rebase-reverify ${{ github.event.client_payload.candidate_sha 
 # Dispatching devgov-v0-gate.yml for the candidate_sha this workflow signs remains a fully separate,
 # human-initiated action -- same as it is today for any other candidate.
 #
+# Repaired 2026-09-30 per W1-VERIFY-DB's independent cold review (SOUND_WITH_CHANGES) of candidate
+# b7ddef9f, on Jimmy's GO: added the reverify-phases: job below (this file's own structural
+# difference from devgov-v0-orchestrate.yml was previously mis-described as "only the missing
+# gate: job" -- it was also missing invariant-packs:, now added, and had no independent check that
+# Phase 1/2 actually held, now added as reverify-phases:). The posted PR comment's Phase 1/2 lines
+# are no longer hardcoded text -- they are this job's own outputs, so a manually crafted
+# repository_dispatch payload that doesn't actually satisfy Phase 1/2 fails this job before
+# red/green/sign ever run, not just before the comment claims success.
+#
 # Expected github.event.client_payload keys:
 #   candidate_sha          (string, required) - the NEW post-merge, post-base_sha-bump candidate SHA
 #   unit_definition_path   (string, required) - repository-relative DEV-GOV V1 unit definition path
 #   pr_number               (string, required) - PR to post the evidence comment on
 #   old_candidate_sha       (string, required) - the prior-approved candidate SHA (pre-rebase)
 #   old_base_sha            (string, required) - the unit definition's base_sha before this bump
+#   pre_merge_tip_sha       (string, required) - the branch's own tip before this automation
+#                                                  touched anything (Phase 1's "current tip")
 on:
   repository_dispatch:
     types: [devgov-v0-rebase-reverify]
@@ -44,13 +55,19 @@ jobs:
         run: |
           test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
 
-      - name: Validate candidate SHA shape
+      - name: Validate client_payload shape
         env:
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
+          OLD_BASE_SHA: ${{ github.event.client_payload.old_base_sha }}
+          PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
         run: |
           echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
           echo "$OLD_CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          echo "$OLD_BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          echo "$PRE_MERGE_TIP_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          echo "$PR_NUMBER" | grep -Eq '^[1-9][0-9]*$'
 
       - name: Checkout exact candidate without executing candidate code
         uses: actions/checkout@v4
@@ -106,9 +123,159 @@ jobs:
           fs.appendFileSync(process.argv[3], `green_ids=${JSON.stringify(greenIds)}\n`);
           NODE
 
+  # Controller-owned invariant packs, identical in shape to devgov-v0-orchestrate.yml's own job of
+  # the same name (confirmed present at this candidate's own base_sha, 740b2fdf -- W1-VERIFY-DB
+  # finding, 2026-09-30: this job was missing from the first draft of this file, with a comment
+  # that incorrectly claimed gate: was the only structural difference from orchestrate.yml).
+  invariant-packs:
+    name: Controller-owned invariant packs
+    needs: [plan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact candidate as invariant target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate target
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C controller status --porcelain)"
+          test -z "$(git -C candidate status --porcelain)"
+
+      - name: Run all controller-owned invariant packs
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+        run: |
+          set -euo pipefail
+          node controller/scripts/devgov/invariant-packs.mjs \
+            --target candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/devgov-invariant-pack-report.json"
+
+      - name: Upload invariant-pack report
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-invariant-packs-${{ github.event.client_payload.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-invariant-pack-report.json
+          if-no-files-found: error
+          retention-days: 90
+
+  # W1-VERIFY-DB finding (2026-09-30): the PR comment's "Phase 1: PASS" / "Phase 2: PASS" lines were
+  # hardcoded literal text, never actually checked by this workflow -- it fully trusted the
+  # repository_dispatch payload's own narrative. This job independently re-derives both results from
+  # real git history at the three SHAs the payload names (never re-reading the dispatching script's
+  # local run), using the same phase1VerifyOriginalIdentity/phase2VerifyOwnEdit functions the
+  # candidate itself ships (reusing the real logic under independent, CI-fetched inputs -- not a
+  # second, divergent reimplementation). red/green/sign all depend on this job passing.
+  reverify-phases:
+    name: Independently re-verify Phase 1 / Phase 2
+    needs: [plan]
+    runs-on: ubuntu-latest
+    outputs:
+      phase1_result: ${{ steps.reverify.outputs.phase1_result }}
+      phase2_result: ${{ steps.reverify.outputs.phase2_result }}
+    permissions:
+      contents: read
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout exact candidate with full history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate and SHA ancestry
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
+          PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          git -C candidate merge-base --is-ancestor "$PRE_MERGE_TIP_SHA" "$CANDIDATE_SHA"
+          git -C candidate merge-base --is-ancestor "$OLD_CANDIDATE_SHA" "$PRE_MERGE_TIP_SHA"
+
+      - name: Independently re-derive Phase 1 and Phase 2 from git history
+        id: reverify
+        env:
+          OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
+          PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+        run: |
+          set -euo pipefail
+          cd candidate
+          node - "$GITHUB_OUTPUT" <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { pathToFileURL } = require('node:url');
+
+          (async () => {
+            const outputPath = process.argv[2];
+            const scriptPath = pathToFileURL(path.resolve('scripts/dev-helpers/automated-rebase-reverify.mjs')).href;
+            const mod = await import(scriptPath);
+            const show = (ref, file) => execFileSync('git', ['show', `${ref}:${file}`]);
+
+            const unitPath = process.env.UNIT_DEFINITION_PATH;
+            const currentTipBytes = show(process.env.PRE_MERGE_TIP_SHA, unitPath);
+            const priorApprovedBytes = show(process.env.OLD_CANDIDATE_SHA, unitPath);
+            const postEditBytes = fs.readFileSync(unitPath);
+
+            const phase1 = mod.phase1VerifyOriginalIdentity(currentTipBytes, priorApprovedBytes);
+            if (!phase1.ok) {
+              console.error('PHASE1_REVERIFICATION_FAILED: ' + JSON.stringify(phase1));
+              process.exit(1);
+            }
+
+            const expectedNewBaseSha = JSON.parse(postEditBytes.toString('utf8')).base_sha;
+            const phase2 = mod.phase2VerifyOwnEdit(currentTipBytes, postEditBytes, expectedNewBaseSha);
+            if (!phase2.ok) {
+              console.error('PHASE2_REVERIFICATION_FAILED: ' + JSON.stringify(phase2));
+              process.exit(1);
+            }
+
+            fs.appendFileSync(outputPath, 'phase1_result=PASS\n');
+            fs.appendFileSync(outputPath, 'phase2_result=PASS\n');
+            console.log('Phase 1 and Phase 2 independently re-verified PASS from git history.');
+          })();
+          NODE
+
   red:
     name: RED / ${{ matrix.test_id }}
-    needs: [plan]
+    needs: [plan, invariant-packs, reverify-phases]
     strategy:
       fail-fast: false
       matrix:
@@ -124,7 +291,7 @@ jobs:
 
   green:
     name: GREEN / ${{ matrix.test_id }}
-    needs: [plan, red]
+    needs: [plan, invariant-packs, reverify-phases, red]
     strategy:
       fail-fast: false
       matrix:
@@ -138,13 +305,15 @@ jobs:
       proof_kind: GREEN
       test_id: ${{ matrix.test_id }}
 
-  # Identical shape and identical environment gate to devgov-v0-orchestrate.yml's own sign: job --
-  # deliberately duplicated rather than shared, so this file's only structural difference from that
-  # one is the absence of a gate: job. Same single human approval (JImMMbt, devgov-attestation
-  # environment) the manual rebase-reverify process already requires today.
+  # Identical shape and identical environment gate to devgov-v0-orchestrate.yml's own sign: job.
+  # This file's real structural difference from that one is: no gate: job (§2, §4's hard
+  # invariant), plus the reverify-phases: job above that orchestrate.yml has no equivalent of
+  # (orchestrate.yml's candidates are first-time, not rebased, so there is no prior approval to
+  # re-verify against). Same single human approval (JImMMbt, devgov-attestation environment) the
+  # manual rebase-reverify process already requires today.
   sign:
     name: Sign trusted execution attestations
-    needs: [plan, red, green]
+    needs: [plan, invariant-packs, reverify-phases, red, green]
     runs-on: ubuntu-latest
     environment: devgov-attestation
     steps:
@@ -227,10 +396,11 @@ jobs:
   # This is the design's §1 step 7 ("Stop.") made concrete: the last job in this workflow, no gate:
   # job after it. Posts the evidenced PR comment the design requires (§4) -- old SHA, new SHA,
   # RED/GREEN result, attestation reference -- and nothing else. Dispatching devgov-v0-gate.yml for
-  # candidate_sha remains a separate, explicit, human-initiated action from here on.
+  # candidate_sha remains a separate, explicit, human-initiated action from here on. Phase 1/Phase 2
+  # lines are this run's own reverify-phases: outputs, not hardcoded text.
   report-ready-for-owner-gate-dispatch:
     name: Report READY_FOR_OWNER_GATE_DISPATCH
-    needs: [plan, red, green, sign]
+    needs: [plan, invariant-packs, reverify-phases, red, green, sign]
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -250,6 +420,8 @@ jobs:
           OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
           OLD_BASE_SHA: ${{ github.event.client_payload.old_base_sha }}
           UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+          PHASE1_RESULT: ${{ needs.reverify-phases.outputs.phase1_result }}
+          PHASE2_RESULT: ${{ needs.reverify-phases.outputs.phase2_result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -264,10 +436,11 @@ jobs:
           - Prior-approved candidate SHA (pre-rebase): \`$OLD_CANDIDATE_SHA\`
           - Prior \`base_sha\`: \`$OLD_BASE_SHA\`
           - New candidate SHA (post-merge, post-\`base_sha\`-bump): \`$CANDIDATE_SHA\`
-          - Phase 1 (pre-merge identity vs. original approval): PASS (verified before this run was
-            dispatched -- see \`scripts/devgov/automated-rebase-reverify.mjs\` invocation log)
-          - Phase 2 (post-edit self-check vs. Phase-1 snapshot): PASS (verified before this run was
-            dispatched)
+          - Phase 1 (pre-merge identity vs. original approval): $PHASE1_RESULT (independently
+            re-verified by this workflow's own \`reverify-phases\` job from git history, not just
+            reported by the dispatching script's invocation log)
+          - Phase 2 (post-edit self-check vs. Phase-1 snapshot): $PHASE2_RESULT (independently
+            re-verified by this workflow's own \`reverify-phases\` job)
           - RED: re-run and still fails at the new base, on \`$CANDIDATE_SHA\`
           - GREEN: re-run and still passes on the new candidate, on \`$CANDIDATE_SHA\`
           - Fresh trusted-execution attestations signed this run (\`sign:\` job, \`devgov-attestation\`

@@ -1,9 +1,10 @@
 # AUTOMATED-REBASE-REVERIFY-01-V1
 
-**Final state:** UNVERIFIED -- own, separately-unverified implementation candidate of an already
-COLD_VERIFIED/ACCEPT design. Not pushed. Not independently cold-reviewed (W1-VERIFY-DB routing has
-not run). No CI execution has happened -- every result below is a local, controller-verified dry-run
-only.
+**Final state:** UNVERIFIED -- repaired per W1-VERIFY-DB's 2026-09-30 independent cold review of
+candidate `b7ddef9f` (verdict `SOUND_WITH_CHANGES`), on Jimmy's GO. See §7 for the repair itself and
+what it did and did not re-verify. Still not pushed. The repaired candidate has NOT yet had its own
+independent cold review -- per Jimmy's own stated process, only a delta review (not a full one) is
+required next, covering exactly this repair.
 
 ## 1. What this is
 
@@ -114,3 +115,73 @@ asserting a defect class in the proof-unit's own commentary without having repro
 ## 6. Base bump
 
 Not applicable -- this is the candidate's first version, not a rebase-reverify of itself.
+
+## 7. Repair per W1-VERIFY-DB (2026-09-30)
+
+W1-VERIFY-DB's independent cold review of `b7ddef9f` (5 parallel dimension reviewers + 1 synthesis
+adjudicator, all fresh agents with no memory of the implementing session) returned
+`SOUND_WITH_CHANGES`: no blocker against the design's hard safety invariant, but 5 confirmed major
+findings. Jimmy's GO (2026-09-30) authorized fixing all of them plus 3 additional hardening items
+he judged cheap and in-scope for a fail-closed tool, explicitly ruling out further scope expansion:
+
+1. **Missing `invariant-packs:` job + false comment.** Added, identical in shape to
+   `devgov-v0-orchestrate.yml`'s own job of the same name (confirmed present at this candidate's
+   own `base_sha`, `740b2fdf`). The file's comment previously claimed the missing `gate:` job was
+   the only structural difference from `orchestrate.yml`; corrected.
+2. **Hardcoded "Phase 1/2: PASS" in the PR comment, never actually checked by the workflow.** Added
+   a new `reverify-phases:` job that independently re-derives both results from real git history at
+   the three SHAs the `repository_dispatch` payload names -- `old_candidate_sha`, a new
+   `pre_merge_tip_sha` field (added to the payload, was missing before), and `candidate_sha` itself
+   -- using the candidate's own real `phase1VerifyOriginalIdentity`/`phase2VerifyOwnEdit` functions
+   against independently-fetched (`git show`) bytes, never trusting the dispatching script's local
+   run. `red`/`green`/`sign` all now depend on this job; the PR comment prints its outputs instead
+   of literal text.
+3. **Unpaginated `gh api .../commits/{sha}/status` lookup.** Switched to the array-shaped, genuinely
+   paginatable `/commits/{sha}/statuses` (plural) endpoint with `--paginate` and `per_page=100`,
+   defensively parsing either output shape `gh`'s pagination might produce. **Found and fixed a
+   second, real bug while testing this against the live API**: `gh api` silently switches to
+   `POST` the moment any `-f`/`-F` flag is present unless `--method GET` is passed explicitly --
+   without it, this call hit the *create*-a-status endpoint and failed with a 422. Reproduced the
+   failure live, then the fix, against `repos/JbmbAb/Milj-beslut-V1.2/commits/740b2fdf.../statuses`
+   before trusting it.
+4. **Unbounded, untimed, non-retried per-commit `gh api` loop.** Added a `MAX_COMMITS_TO_WALK` (200)
+   cap that fails closed with `STOP_TOO_MANY_COMMITS_TO_WALK` instead of walking forever; added a
+   bounded exponential-backoff retry (`withRetry`, 3 attempts) around the status lookup; added a
+   default timeout (`DEFAULT_TIMEOUT_MS`, 60s) to every `git`/`gh` child process via the shared
+   `run`/`runAllowFail` helpers, with a longer explicit timeout (150s) for the `devgov.mjs`
+   RED/GREEN invocation specifically, since its own internal default is already 120s.
+5. **Wrong `scripts/devgov/...` path references** in the workflow's header comment and PR-comment
+   body -- corrected to the real `scripts/dev-helpers/...` path throughout.
+6. **`old_base_sha`/`pr_number` not shape-validated** (unlike `candidate_sha`/`old_candidate_sha`).
+   Added regex checks for both (plus the new `pre_merge_tip_sha`) in the workflow's
+   "Validate client_payload shape" step, and a matching `--pr` positive-integer check in the
+   script's own `parseArgs`.
+7. **Empty RED/GREEN manifest would vacuously report local PASS.** Added
+   `assertNonEmptyManifest()`, called before the local dry-run; fails closed with
+   `STOP_EMPTY_PROOF_MANIFEST` if either list is empty. New RED/GREEN pair
+   `empty-manifest-fails-closed`.
+8. **Merge failures uniformly mislabeled "conflict."** Added `classifyMergeFailure()`, which
+   inspects `git merge`'s actual stderr for real conflict markers (`CONFLICT`, `Automatic merge
+   failed`) before choosing `STOP_MERGE_CONFLICT` vs. the new `STOP_MERGE_FAILED`. New RED/GREEN
+   pair `merge-failure-classification`.
+
+Also removed the dead `execFileSync` import (note-level finding).
+
+**Local verification of the repair:** all 7 exported pure functions re-tested with fixtures
+(`phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`, `classifyStaleness`, plus the 2 new
+`assertNonEmptyManifest`, `classifyMergeFailure`) -- all correct. The proof-unit now declares 5
+RED/GREEN pairs (2 new); `devgov-helper.mjs lint` re-run clean (0 errors, same 5 intentional,
+hint-blessed DGL-022 warnings). Full 5-pair RED/GREEN regression re-run through the real,
+unmodified controller against the repaired candidate -- see the updated table in §4's location once
+committed (this section is written before that final commit; the exact post-repair candidate SHA is
+recorded in STATUS-NOW.md and the git log, not duplicated here to avoid the same self-reference lag
+noted in earlier revisions of this document).
+
+**What this repair explicitly did NOT do** (no scope expansion, per Jimmy's own instruction): no
+real PR was exercised, nothing was pushed, `reverify-phases:`'s own CI-side logic (the embedded
+Node script inside the new workflow job) was written carefully but has -- like the rest of
+`main()`'s I/O orchestration -- never executed in real GitHub Actions; that remains true after this
+repair exactly as it was before it, and is unrelated to what this repair fixed. No new RED/GREEN
+pair was added for `locatePriorApprovedSha`'s pagination/retry/timeout logic, since it is I/O-heavy
+and not meaningfully unit-testable without mocking `gh` -- it remains reviewed-but-unproven code,
+now with a live-API-verified bug fix behind it (see item 3) rather than an untested assumption.
