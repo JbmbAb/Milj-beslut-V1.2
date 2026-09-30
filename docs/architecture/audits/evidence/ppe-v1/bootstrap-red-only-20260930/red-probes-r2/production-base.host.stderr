@@ -1,0 +1,1 @@
+FAIL LIFECYCLE_SCRIPT_MODULE_NOT_FOUND probe=red-production-base-npm-ci-postinstall stage=production-base fidelity=host-npm executor=host elapsedMs=35584

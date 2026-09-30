@@ -1,0 +1,63 @@
+{
+  "probeId": "red-builder-npm-ci-postinstall",
+  "stageName": "builder",
+  "assertedBehavior": "The root Dockerfile's builder stage must be able to execute its declared npm dependency-install step without failing because package.json lifecycle-script dependencies are absent from the filesystem state established by that stage before the install step.",
+  "authorityEvidence": {
+    "kind": "file_line",
+    "ref": "docker-compose.staging.yml:6-8",
+    "note": "the declared staging web build necessarily traverses the builder stage"
+  },
+  "classification": "FAIL",
+  "reasonCode": "LIFECYCLE_SCRIPT_MODULE_NOT_FOUND",
+  "matched": [
+    "> miljobeslut-se-2.0@0.0.0 postinstall",
+    "Error: Cannot find module '/tmp/ppe-host-probe-kMkIon/scripts/postinstall-prisma-generate.mjs'",
+    "  code: 'MODULE_NOT_FOUND',",
+    "npm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs"
+  ],
+  "fidelity": "host-npm",
+  "executorRequested": "auto",
+  "executorUsed": "host",
+  "prefix": {
+    "lineage": [
+      "base",
+      "builder"
+    ],
+    "contextSources": [
+      "package*.json",
+      "tsconfig.json"
+    ],
+    "installCommand": "npm ci --legacy-peer-deps",
+    "installLine": 20,
+    "baseImage": "node:22-alpine"
+  },
+  "toolchainIdentity": "node v22.22.2; npm 10.9.7; linux x64 6.18.44-fc-v50",
+  "evidence": [
+    {
+      "kind": "runtime_result",
+      "ref": "ppe-red-probe:red-builder-npm-ci-postinstall:2026-09-30T14:23:05.685Z:FAIL",
+      "note": "host-npm; reason LIFECYCLE_SCRIPT_MODULE_NOT_FOUND"
+    },
+    {
+      "kind": "file_line",
+      "ref": "Dockerfile:20",
+      "note": "install step of the probed stage"
+    },
+    {
+      "kind": "git_object",
+      "ref": "a3b31b8eda0280c2a899cebdaf856a3eacbfd103",
+      "note": "blob of Dockerfile as probed"
+    }
+  ],
+  "startedAt": "2026-09-30T14:23:05.685Z",
+  "elapsedMs": 39321,
+  "outputExcerpt": "> miljobeslut-se-2.0@0.0.0 postinstall\nError: Cannot find module '/tmp/ppe-host-probe-kMkIon/scripts/postinstall-prisma-generate.mjs'\n  code: 'MODULE_NOT_FOUND',\nnpm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs",
+  "exitStatus": 1,
+  "timedOut": false,
+  "installStepStarted": true,
+  "contextFiles": [
+    "package-lock.json",
+    "package.json",
+    "tsconfig.json"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "probes": [
+    {
+      "id": "red-production-base-npm-ci-postinstall",
+      "assertedBehavior": "The root Dockerfile's production-base stage must be able to execute its declared npm dependency-install step without failing because package.json lifecycle-script dependencies are absent from the filesystem state that the stage establishes before the install step.",
+      "authorityEvidence": {
+        "kind": "file_line",
+        "ref": "docker-compose.staging.yml:5-8",
+        "note": "declared full-stack staging build contract: build context ., dockerfile Dockerfile, target web; web is FROM production-base, so this stage's install step is on the declared build path"
+      },
+      "command": "npx tsx packages/mps-pattern-proof/scripts/red-probe.ts --dockerfile Dockerfile --stage production-base --executor auto --json --out /tmp/claude-0/-home-user-Milj-beslut-V1-2/615d3f00-15b1-5229-8425-a287dfd450e5/scratchpad/ppe-v1-run/20260930T135500Z/probe-production-base.json"
+    },
+    {
+      "id": "red-builder-npm-ci-postinstall",
+      "assertedBehavior": "The root Dockerfile's builder stage must be able to execute its declared npm dependency-install step without failing because package.json lifecycle-script dependencies are absent from the filesystem state that the stage establishes before the install step.",
+      "authorityEvidence": {
+        "kind": "file_line",
+        "ref": "docker-compose.staging.yml:5-8",
+        "note": "declared full-stack staging build contract: target web derives from production-base, which imports builder outputs via COPY --from=builder, so the declared build necessarily executes the builder stage's install step"
+      },
+      "command": "npx tsx packages/mps-pattern-proof/scripts/red-probe.ts --dockerfile Dockerfile --stage builder --executor auto --json --out /tmp/claude-0/-home-user-Milj-beslut-V1-2/615d3f00-15b1-5229-8425-a287dfd450e5/scratchpad/ppe-v1-run/20260930T135500Z/probe-builder.json"
+    }
+  ]
+}
