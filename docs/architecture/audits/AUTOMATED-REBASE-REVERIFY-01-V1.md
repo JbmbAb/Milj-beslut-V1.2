@@ -74,7 +74,9 @@ flagged its absence (DGL-020) on the first draft.
 ## 4. Local verification performed
 
 All of the following ran against real local worktrees
-(`C:\wt-automated-rebase-reverify-01` at candidate `0a5a4f1a7e07d772d8fbb3a841aa5dfc324e8720`;
+(`C:\wt-automated-rebase-reverify-01`, most recently re-run at candidate
+`32b69914bdc0bd035dff3ffa66e0864c8c247109` after the lint-fix commit below -- and identically, before
+that, at the prior commit `0a5a4f1a7e07d772d8fbb3a841aa5dfc324e8720`;
 `C:\wt-automated-rebase-reverify-01-base`, detached at `740b2fdfa1faffb19b922d4eaeb187ce492521cf`)
 via the **real, unmodified controller** (`node scripts/devgov/devgov.mjs run-red` /
 `run-green`), not a hand-rolled test harness:
