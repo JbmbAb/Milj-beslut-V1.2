@@ -1,10 +1,10 @@
 # AUTOMATED-REBASE-REVERIFY-01-V1
 
-**Final state:** UNVERIFIED -- repaired per W1-VERIFY-DB's 2026-09-30 independent cold review of
-candidate `b7ddef9f` (verdict `SOUND_WITH_CHANGES`), on Jimmy's GO. See §7 for the repair itself and
-what it did and did not re-verify. Still not pushed. The repaired candidate has NOT yet had its own
-independent cold review -- per Jimmy's own stated process, only a delta review (not a full one) is
-required next, covering exactly this repair.
+**Final state:** UNVERIFIED. Two independent W1-VERIFY-DB rounds have reviewed this candidate and both
+returned changes; every finding of both rounds is dispositioned in §7. The repair of the second round
+(verified candidate `6a849b61de6d0e720eeda0562970aaeae282d852`) has **not** itself been independently
+re-reviewed. Not pushed. Nothing here has run in GitHub Actions or against a real PR -- see §5 before
+reading any "verified" below.
 
 ## 1. What this is
 
@@ -15,200 +15,205 @@ Implements §1 steps 1-7 of
 transfer here -- this candidate needs its own implementation → proof-unit → cold verification →
 W1-VERIFY-DB routing → explicit push/merge/dispatch-go, same as any other unit.
 
-- `scripts/dev-helpers/automated-rebase-reverify.mjs` -- steps 1-5 (staleness detection, locate
-  prior-approved SHA, Phase 1 identity check, merge, base_sha bump, Phase 2 self-check, local
-  RED/GREEN dry-run). Lives under `scripts/dev-helpers/`, not `scripts/devgov/`, because the latter
-  is a controller-owned floor path (F-10, `CONTROLLER_OWNED_FLOOR_PATHS` in
-  `scripts/devgov/devgov.mjs`) that no Dev-Gov unit may ever add to or modify.
+- `scripts/dev-helpers/automated-rebase-reverify.mjs` -- steps 1-5: staleness detection, locate the
+  prior-approved SHA, Phase 1, merge, base_sha bump, Phase 2, a local lineage preflight and a local
+  RED/GREEN dry-run. Lives under `scripts/dev-helpers/`, not `scripts/devgov/`, because the latter is a
+  controller-owned floor path (F-10, `CONTROLLER_OWNED_FLOOR_PATHS` in `scripts/devgov/devgov.mjs`)
+  that no Dev-Gov unit may ever add to or modify. All decision logic is in exported pure functions so
+  each has an executed proof: `phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`,
+  `bumpBaseShaInText`, `classifyStaleness`, `assertNonEmptyManifest`, `classifyMergeFailure`,
+  `hasCurrentGreenDevGovStatus`, `parseControllerRun`, `evaluateDryRun`, `reverifyLineage` (10
+  functions, plus the `STOP` and `DEVGOV_STATUS_CONTEXT` constants).
 - `.github/workflows/devgov-v0-rebase-reverify.yml` -- step 6 (RED/GREEN re-run + sign, in CI,
-  `environment: devgov-attestation`) and step 7 (stop, post an evidenced PR comment). A new,
-  separate file rather than a modified `devgov-v0-orchestrate.yml`: that file's own `gate:` job
-  unconditionally dispatches `devgov-v0-gate.yml` immediately after `sign:` succeeds, with no input
-  to stop earlier -- reusing it as-is would violate the design's own "never dispatches
-  `devgov-v0-gate.yml`" rule regardless of the (already-fixed, see design doc correction) `--repo`
-  defect that used to live in that job.
-- `governance/devgov/units/automated-rebase-reverify-01-v1.json` -- this candidate's own proof-unit.
+  `environment: devgov-attestation`) and step 7 (stop, post an evidenced PR comment). A new, separate
+  file rather than a modified `devgov-v0-orchestrate.yml`: that file's own `gate:` job unconditionally
+  dispatches `devgov-v0-gate.yml` immediately after `sign:` succeeds, with no input to stop earlier --
+  reusing it as-is would violate the design's "never dispatches `devgov-v0-gate.yml`" rule. Its
+  complete list of structural differences from `orchestrate.yml` is in the file's header.
+- `governance/devgov/units/automated-rebase-reverify-01-v1.json` -- this candidate's own proof-unit
+  (10 RED + 10 GREEN).
 
-## 2. A correction made to the already-accepted design during implementation
+## 2. Corrections made to the already-accepted design during implementation
 
-While implementing step 6, `.github/workflows/devgov-v0-orchestrate.yml` was read directly (not
-re-summarized from the design doc): its `sign:` job carries `environment: devgov-attestation` --
-the same gate `evidence-gate` carries -- and only that job receives
-`secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM`. The design doc's §1.6/§2 originally claimed signing
-ran through "the existing, unrestricted signing mechanism (`devgov-v0-attest.yml`'s `execute` job
-... no `environment:` gate at all)", which conflated the (genuinely unrestricted) RED/GREEN
-*execution* job with the (environment-gated) *signing* job. Jimmy approved correcting the design
-doc itself (2026-09-30) rather than leaving the record wrong; the correction does not change this
-design's scope or safety conclusion -- JImMMbt approves exactly as many times (sign, then
-evidence-gate) either way, same as today's fully-manual process.
+While implementing step 6, `.github/workflows/devgov-v0-orchestrate.yml` was read directly: its `sign:`
+job carries `environment: devgov-attestation` -- the same gate `evidence-gate` carries -- and only that
+job receives `secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM`. The design doc's §1.6/§2 originally claimed
+signing ran through "the existing, unrestricted signing mechanism (`devgov-v0-attest.yml`'s `execute`
+job ... no `environment:` gate at all)", which conflated the (genuinely unrestricted) RED/GREEN
+*execution* job with the (environment-gated) *signing* job. Jimmy approved correcting the design doc
+itself (2026-09-30). The correction does not change the design's scope or safety conclusion -- JImMMbt
+approves exactly as many times (sign, then evidence-gate) either way.
 
-A second, unrelated correction was also made: §0/§4's "open" orchestrator gate-dispatch `--repo`
-defect was already fixed on `origin/main` on 2026-09-17 (`0b5155e5`/`ca27eaf6`), 13 days before the
-design document was written. Not a currently-open defect; noted for the record only.
+Also corrected in the design doc: §0/§4's "open" orchestrator gate-dispatch `--repo` defect was already
+fixed on `origin/main` on 2026-09-17 (`0b5155e5`/`ca27eaf6`), before the design was written.
 
-## 3. Proof-unit design
+## 3. Proof-unit design, and what it does and does not prove
 
-Three RED/GREEN pairs, each exercising the real exported functions from
-`automated-rebase-reverify.mjs` (`phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`,
-`classifyStaleness`) against synthetic adversarial fixtures -- not a hand-copied reference
-implementation:
+Ten RED/GREEN pairs. Each GREEN calls the real exported function(s) and asserts **both directions**:
+legitimate input is accepted and each adversarial input is rejected (a first version only asserted
+rejection, and a reviewer showed three of its GREENs passed with an always-reject stub).
 
-1. **`phase1-rejects-pre-existing-base-sha-drift`** -- the exact circularity scenario the design's
-   own second cold-review pass found (§2): a branch whose `base_sha` already drifted *before* the
-   automation touched anything. Verified directly (see §4 below) that a naive single-phase
-   "byte-identical except `base_sha`" check -- the collapsed approach the design explicitly
-   rejected -- wrongly accepts this fixture, while `phase1VerifyOriginalIdentity` correctly rejects
-   it with `STOP_NEW_REVIEW_REQUIRED`.
-2. **`phase2-rejects-edit-disguised-as-base-sha-only`** -- an edit that changes `base_sha` *and*
-   another field, the other half of the same defect class.
-3. **`staleness-gate-excludes-conflicting-prs`** -- §1 scope gate: a `BEHIND` but `CONFLICTING` PR
-   must never be treated as in-scope.
+| pair | what the GREEN asserts |
+| --- | --- |
+| phase1-rejects-drift-and-accepts-identical | identical bytes accepted; `base_sha` drift, other-field drift and a pure reformat rejected |
+| phase2-accepts-exact-edit-and-rejects-everything-else | the exact base_sha edit accepted; extra-field, wrong value, re-serialisation and no-op rejected |
+| staleness-gate-scope | only BEHIND + MERGEABLE in scope; CLEAN, CONFLICTING, UNKNOWN each stop with the right reason |
+| empty-manifest-fails-closed | every empty/missing RED/GREEN shape fails closed; a non-empty manifest passes |
+| merge-failure-classification | both git conflict markers classified as conflict; unrelated-history, dirty-tree (incl. a file named `conflict-policy.md`) and empty output are not |
+| status-newest-per-context-decides | the NEWEST status for the context decides (newest failure under an older success = not approved), other contexts ignored |
+| controller-exit-code-tolerance | the controller envelope is read at exit 0/2/4; empty, non-JSON, envelope-less and spawn-error output is a harness error |
+| dry-run-evaluation | correct dry-run passes; failing GREEN, unexpected RED, missing results, custom `expected_classification`, each empty side stop |
+| base-sha-single-line-bump | exactly one top-level line changes; CRLF and no-trailing-newline preserved; nested `base_sha` untouched; 0 or 2 matches and bad SHAs fail closed |
+| lineage-accepts-honest-rebase-rejects-forgeries | real scratch git histories: the honest rebase accepted; 14 forged/drifted inputs rejected (see §7) |
 
-RED runs at `base_sha` (`740b2fdf`, where this file does not exist yet -- `import()` fails, proving
-the repo has no protection against these scenarios before this candidate); GREEN runs at
-`candidate_sha`. Each script uses the `V()`/`H()` exit-code split (`V` = exit 1, the property
-genuinely does not hold; `H` = exit 2, harness/environment fault) with `blocked_exit_codes: [2]`,
-matching this repo's own established convention (e.g.
-`governance/devgov/units/lu-api-boundary-step4-v1.json`) -- added after `devgov-helper.mjs lint`
-flagged its absence (DGL-020) on the first draft.
+**Every RED is a "file not found" RED.** At `base_sha` (`740b2fdf`) the script does not exist, so each
+RED fails at the `import()` in its wrapper before any logic runs. That proves only that the capability
+does not exist before this candidate, not that any semantic property fails -- which is inherent to a
+unit that adds a new file. `devgov-helper.mjs lint` flags this on every RED (DGL-022); the warnings are
+**accepted, not suppressed, and not "hint-blessed"**: the lint hint's exemption applies when the
+artefact's absence *is* the property under test, which is not the case here. (An earlier revision of
+this document said otherwise; that was wrong.) The lineage RED was additionally rewritten to run no git
+at all, because lint forbids git in a RED (DGL-021). Consequently **the GREEN entries carry all the
+proof**, and their strength was tested by mutation: 23 sabotaged copies of the script (always-accept /
+always-reject stubs, dropped checks, loosened conditions, unanchored regexes, one per decision the
+lineage function makes) were each run against all ten bodies; **23/23 were caught by the intended
+body.** A first mutation run caught 19/23 and exposed four weaknesses in the tests themselves (a
+symlink case that was really stopped by Phase 2 rather than the mode check, an `old_base_sha` case
+stopped by a later check, an empty-GREEN-only gap, a stale mutant pattern); all four were fixed and the
+run repeated. Lint is 0 errors; the warnings are 10x DGL-022 (above) and 1x DGL-040 on the lineage
+GREEN, a heuristic false positive: violations there are recorded and `V()` is called only after the
+`finally` has removed the sandbox.
 
 ## 4. Local verification performed
 
-All of the following ran against real local worktrees
-(`C:\wt-automated-rebase-reverify-01`, most recently re-run at candidate
-`aee374ce2ac9e96e75b59c9aefb25456c14d18a8` (the §7 repair commit) -- and identically, before that,
-at `32b69914bdc0bd035dff3ffa66e0864c8c247109` and `0a5a4f1a7e07d772d8fbb3a841aa5dfc324e8720`;
-`C:\wt-automated-rebase-reverify-01-base`, detached at `740b2fdfa1faffb19b922d4eaeb187ce492521cf`)
-via the **real, unmodified controller** (`node scripts/devgov/devgov.mjs run-red` /
-`run-green`), not a hand-rolled test harness:
+Against real local worktrees (`C:\wt-automated-rebase-reverify-01` at
+`6a849b61de6d0e720eeda0562970aaeae282d852`; a disposable worktree detached at
+`740b2fdfa1faffb19b922d4eaeb187ce492521cf`, removed afterwards), via the real, unmodified controller
+(`node scripts/devgov/devgov.mjs run-red` / `run-green`):
 
-| id | RED (base_sha) | GREEN (candidate_sha) |
-| --- | --- | --- |
-| phase1-rejects-pre-existing-base-sha-drift | FAIL (expected FAIL) | PASS |
-| phase2-rejects-edit-disguised-as-base-sha-only | FAIL (expected FAIL) | PASS |
-| staleness-gate-excludes-conflicting-prs | FAIL (expected FAIL) | PASS |
-| empty-manifest-fails-closed | FAIL (expected FAIL) | PASS |
-| merge-failure-classification | FAIL (expected FAIL) | PASS |
-
-All 10/10 match their `expected_classification`. `devgov-helper.mjs lint` re-run clean at
-`aee374ce` (0 errors; the remaining 5 DGL-022 warnings on the RED entries -- "path exists at
-candidate but not base_sha" -- are the intentional, hint-blessed case: "ignore only if absence of
-that artefact IS the property under test", which it is here).
-
-Separately verified directly (scratch script, not part of the committed proof) that the *naive,
-rejected* single-phase check really does wrongly accept the Phase-1 adversarial fixture, to avoid
-asserting a defect class in the proof-unit's own commentary without having reproduced it.
+- **All 20 proof entries matched `expected_classification`**: 10/10 RED observed `FAIL` (controller exit
+  2), 10/10 GREEN observed `PASS` (exit 0).
+- **The script's real dry-run I/O path was executed against the real controller.**
+  `runManifestEntries -> parseControllerRun -> evaluateDryRun` (run from a scratch copy of the script with
+  one appended `export` line, so the candidate itself was untouched; run with `cwd` = `C:\`) processed
+  10 RED + 10 GREEN in 29 s, verdict `ok`. A GREEN deliberately run against the wrong HEAD produced exit
+  4 / `DENIED_GOVERNANCE`, which `evaluateDryRun` reported as `STOP_CANDIDATE_FAILURE` rather than
+  crashing. This is the path whose exit-code handling was the blocker found by round 2.
+- **The workflow's `reverify-phases` step** was extracted from the real YAML and executed against a
+  synthetic git history with `gh` intercepted by a preload: the honest rebase produced the three PASS
+  outputs and the exact `gh api` argv verified live; a newest-failure status, a tampered bump and an
+  `old_base_sha` mismatch each failed the step.
+- **The `plan` job's shape validation** was extracted and run under bash with hostile values: a
+  multi-line `pr_number` (`12\n--flag`) and a multi-line SHA, which the earlier `grep`-based check let
+  through, now fail, as do leading-zero/over-long PR numbers, upper-case SHAs, `..`/absolute/space paths.
+- **Live GitHub API** (read-only): `gh api --method GET --paginate --jq '.[]' -f per_page=100
+  repos/JbmbAb/Milj-beslut-V1.2/commits/{sha}/statuses` returns NDJSON; a PR head
+  (`8e8af6682646cf7805bb7e8586804afa74e807a0`) returned a success `DEV-GOV-V0 / trusted-execution` newer
+  than an earlier pending; a commit with no statuses returns empty output. The claim that omitting
+  `--method GET` makes `gh api -f ...` hit the create-a-status handler (HTTP 422 "State is not included
+  in the list") was reproduced live by the round-1 implementer against `740b2fdf` and by a round-2
+  reviewer with a bogus SHA; these were write-shaped requests rejected by validation, nothing was
+  created, and a second round-2 reviewer declined to repeat it for that reason.
+- **Git behaviour**: `git merge` writes its `CONFLICT` / `Automatic merge failed` lines to **stdout**
+  with empty stderr (scratch repo, git 2.54); reproduced by the implementer and independently by a
+  reviewer, including modify/delete, unrelated-histories and dirty-tree refusals.
 
 ## 5. What has NOT been verified (non-claims)
 
-- **No CI execution.** `devgov-v0-rebase-reverify.yml` has never run. Its `red:`/`green:` matrix
-  jobs (calling the real, shared `devgov-v0-attest.yml`) and its `sign:` job (environment-gated,
-  needs `DEVGOV_ATTESTATION_PRIVATE_KEY_PEM`, unavailable to this session) are unexercised.
-- **No real PR.** `scripts/dev-helpers/automated-rebase-reverify.mjs`'s `gh`/`git` I/O layer
-  (`detectStaleness`, `locatePriorApprovedSha`, the actual merge/push/dispatch path) has not been
-  run end-to-end against a live stale PR. Only the pure decision functions
-  (`phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`, `classifyStaleness`) have real, executed
-  proof.
-- **Not independently reviewed.** This audit was written by the same session that implemented the
-  candidate. Per this program's own standing rule, it is not a substitute for W1-VERIFY-DB's
-  independent cold review, and this candidate must not be treated as verified until that happens.
-- Nothing has been pushed to `origin`. `git ls-remote` will not show this branch.
+- **No GitHub Actions run of any kind.** Nothing in `devgov-v0-rebase-reverify.yml` has executed on a
+  runner. Only pieces extracted from it were run locally (above), on Windows. The Linux runner, the
+  `realpath` containment in `plan:`/`sign:`, the reusable-workflow calls into `devgov-v0-attest.yml`, and
+  the environment-gated `sign:` job (which needs `DEVGOV_ATTESTATION_PRIVATE_KEY_PEM`, unavailable to
+  this session) are unexercised.
+- **Unverified assumption: the evidence gate will accept attestations produced by this workflow.**
+  Reading `devgov-v0-gate.yml` and the controller found no check pinning the attestation run to
+  `devgov-v0-orchestrate.yml` (artifacts are fetched by `run-id`; acceptance rests on the signature, the
+  hard-coded `workflow_ref` = `devgov-v0-attest.yml@main`, and the run id, all of which this workflow
+  reproduces -- it calls the same `attest.yml` and signs in the same run). That is a reading, not a
+  test; the first real use must confirm it.
+- **`main()`'s git/gh orchestration has never run end-to-end against a real PR.** What *has* now run for
+  real is the dry-run path (§4). Still unexecuted: `detectStaleness`, `locatePriorApprovedSha`'s history
+  walk and cap, the merge/commit/push/dispatch sequence, the temp-worktree lifecycle, and `main()`'s
+  hand-off of git's **stdout+stderr** to `classifyMergeFailure` (the classifier itself is proven; the
+  wiring is not -- and an earlier version of exactly this wiring was wrong, see §7).
+- **The pagination of more than one page of statuses** was not exercised (live commits seen had at most
+  2). `--paginate --jq '.[]'` is the documented mechanism; multi-page behaviour is unproven.
+- **Timeouts on Windows kill only the direct child**; a reviewer observed grandchildren (`git.exe`
+  behind the `cmd\git.exe` wrapper) survive. Not fixed. Behaviour on the Linux runner is unmeasured.
+- **A localized git would turn every conflict into `STOP_MERGE_FAILED`** (the classifier matches English
+  markers). Fail-closed, not fixed; this machine's git has no translation catalogs so it was not
+  reproduced.
+- **After a STOP that happens after the merge, the worktree is left mutated.** The STOP result says so
+  and prints the restore command; nothing is restored automatically.
+- **Side effect of verification**: `devgov.mjs run-red/run-green` write evidence files into the shared
+  git common dir of the worktree, which is `C:\miljöbeslut\.git` (at least 20 files for this unit's hash
+  at the time of the round-2 review, more since). They live under `.git` and do not affect any working
+  tree.
+- **Not in `CONTROLLER_OWNED_FLOOR_PATHS`.** The new workflow (which has a secret-bearing `sign:` job) and
+  the script are compliant with the floor but are not themselves protected by it, so a later unit could
+  modify them. Adding them needs a separate controller-floor unit and is an owner decision.
+- **Not independently reviewed after the round-2 repair.**
+- Nothing has been pushed to `origin`.
 
 ## 6. Base bump
 
 Not applicable -- this is the candidate's first version, not a rebase-reverify of itself.
 
-## 7. Repair per W1-VERIFY-DB (2026-09-30)
+## 7. Review history and repairs (2026-09-30)
 
-W1-VERIFY-DB's independent cold review of `b7ddef9f` (5 parallel dimension reviewers + 1 synthesis
-adjudicator, all fresh agents with no memory of the implementing session) returned
-`SOUND_WITH_CHANGES`: no blocker against the design's hard safety invariant, but 5 confirmed major
-findings. Jimmy's GO (2026-09-30) authorized fixing all of them plus 3 additional hardening items
-he judged cheap and in-scope for a fail-closed tool, explicitly ruling out further scope expansion:
+### Round 1 -- review of `b7ddef9f`: SOUND_WITH_CHANGES
 
-1. **Missing `invariant-packs:` job + false comment.** Added, identical in shape to
-   `devgov-v0-orchestrate.yml`'s own job of the same name (confirmed present at this candidate's
-   own `base_sha`, `740b2fdf`). The file's comment previously claimed the missing `gate:` job was
-   the only structural difference from `orchestrate.yml`; corrected.
-2. **Hardcoded "Phase 1/2: PASS" in the PR comment, never actually checked by the workflow.** Added
-   a new `reverify-phases:` job that independently re-derives both results from real git history at
-   the three SHAs the `repository_dispatch` payload names -- `old_candidate_sha`, a new
-   `pre_merge_tip_sha` field (added to the payload, was missing before), and `candidate_sha` itself
-   -- using the candidate's own real `phase1VerifyOriginalIdentity`/`phase2VerifyOwnEdit` functions
-   against independently-fetched (`git show`) bytes, never trusting the dispatching script's local
-   run. `red`/`green`/`sign` all now depend on this job; the PR comment prints its outputs instead
-   of literal text.
-3. **Unpaginated `gh api .../commits/{sha}/status` lookup.** Switched to the array-shaped, genuinely
-   paginatable `/commits/{sha}/statuses` (plural) endpoint with `--paginate` and `per_page=100`,
-   defensively parsing either output shape `gh`'s pagination might produce. **Found and fixed a
-   second, real bug while testing this against the live API**: `gh api` silently switches to
-   `POST` the moment any `-f`/`-F` flag is present unless `--method GET` is passed explicitly --
-   without it, this call hit the *create*-a-status endpoint and failed with a 422. Reproduced the
-   failure live, then the fix, against `repos/JbmbAb/Milj-beslut-V1.2/commits/740b2fdf.../statuses`
-   before trusting it.
-4. **Unbounded, untimed, non-retried per-commit `gh api` loop.** Added a `MAX_COMMITS_TO_WALK` (200)
-   cap that fails closed with `STOP_TOO_MANY_COMMITS_TO_WALK` instead of walking forever; added a
-   bounded exponential-backoff retry (`withRetry`, 3 attempts) around the status lookup; added a
-   default timeout (`DEFAULT_TIMEOUT_MS`, 60s) to every `git`/`gh` child process via the shared
-   `run`/`runAllowFail` helpers, with a longer explicit timeout (150s) for the `devgov.mjs`
-   RED/GREEN invocation specifically, since its own internal default is already 120s.
-5. **Wrong `scripts/devgov/...` path references** in the workflow's header comment and PR-comment
-   body -- corrected to the real `scripts/dev-helpers/...` path throughout.
-6. **`old_base_sha`/`pr_number` not shape-validated** (unlike `candidate_sha`/`old_candidate_sha`).
-   Added regex checks for both (plus the new `pre_merge_tip_sha`) in the workflow's
-   "Validate client_payload shape" step, and a matching `--pr` positive-integer check in the
-   script's own `parseArgs`.
-7. **Empty RED/GREEN manifest would vacuously report local PASS.** Added
-   `assertNonEmptyManifest()`, called before the local dry-run; fails closed with
-   `STOP_EMPTY_PROOF_MANIFEST` if either list is empty. New RED/GREEN pair
-   `empty-manifest-fails-closed`.
-8. **Merge failures uniformly mislabeled "conflict."** Added `classifyMergeFailure()`, which
-   inspects `git merge`'s actual stderr for real conflict markers (`CONFLICT`, `Automatic merge
-   failed`) before choosing `STOP_MERGE_CONFLICT` vs. the new `STOP_MERGE_FAILED`. New RED/GREEN
-   pair `merge-failure-classification`.
+Five parallel dimension reviewers + one adjudicator, all fresh agents. No blocker against the design's
+hard invariant; five majors. Jimmy's GO authorised fixing them plus three cheap hardening items.
 
-Also removed the dead `execFileSync` import (note-level finding).
+1. `invariant-packs:` job missing (present in `orchestrate.yml` at `base_sha`) and a comment falsely
+   calling `gate:` the only structural difference -- job added.
+2. PR comment's "Phase 1/2: PASS" was hardcoded text -- replaced by a `reverify-phases:` job whose
+   outputs feed the comment.
+3. Status lookup unpaginated -- moved to the list endpoint (and a live POST-by-default bug in the first
+   attempt at this was found and fixed: `gh api -f ...` needs an explicit `--method GET`).
+4. Unbounded, untimed, unretried `gh` loop -- walk cap, bounded retry/backoff, default timeouts.
+5. `main()` never run against a real PR -- **still open**, see §5.
+6. Plus: wrong `scripts/devgov/...` path references, unvalidated `old_base_sha`/`pr_number`, vacuous
+   empty-manifest PASS, all merge failures called "conflict", dead `execFileSync` import.
 
-**Two defects in this repair itself, found by the implementing session before the delta review was
-launched (both fixed in the same candidate that goes to review, so reviewers see the corrected
-version -- disclosed here rather than silently folded in):**
+### Two defects the implementing session found in its own round-1 repair, before round 2 started
 
-- **Item 8 was wrong as first written.** `git merge` writes its `CONFLICT` / `Automatic merge
-  failed` lines to **stdout**, not stderr (reproduced live in a scratch repo: real conflict, exit 1,
-  stderr empty). `main()` passed only `mergeResult.stderr` to `classifyMergeFailure`, so every real
-  conflict would have been filed as `STOP_MERGE_FAILED`. The proof-unit did not catch this because
-  it only exercises the pure function with a hand-written string. Fixed: `main()` now classifies on
-  stdout + stderr combined. **Known remaining gap:** the integration itself (which stream
-  `main()` hands the classifier) still has no executed proof; the live scratch-repo probe above is
-  evidence, not a committed test.
-- **`reverify-phases:` executed candidate code.** As first written it imported
-  `phase1VerifyOriginalIdentity`/`phase2VerifyOwnEdit` from the *candidate's* checkout, so a
-  candidate could ship a modified function that always answers OK -- contradicting the trust model
-  `plan:`/`sign:` already follow ("checkout exact candidate without executing candidate code").
-  Fixed: the verification logic is now imported from a protected default-branch `controller/`
-  checkout; the candidate is only ever read as git data (`git -C candidate show`), including the
-  post-edit unit definition (previously read via `fs` from a payload-supplied path with no
-  containment check). Also anchored Phase 2's `base_sha` comparison to reality: because the
-  expected new `base_sha` is read from the file itself in CI, that comparison alone was vacuous; the
-  job now additionally requires it to be a 40-hex SHA that is an ancestor of the candidate (i.e. the
-  base was actually merged). The job's embedded Node step was extracted from the real YAML and run
-  against synthetic git histories: honest base bump passes; an edit that also tampers with `unit`
-  fails Phase 2; a `base_sha` never merged fails; a branch drifted before the automation ran fails
-  Phase 1. This is a local simulation of the step's logic, not a GitHub Actions run.
+- `git merge` writes conflict lines to stdout; the repair classified only stderr, so every real conflict
+  would have been `STOP_MERGE_FAILED`. The proof-unit could not see it (it tested the pure function with
+  a hand-written string).
+- `reverify-phases:` imported the verification functions from the **candidate's** checkout, i.e. it ran
+  candidate code in a verifier, against the trust model `plan:`/`sign:` already follow.
 
-**Local verification of the repair:** all 7 exported pure functions re-tested with fixtures
-(`phase1VerifyOriginalIdentity`, `phase2VerifyOwnEdit`, `classifyStaleness`, plus the 2 new
-`assertNonEmptyManifest`, `classifyMergeFailure`) -- all correct. The proof-unit now declares 5
-RED/GREEN pairs (2 new); `devgov-helper.mjs lint` re-run clean (0 errors, same 5 intentional,
-hint-blessed DGL-022 warnings). Full 5-pair (10-entry) RED/GREEN regression re-run through the
-real, unmodified controller against the repaired candidate `aee374ce2ac9e96e75b59c9aefb25456c14d18a8`
--- 10/10 match `expected_classification`; see the updated table in §4.
+### Round 2 -- delta review of `bbbbeec1`: CHANGES_REQUIRED
 
-**What this repair explicitly did NOT do** (no scope expansion, per Jimmy's own instruction): no
-real PR was exercised, nothing was pushed, `reverify-phases:`'s own CI-side logic (the embedded
-Node script inside the new workflow job) was written carefully but has -- like the rest of
-`main()`'s I/O orchestration -- never executed in real GitHub Actions; that remains true after this
-repair exactly as it was before it, and is unrelated to what this repair fixed. No new RED/GREEN
-pair was added for `locatePriorApprovedSha`'s pagination/retry/timeout logic, since it is I/O-heavy
-and not meaningfully unit-testable without mocking `gh` -- it remains reviewed-but-unproven code,
-now with a live-API-verified bug fix behind it (see item 3) rather than an untested assumption.
+Three fresh reviewers (workflow YAML, script, proof-unit + this document's honesty). Closure of the
+five round-1 majors: (1) CLOSED, (2) CLOSED, (3) CLOSED, (4) CLOSED (by reading; worst-case runtime
+still loose), (5) NOT CLOSED, honestly documented. New findings and their disposition:
+
+| finding (severity) | disposition |
+| --- | --- |
+| `run-red` exits 2 on a correct RED; `run()` threw on any non-zero exit, so `main()` could never reach READY (blocker) | **Fixed**: `runAllowFail` + `parseControllerRun` + `evaluateDryRun`; executed against the real controller (§4) |
+| list-statuses returns history; "any success" accepted an old success under a newer failure (major) | **Fixed**: `hasCurrentGreenDevGovStatus`, newest per context decides |
+| fixed 150 s timeout kills the 28/59 real units declaring a larger `timeout_ms` (major) | **Fixed**: per-entry `timeout_ms` + 30 s slack |
+| Phase 1's "original approval" never verified in CI (major) | **Fixed**: old approval must have a current green status; in `reverifyLineage` |
+| `base_sha` anchor too weak: no-merge candidates, base older than the old base, unrelated file edits all passed (major) | **Fixed**: exact lineage (single bump commit on a merge of `[pre-merge tip, new base]`, bump changes only the unit file, new base strictly newer and in main's history) |
+| symlink at the unit path passes Phase 1/2 while `plan:`/`sign:` follow it (major) | **Fixed**: regular-file mode (100644) required at all three refs; proof case made byte-identical so only the mode check can stop it |
+| `grep -E` shape check is per line, multi-line values pass; `old_base_sha` never cross-checked; `pr_number` not tied to the candidate (minor) | **Fixed**: bash `[[ =~ ]]`, `old_base_sha` cross-check, report job requires the PR's head to equal the signed candidate |
+| report job never asserts the phase outputs are `PASS` (note) | **Fixed** |
+| comment still omits some structural differences from `orchestrate.yml` (M1 partial) | **Fixed**: complete list in the workflow header |
+| tip walk cap applied before the tip check (minor) | **Fixed** |
+| three mid-run STOPs leave a local merge and a dirty file; STOP JSON silent about it (minor) | **Partly fixed**: empty-manifest check moved before any mutation; later STOPs state `worktreeMutated` and print the restore command; no automatic restore |
+| push succeeded but dispatch failed is reported without saying so (minor) | **Fixed** |
+| 11 of 59 real unit files don't round-trip through `JSON.stringify` (note) | **Fixed**: `bumpBaseShaInText` (single-line substitution); Phase 2 also compares bytes |
+| `tmpWorktreeAt` leaks the temp dir if `worktree add` throws (note) | **Fixed** |
+| `runAllowFail` dropped spawn errors, hiding a timeout (minor) | **Fixed** |
+| dirty-tree refusal naming `conflict-policy.md` misfiled as a conflict (minor) | **Fixed**: anchored regexes |
+| all five REDs are file-not-found REDs; three GREENs satisfiable by a stub (major, reproduced) | **GREENs fixed** (two-sided, mutation-tested 23/23); REDs remain file-not-found -- inherent, now stated plainly (§3) |
+| this document: "all 7 exported pure functions" (there were 5), "three pairs", stale SHAs, DGL-022 called "hint-blessed", no mention that step 5 could not complete | **Fixed** in this rewrite |
+| new workflow/script not in `CONTROLLER_OWNED_FLOOR_PATHS` (minor) | **Not fixed -- owner decision** (§5) |
+| Windows timeout leaves grandchildren; localized git defeats the classifier (notes) | **Not fixed** -- documented (§5) |
+| `reverify-phases` trusts which SHA was approved (minor, round 2) | Subsumed by the status check above |
+
+`--no-ff` was added to the merge so the commit shape the lineage check requires holds even when the
+branch has no commits of its own (design §1.4 says `git merge`; this only pins the shape).
