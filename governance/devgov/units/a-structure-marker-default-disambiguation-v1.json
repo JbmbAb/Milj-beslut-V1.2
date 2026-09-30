@@ -28,7 +28,10 @@
         "const fs=require('node:fs');const s=fs.readFileSync('packages/mps-chunking/src/text/APlusStructureAnnotator.ts','utf8');const fixed=s.includes(\"documentType === 'decision' ? 'BAKGRUND' : 'GENERAL'\");process.exit(fixed?0:1)"
       ],
       "expected_classification": "FAIL",
-      "required_head": "base_sha"
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ]
     }
   ],
   "required_green": [
