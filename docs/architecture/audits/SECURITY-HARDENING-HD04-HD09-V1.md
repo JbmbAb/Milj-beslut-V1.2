@@ -24,21 +24,25 @@ route-reachability sweep (`A9-ROUTE-REACHABILITY-SWEEP-FINAL-2026-09-29.md`). HD
 (replace the client-supplied `bankidId` with a verified-session `orderRef`) was confirmed with
 Jimmy in-session before any code was written.
 
-**Candidate SHAs, current (post-rebase + RED-command fix, not yet re-reviewed/pushed):**
+**Candidate SHAs, current (post-rebase + RED-command fix + base_sha-regression fix, not yet
+re-reviewed/pushed):**
 
 | Unit | Branch | Candidate SHA | Pushed+dispatched SHA (failed, §9) | First-round SHA (COLD_VERIFIED K-159, pushed) |
 |---|---|---|---|---|
-| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `b6b8e323554cf6b3f9466c6a720f8012ab9b34f2` | `428cd71c2f2eea960b3b74e3043fd7c0d4ef54f3` | `1911598925613370d42a2ace506eb0add08829d8` |
-| B (HD-06) | `claude/security-hardening-hd06-v1` | `494c5e401ceb16a52aecc5445c9538a898368168` | `89e3b29a1cc7f75a7926895f466df4f6c3c49c2d` | `3615e94ca6e5ff8546897fa22facac1a6f576354` |
-| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `1ec1d2238bfdf932165a0b7ed317cab4402386fd` | `387df4e11114165ab1b9a824fa6f71a4d19af292` | `c696e562f31504ecb4d397fbe6b8a4da6463c68e` |
-| D (HD-09) | `claude/security-hardening-hd09-v1` | `d84779543e22cc505462939133962cbc7f892f8a` | `f56f40e5c48bf7a01c19324cf6bb62cdd0e621cc` | `0c7817a5e031446d6400767ef312414d5c6fd27f` |
+| A (HD-04a/HD-04b/HD-05) | `claude/security-hardening-hd04-05-v1` | `ed2a5146cb63b0f80ab6533eac387025b5dfe1b8` | `428cd71c2f2eea960b3b74e3043fd7c0d4ef54f3` | `1911598925613370d42a2ace506eb0add08829d8` |
+| B (HD-06) | `claude/security-hardening-hd06-v1` | `cc8047d72afde3afa2b0ce2ddb20fe50856df4b0` | `89e3b29a1cc7f75a7926895f466df4f6c3c49c2d` | `3615e94ca6e5ff8546897fa22facac1a6f576354` |
+| C (HD-07/HD-08) | `claude/security-hardening-hd07-08-v1` | `853d1d3f9f9423a1b4cf6368d195ee17bb0099f6` | `387df4e11114165ab1b9a824fa6f71a4d19af292` | `c696e562f31504ecb4d397fbe6b8a4da6463c68e` |
+| D (HD-09) | `claude/security-hardening-hd09-v1` | `1f4ba141945cdec4d8b04247264c142b50469185` | `f56f40e5c48bf7a01c19324cf6bb62cdd0e621cc` | `0c7817a5e031446d6400767ef312414d5c6fd27f` |
 
-Each current SHA is one `fix(devgov)` commit -- patching only `required_red` in that unit's own
-JSON, per §9 -- on top of the pushed+dispatched SHA in the middle column. No production code or
-test content changed in this commit, only the RED probe's execution mechanism. The pushed+dispatched
-SHA is itself a merge commit (`origin/main` at `dc78d44c`, no force, no conflicts) plus a
-`base_sha`-bump commit on top of the first-round SHA already pushed and cold-reviewed once. The
-rebase and re-verification that produced the middle column were authorized in-session by Jimmy
+Each current SHA is two `fix(devgov)` commits on top of the pushed+dispatched SHA in the middle
+column: the `required_red` fix (§9), then a second commit correcting a `base_sha` regression that
+fix's own propagation accidentally introduced (§9, final paragraph) plus a `process.on('exit', ...)`
+cleanup improvement. No production code or test content changed in either commit, only the RED
+probe's execution mechanism and the unit definition's own metadata. `devgov-helper.mjs preflight`
+reports 0 errors on all four at these exact SHAs. The pushed+dispatched SHA is itself a merge commit
+(`origin/main` at `dc78d44c`, no force, no conflicts) plus a `base_sha`-bump commit on top of the
+first-round SHA already pushed and cold-reviewed once. The rebase and re-verification that produced
+the middle column were authorized in-session by Jimmy
 ("fortsätt godkänner") after a separate, unverified cross-session message claiming the same
 authorization under the display name "Boss" was identified and explicitly refused -- see the
 security-hardening session's own transcript for that exchange; not repeated here since it is
@@ -308,4 +312,26 @@ every `vi.mock()` call in this work's test files uses the identical specifier st
 corresponding `import`, which is exactly why a single non-context-aware rewrite correctly fixes
 both at once.
 
-**Not yet done:** this fix has not been reviewed by the verifier, not pushed, and not re-dispatched.
+**A second, self-inflicted bug, found immediately after the first fix, before any re-dispatch:**
+propagating the `required_red` fix to the other three branches was done by `git checkout
+<combined-reference-branch-sha> -- <unit-json-path>`, copying that path's *entire* content from the
+non-candidate combined reference branch (`claude/security-hardening-hd04-hd09-v1`, kept only for
+local convenience, explicitly not itself a candidate -- see the header table above). That branch's
+own copy of each unit JSON had never had its `base_sha` bumped past the original `b48ed5e2`, so the
+copy silently reverted each real candidate branch's `base_sha` from the correct `dc78d44c` back to
+`b48ed5e2` alongside the intended `required_red` fix. Caught immediately by `devgov-helper.mjs
+preflight`, which suddenly reported 60 `FORBIDDEN_PATH`/`NOT_ALLOWED` errors naming files with no
+relation to this work (`localizationPdfService.ts`, `sewageRoutes.test.ts`, W3a/W3b/HD-sweep files,
+...) -- the tell was that `git diff --name-only <declared-base>..HEAD`, run manually, showed only
+the correct 4 files, while the controller's own `evaluateRepositoryState` (invoked by the same
+preflight run) showed 64, meaning the two were computing the diff against two different `base_sha`
+values. Fixed by setting `base_sha` back to `dc78d44c` directly on each of the four real branches
+(not by copying from the reference branch again), verified locally (RED/GREEN, identical pass/fail
+counts once more) and via `devgov-helper.mjs preflight` (0 errors on all four) before committing.
+**Lesson for next time:** never propagate a fix across sibling candidate branches by copying a
+whole file from a non-candidate reference branch -- cherry-pick the specific *content change*
+instead (e.g. diff and apply, or re-run the generating script directly on each real branch), so a
+stale field on the reference branch can't silently overwrite a correct one on the candidate.
+
+**Not yet done:** this fix (both parts) has not been reviewed by the verifier, not pushed, and not
+re-dispatched.
