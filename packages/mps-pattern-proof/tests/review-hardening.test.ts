@@ -11,6 +11,11 @@
  * Section 2b covers a fifth finding raised by the review of the fix for (2): symlinks inside copied
  * context entries (an absolute link to an outside file, a path through a link to an outside
  * directory) carried outside content into the host layout and the docker context.
+ *
+ * Sections 5 and 6 cover two findings raised by the review of the hardening delta itself, both
+ * reproduced before they were fixed: a global ARG before the first FROM was dropped from the rendered
+ * probe Dockerfile (`FROM ${ARG}` then had an empty base), and `dockerfilePath` accepted an absolute
+ * path, a `..` escape or a symlink that resolves outside the repository root.
  */
 import {
   existsSync,
@@ -38,14 +43,21 @@ import {
   resolveAll,
 } from '../src/authority';
 import { parseDockerfile } from '../src/docker/dockerfile-parse';
+import { executeRedProbe } from '../src/docker/red-probe';
 import {
   expandContextSource,
   materializeDockerContext,
   materializeHostLayout,
 } from '../src/docker/executors';
-import { deriveStagePrefix, type StageContextCopy } from '../src/docker/stage-prefix';
+import {
+  caPreludeLines,
+  deriveStagePrefix,
+  renderStagePrefixDockerfile,
+  type StageContextCopy,
+} from '../src/docker/stage-prefix';
 import type { EvidenceLocator } from '../src/evidence';
 import { digestOf } from '../src/identity';
+import { readRepoFile } from './fixtures/dockerfiles';
 
 const tmpDirs: string[] = [];
 function tmp(prefix: string): string {
@@ -442,5 +454,162 @@ describe('4. a failing attestation lookup is an unresolved authority, never an e
     ]);
     expect(summary.allResolved).toBe(false);
     expect(summary.unresolved.map((entry) => entry.reason)).toEqual(['ATTESTATION_LOOKUP_UNAVAILABLE']);
+  });
+});
+
+describe('5. a global ARG before the first FROM is preserved in the rendered probe Dockerfile', () => {
+  const render = (text: string, stage: string, caBundleFileName?: string): string[] =>
+    renderStagePrefixDockerfile(
+      deriveStagePrefix(parseDockerfile(text), stage),
+      caBundleFileName === undefined ? {} : { caBundleFileName },
+    ).split('\n');
+
+  it('renders the pre-FROM ARG ahead of a parameterized FROM (it was dropped, leaving an empty base image)', () => {
+    const lines = render(
+      'ARG NODE_IMAGE=node:22-alpine\nFROM ${NODE_IMAGE} AS builder\nWORKDIR /app\nCOPY package.json ./\nRUN npm ci\n',
+      'builder',
+    );
+    expect(lines.slice(1)).toEqual([
+      'ARG NODE_IMAGE=node:22-alpine',
+      'FROM ${NODE_IMAGE} AS builder',
+      'WORKDIR /app',
+      'COPY package.json ./',
+      'RUN npm ci',
+      '',
+    ]);
+  });
+
+  it('keeps every global ARG (with and without default, continued lines) once, in order, before the first FROM', () => {
+    const lines = render(
+      [
+        'ARG BASE=node:22',
+        'ARG REGISTRY',
+        'ARG FLAGS=--a \\',
+        '    --b',
+        'FROM ${REGISTRY}${BASE} AS base',
+        'FROM base AS builder',
+        'COPY package.json ./',
+        'RUN npm ci',
+        '',
+      ].join('\n'),
+      'builder',
+    );
+    const firstFrom = lines.findIndex((line) => line.startsWith('FROM '));
+    expect(lines.slice(1, firstFrom)).toEqual([
+      'ARG BASE=node:22',
+      'ARG REGISTRY',
+      'ARG FLAGS=--a \\',
+      '    --b',
+    ]);
+    expect(lines.filter((line) => line.startsWith('ARG ')).length).toBe(3);
+    expect(lines[firstFrom]).toBe('FROM ${REGISTRY}${BASE} AS base');
+  });
+
+  it('still puts the CA prelude immediately after the ROOT FROM, behind the global ARG', () => {
+    const prelude = caPreludeLines('ppe-ca-bundle.crt');
+    const lines = render(
+      'ARG NODE_IMAGE=node:22-alpine\nFROM ${NODE_IMAGE} AS builder\nCOPY package.json ./\nRUN npm ci\n',
+      'builder',
+      'ppe-ca-bundle.crt',
+    );
+    expect(lines.slice(1, 3 + prelude.length)).toEqual([
+      'ARG NODE_IMAGE=node:22-alpine',
+      'FROM ${NODE_IMAGE} AS builder',
+      ...prelude,
+    ]);
+  });
+
+  it('renders a Dockerfile without a preamble exactly as before (no added line; the real root Dockerfile)', () => {
+    const text = readRepoFile('Dockerfile');
+    for (const stage of ['builder', 'production-base']) {
+      const prefix = deriveStagePrefix(parseDockerfile(text), stage);
+      expect(prefix.preambleArgs).toEqual([]);
+      const legacy = [
+        `# PPE stage-prefix probe: stage "${prefix.stageName}" (lineage ${prefix.lineage.join(' -> ')}), derived from the candidate Dockerfile up to and including the install step at line ${prefix.installLine}.`,
+        ...prefix.instructions.map((instruction) => instruction.raw),
+      ];
+      expect(renderStagePrefixDockerfile(prefix)).toBe(`${legacy.join('\n')}\n`);
+    }
+  });
+});
+
+describe('6. dockerfilePath is bound to the repository root (absolute, .. and symlink escapes are refused)', () => {
+  // The fixtures deliberately carry NO project install step: a guard that lets a path through ends in
+  // PPE_INSTALL_STEP_NOT_FOUND after reading it, and nothing is ever executed.
+  const STAGE_WITHOUT_INSTALL = 'FROM node:22-alpine AS builder\nRUN echo no-install-here\n';
+  let base = '';
+  let repo = '';
+  beforeAll(() => {
+    base = tmp('ppe-dockerfile-path-');
+    repo = path.join(base, 'repo');
+    mkdirSync(path.join(repo, 'sub'), { recursive: true });
+    writeFileSync(path.join(base, 'outside.Dockerfile'), STAGE_WITHOUT_INSTALL);
+    mkdirSync(path.join(base, 'outside-dir'));
+    writeFileSync(path.join(base, 'outside-dir', 'Dockerfile'), STAGE_WITHOUT_INSTALL);
+    writeFileSync(path.join(repo, 'Dockerfile'), STAGE_WITHOUT_INSTALL);
+    writeFileSync(path.join(repo, 'sub', 'Dockerfile'), STAGE_WITHOUT_INSTALL);
+    writeFileSync(path.join(repo, '..Dockerfile'), STAGE_WITHOUT_INSTALL);
+    symlinkSync('Dockerfile', path.join(repo, 'alias.Dockerfile'));
+    symlinkSync(path.join(base, 'outside.Dockerfile'), path.join(repo, 'linked.Dockerfile'));
+    symlinkSync(path.join(base, 'outside-dir'), path.join(repo, 'linked-dir'));
+    symlinkSync(path.join(base, 'does-not-exist'), path.join(repo, 'dangling.Dockerfile'));
+  });
+
+  const probe = (dockerfilePath: string, repoRoot: string = repo) =>
+    executeRedProbe({ repoRoot, dockerfilePath, stageName: 'builder', executor: 'host' });
+  const refused = (message: RegExp) => ({
+    code: 'PPE_PROBE_BLOCKED',
+    message: expect.stringMatching(message),
+  });
+  const admitted = { code: 'PPE_INSTALL_STEP_NOT_FOUND' };
+
+  it('refuses a ..-escape, also one that re-enters through a sub directory', async () => {
+    await expect(probe('../outside.Dockerfile')).rejects.toMatchObject(
+      refused(/escapes the repository root/),
+    );
+    await expect(probe('sub/../../outside.Dockerfile')).rejects.toMatchObject(
+      refused(/escapes the repository root/),
+    );
+  });
+
+  it('refuses an absolute path, to an outside file and to a file inside the repository alike', async () => {
+    await expect(probe(path.join(base, 'outside.Dockerfile'))).rejects.toMatchObject(
+      refused(/absolute paths are refused/),
+    );
+    await expect(probe(path.join(repo, 'Dockerfile'))).rejects.toMatchObject(
+      refused(/absolute paths are refused/),
+    );
+  });
+
+  it('refuses a symlink to an outside file and a path through a symlinked directory pointing outside', async () => {
+    await expect(probe('linked.Dockerfile')).rejects.toMatchObject(refused(/through a symlink/));
+    await expect(probe('linked-dir/Dockerfile')).rejects.toMatchObject(refused(/through a symlink/));
+  });
+
+  it('reports a dangling symlink as unreadable (blocked), not as an escape and not as a pass', async () => {
+    await expect(probe('dangling.Dockerfile')).rejects.toMatchObject(refused(/cannot read/));
+  });
+
+  it('admits paths that stay inside: plain, ./, re-entering, nested, a ..-prefixed file name, an inside symlink', async () => {
+    for (const inside of [
+      'Dockerfile',
+      './Dockerfile',
+      'sub/../Dockerfile',
+      'sub/Dockerfile',
+      '..Dockerfile',
+      'alias.Dockerfile',
+    ]) {
+      await expect(probe(inside), inside).rejects.toMatchObject(admitted);
+    }
+  });
+
+  it('applies the same rules when repoRoot itself is reached through a symlink', async () => {
+    const viaLink = path.join(base, 'repo-link');
+    symlinkSync(repo, viaLink);
+    await expect(probe('Dockerfile', viaLink)).rejects.toMatchObject(admitted);
+    await expect(probe('../outside.Dockerfile', viaLink)).rejects.toMatchObject(
+      refused(/escapes the repository root/),
+    );
+    await expect(probe('linked.Dockerfile', viaLink)).rejects.toMatchObject(refused(/through a symlink/));
   });
 });

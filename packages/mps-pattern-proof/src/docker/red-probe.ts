@@ -40,7 +40,10 @@ export const OUTPUT_EXCERPT_MAX_LINES = 40;
 
 export interface ExecuteRedProbeOptions {
   readonly repoRoot: string;
-  /** relative to repoRoot (default Dockerfile) */
+  /**
+   * relative to repoRoot (default Dockerfile); an absolute path, a `..` escape and a symlink that resolves
+   * outside repoRoot are refused as PPE_PROBE_BLOCKED before anything is read
+   */
   readonly dockerfilePath?: string;
   readonly stageName: string;
   readonly executor?: RedProbeExecutorChoice;
@@ -129,6 +132,38 @@ function excerptOf(matched: readonly string[], output: string): string {
   return lines.slice(-OUTPUT_EXCERPT_MAX_LINES).join('\n');
 }
 
+/** True when a path.relative() result names a location outside its base (`..`, `../x`, or absolute). */
+function leavesBase(relative: string): boolean {
+  return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+}
+
+/**
+ * Binds the probed Dockerfile to the repository: an absolute path, a `..` escape and a path whose
+ * symlinks resolve outside the repository root are refused as PPE_PROBE_BLOCKED before anything is
+ * read, so a classified result always describes the candidate checkout. Returns the real path to read.
+ */
+function resolveDockerfileInsideRepo(repoRoot: string, dockerfilePath: string): string {
+  const refuse = (why: string): PatternProofError =>
+    new PatternProofError('PPE_PROBE_BLOCKED', `dockerfilePath "${dockerfilePath}" ${why}`);
+  if (path.isAbsolute(dockerfilePath)) {
+    throw refuse('must be relative to the repository root (absolute paths are refused)');
+  }
+  const lexical = path.resolve(repoRoot, dockerfilePath);
+  if (leavesBase(path.relative(repoRoot, lexical))) throw refuse('escapes the repository root');
+  let realRoot: string;
+  let real: string;
+  try {
+    realRoot = fs.realpathSync(repoRoot);
+    real = fs.realpathSync(lexical);
+  } catch (error) {
+    throw new PatternProofError('PPE_PROBE_BLOCKED', `cannot read ${lexical}: ${(error as Error).message}`);
+  }
+  if (leavesBase(path.relative(realRoot, real))) {
+    throw refuse('resolves through a symlink to a location outside the repository root');
+  }
+  return real;
+}
+
 export async function executeRedProbe(opts: ExecuteRedProbeOptions): Promise<RedProbeExecutionResult> {
   const probe: RedProbe = redProbeForStage(opts.stageName);
   const dockerfilePath = opts.dockerfilePath ?? 'Dockerfile';
@@ -136,7 +171,7 @@ export async function executeRedProbe(opts: ExecuteRedProbeOptions): Promise<Red
   const executorRequested = opts.executor ?? 'auto';
   const timeoutMs = opts.timeoutMs ?? DEFAULT_RED_PROBE_TIMEOUT_MS;
 
-  const dockerfileAbsolute = path.resolve(opts.repoRoot, dockerfilePath);
+  const dockerfileAbsolute = resolveDockerfileInsideRepo(opts.repoRoot, dockerfilePath);
   let dockerfileText: string;
   try {
     dockerfileText = fs.readFileSync(dockerfileAbsolute, 'utf8');

@@ -133,6 +133,8 @@ export interface StagePrefix {
   readonly env: Readonly<Record<string, string>>;
   /** ARG declarations with their defaults ('' when none) */
   readonly args: Readonly<Record<string, string>>;
+  /** global ARG instructions before the first FROM, rendered verbatim ahead of it (`FROM ${ARG}` needs them) */
+  readonly preambleArgs: readonly ParsedInstruction[];
   /** the root stage's FROM image */
   readonly baseImage: string;
 }
@@ -297,6 +299,7 @@ export function deriveStagePrefix(
     workdir,
     env: Object.freeze(env),
     args: Object.freeze(args),
+    preambleArgs: parsed.preamble,
     baseImage: chain[0].from.image,
   });
 }
@@ -336,7 +339,11 @@ export interface RenderStagePrefixOptions {
   readonly caBundleFileName?: string;
 }
 
-/** Renders the verbatim raw instruction lines of the prefix as a Dockerfile (plus optional prelude). */
+/**
+ * Renders the verbatim raw instruction lines of the prefix as a Dockerfile (plus optional prelude),
+ * preceded by the candidate's global ARG lines so a parameterized `FROM ${ARG}` resolves as it does
+ * in the candidate build.
+ */
 export function renderStagePrefixDockerfile(
   prefix: StagePrefix,
   opts: RenderStagePrefixOptions = {},
@@ -344,6 +351,7 @@ export function renderStagePrefixDockerfile(
   const lines: string[] = [
     `# PPE stage-prefix probe: stage "${prefix.stageName}" (lineage ${prefix.lineage.join(' -> ')}), derived from the candidate Dockerfile up to and including the install step at line ${prefix.installLine}.`,
   ];
+  for (const instruction of prefix.preambleArgs) lines.push(instruction.raw);
   let preludeInserted = false;
   for (const instruction of prefix.instructions) {
     lines.push(instruction.raw);
