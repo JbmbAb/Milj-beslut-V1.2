@@ -223,6 +223,28 @@ export function isRegularFileLsTreeLine(line) {
 }
 
 /**
+ * One line of `git diff-tree -r --no-renames --raw --no-abbrev` that is exactly an in-place
+ * modification of `unitPath`: `:100644 100644 <sha> <sha> M<TAB><path>`. Compared field by field and
+ * with a plain string equality on the path -- the path is never interpolated into a pattern, so it
+ * cannot act as one (CodeQL js/regex-injection, js/incomplete-sanitization).
+ */
+export function isInPlaceUnitModification(rawLine, unitPath) {
+  if (typeof rawLine !== 'string' || typeof unitPath !== 'string') return false;
+  const tab = rawLine.indexOf('\t');
+  if (tab === -1) return false;
+  const fields = rawLine.slice(0, tab).split(' ');
+  return (
+    fields.length === 5 &&
+    fields[0] === ':100644' &&
+    fields[1] === '100644' &&
+    SHA_RE.test(fields[2]) &&
+    SHA_RE.test(fields[3]) &&
+    fields[4] === 'M' &&
+    rawLine.slice(tab + 1) === unitPath
+  );
+}
+
+/**
  * The unit's ancestry_policy must be satisfiable by a merge+bump candidate. The gate denies
  * `exact_parent` for it (the candidate's parent is the merge commit, not the base), so signing would
  * spend the owner's devgov-attestation approval on a candidate that can never pass the gate. 6 of 56
@@ -478,8 +500,7 @@ export function reverifyLineage({ payload, candidate, controller, statuses }) {
     const raw = String(candidate.out(['diff-tree', '-r', '--no-renames', '--ignore-submodules=none', '--raw', '--no-abbrev', mergeCommit, candidateSha]))
       .split('\n')
       .filter(Boolean);
-    const unitChange = new RegExp(`^:100644 100644 [0-9a-f]{40} [0-9a-f]{40} M\\t${unitPath.replace(/[.]/g, '\\.')}$`);
-    if (raw.length !== 1 || !unitChange.test(raw[0])) {
+    if (raw.length !== 1 || !isInPlaceUnitModification(raw[0], unitPath)) {
       return fail(`the bump commit must be exactly one in-place modification of ${unitPath}, raw diff: ${JSON.stringify(raw)}`);
     }
 
