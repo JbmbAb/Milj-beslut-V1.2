@@ -1,13 +1,15 @@
 # PATTERN-PROOF-ENGINE-01 V1 -- implementation design + RED-only
 
-**Status:** `ACCEPT / FROZEN FOR BOOTSTRAP_RED_ONLY` (2026-09-30, Jimmy's final check of §5.4 + §7)
--- explicit go for creating the `PATTERN-PROOF-ENGINE-V1` routine and running its
-`BOOTSTRAP_RED_ONLY` mode only; not for `FULL_PATTERN_PROOF`. Design only, no writer-GREEN, no
-Dockerfile fix. Stops exactly where Jimmy's go-ahead message said to stop: artifact schemas ->
-state machine -> orchestrator boundary -> target `DiscoveryArtifact` -> `DependencyGraphArtifact`
--> `DecisionGateArtifact` -> `RedPlanArtifact` -> terminal-state fixtures.
+**Status:** `ACCEPT / FROZEN FOR BOOTSTRAP_RED_ONLY` (2026-09-30, round 5: existing-platform reuse
+applied on top of Jimmy's final check of §5.4 + §7) -- explicit go for creating the
+`PATTERN-PROOF-ENGINE-V1` routine and running its `BOOTSTRAP_RED_ONLY` mode only; not for
+`FULL_PATTERN_PROOF`. Design only, no writer-GREEN, no Dockerfile fix. Stops exactly where Jimmy's
+go-ahead message said to stop: artifact schemas -> state machine -> orchestrator boundary -> target
+`DiscoveryArtifact` -> `DependencyGraphArtifact` -> `DecisionGateArtifact` -> `RedPlanArtifact` ->
+terminal-state fixtures -- now built by reusing existing platform infrastructure (main design §13)
+rather than from scratch.
 
-**Authority:** `PATTERN-PROOF-ENGINE-01-DESIGN-2026-09-30.md` (v4, `ACCEPT / FROZEN`, same
+**Authority:** `PATTERN-PROOF-ENGINE-01-DESIGN-2026-09-30.md` (v6, `ACCEPT / FROZEN`, same
 directory) for the protocol itself; Jimmy's own go-ahead message (2026-09-30) for scope and V1
 target selection, quoted in full in §0.
 
@@ -74,6 +76,23 @@ constraint (§12 point 4, reconciling `development-governance.md`'s current "Git
 only" commit rule) applies from `FULL_PATTERN_PROOF` onward, when `WRITER` actually produces a
 target candidate. No architectural rework -- Jimmy's own verdict: *"PPE-idén: kompatibel. Ingen
 större ADR-krock... Efter dem skulle jag vara bekväm med att starta BOOTSTRAP_RED_ONLY."*
+
+**Revision note, round 5 (2026-09-30, existing-platform reuse before `BOOTSTRAP_RED_ONLY` starts):**
+the main design's new §13 (independently re-verified against actual source, not taken on trust)
+found that most of the "engine" already exists in this repo and must be reused, not rebuilt:
+`packages/mps-runtime`'s `WorkflowRuntime`, `DefaultReplayEngine`, CAS-backed artifact storage,
+`SecurityRuntime`; `packages/mps-control-plane`'s `ExecutionInfrastructure` (ticket/lease/retry/
+idempotency/crash-recovery); `mimers-brunn-core`'s structural signer/verifier key-provider
+separation and `ArtifactAttestation`; and a real six-attack-family `AdversarialGate` to generalize
+into PPE's adversarial-probe library. `BOOTSTRAP_RED_ONLY` must build its schemas/validators,
+`CandidateArtifact`, and `ProofPackage` (§2) to be persisted through the existing CAS-backed
+repository rather than inventing new storage, and should generalize `AdversarialGate`'s existing
+attack-family patterns into its terminal-state fixtures (§6) where they overlap, rather than writing
+equivalent mechanics from scratch. Full reuse map and the mandatory
+`SHALL NOT create a parallel workflow runtime, replay authority, signing model, CAS, promotion
+authority, or autonomy-authority model` statement: main design §13. No change to §5's Docker-target
+content or the six terminal-state fixture definitions themselves -- this narrows *how* they get
+built, not what they must prove.
 
 ## 0. Jimmy's own scoping, verbatim
 

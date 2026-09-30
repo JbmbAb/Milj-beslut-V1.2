@@ -1,13 +1,14 @@
 # PATTERN-PROOF-ENGINE-01 -- design (V1 scope only)
 
-**Status:** `ACCEPT / FROZEN` (2026-09-30, Jimmy's final surgical check) -- design only, no code,
-no workflow script written under it yet. Not self-reviewed by its own author: Jimmy was the
-independent architecture/falsification reviewer throughout (v1 `ACCEPT_WITH_CHANGES`, v2
-`ACCEPT_WITH_MINOR_CHANGES`, v3 two remaining stale formulations, v4 clean -- see the revision
-notes below), precisely because a writer/verifier-separation engine should not have its own design
-self-approved by the agent that wrote it. Next separate decision point: RED-only/design of the V1
-implementation itself, plus selection of the small real backlog target (§10, Q-PPE-1) -- not
-something this session proceeds to on its own initiative.
+**Status:** `ACCEPT / FROZEN` (2026-09-30, v6 -- ADR reconciliation + existing-platform reuse map
+added on top of the frozen core) -- design only, no code, no workflow script written under it yet.
+Not self-reviewed by its own author: Jimmy was the independent architecture/falsification reviewer
+throughout (v1 `ACCEPT_WITH_CHANGES`, v2 `ACCEPT_WITH_MINOR_CHANGES`, v3 two remaining stale
+formulations, v4 clean, v5 four ADR boundary-reconciliations, v6 the §13 reuse map -- see the
+revision notes below), precisely because a writer/verifier-separation engine should not have its
+own design self-approved by the agent that wrote it. Next separate decision point:
+`BOOTSTRAP_RED_ONLY` implementation itself, per the V1 companion document -- not something this
+session proceeds to on its own initiative without Jimmy's explicit go on the exact scope.
 
 **Revision note (v2, 2026-09-30):** Jimmy's independent cold review returned
 `ACCEPT_WITH_CHANGES` -- no architecture rework, four required corrections plus one
@@ -52,6 +53,21 @@ current commit-authority policy in `development-governance.md`. Full detail in t
 Jimmy's own words: *"PPE-idén: kompatibel. Ingen större ADR-krock. Fyra små
 boundary-reconciliations före implementation. Efter dem skulle jag vara bekväm med att starta
 BOOTSTRAP_RED_ONLY."*
+
+**Revision note (v6, 2026-09-30, existing-platform reuse before `BOOTSTRAP_RED_ONLY`):** before any
+code gets written, Jimmy audited the repo for load-bearing infrastructure PPE should reuse rather
+than reimplement. Every claim independently re-verified against the actual source (§13) before being
+applied: `mps-runtime`'s `WorkflowRuntime` (checkpoint resume, nested workflows, deterministic
+fan-out), `DefaultReplayEngine`, CAS-backed artifact storage, `SecurityRuntime`,
+`mps-control-plane`'s `ExecutionInfrastructure` (ticket/lease/retry/idempotency/crash-recovery/
+replay-scheduling), `mimers-brunn-core`'s structural signer/verifier key-provider separation,
+`ArtifactAttestation`, and a real six-attack-family `AdversarialGate` already exist and should be
+reused, not rebuilt. Two adjacent, closer tracks (`MIMER-EVOLUTION-TRACK-GOVERNANCE-V0.md`,
+`packages/mps-evolution`) are real but explicitly not authority to build on yet (`DRAFT`/
+`IMPLEMENTATION_DENIED`, and unregistered in `architecture-authority-map.jsonc`, respectively) --
+recorded as future convergence targets. New §13 records the full reuse map and the mandatory
+non-duplication statement. This narrows V1's actual new-code scope materially; no architecture
+rework of §1-§12 was required.
 
 **Relationship to today's other work:** explicitly a separate platform track from W4
 (project-context readiness + canonical LU projection). Not blocked by W4, does not block W4. The
@@ -480,7 +496,66 @@ is discovered, built, and falsified once qualified to be worked on. This engine 
 authority or `effective_level`** itself; a `ProofPackage` it eventually produces may become future
 input to that qualification process, not a substitute for it.
 
-## 13. Non-claims
+## 13. Existing platform reuse / non-duplication (2026-09-30, per Jimmy's own repo audit)
+
+**PPE is a proof-orchestration specialization over the existing MPS Execution Platform and Dev-Gov.
+It SHALL NOT create a parallel workflow runtime, replay authority, signing model, CAS, promotion
+authority, or autonomy-authority model.**
+
+Before `BOOTSTRAP_RED_ONLY` writes any code, a repo audit (Jimmy, independently re-verified here
+against the actual source before being applied -- every row below was read directly, not taken on
+trust) found that most of what a first reading of §1-§12 might suggest building from scratch already
+exists, load-bearing, in this repo:
+
+| PPE need | Already exists | What PPE should do |
+|---|---|---|
+| Workflow execution | `packages/mps-runtime/src/workflow/WorkflowRuntime.ts` -- registry-backed ordered steps, checkpoint resume, nested workflows, deterministic parallel fan-out, produces `FrozenWorkflowExecutionArtifact` | Reuse for platform-side workflow execution; PPE defines the proof-protocol steps (§2-3), not a new workflow engine |
+| Execution state / retries | `packages/mps-control-plane/src/execution-infrastructure/ExecutionInfrastructure.ts` -- composes ticket queue, lease manager, retry engine, idempotency manager, replay scheduler, crash recovery | Reuse ticket/lease/idempotency when PPE needs long-running or resumable local jobs |
+| Artifact storage | CAS + `CasBackedArtifactRepository` (also used by `packages/mps-evolution`) | Reuse entirely for `DiscoveryArtifact`/`DependencyGraphArtifact`/`CandidateArtifact`/`ProofPackage` persistence, not a new store |
+| Replay | `packages/mps-runtime/src/replay/DefaultReplayEngine.ts` + `ADR-24-23` (already reconciled, §12 point 2) | Reuse the semantics and the engine; `NON_REPRODUCIBLE` (§3) is PPE's own result classification layered on top, not a new replay mechanism |
+| Security/admission | `packages/mps-runtime/src/security/SecurityRuntime.ts` (capability/admission) | Future PPE capabilities route through existing admission/authorization, not a new gate |
+| Verifier separation | `packages/mimers-brunn-core/src/signing/SigningProvider.ts` -- `LocalPemVerificationKeyProvider implements VerificationKeyProvider` is structurally distinct from `LocalPemSigningKeyProvider implements SigningKeyProvider`; a verifier can verify but structurally cannot sign | Reuse this capability separation as the mechanism for §4's writer/verifier isolation, not a new signer/verifier abstraction |
+| Attestation | `ArtifactAttestation` (`packages/mimers-brunn-core/src/signing/attestation.ts`) | Use for verifier/proof evidence wherever cryptographic binding is actually needed |
+| Adversarial testing | `packages/mps-runtime/src/verification/adversarial/AdversarialGate.test.ts` -- six real attack families already implemented: Tampered Artifact, Tampered Registry, Wrong Release, Fake Capability, Duplicate Ticket Flood, Replay Attack | Generalize these into PPE's own adversarial-probe library (10-point list item 8) rather than reimplementing equivalent mechanics |
+| Verification test composition | `packages/mps-runtime/src/verification/harness/PlatformHarness.ts` | Good base for §1's terminal-state fixtures and adversarial fixtures |
+| Canonical verification artifact | `ADR-24-22-Signature-Attestation.md` / `mps-governance` | Already reconciled (§12 point 1): PPE does **not** create a new `VerificationArtifact` under that name |
+| Final proof/promotion | Dev-Gov / trusted execution | Already reconciled (§12 point 3): PPE produces evidence; Dev-Gov decides canonical proof/promotion |
+
+**Two adjacent tracks exist that are even closer to PPE's own concept, and must be handled more
+carefully than a simple reuse row:**
+
+- **`docs/architecture/MIMER-EVOLUTION-TRACK-GOVERNANCE-V0.md`** already describes nearly the same
+  higher-level lifecycle PPE will eventually need for pattern reuse/learning:
+  `DRAFT -> OWNER_APPROVED -> READY -> CANDIDATE -> UNDER_ATTACK -> PROVEN/NOT_PROVEN -> PROMOTED/
+  REJECTED/KILLED` (verified verbatim against the document), with its own Proof Contract,
+  verifier-assignment, and institutional-knowledge feedback -- very close to what this design's own
+  §9 named as the future learning registry. But the document is itself explicitly, literally marked
+  `DRAFT` / `NON_CANONICAL` / `IMPLEMENTATION_DENIED` (verified verbatim: "no code implementing the
+  registry or its state machine may be written"). **PPE treats it as a future convergence target and
+  reuses its concepts later, not as authority to build a parallel registry now.** If/when it is
+  approved, PPE's own eventual learning registry (explicitly out of scope for V1, §1) should likely
+  become an implementation of that track, not a competitor to it.
+- **`packages/mps-evolution`** already has real, working code -- `EvolutionCandidateArtifact`,
+  `ShadowEvaluationArtifact`, `PromotionDecisionArtifact`, mutation/evaluation/fitness engines, and
+  an `AdmittedOnlyEvolutionExecutor` -- conceptually close to future PPE autonomy. Verified: **not**
+  registered in `architecture-authority-map.jsonc`. PPE does not build on it as authority today, but
+  a reconciliation pass is needed before any PPE V2 (learning registry / pattern reuse) so this
+  program does not end up with two independent candidate/evaluation/promotion models.
+
+**Consequence for scope:** this materially changes what "V1's real new core" is. Not a general
+workflow engine, replay engine, artifact repository, ticket/lease system, or signing model -- those
+already exist. PPE's actual new contribution is narrower:
+`artifact protocol/validators (§2) + the terminal-state machine (§3) + the RemoteTrigger/cloud-session
+adapter (§4, alongside the Workflow-tool agent-orchestration adapter -- these are two different
+things: the Workflow *tool* orchestrates AI agents performing discover/writer/verify roles;
+`mps-runtime`'s `WorkflowRuntime` is the platform's own domain-execution runtime that PPE's resulting
+artifacts flow through once persisted -- do not conflate the two) + discovery/dependency/decision
+logic (§8) + writer/verifier handoff and isolation evidence (§4-5, now grounded in the real
+signing/verification key-provider separation above) + PPE-specific proof assembly (§7)`. An earlier,
+informal LOC estimate for V1 assumed building most of this from scratch and was very likely too high
+once the platform is reused correctly.
+
+## 14. Non-claims
 
 This document does not claim to have selected V1's actual target (§10, Q-PPE-1 narrows the
 selection criteria but does not name a target), written any workflow script or orchestrator
@@ -488,9 +563,12 @@ adapter, or defined full JSON Schema for any artifact in §2 (mandatory semantic
 wire format is not). Its approval is not this session's own -- v1 received `ACCEPT_WITH_CHANGES`
 from Jimmy's independent cold review, v2 `ACCEPT_WITH_MINOR_CHANGES` from his delta-review (two
 must-fix inconsistencies, two recommended hardenings, one wording tightening), v3 two remaining
-stale formulations from his final surgical check, and v4 (this document) `ACCEPT / FROZEN` -- no
-further cold review expected. It does not claim the named synergies in §9 are scoped, sized, or
-scheduled -- they are recorded so the ideas are not lost, nothing more. It does not claim the next
-decision point (RED-only/design of the V1 implementation itself, and selection of the small real
-backlog target, §10 Q-PPE-1) has started -- that remains a separate decision, not something this
-session proceeds to on its own initiative.
+stale formulations from his final surgical check, v4 `ACCEPT / FROZEN`, v5 four ADR
+boundary-reconciliations (§12), and v6 (this document) the existing-platform reuse map (§13) -- no
+further cold review expected beyond confirming these additions. It does not claim the named
+synergies in §9 are scoped, sized, or scheduled -- they are recorded so the ideas are not lost,
+nothing more. It does not claim any row in §13's reuse map is actually wired up yet -- that is real
+`BOOTSTRAP_RED_ONLY` (or later) implementation work, not something this document has done. It does
+not claim the next decision point (RED-only/design of the V1 implementation itself, and selection
+of the small real backlog target, §10 Q-PPE-1) has started -- that remains a separate decision, not
+something this session proceeds to on its own initiative.
