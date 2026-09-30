@@ -1,0 +1,283 @@
+name: DEV-GOV-V0 Rebase Reverify
+run-name: DEV-GOV rebase-reverify ${{ github.event.client_payload.candidate_sha }} unit=${{ github.event.client_payload.unit_definition_path }}
+
+# AUTOMATED-REBASE-REVERIFY-01 (Claude outputs/merge-queue-automation-2026-09-30/
+# AUTOMATED-REBASE-REVERIFY-DESIGN-2026-09-30.md, COLD_VERIFIED/ACCEPT for design §1-4,
+# 2026-09-30). This is NOT devgov-v0-orchestrate.yml with steps removed -- it is a separate file so
+# that neither workflow can silently grow the other's behavior. It covers only §1 steps 6 (sign) of
+# the design; steps 1-5 (staleness detection, Phase 1, merge, base_sha bump, Phase 2, local RED/GREEN
+# dry-run) run beforehand in scripts/devgov/automated-rebase-reverify.mjs, which dispatches this
+# workflow only after Phase 2 (§1.3) has already passed against the NEW candidate_sha below.
+#
+# It deliberately has NO gate: job. devgov-v0-orchestrate.yml's own gate: job unconditionally
+# dispatches devgov-v0-gate.yml the moment sign: succeeds, with no way to stop earlier -- reusing
+# that file here would violate this design's own "never dispatches devgov-v0-gate.yml" rule (§2, §4)
+# regardless of the (already-fixed, see design doc) --repo defect that used to live in that job.
+# Dispatching devgov-v0-gate.yml for the candidate_sha this workflow signs remains a fully separate,
+# human-initiated action -- same as it is today for any other candidate.
+#
+# Expected github.event.client_payload keys:
+#   candidate_sha          (string, required) - the NEW post-merge, post-base_sha-bump candidate SHA
+#   unit_definition_path   (string, required) - repository-relative DEV-GOV V1 unit definition path
+#   pr_number               (string, required) - PR to post the evidence comment on
+#   old_candidate_sha       (string, required) - the prior-approved candidate SHA (pre-rebase)
+#   old_base_sha            (string, required) - the unit definition's base_sha before this bump
+on:
+  repository_dispatch:
+    types: [devgov-v0-rebase-reverify]
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Resolve unit proof plan
+    runs-on: ubuntu-latest
+    outputs:
+      red_ids: ${{ steps.plan.outputs.red_ids }}
+      green_ids: ${{ steps.plan.outputs.green_ids }}
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Validate candidate SHA shape
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
+        run: |
+          echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          echo "$OLD_CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
+
+      - name: Checkout exact candidate without executing candidate code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve proof IDs from candidate-owned unit definition
+        id: plan
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+
+          candidate_root="$(realpath candidate)"
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
+            "$candidate_root"/*) ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
+          esac
+
+          node - "$definition" "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require('node:fs');
+          const definition = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+
+          if (definition.schema_version !== 'dev-gov-v1-unit-definition') {
+            throw new Error('unsupported unit definition schema');
+          }
+
+          const red = Array.isArray(definition.required_red) ? definition.required_red : [];
+          const green = Array.isArray(definition.required_green) ? definition.required_green : [];
+          const ids = (items, kind) => items.map((item) => {
+            if (!item || typeof item.id !== 'string' || item.id.length === 0) {
+              throw new Error(`${kind} proof missing id`);
+            }
+            return item.id;
+          });
+          const redIds = ids(red, 'RED');
+          const greenIds = ids(green, 'GREEN');
+
+          if (new Set(redIds).size !== redIds.length) throw new Error('duplicate RED proof id');
+          if (new Set(greenIds).size !== greenIds.length) throw new Error('duplicate GREEN proof id');
+          if (redIds.length === 0 || greenIds.length === 0) {
+            throw new Error('rebase-reverified units currently require at least one RED and one GREEN proof');
+          }
+
+          fs.appendFileSync(process.argv[3], `red_ids=${JSON.stringify(redIds)}\n`);
+          fs.appendFileSync(process.argv[3], `green_ids=${JSON.stringify(greenIds)}\n`);
+          NODE
+
+  red:
+    name: RED / ${{ matrix.test_id }}
+    needs: [plan]
+    strategy:
+      fail-fast: false
+      matrix:
+        test_id: ${{ fromJSON(needs.plan.outputs.red_ids) }}
+    permissions:
+      contents: read
+    uses: JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main
+    with:
+      candidate_sha: ${{ github.event.client_payload.candidate_sha }}
+      unit_definition_path: ${{ github.event.client_payload.unit_definition_path }}
+      proof_kind: RED
+      test_id: ${{ matrix.test_id }}
+
+  green:
+    name: GREEN / ${{ matrix.test_id }}
+    needs: [plan, red]
+    strategy:
+      fail-fast: false
+      matrix:
+        test_id: ${{ fromJSON(needs.plan.outputs.green_ids) }}
+    permissions:
+      contents: read
+    uses: JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@main
+    with:
+      candidate_sha: ${{ github.event.client_payload.candidate_sha }}
+      unit_definition_path: ${{ github.event.client_payload.unit_definition_path }}
+      proof_kind: GREEN
+      test_id: ${{ matrix.test_id }}
+
+  # Identical shape and identical environment gate to devgov-v0-orchestrate.yml's own sign: job --
+  # deliberately duplicated rather than shared, so this file's only structural difference from that
+  # one is the absence of a gate: job. Same single human approval (JImMMbt, devgov-attestation
+  # environment) the manual rebase-reverify process already requires today.
+  sign:
+    name: Sign trusted execution attestations
+    needs: [plan, red, green]
+    runs-on: ubuntu-latest
+    environment: devgov-attestation
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Checkout protected controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Checkout exact candidate without executing candidate code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Verify exact candidate and unit definition containment
+        env:
+          EXPECTED_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+        run: |
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          candidate_root="$(realpath candidate)"
+          definition="$(realpath "candidate/$UNIT_DEFINITION_PATH")"
+          case "$definition" in
+            "$candidate_root"/*) ;;
+            *) echo "unit definition escapes candidate checkout" >&2; exit 4 ;;
+          esac
+
+      - name: Download unsigned execution records from this same run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: devgov-execution-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/devgov-unsigned
+
+      - name: Sign trusted execution attestations
+        env:
+          DEVGOV_ATTESTATION_PRIVATE_KEY_PEM: ${{ secrets.DEVGOV_ATTESTATION_PRIVATE_KEY_PEM }}
+          DEVGOV_ATTESTATION_ISSUER: ${{ vars.DEVGOV_ATTESTATION_ISSUER }}
+          DEVGOV_ATTESTATION_KEY_ID: ${{ vars.DEVGOV_ATTESTATION_KEY_ID }}
+          DEVGOV_CONTROLLER_SHA: ${{ github.sha }}
+          DEVGOV_RUNNER_IDENTITY: github-hosted:ubuntu-latest
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+        run: |
+          node controller/scripts/devgov/devgov.mjs attest-all \
+            --definition "candidate/$UNIT_DEFINITION_PATH" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --worktree candidate \
+            --records-root "$RUNNER_TEMP/devgov-unsigned" \
+            --output-dir "$RUNNER_TEMP/devgov-signed"
+
+      - name: Upload signed RED attestations
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-attestation-RED-${{ github.event.client_payload.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-signed/attestation-RED-*.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+      - name: Upload signed GREEN attestations
+        uses: actions/upload-artifact@v4
+        with:
+          name: devgov-attestation-GREEN-${{ github.event.client_payload.candidate_sha }}
+          path: ${{ runner.temp }}/devgov-signed/attestation-GREEN-*.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+
+  # This is the design's §1 step 7 ("Stop.") made concrete: the last job in this workflow, no gate:
+  # job after it. Posts the evidenced PR comment the design requires (§4) -- old SHA, new SHA,
+  # RED/GREEN result, attestation reference -- and nothing else. Dispatching devgov-v0-gate.yml for
+  # candidate_sha remains a separate, explicit, human-initiated action from here on.
+  report-ready-for-owner-gate-dispatch:
+    name: Report READY_FOR_OWNER_GATE_DISPATCH
+    needs: [plan, red, green, sign]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Require protected default-branch orchestrator
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+
+      - name: Post evidenced rebase-reverify comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
+          OLD_BASE_SHA: ${{ github.event.client_payload.old_base_sha }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body="$(cat <<EOF
+          ## AUTOMATED-REBASE-REVERIFY-01: READY_FOR_OWNER_GATE_DISPATCH
+
+          Mechanical stale-base refresh only -- no semantic re-review. Design:
+          \`Claude outputs/merge-queue-automation-2026-09-30/AUTOMATED-REBASE-REVERIFY-DESIGN-2026-09-30.md\`
+          (COLD_VERIFIED/ACCEPT §1-4).
+
+          - Unit definition: \`$UNIT_DEFINITION_PATH\`
+          - Prior-approved candidate SHA (pre-rebase): \`$OLD_CANDIDATE_SHA\`
+          - Prior \`base_sha\`: \`$OLD_BASE_SHA\`
+          - New candidate SHA (post-merge, post-\`base_sha\`-bump): \`$CANDIDATE_SHA\`
+          - Phase 1 (pre-merge identity vs. original approval): PASS (verified before this run was
+            dispatched -- see \`scripts/devgov/automated-rebase-reverify.mjs\` invocation log)
+          - Phase 2 (post-edit self-check vs. Phase-1 snapshot): PASS (verified before this run was
+            dispatched)
+          - RED: re-run and still fails at the new base, on \`$CANDIDATE_SHA\`
+          - GREEN: re-run and still passes on the new candidate, on \`$CANDIDATE_SHA\`
+          - Fresh trusted-execution attestations signed this run (\`sign:\` job, \`devgov-attestation\`
+            environment, JImMMbt approval already given for this run)
+
+          This workflow stops here. It has not dispatched \`devgov-v0-gate.yml\` and will not. The
+          existing, separate, environment-gated evidence-gate step remains the next explicit,
+          human-initiated action.
+
+          Run: $RUN_URL
+          EOF
+          )"
+          gh pr comment "$PR_NUMBER" --body "$body"
