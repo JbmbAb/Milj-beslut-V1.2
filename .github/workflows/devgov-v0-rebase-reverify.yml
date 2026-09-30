@@ -202,13 +202,15 @@ jobs:
   # controller checkout; the candidate is untrusted input, read only as git data via git -C
   # candidate, never imported or executed (same rule plan:/sign: follow: "checkout exact candidate
   # without executing candidate code"). reverifyLineage has its own executed proof in the candidate's
-  # proof-unit (real git histories: the honest rebase is accepted, 13 forged or drifted inputs are
-  # rejected). It verifies: safe unit path; regular-file mode at all three refs; the old approval is
-  # an ancestor of the pre-merge tip AND its newest DEV-GOV-V0 / trusted-execution status is success;
-  # Phase 1; payload old_base_sha equals the pre-merge file's base_sha; Phase 2 (incl. byte-level);
-  # the candidate is exactly [merge of (pre-merge tip, new base)] + [one commit changing only the
-  # unit file]; the new base is a strict descendant of the old base and lies in main's history.
-  # red/green/sign all depend on this job passing.
+  # proof-unit (real git histories: the honest rebase is accepted and a set of forged or drifted
+  # inputs is rejected). It verifies: safe unit path; regular-file mode at all three refs; the old
+  # approval is an ancestor of the pre-merge tip WITH THE SAME TREE (the approval covers the tip's
+  # whole content, not just the unit file) AND its newest DEV-GOV-V0 / trusted-execution status is
+  # success; Phase 1; payload old_base_sha equals the pre-merge file's base_sha; Phase 2 (incl.
+  # byte-level); the candidate is exactly [merge of (pre-merge tip, new base) whose tree is the clean
+  # merge of its parents] + [one commit changing only the unit file]; the new base is a strict
+  # descendant of the old base and lies in main's history. red/green/sign all depend on this job
+  # passing.
   reverify-phases:
     name: Independently re-verify Phase 1 / Phase 2 / lineage
     needs: [plan]
@@ -284,7 +286,7 @@ jobs:
                 'api', '--method', 'GET', '--paginate', '--jq', '.[]', '-f', 'per_page=100',
                 `repos/${process.env.GITHUB_REPOSITORY}/commits/${process.env.OLD_CANDIDATE_SHA}/statuses`,
               ],
-              { encoding: 'utf8' },
+              { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
             )
               .split('\n')
               .map((line) => line.trim())
@@ -497,9 +499,11 @@ jobs:
 
           This workflow stops here. It has not dispatched \`devgov-v0-gate.yml\` and will not. The
           existing, separate, environment-gated evidence-gate step remains the next explicit,
-          human-initiated action.
+          human-initiated action. Dispatch it promptly: the gate requires each attestation's
+          \`controller_sha\` to equal the gate run's own \`github.sha\`, so if \`main\` moves first these
+          attestations are no longer accepted (and this PR is BEHIND again anyway).
 
           Run: $RUN_URL
           EOF
           )"
-          gh pr comment "$PR_NUMBER" --body "$body"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"

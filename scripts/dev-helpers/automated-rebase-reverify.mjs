@@ -67,6 +67,7 @@ export const STOP = Object.freeze({
   MERGE_FAILED: 'STOP_MERGE_FAILED',
   EMPTY_PROOF_MANIFEST: 'STOP_EMPTY_PROOF_MANIFEST',
   CANDIDATE_FAILURE: 'STOP_CANDIDATE_FAILURE',
+  DRY_RUN_INCONCLUSIVE: 'STOP_DRY_RUN_INCONCLUSIVE',
 });
 
 export const DEVGOV_STATUS_CONTEXT = 'DEV-GOV-V0 / trusted-execution';
@@ -225,12 +226,12 @@ export function classifyMergeFailure(output) {
   if (/^CONFLICT \(/m.test(text) || /Automatic merge failed/.test(text)) {
     return {
       stop: STOP.MERGE_CONFLICT,
-      reason: 'git merge --no-ff --no-edit produced conflicts; merge aborted, nothing pushed',
+      reason: 'git merge --no-ff --no-edit produced conflicts; nothing pushed',
     };
   }
   return {
     stop: STOP.MERGE_FAILED,
-    reason: `git merge --no-ff --no-edit failed for a reason other than a content conflict; merge aborted, nothing pushed -- output: ${text.slice(0, 500)}`,
+    reason: `git merge --no-ff --no-edit failed for a reason other than a content conflict; nothing pushed -- output: ${text.slice(0, 500)}`,
   };
 }
 
@@ -242,15 +243,31 @@ function statusNewer(a, b) {
 }
 
 /**
- * The commit-status LIST endpoint returns every historical status for a context (live example:
- * success, pending, failure, pending), so "any success exists" would accept a commit whose newest
- * DEV-GOV status is a failure. Approval means the NEWEST status for the context is success.
+ * State of the NEWEST DEV-GOV-V0 / trusted-execution status in a commit-status list, or null if the
+ * commit has none. The list endpoint returns every historical status (live example: success,
+ * pending, failure, pending), so what matters is the newest one, never the mere existence of a
+ * success. Statuses for other contexts (e.g. a sibling DEV-GOV-V0 / invariant-packs) are ignored.
  */
-export function hasCurrentGreenDevGovStatus(statuses) {
+export function newestDevGovState(statuses) {
   const mine = (Array.isArray(statuses) ? statuses : []).filter((s) => s && s.context === DEVGOV_STATUS_CONTEXT);
-  if (mine.length === 0) return false;
-  const newest = mine.reduce((best, s) => (statusNewer(s, best) ? s : best));
-  return newest.state === 'success';
+  if (mine.length === 0) return null;
+  return mine.reduce((best, s) => (statusNewer(s, best) ? s : best)).state;
+}
+
+export function hasCurrentGreenDevGovStatus(statuses) {
+  return newestDevGovState(statuses) === 'success';
+}
+
+/**
+ * owner/repo from a git remote URL. The repo name may itself contain dots (this project's is
+ * "Milj-beslut-V1.2"); only a trailing ".git" is stripped. Returns null for anything unrecognised
+ * (e.g. a local path), in which case the caller must require --repo.
+ */
+export function parseRepoSlug(url) {
+  const m = String(url)
+    .trim()
+    .match(/^(?:https?:\/\/[^/\s]+\/|ssh:\/\/[^/\s]+\/|[^@\s/]+@[^:\s/]+:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/);
+  return m ? `${m[1]}/${m[2]}` : null;
 }
 
 /**
@@ -285,6 +302,7 @@ export function evaluateDryRun(definition, redResults, greenResults) {
   const empty = assertNonEmptyManifest(definition);
   if (!empty.ok) return empty;
   const mismatches = [];
+  const inconclusive = [];
   const check = (specs, results, expectedFor, kind) => {
     const byId = new Map((results || []).map((r) => [r.id, r]));
     for (const spec of specs) {
@@ -295,7 +313,12 @@ export function evaluateDryRun(definition, redResults, greenResults) {
       }
       const expected = expectedFor(spec);
       const actual = r.evidence?.classification;
-      if (actual !== expected) mismatches.push(`${kind} ${spec.id}: expected ${expected}, observed ${actual}`);
+      if (actual === expected) continue;
+      const line = `${kind} ${spec.id}: expected ${expected}, observed ${actual}`;
+      // BLOCKED_ENVIRONMENT / DENIED_GOVERNANCE mean the check could not run (missing tool, wrong
+      // --base-worktree HEAD, ...): an environment/invocation problem, not a verdict on the candidate.
+      if (actual === 'BLOCKED_ENVIRONMENT' || actual === 'DENIED_GOVERNANCE') inconclusive.push(line);
+      else mismatches.push(line);
     }
   };
   check(definition.required_red, redResults, (s) => s.expected_classification || 'FAIL', 'RED');
@@ -304,8 +327,16 @@ export function evaluateDryRun(definition, redResults, greenResults) {
     return {
       ok: false,
       stop: STOP.CANDIDATE_FAILURE,
-      reason: `local RED/GREEN dry-run deviated after the rebase -- real candidate failure, not friction: ${mismatches.join('; ')}`,
-      mismatches,
+      reason: `local RED/GREEN dry-run deviated after the rebase -- a real candidate failure, not friction: ${[...mismatches, ...inconclusive].join('; ')}`,
+      mismatches: [...mismatches, ...inconclusive],
+    };
+  }
+  if (inconclusive.length > 0) {
+    return {
+      ok: false,
+      stop: STOP.DRY_RUN_INCONCLUSIVE,
+      reason: `local RED/GREEN dry-run could not run (blocked/denied) -- an environment or invocation problem, not a verdict on the candidate: ${inconclusive.join('; ')}`,
+      mismatches: inconclusive,
     };
   }
   return { ok: true };
@@ -326,10 +357,11 @@ export function evaluateDryRun(definition, redResults, greenResults) {
  *
  * It verifies: safe plain-file unit path; regular-file mode at all three refs (a symlink would
  * let plan:/sign: read different content than was verified); old approval is ancestor-or-self of
- * the pre-merge tip AND its newest DEV-GOV status is success; Phase 1; payload old_base_sha equals
- * the pre-merge file's own base_sha; Phase 2 (incl. byte-level); the candidate is exactly
- * [merge commit of (pre-merge tip, new base)] + [one commit touching only the unit file]; the new
- * base is a strict descendant of the old base and lies in the controller's main history.
+ * the pre-merge tip, has the SAME TREE as it, AND its newest DEV-GOV status is success; Phase 1;
+ * payload old_base_sha equals the pre-merge file's own base_sha; Phase 2 (incl. byte-level); the
+ * candidate is exactly [merge commit of (pre-merge tip, new base) whose tree is the clean merge] +
+ * [one commit touching only the unit file]; the new base is a strict descendant of the old base and
+ * lies in the controller's main history (checked with controller.ok, a separate repo in CI).
  */
 export function reverifyLineage({ payload, candidate, controller, statuses }) {
   const fail = (reason) => ({ ok: false, stop: STOP.NEW_REVIEW_REQUIRED, reason });
@@ -356,6 +388,13 @@ export function reverifyLineage({ payload, candidate, controller, statuses }) {
 
     if (!candidate.ok(['merge-base', '--is-ancestor', oldCandidateSha, preMergeTipSha])) {
       return fail('old_candidate_sha is not an ancestor of the pre-merge tip');
+    }
+    // The approval must cover the tip's ENTIRE content, not just the unit file: design §1 is "a prior
+    // successful run recorded for its current tip". Comparing only the unit definition let code
+    // committed after the approval ride along under "proof-preserving".
+    const treeOf = (ref) => String(candidate.out(['rev-parse', `${ref}^{tree}`])).trim();
+    if (!SHA_RE.test(treeOf(oldCandidateSha)) || treeOf(oldCandidateSha) !== treeOf(preMergeTipSha)) {
+      return fail('the approved commit\'s tree differs from the pre-merge tip\'s tree -- content changed after approval');
     }
     if (!hasCurrentGreenDevGovStatus(statuses)) {
       return fail(`old_candidate_sha has no current green "${DEVGOV_STATUS_CONTEXT}" status -- it was never approved`);
@@ -384,6 +423,14 @@ export function reverifyLineage({ payload, candidate, controller, statuses }) {
     const mergeParents = parentsOf(mergeCommit);
     if (mergeParents.length !== 2 || mergeParents[0] !== preMergeTipSha || mergeParents[1] !== newBase) {
       return fail('the commit under the bump must be a merge of exactly [pre-merge tip, new base_sha]');
+    }
+    // The merge commit's TREE must be exactly the clean merge of its two parents. Without this an
+    // "evil merge" (an extra workflow file, a tampered main file, all of main discarded) passes every
+    // other check while the comment still says "mechanical stale-base refresh only". merge-tree exits
+    // non-zero on conflicts, which candidate.out turns into a rejection via the catch below.
+    const cleanMergeTree = String(candidate.out(['merge-tree', '--write-tree', preMergeTipSha, newBase])).split('\n')[0].trim();
+    if (!SHA_RE.test(cleanMergeTree) || cleanMergeTree !== treeOf(mergeCommit)) {
+      return fail('the merge commit\'s tree is not the clean merge of [pre-merge tip, new base_sha] (evil merge)');
     }
     const changed = String(candidate.out(['diff', '--name-only', mergeCommit, candidateSha])).trim().split('\n').filter(Boolean);
     if (changed.length !== 1 || changed[0] !== unitPath) {
@@ -453,9 +500,9 @@ function git(worktree, args) {
 function resolveRepoSlug(worktree, explicitRepo) {
   if (explicitRepo) return explicitRepo;
   const url = git(worktree, ['remote', 'get-url', 'origin']);
-  const match = url.match(/[:/]([^/:]+\/[^/.]+?)(?:\.git)?$/);
-  if (!match) throw new Error(`could not derive owner/repo from origin remote URL: ${url}`);
-  return match[1];
+  const slug = parseRepoSlug(url);
+  if (!slug) throw new Error(`could not derive owner/repo from origin remote URL: ${url} (pass --repo)`);
+  return slug;
 }
 
 function ghApiJson(args) {
@@ -506,26 +553,38 @@ function detectStaleness(repo, prNumber) {
 }
 
 /**
- * Step 2 (continued): walk the branch's own history from its tip backwards (never onto main, never
- * past the merge-base with the OLD base) and return the first commit whose NEWEST DEV-GOV status is
- * success. The tip is checked first, so a green tip is found even on a branch with a long history;
- * only the walk BEYOND the tip is capped at MAX_COMMITS_TO_WALK. Each status lookup retries with
- * backoff.
+ * Step 2 (continued): the approval must be for the tip's CONTENT (design §1: "a prior successful run
+ * recorded for its current tip"). Walk the branch's own history from the tip backwards (never onto
+ * main, never past the merge-base with the OLD base) but consider ONLY commits whose tree equals the
+ * tip's tree (the tip itself, or an earlier commit with identical content). The first such commit
+ * that has any DEV-GOV-V0 / trusted-execution status decides: approved iff its NEWEST status is
+ * success -- so a newer failure on identical content is not overridden by an older success, and an
+ * older green commit with DIFFERENT content can never approve the tip. The tip is checked first, so
+ * a green tip is found on a branch of any length; only the walk beyond it is capped at
+ * MAX_COMMITS_TO_WALK status lookups. Each lookup retries with backoff.
  */
 function locatePriorApprovedSha(worktree, repo, headSha, oldBaseSha) {
-  const green = (sha) => hasCurrentGreenDevGovStatus(withRetry(() => listCommitStatuses(repo, sha)));
-  if (green(headSha)) return headSha;
+  const newestState = (sha) => newestDevGovState(withRetry(() => listCommitStatuses(repo, sha)));
+  const tipState = newestState(headSha);
+  if (tipState !== null) return tipState === 'success' ? headSha : null;
+  const tipTree = git(worktree, ['rev-parse', `${headSha}^{tree}`]);
   const mergeBase = git(worktree, ['merge-base', headSha, oldBaseSha]);
-  const older = git(worktree, ['rev-list', `${mergeBase}..${headSha}`]).split('\n').filter((s) => s && s !== headSha);
-  if (older.length > MAX_COMMITS_TO_WALK) {
+  const sameContent = git(worktree, ['log', '--format=%H %T', `${mergeBase}..${headSha}`])
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => line.split(' '))
+    .filter(([sha, tree]) => sha !== headSha && tree === tipTree)
+    .map(([sha]) => sha);
+  if (sameContent.length > MAX_COMMITS_TO_WALK) {
     const error = new Error(
-      `${older.length} commits between the old base_sha and the branch tip (tip itself is not approved), over the ${MAX_COMMITS_TO_WALK}-commit walk cap -- refusing to make that many sequential gh api calls`,
+      `${sameContent.length} earlier commits with the tip's exact content and no status on the tip, over the ${MAX_COMMITS_TO_WALK}-lookup walk cap -- refusing to make that many sequential gh api calls`,
     );
     error.code = 'TOO_MANY_COMMITS_TO_WALK';
     throw error;
   }
-  for (const sha of older) {
-    if (green(sha)) return sha;
+  for (const sha of sameContent) {
+    const state = newestState(sha);
+    if (state !== null) return state === 'success' ? sha : null;
   }
   return null;
 }
@@ -584,17 +643,24 @@ function runManifestEntries(definitionPath, candidateSha, definitionWorktree, ex
 // the exact order §1/§4 require.
 // ---------------------------------------------------------------------------------------------
 
-function parseArgs(argv) {
+const VALUE_FLAGS = { '--pr': 'pr', '--definition': 'definition', '--worktree': 'worktree', '--repo': 'repo', '--base-worktree': 'baseWorktree' };
+
+/**
+ * Strict: an unknown flag, or a value flag without a value, is an error -- a typo such as `--pussh`
+ * must not silently turn a run into a different run (it used to be ignored).
+ */
+export function parseArgs(argv) {
   const out = { push: false, dispatch: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === '--pr') out.pr = argv[++i];
-    else if (arg === '--definition') out.definition = argv[++i];
-    else if (arg === '--worktree') out.worktree = argv[++i];
-    else if (arg === '--repo') out.repo = argv[++i];
-    else if (arg === '--base-worktree') out.baseWorktree = argv[++i];
-    else if (arg === '--push') out.push = true;
+    if (Object.hasOwn(VALUE_FLAGS, arg)) {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error(`${arg} requires a value`);
+      out[VALUE_FLAGS[arg]] = value;
+      i += 1;
+    } else if (arg === '--push') out.push = true;
     else if (arg === '--dispatch') out.dispatch = true;
+    else throw new Error(`unknown argument ${JSON.stringify(arg)}`);
   }
   if (!out.pr || !out.definition || !out.worktree) {
     throw new Error(
@@ -609,6 +675,10 @@ function parseArgs(argv) {
   }
   return out;
 }
+
+// Set just before the first mutation of the worktree; printed by the top-level error handler so a
+// thrown error (a rejected push, a controller emitting non-JSON, ...) also says how to undo it.
+let restoreHint = null;
 
 function stopResult(stop, reason, extra = {}) {
   return { result: 'STOP', stop, reason, ...extra };
@@ -654,6 +724,11 @@ async function main() {
   const manifestCheck = assertNonEmptyManifest(currentDefinition);
   if (!manifestCheck.ok) emitStop(stopResult(manifestCheck.stop, manifestCheck.reason, { pr: opts.pr }));
 
+  // Likewise discover an unsupported base_sha layout (e.g. 4-space PowerShell-style JSON, which 2 of
+  // 59 real units use) BEFORE the merge instead of after it. The probe value is never written.
+  const layoutCheck = bumpBaseShaInText(currentTipBytes.toString('utf8'), 'a'.repeat(40));
+  if (!layoutCheck.ok) emitStop(stopResult(layoutCheck.stop, layoutCheck.reason, { pr: opts.pr }));
+
   // Step 2 (continued): locate the prior-approved candidate SHA.
   let priorApprovedSha;
   try {
@@ -682,17 +757,29 @@ async function main() {
   // Step 4: merge current base into the branch. git merge, never rebase, never squash -- matches
   // the PR #203/#204 manual precedent (commit ef1109e5). --no-ff pins the commit shape the CI
   // lineage check requires, even in the fast-forward case. git writes its CONFLICT lines to STDOUT.
-  git(worktree, ['fetch', 'origin', view.baseRefName]);
+  // The refspec is explicit so this does not depend on a default fetch refspec (a --single-branch
+  // clone has none for the base branch).
+  const restoreCommand = `git -C "${worktree}" reset --hard ${view.headRefOid}`;
+  git(worktree, ['fetch', 'origin', `+refs/heads/${view.baseRefName}:refs/remotes/origin/${view.baseRefName}`]);
   const newBaseSha = git(worktree, ['rev-parse', `origin/${view.baseRefName}`]);
+  restoreHint = restoreCommand; // anything that throws from here on may have left the worktree mutated
   const mergeResult = runAllowFail('git', ['-C', worktree, 'merge', '--no-ff', '--no-edit', `origin/${view.baseRefName}`]);
   if (mergeResult.status !== 0) {
-    const abort = runAllowFail('git', ['-C', worktree, 'merge', '--abort']);
+    // Only abort if a merge is actually in progress (a merge killed by the timeout, or one refused
+    // up front, has no MERGE_HEAD), then report the REAL state of the worktree instead of assuming.
+    const inMerge = runAllowFail('git', ['-C', worktree, 'rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0;
+    if (inMerge) runAllowFail('git', ['-C', worktree, 'merge', '--abort']);
+    const pristine =
+      runAllowFail('git', ['-C', worktree, 'rev-parse', 'HEAD']).stdout.trim() === view.headRefOid &&
+      runAllowFail('git', ['-C', worktree, 'status', '--porcelain']).stdout.trim() === '';
+    if (pristine) restoreHint = null;
     const classification = classifyMergeFailure(`${mergeResult.stdout}\n${mergeResult.stderr}`);
     emitStop(
       stopResult(classification.stop, classification.reason, {
         pr: opts.pr,
         newBaseSha,
-        ...(abort.status === 0 ? {} : { mergeAbortFailed: true, restoreCommand: `git -C "${worktree}" merge --abort` }),
+        mergeWasInProgress: inMerge,
+        ...(pristine ? { worktreeMutated: false } : { worktreeMutated: true, restoreCommand }),
       }),
     );
   }
@@ -829,7 +916,8 @@ async function main() {
 
 if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
-    console.error(JSON.stringify({ result: 'ERROR', message: error.message }, null, 2));
+    const mutation = restoreHint ? { worktreeMayBeMutated: true, restoreCommand: restoreHint } : {};
+    console.error(JSON.stringify({ result: 'ERROR', message: error.message, ...mutation }, null, 2));
     process.exit(2);
   });
 }
