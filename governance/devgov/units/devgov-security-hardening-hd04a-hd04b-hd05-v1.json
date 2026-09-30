@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "claude/security-hardening-hd04-05-v1",
-  "base_sha": "dc78d44cd47c9a9cc46ffc805a53751861221765",
+  "base_sha": "44e3e3df68a3ed3f22515eed55f3068fdc742baa",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "server/routes/classification-review.routes.ts",
