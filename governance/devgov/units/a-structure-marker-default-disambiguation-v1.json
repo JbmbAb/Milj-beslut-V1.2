@@ -1,0 +1,69 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "A-STRUCTURE-MARKER-DEFAULT-DISAMBIGUATION-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "chatgpt/a-structure-marker-proof",
+  "base_sha": "30709500be3bf497fef3a013884f5ea10465cb26",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-chunking/src/text/APlusStructureAnnotator.ts",
+    "packages/mps-chunking/tests/aPlusStructureDefaultHeading.test.ts",
+    "governance/devgov/units/a-structure-marker-default-disambiguation-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "server/**",
+    "services/**"
+  ],
+  "required_red": [
+    {
+      "id": "synthetic-control-program-heading-is-not-real-marker",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const s=fs.readFileSync('packages/mps-chunking/src/text/APlusStructureAnnotator.ts','utf8');const fixed=s.includes(\"documentType === 'decision' ? 'BAKGRUND' : 'GENERAL'\");process.exit(fixed?0:1)"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "synthetic-control-program-heading-is-not-real-marker",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const s=fs.readFileSync('packages/mps-chunking/src/text/APlusStructureAnnotator.ts','utf8');const fixed=s.includes(\"documentType === 'decision' ? 'BAKGRUND' : 'GENERAL'\");process.exit(fixed?0:1)"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha"
+    },
+    {
+      "id": "a-structure-heading-regression-suite",
+      "command": "npx",
+      "args": [
+        "vitest",
+        "run",
+        "packages/mps-chunking/tests/aPlusStructureAnnotator.test.ts",
+        "packages/mps-chunking/tests/aPlusStructureDefaultHeading.test.ts"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "timeout_ms": 120000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "chatgpt/a-structure-marker-proof",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
