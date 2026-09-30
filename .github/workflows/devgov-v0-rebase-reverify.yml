@@ -79,7 +79,7 @@ jobs:
           done
           [[ "$PR_NUMBER" =~ $pr_re ]] || { echo "client_payload.pr_number is not a positive integer" >&2; exit 1; }
           [[ "$UNIT_DEFINITION_PATH" =~ $path_re ]] || { echo "client_payload.unit_definition_path has unexpected characters" >&2; exit 1; }
-          [[ "$UNIT_DEFINITION_PATH" != /* && "$UNIT_DEFINITION_PATH" != *..* ]] || { echo "client_payload.unit_definition_path is not a plain relative path" >&2; exit 1; }
+          [[ "$UNIT_DEFINITION_PATH" != /* && "$UNIT_DEFINITION_PATH" != ./* && "$UNIT_DEFINITION_PATH" != */ && "$UNIT_DEFINITION_PATH" != *//* && "$UNIT_DEFINITION_PATH" != *..* ]] || { echo "client_payload.unit_definition_path is not a plain relative path" >&2; exit 1; }
 
       - name: Checkout exact candidate without executing candidate code
         uses: actions/checkout@v4
@@ -208,9 +208,11 @@ jobs:
   # whole content, not just the unit file) AND its newest DEV-GOV-V0 / trusted-execution status is
   # success; Phase 1; payload old_base_sha equals the pre-merge file's base_sha; Phase 2 (incl.
   # byte-level); the candidate is exactly [merge of (pre-merge tip, new base) whose tree is the clean
-  # merge of its parents] + [one commit changing only the unit file]; the new base is a strict
-  # descendant of the old base and lies in main's history. red/green/sign all depend on this job
-  # passing.
+  # merge of its parents] + [one commit that is exactly one in-place modification of the unit file,
+  # judged on raw tree-level output with rename detection and submodule-ignoring off]; the unit's
+  # ancestry_policy is satisfiable by a merge+bump candidate (the gate denies exact_parent); the new
+  # base is a strict descendant of the old base and lies in main's history. red/green/sign all depend
+  # on this job passing.
   reverify-phases:
     name: Independently re-verify Phase 1 / Phase 2 / lineage
     needs: [plan]

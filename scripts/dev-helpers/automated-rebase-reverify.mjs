@@ -52,7 +52,7 @@
 //                                        devgov-v0-rebase-reverify.yml via repository_dispatch)
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,6 +60,7 @@ import { fileURLToPath } from 'node:url';
 export const STOP = Object.freeze({
   NOT_STALE: 'STOP_NOT_STALE',
   NOT_MERGEABLE: 'STOP_NOT_MERGEABLE',
+  NOT_SAME_REPO: 'STOP_NOT_SAME_REPO',
   NO_PRIOR_PROOF: 'STOP_NO_PRIOR_PROOF',
   TOO_MANY_COMMITS_TO_WALK: 'STOP_TOO_MANY_COMMITS_TO_WALK',
   NEW_REVIEW_REQUIRED: 'STOP_NEW_REVIEW_REQUIRED',
@@ -77,6 +78,9 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_PROOF_TIMEOUT_MS = 120_000; // devgov.mjs's own default when an entry declares no timeout_ms
 const PROOF_TIMEOUT_SLACK_MS = 30_000;
 const SHA_RE = /^[0-9a-f]{40}$/;
+// spawnSync's default maxBuffer is 1 MiB: ~640 commit statuses (about 1.6 KB each) or a large unit
+// file would overflow it and fail closed. Raise it well above any realistic output.
+const MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------------------------
 // Pure decision logic (§1.3). No I/O. Operates on already-read bytes/JSON so it is directly
@@ -172,9 +176,11 @@ export function phase2VerifyOwnEdit(phase1SnapshotBytes, postEditBytes, expected
       reason: `base_sha was changed to ${JSON.stringify(after.base_sha)}, expected ${JSON.stringify(expectedNewBaseSha)}`,
     };
   }
-  const expectedBump = bumpBaseShaInText(Buffer.from(phase1SnapshotBytes).toString('utf8'), expectedNewBaseSha);
+  // 'latin1' is a lossless byte<->string mapping, so bytes that are not valid UTF-8 (a Windows-1252
+  // unit file) survive the substitution unchanged; decoding as UTF-8 would rewrite them to U+FFFD.
+  const expectedBump = bumpBaseShaInText(Buffer.from(phase1SnapshotBytes).toString('latin1'), expectedNewBaseSha);
   if (!expectedBump.ok) return expectedBump;
-  if (Buffer.compare(Buffer.from(expectedBump.text, 'utf8'), Buffer.from(postEditBytes)) !== 0) {
+  if (Buffer.compare(Buffer.from(expectedBump.text, 'latin1'), Buffer.from(postEditBytes)) !== 0) {
     return {
       ok: false,
       stop: STOP.NEW_REVIEW_REQUIRED,
@@ -193,9 +199,43 @@ export function classifyStaleness({ mergeStateStatus, mergeable }) {
     return { inScope: false, stop: STOP.NOT_STALE, reason: `mergeStateStatus is ${mergeStateStatus}, not BEHIND` };
   }
   if (mergeable !== 'MERGEABLE') {
-    return { inScope: false, stop: STOP.NOT_MERGEABLE, reason: `mergeable is ${mergeable}, not MERGEABLE` };
+    const hint = mergeable === 'UNKNOWN' ? ' (GitHub may still be computing mergeability -- re-run in a moment)' : '';
+    return { inScope: false, stop: STOP.NOT_MERGEABLE, reason: `mergeable is ${mergeable}, not MERGEABLE${hint}` };
   }
   return { inScope: true };
+}
+
+/**
+ * A plain repo-relative path: only [A-Za-z0-9._/-], no leading slash, no empty/"."/".." segment, no
+ * trailing slash. Used for the unit path in the CLI, in the lineage check and (as a shell regex) in
+ * the workflow's plan job.
+ */
+export function isPlainRelativePath(path) {
+  const p = String(path);
+  // A leading '-' is rejected too: a path that looks like an option must never reach a git argv.
+  if (!/^[A-Za-z0-9._/-]+$/.test(p) || p.startsWith('/') || p.startsWith('-')) return false;
+  return !p.split('/').some((s) => s === '' || s === '.' || s === '..');
+}
+
+/** `git ls-tree <ref> -- <path>` output for a regular, non-executable file (mode 100644 blob). */
+export function isRegularFileLsTreeLine(line) {
+  return /^100644 blob [0-9a-f]{40}\t/.test(String(line).trim());
+}
+
+/**
+ * The unit's ancestry_policy must be satisfiable by a merge+bump candidate. The gate denies
+ * `exact_parent` for it (the candidate's parent is the merge commit, not the base), so signing would
+ * spend the owner's devgov-attestation approval on a candidate that can never pass the gate. 6 of 56
+ * real units use `exact_parent`. `descendant_of_base` and `merge_base_equals_base` both hold.
+ */
+export function assertMergeCompatibleAncestryPolicy(definition) {
+  const policy = definition && definition.ancestry_policy;
+  if (policy === 'descendant_of_base' || policy === 'merge_base_equals_base') return { ok: true };
+  return {
+    ok: false,
+    stop: STOP.NEW_REVIEW_REQUIRED,
+    reason: `ancestry_policy ${JSON.stringify(policy)} cannot be satisfied by a merge+bump candidate (the gate denies exact_parent) -- signing would be wasted; this unit needs a normal new review`,
+  };
 }
 
 /**
@@ -290,7 +330,8 @@ export function parseControllerRun(result, id) {
   if (!parsed || typeof parsed !== 'object' || !parsed.evidence || typeof parsed.evidence.classification !== 'string') {
     throw new Error(`controller output for ${id} has no evidence.classification (exit ${result.status})`);
   }
-  return { id, exitCode: result.status, ...parsed };
+  // Our id and the real exit code win over anything the envelope itself claims.
+  return { ...parsed, id, exitCode: result.status };
 }
 
 /**
@@ -370,18 +411,11 @@ export function reverifyLineage({ payload, candidate, controller, statuses }) {
     for (const [name, value] of Object.entries({ candidateSha, oldCandidateSha, preMergeTipSha, oldBaseSha })) {
       if (!SHA_RE.test(String(value))) return fail(`${name} is not a 40-hex SHA`);
     }
-    const segments = String(unitPath).split('/');
-    if (
-      !/^[A-Za-z0-9._/-]+$/.test(String(unitPath)) ||
-      String(unitPath).startsWith('/') ||
-      segments.some((s) => s === '' || s === '.' || s === '..')
-    ) {
-      return fail('unit definition path is not a plain repo-relative path');
-    }
+    if (!isPlainRelativePath(unitPath)) return fail('unit definition path is not a plain repo-relative path');
 
     for (const ref of [preMergeTipSha, oldCandidateSha, candidateSha]) {
       const line = String(candidate.out(['ls-tree', ref, '--', unitPath])).trim();
-      if (!/^100644 blob [0-9a-f]{40}\t/.test(line)) {
+      if (!isRegularFileLsTreeLine(line)) {
         return fail(`unit definition at ${ref} is not a regular file (ls-tree: ${JSON.stringify(line)})`);
       }
     }
@@ -410,8 +444,11 @@ export function reverifyLineage({ payload, candidate, controller, statuses }) {
 
     const preBase = JSON.parse(currentTipBytes.toString('utf8')).base_sha;
     if (preBase !== oldBaseSha) return fail('payload old_base_sha does not equal the pre-merge unit definition\'s own base_sha');
-    const newBase = JSON.parse(postEditBytes.toString('utf8')).base_sha;
+    const postDefinition = JSON.parse(postEditBytes.toString('utf8'));
+    const newBase = postDefinition.base_sha;
     if (!SHA_RE.test(String(newBase))) return fail('new base_sha is not a 40-hex SHA');
+    const policy = assertMergeCompatibleAncestryPolicy(postDefinition);
+    if (!policy.ok) return policy;
 
     const phase2 = phase2VerifyOwnEdit(currentTipBytes, postEditBytes, newBase);
     if (!phase2.ok) return phase2;
@@ -427,14 +464,23 @@ export function reverifyLineage({ payload, candidate, controller, statuses }) {
     // The merge commit's TREE must be exactly the clean merge of its two parents. Without this an
     // "evil merge" (an extra workflow file, a tampered main file, all of main discarded) passes every
     // other check while the comment still says "mechanical stale-base refresh only". merge-tree exits
-    // non-zero on conflicts, which candidate.out turns into a rejection via the catch below.
-    const cleanMergeTree = String(candidate.out(['merge-tree', '--write-tree', preMergeTipSha, newBase])).split('\n')[0].trim();
+    // non-zero on conflicts; that exit status is checked EXPLICITLY (ok) rather than relying on the
+    // caller's out() to throw, because a conflicted run still prints a tree OID on its first line.
+    const mergeTreeArgs = ['merge-tree', '--write-tree', preMergeTipSha, newBase];
+    if (!candidate.ok(mergeTreeArgs)) return fail('git merge-tree reports a conflict (or failed) for [pre-merge tip, new base_sha]');
+    const cleanMergeTree = String(candidate.out(mergeTreeArgs)).split('\n')[0].trim();
     if (!SHA_RE.test(cleanMergeTree) || cleanMergeTree !== treeOf(mergeCommit)) {
       return fail('the merge commit\'s tree is not the clean merge of [pre-merge tip, new base_sha] (evil merge)');
     }
-    const changed = String(candidate.out(['diff', '--name-only', mergeCommit, candidateSha])).trim().split('\n').filter(Boolean);
-    if (changed.length !== 1 || changed[0] !== unitPath) {
-      return fail(`the bump commit must change only ${unitPath}, changed: ${JSON.stringify(changed)}`);
+    // The bump must change exactly one path: the unit file, modified in place. Raw tree-level output,
+    // with rename detection and submodule ignoring explicitly OFF: `git diff --name-only` (rename
+    // detection on) let a rename hide a deletion, and a .gitmodules `ignore = all` hid a gitlink repoint.
+    const raw = String(candidate.out(['diff-tree', '-r', '--no-renames', '--ignore-submodules=none', '--raw', '--no-abbrev', mergeCommit, candidateSha]))
+      .split('\n')
+      .filter(Boolean);
+    const unitChange = new RegExp(`^:100644 100644 [0-9a-f]{40} [0-9a-f]{40} M\\t${unitPath.replace(/[.]/g, '\\.')}$`);
+    if (raw.length !== 1 || !unitChange.test(raw[0])) {
+      return fail(`the bump commit must be exactly one in-place modification of ${unitPath}, raw diff: ${JSON.stringify(raw)}`);
     }
 
     if (newBase === oldBaseSha) return fail('new base_sha equals the old base_sha -- not a base bump');
@@ -474,8 +520,8 @@ function withRetry(fn, { attempts = 3, baseDelayMs = 500 } = {}) {
 }
 
 function run(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, ...opts });
-  if (result.error) throw result.error;
+  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, ...opts });
+  if (result.error) throw new Error(`${cmd} ${args.join(' ')}: ${result.error.message}`);
   if (result.signal && result.status === null) {
     throw new Error(`${cmd} ${args.join(' ')} was killed by signal ${result.signal} (likely timed out)`);
   }
@@ -488,7 +534,7 @@ function run(cmd, args, opts = {}) {
 // Never throws. A spawn error (e.g. ETIMEDOUT) is surfaced both as .error and appended to stderr so
 // a timed-out command is not silently indistinguishable from an ordinary failure.
 function runAllowFail(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, ...opts });
+  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, ...opts });
   const errorText = result.error ? `\n[spawn error: ${result.error.message}]` : '';
   return { status: result.status, stdout: result.stdout || '', stderr: `${result.stderr || ''}${errorText}`, error: result.error };
 }
@@ -548,6 +594,9 @@ function detectStaleness(repo, prNumber) {
     mergeable: view.mergeable === true ? 'MERGEABLE' : view.mergeable === false ? 'CONFLICTING' : 'UNKNOWN',
     headRefOid: view.head.sha,
     headRefName: view.head.ref,
+    // A fork PR's head lives in another repository; pushing the candidate to `origin` would then
+    // create a branch in the BASE repo. Compared by the caller.
+    headRepo: view.head.repo && view.head.repo.full_name ? String(view.head.repo.full_name) : '',
     baseRefName: view.base.ref,
   };
 }
@@ -670,6 +719,11 @@ export function parseArgs(argv) {
   if (!/^[1-9][0-9]*$/.test(out.pr)) {
     throw new Error(`--pr must be a positive integer, got ${JSON.stringify(out.pr)}`);
   }
+  if (!isPlainRelativePath(out.definition)) {
+    throw new Error(
+      `--definition must be a plain repo-relative path with forward slashes (no ./, .., absolute or backslash form), got ${JSON.stringify(out.definition)}`,
+    );
+  }
   if (out.dispatch && !out.push) {
     throw new Error('--dispatch requires --push (cannot dispatch CI against a candidate that was never pushed)');
   }
@@ -684,9 +738,19 @@ function stopResult(stop, reason, extra = {}) {
   return { result: 'STOP', stop, reason, ...extra };
 }
 
+// A STOP is raised as an exception and printed by the top-level handler, which then sets
+// process.exitCode instead of calling process.exit(): on a Linux pipe stdout is asynchronous, and an
+// immediate process.exit() after console.log() could truncate a large STOP (one carrying a unit file
+// can exceed 70 KB).
+class StopSignal extends Error {
+  constructor(result) {
+    super(result.stop);
+    this.result = result;
+  }
+}
+
 function emitStop(result) {
-  console.log(JSON.stringify(result, null, 2));
-  process.exit(1);
+  throw new StopSignal(result);
 }
 
 async function main() {
@@ -698,6 +762,15 @@ async function main() {
   const view = detectStaleness(repo, opts.pr);
   const scope = classifyStaleness(view);
   if (!scope.inScope) emitStop(stopResult(scope.stop, scope.reason, { pr: opts.pr }));
+  if (view.headRepo.toLowerCase() !== repo.toLowerCase()) {
+    emitStop(
+      stopResult(
+        STOP.NOT_SAME_REPO,
+        `the PR head lives in ${JSON.stringify(view.headRepo)} (a fork, or unknown), not in ${repo}; pushing the candidate to origin would create a branch in the base repository -- refusing`,
+        { pr: opts.pr },
+      ),
+    );
+  }
 
   if (git(worktree, ['rev-parse', 'HEAD']) !== view.headRefOid) {
     throw new Error(
@@ -707,11 +780,19 @@ async function main() {
   if (git(worktree, ['status', '--porcelain']) !== '') {
     throw new Error('--worktree has uncommitted changes -- refuse to run against a dirty checkout');
   }
-  // Everything after the merge leaves the worktree mutated; say so, and say how to undo it.
+  // A leftover merge in progress has a clean `status --porcelain` when it is a no-op state; the old code
+  // would have silently aborted it and reported the worktree as untouched. Refuse instead.
+  if (runAllowFail('git', ['-C', worktree, 'rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0) {
+    throw new Error('--worktree has a merge in progress (MERGE_HEAD exists) -- resolve or `git merge --abort` it first');
+  }
+  // Everything after the merge leaves the worktree mutated; say so, and say how to undo it. The
+  // argv form is given too: the string form breaks when pasted into a shell if the path holds $ ` or &.
+  const restoreArgv = ['git', '-C', worktree, 'reset', '--hard', view.headRefOid];
   const afterMerge = (stop, reason, extra = {}) =>
     stopResult(stop, reason, {
       worktreeMutated: true,
       restoreCommand: `git -C "${worktree}" reset --hard ${view.headRefOid}`,
+      restoreArgv,
       ...extra,
     });
 
@@ -726,8 +807,20 @@ async function main() {
 
   // Likewise discover an unsupported base_sha layout (e.g. 4-space PowerShell-style JSON, which 2 of
   // 59 real units use) BEFORE the merge instead of after it. The probe value is never written.
-  const layoutCheck = bumpBaseShaInText(currentTipBytes.toString('utf8'), 'a'.repeat(40));
+  const layoutCheck = bumpBaseShaInText(currentTipBytes.toString('latin1'), 'a'.repeat(40));
   if (!layoutCheck.ok) emitStop(stopResult(layoutCheck.stop, layoutCheck.reason, { pr: opts.pr }));
+
+  // The same property checks reverifyLineage will make later -- found BEFORE the merge instead of after
+  // it: the unit must be a regular 100644 file at the tip, and its ancestry_policy must be satisfiable
+  // by a merge+bump candidate (exact_parent never is, and would waste the signing approval).
+  const tipLine = run('git', ['-C', worktree, 'ls-tree', view.headRefOid, '--', opts.definition]).trim();
+  if (!isRegularFileLsTreeLine(tipLine)) {
+    emitStop(
+      stopResult(STOP.NEW_REVIEW_REQUIRED, `the unit definition at the PR head is not a regular file (ls-tree: ${JSON.stringify(tipLine)})`, { pr: opts.pr }),
+    );
+  }
+  const policyCheck = assertMergeCompatibleAncestryPolicy(currentDefinition);
+  if (!policyCheck.ok) emitStop(stopResult(policyCheck.stop, policyCheck.reason, { pr: opts.pr }));
 
   // Step 2 (continued): locate the prior-approved candidate SHA.
   let priorApprovedSha;
@@ -743,7 +836,7 @@ async function main() {
     emitStop(
       stopResult(
         STOP.NO_PRIOR_PROOF,
-        `no commit on this branch (back to the old base_sha) has a current green ${DEVGOV_STATUS_CONTEXT} status`,
+        `no commit with the PR head's exact content (back to the old base_sha) has a current green ${DEVGOV_STATUS_CONTEXT} status -- an older green commit with DIFFERENT content cannot approve it, and a newer failure is not overridden`,
         { pr: opts.pr },
       ),
     );
@@ -779,16 +872,17 @@ async function main() {
         pr: opts.pr,
         newBaseSha,
         mergeWasInProgress: inMerge,
-        ...(pristine ? { worktreeMutated: false } : { worktreeMutated: true, restoreCommand }),
+        ...(pristine ? { worktreeMutated: false } : { worktreeMutated: true, restoreCommand, restoreArgv }),
       }),
     );
   }
 
   // Step 5: bump base_sha (the one permitted edit), then Phase 2.
-  const postMergeText = readFileAtRef(worktree, 'HEAD', opts.definition).toString('utf8');
+  // latin1 <-> bytes is lossless: a unit file that is not valid UTF-8 keeps every other byte.
+  const postMergeText = readFileAtRef(worktree, 'HEAD', opts.definition).toString('latin1');
   const bump = bumpBaseShaInText(postMergeText, newBaseSha);
   if (!bump.ok) emitStop(afterMerge(bump.stop, bump.reason, { pr: opts.pr, newBaseSha }));
-  writeFileSync(join(worktree, opts.definition), bump.text);
+  writeFileSync(join(worktree, opts.definition), Buffer.from(bump.text, 'latin1'));
   const postEditBytes = readFileSync(join(worktree, opts.definition));
   const phase2 = phase2VerifyOwnEdit(currentTipBytes, postEditBytes, newBaseSha);
   if (!phase2.ok) emitStop(afterMerge(phase2.stop, phase2.reason, { pr: opts.pr, newBaseSha }));
@@ -879,6 +973,9 @@ async function main() {
   if (opts.push) {
     git(worktree, ['push', 'origin', `HEAD:${view.headRefName}`]);
     summary.pushed = true;
+    // The candidate is now on origin: a later failure (e.g. the dispatch) must not advise resetting the
+    // worktree as if nothing had been published.
+    restoreHint = null;
   }
 
   if (opts.dispatch) {
@@ -914,10 +1011,27 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
 }
 
-if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare REAL paths: started through a directory junction or symlink, process.argv[1] is the
+// unresolved path while import.meta.url is the resolved one, so the old comparison was false and the
+// script exited 0 having done nothing. On any resolution failure, run (the safe direction).
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return true;
+  }
+}
+
+if (isMainModule()) {
   main().catch((error) => {
+    if (error instanceof StopSignal) {
+      console.log(JSON.stringify(error.result, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     const mutation = restoreHint ? { worktreeMayBeMutated: true, restoreCommand: restoreHint } : {};
     console.error(JSON.stringify({ result: 'ERROR', message: error.message, ...mutation }, null, 2));
-    process.exit(2);
+    process.exitCode = 2;
   });
 }
