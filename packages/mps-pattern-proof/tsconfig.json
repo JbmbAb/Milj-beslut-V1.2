@@ -1,0 +1,13 @@
+{
+  // NOTE: resolution of @miljobeslut/* is by the root tsconfig `paths` + vitest aliases; the `file:`
+  // dependencies in package.json are declarative only (root package.json is untouched, same precedent as
+  // K2.2). The package-level `typecheck` is known to surface pre-existing UPSTREAM errors reachable
+  // through the @miljobeslut/mps-runtime barrel (ExecutionKernel.ts, mps-runtime index.ts, mps-artifact-store
+  // stubs.ts); acceptance for THIS package is zero errors under packages/mps-pattern-proof/.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+}
