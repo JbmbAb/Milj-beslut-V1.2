@@ -4,34 +4,35 @@
 // (design COLD_VERIFIED/ACCEPT for §1-4, 2026-09-30; this implementation is its own, separately
 // unverified candidate -- see feedback-design-verdict-does-not-inherit-to-implementation memory).
 //
-// Repaired 2026-09-30 per W1-VERIFY-DB's independent cold review (SOUND_WITH_CHANGES verdict) of
-// candidate b7ddef9f, on Jimmy's GO: pagination + bounded retry/backoff/timeout in
-// locatePriorApprovedSha, fail-closed on an empty RED/GREEN manifest, merge-conflict vs. other
-// git-failure classification, --pr shape validation, and a new pre_merge_tip_sha dispatch field so
-// the CI workflow can independently re-derive Phase 1/2 instead of trusting the payload narrative.
+// Two W1-VERIFY-DB rounds have reviewed this file (2026-09-30). The repairs from both are recorded
+// in docs/architecture/audits/AUTOMATED-REBASE-REVERIFY-01-V1.md section 7; the decision logic they
+// touched lives in the exported pure functions below so each fix has an executed proof.
 //
 // On-demand only (§1.1) -- invoked explicitly per PR, never on a schedule. For one specific PR
 // that is BEHIND its base but otherwise mergeable, with a prior successful DEV-GOV run recorded
 // somewhere on its branch history:
-//   1. detects staleness (gh pr view --json mergeStateStatus,mergeable)
-//   2. locates the prior-approved candidate SHA (most recent commit on the branch with a green
-//      "DEV-GOV-V0 / trusted-execution" commit status)
+//   1. detects staleness (GitHub REST pulls/N: mergeable_state + mergeable)
+//   2. locates the prior-approved candidate SHA (most recent commit on the branch whose NEWEST
+//      "DEV-GOV-V0 / trusted-execution" commit status is success)
 //   3. Phase 1: verifies the branch's current-tip unit definition is byte-identical to the
 //      prior-approved candidate's unit definition -- full identity, zero exceptions (§1.3)
-//   4. merges the current base into the branch (git merge --no-edit, matching the PR #203/#204
-//      manual precedent -- never rebase, never squash)
-//   5. bumps base_sha (the one permitted edit) and runs Phase 2: the resulting file must differ
-//      from the Phase-1 snapshot in exactly the base_sha field, nothing else (§1.3)
-//   6. locally dry-runs the unit's declared RED/GREEN commands via the real controller
-//      (scripts/devgov/devgov.mjs run-red/run-green) as a fast pre-check -- NOT the authoritative,
-//      signed proof; that only happens in CI (devgov-v0-rebase-reverify.yml's execute jobs)
+//   4. merges the current base into the branch (git merge --no-ff --no-edit: never rebase, never
+//      squash; --no-ff only pins the commit SHAPE the CI lineage check expects)
+//   5. bumps base_sha (the one permitted edit, as a one-line text substitution so no other byte of
+//      the file can change) and runs Phase 2: the resulting bytes must equal the Phase-1 snapshot
+//      with only that base_sha value substituted (§1.3)
+//   6. runs the same lineage check CI will run, then locally dry-runs the unit's declared RED/GREEN
+//      commands via the real controller (scripts/devgov/devgov.mjs run-red/run-green) as a fast
+//      pre-check -- NOT the authoritative, signed proof; that only happens in CI
+//      (devgov-v0-rebase-reverify.yml's execute jobs)
 //
 // It never signs anything, never dispatches devgov-v0-gate.yml, and never touches the
 // devgov-attestation environment itself. If every local check passes, it can optionally push the
 // merge+base_sha-bump commit and dispatch devgov-v0-rebase-reverify.yml (§4), which performs the
 // design's step 6 (RED/GREEN re-run + sign, in CI, environment-gated) and step 7 (stop, post
-// evidence comment). Any deviation at any step is STOP_NEW_REVIEW_REQUIRED or a candidate-failure
-// stop (§3) -- never a retry, never a force-merge, never a silent fallback.
+// evidence comment). Any deviation at any step is a STOP -- never a retry, never a force-merge,
+// never a silent fallback. A STOP that happens AFTER the merge leaves the worktree mutated; the
+// STOP result says so and prints the restore command (it is never run automatically).
 //
 // Lives under scripts/dev-helpers/, not scripts/devgov/ -- the latter is a controller-owned floor
 // path (F-10, CONTROLLER_OWNED_FLOOR_PATHS in scripts/devgov/devgov.mjs) that no Dev-Gov unit may
@@ -49,10 +50,6 @@
 //     [--push]                         (default: false -- dry-run only, nothing pushed)
 //     [--dispatch]                     (default: false -- requires --push; dispatches
 //                                        devgov-v0-rebase-reverify.yml via repository_dispatch)
-//
-// Pure, git/gh-free decision logic lives in the exported functions below so the proof-unit for
-// THIS implementation can exercise it directly with synthetic fixtures, without needing a live
-// GitHub PR (see governance/devgov/units/automated-rebase-reverify-01-v1.json).
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -72,9 +69,13 @@ export const STOP = Object.freeze({
   CANDIDATE_FAILURE: 'STOP_CANDIDATE_FAILURE',
 });
 
+export const DEVGOV_STATUS_CONTEXT = 'DEV-GOV-V0 / trusted-execution';
+
 const MAX_COMMITS_TO_WALK = 200;
 const DEFAULT_TIMEOUT_MS = 60_000;
-const DEVGOV_INVOCATION_TIMEOUT_MS = 150_000; // comfortably above devgov.mjs's own internal 120_000 default
+const DEFAULT_PROOF_TIMEOUT_MS = 120_000; // devgov.mjs's own default when an entry declares no timeout_ms
+const PROOF_TIMEOUT_SLACK_MS = 30_000;
+const SHA_RE = /^[0-9a-f]{40}$/;
 
 // ---------------------------------------------------------------------------------------------
 // Pure decision logic (§1.3). No I/O. Operates on already-read bytes/JSON so it is directly
@@ -111,13 +112,36 @@ function diffTopLevelKeys(beforeObj, afterObj) {
   return changed;
 }
 
+const TOP_LEVEL_BASE_SHA_LINE = /^(  "base_sha": ")([0-9a-f]{40})(")/gm;
+
+/**
+ * The automation's one permitted edit, done as a single-line text substitution rather than a
+ * parse-and-restringify, so no other byte of the file can change (11 of 59 real unit files do not
+ * round-trip byte-identically through JSON.stringify -- W1-VERIFY-DB delta finding). Fails closed
+ * unless exactly one top-level (2-space-indented) base_sha line exists.
+ */
+export function bumpBaseShaInText(text, newBaseSha) {
+  if (!SHA_RE.test(String(newBaseSha))) {
+    return { ok: false, stop: STOP.NEW_REVIEW_REQUIRED, reason: 'new base_sha is not a 40-hex SHA' };
+  }
+  const count = [...String(text).matchAll(TOP_LEVEL_BASE_SHA_LINE)].length;
+  if (count !== 1) {
+    return {
+      ok: false,
+      stop: STOP.NEW_REVIEW_REQUIRED,
+      reason: `expected exactly one top-level "base_sha" line (2-space indent), found ${count}`,
+    };
+  }
+  return { ok: true, text: String(text).replace(TOP_LEVEL_BASE_SHA_LINE, `$1${newBaseSha}$3`) };
+}
+
 /**
  * Phase 2 (post-merge, post-mutation): diff the resulting file (after the automation's own single
  * permitted base_sha edit) against the Phase-1 snapshot (the SAME bytes phase1VerifyOriginalIdentity
- * was given as currentTipBytes) -- never against the original approval a second time. The changed
- * key set must be exactly {"base_sha"}, nothing else. Catches both the merge unexpectedly touching
- * this file and a bug in the edit step itself. This is a self-check on the automation's own edit,
- * not a re-litigation of prior approval.
+ * was given as currentTipBytes) -- never against the original approval a second time. Three
+ * independent conditions must all hold: the parsed changed-key set is exactly {"base_sha"}; the new
+ * value is the expected one; and the post-edit BYTES equal the snapshot with only that one value
+ * substituted (so a pure reformat, or a merge that re-serialised the file, is also caught).
  */
 export function phase2VerifyOwnEdit(phase1SnapshotBytes, postEditBytes, expectedNewBaseSha) {
   let before;
@@ -147,13 +171,21 @@ export function phase2VerifyOwnEdit(phase1SnapshotBytes, postEditBytes, expected
       reason: `base_sha was changed to ${JSON.stringify(after.base_sha)}, expected ${JSON.stringify(expectedNewBaseSha)}`,
     };
   }
+  const expectedBump = bumpBaseShaInText(Buffer.from(phase1SnapshotBytes).toString('utf8'), expectedNewBaseSha);
+  if (!expectedBump.ok) return expectedBump;
+  if (Buffer.compare(Buffer.from(expectedBump.text, 'utf8'), Buffer.from(postEditBytes)) !== 0) {
+    return {
+      ok: false,
+      stop: STOP.NEW_REVIEW_REQUIRED,
+      reason: 'post-edit bytes differ from the Phase-1 snapshot by more than the single base_sha value (reformat or re-serialisation)',
+    };
+  }
   return { ok: true };
 }
 
 /**
- * §1 scope gate: only a PR that is BEHIND its base but still mergeable, per
- * `gh pr view --json mergeStateStatus,mergeable`, is in scope. Anything else is not this design's
- * problem to solve (e.g. CONFLICTING needs a real human rebase, not this automation).
+ * §1 scope gate: only a PR that is BEHIND its base but still mergeable is in scope. Anything else
+ * is not this design's problem to solve (e.g. CONFLICTING needs a real human rebase).
  */
 export function classifyStaleness({ mergeStateStatus, mergeable }) {
   if (mergeStateStatus !== 'BEHIND') {
@@ -166,10 +198,8 @@ export function classifyStaleness({ mergeStateStatus, mergeable }) {
 }
 
 /**
- * W1-VERIFY-DB finding (2026-09-30): the local RED/GREEN dry-run's pass check is vacuously true on
- * an empty manifest ([].every(...) === true), so a unit definition with no declared RED/GREEN
- * entries would silently report PASS with zero checks executed. Fail closed instead: this tool's
- * whole purpose is proof-preserving, so "no proof was run" must never look like "proof passed".
+ * The local dry-run's pass check must never be vacuously true on an empty manifest
+ * ([].every(...) === true): "no proof was run" must not look like "proof passed".
  */
 export function assertNonEmptyManifest(definition) {
   const redCount = (definition.required_red || []).length;
@@ -185,27 +215,198 @@ export function assertNonEmptyManifest(definition) {
 }
 
 /**
- * W1-VERIFY-DB finding (2026-09-30): any nonzero `git merge` exit was uniformly reported as
- * STOP_MERGE_CONFLICT, even for an unrelated failure (locked ref, I/O error, unusual repo state).
- * Distinguish a real conflict (git's own unambiguous markers) from anything else.
+ * Distinguish a real merge conflict (git's own unambiguous markers: a line starting "CONFLICT (" or
+ * the "Automatic merge failed" line -- both written to STDOUT, not stderr) from any other git
+ * failure. Anchored so a dirty-tree refusal that merely names a file containing the word "conflict"
+ * is not misfiled as a content conflict.
  */
-export function classifyMergeFailure(stderr) {
-  const text = String(stderr || '');
-  if (/CONFLICT|Automatic merge failed/i.test(text)) {
+export function classifyMergeFailure(output) {
+  const text = String(output || '');
+  if (/^CONFLICT \(/m.test(text) || /Automatic merge failed/.test(text)) {
     return {
       stop: STOP.MERGE_CONFLICT,
-      reason: 'git merge --no-edit produced conflicts; merge aborted, nothing pushed',
+      reason: 'git merge --no-ff --no-edit produced conflicts; merge aborted, nothing pushed',
     };
   }
   return {
     stop: STOP.MERGE_FAILED,
-    reason: `git merge --no-edit failed for a reason other than a content conflict; merge aborted, nothing pushed -- stderr: ${text.slice(0, 500)}`,
+    reason: `git merge --no-ff --no-edit failed for a reason other than a content conflict; merge aborted, nothing pushed -- output: ${text.slice(0, 500)}`,
   };
+}
+
+function statusNewer(a, b) {
+  const ta = Date.parse(a.created_at ?? '') || 0;
+  const tb = Date.parse(b.created_at ?? '') || 0;
+  if (ta !== tb) return ta > tb;
+  return Number(a.id ?? 0) > Number(b.id ?? 0);
+}
+
+/**
+ * The commit-status LIST endpoint returns every historical status for a context (live example:
+ * success, pending, failure, pending), so "any success exists" would accept a commit whose newest
+ * DEV-GOV status is a failure. Approval means the NEWEST status for the context is success.
+ */
+export function hasCurrentGreenDevGovStatus(statuses) {
+  const mine = (Array.isArray(statuses) ? statuses : []).filter((s) => s && s.context === DEVGOV_STATUS_CONTEXT);
+  if (mine.length === 0) return false;
+  const newest = mine.reduce((best, s) => (statusNewer(s, best) ? s : best));
+  return newest.state === 'success';
+}
+
+/**
+ * The controller exits 2 for a correctly observed FAIL (EXIT_CODE.FAIL), 3/4/5 for blocked/denied/
+ * internal -- all with a JSON envelope on stdout. A RED that correctly fails therefore exits
+ * non-zero; treating any non-zero exit as a crash (as the first repair did) made every unit's local
+ * dry-run abort on its first RED. Read the classification from the envelope instead; only a missing
+ * or malformed envelope is a harness error.
+ */
+export function parseControllerRun(result, id) {
+  if (result.error) throw new Error(`controller invocation for ${id} did not run: ${result.error.message}`);
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new Error(
+      `controller output for ${id} is not JSON (exit ${result.status}): ${String(result.stderr || '').slice(0, 500)}`,
+    );
+  }
+  if (!parsed || typeof parsed !== 'object' || !parsed.evidence || typeof parsed.evidence.classification !== 'string') {
+    throw new Error(`controller output for ${id} has no evidence.classification (exit ${result.status})`);
+  }
+  return { id, exitCode: result.status, ...parsed };
+}
+
+/**
+ * Judge the local RED/GREEN dry-run against the unit's own declared expectations. Every declared
+ * entry must have a result; RED must show its expected_classification (default FAIL), GREEN must
+ * PASS; an empty list on either side is a failure, not a pass.
+ */
+export function evaluateDryRun(definition, redResults, greenResults) {
+  const empty = assertNonEmptyManifest(definition);
+  if (!empty.ok) return empty;
+  const mismatches = [];
+  const check = (specs, results, expectedFor, kind) => {
+    const byId = new Map((results || []).map((r) => [r.id, r]));
+    for (const spec of specs) {
+      const r = byId.get(spec.id);
+      if (!r) {
+        mismatches.push(`${kind} ${spec.id}: no result`);
+        continue;
+      }
+      const expected = expectedFor(spec);
+      const actual = r.evidence?.classification;
+      if (actual !== expected) mismatches.push(`${kind} ${spec.id}: expected ${expected}, observed ${actual}`);
+    }
+  };
+  check(definition.required_red, redResults, (s) => s.expected_classification || 'FAIL', 'RED');
+  check(definition.required_green, greenResults, () => 'PASS', 'GREEN');
+  if (mismatches.length > 0) {
+    return {
+      ok: false,
+      stop: STOP.CANDIDATE_FAILURE,
+      reason: `local RED/GREEN dry-run deviated after the rebase -- real candidate failure, not friction: ${mismatches.join('; ')}`,
+      mismatches,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Independent re-derivation of everything the dispatch payload asserts, from real git objects.
+ * Used twice with the same code: locally by main() as a preflight, and in CI by the workflow's
+ * reverify-phases job (loaded from the protected controller checkout -- the candidate is only ever
+ * data, read through candidate.out/ok). Fail-closed: any exception or unexpected shape is a
+ * rejection.
+ *
+ *   candidate.out(args) -> git stdout (string|Buffer) for `git -C <candidate repo> <args>`
+ *   candidate.ok(args)  -> boolean, git exit status 0
+ *   controller.ok(args) -> boolean, same for the protected main-history repo
+ *   statuses            -> commit statuses of payload.oldCandidateSha (fetched by the caller)
+ *   payload.controllerRef -> the ref in the controller repo that must contain the new base
+ *
+ * It verifies: safe plain-file unit path; regular-file mode at all three refs (a symlink would
+ * let plan:/sign: read different content than was verified); old approval is ancestor-or-self of
+ * the pre-merge tip AND its newest DEV-GOV status is success; Phase 1; payload old_base_sha equals
+ * the pre-merge file's own base_sha; Phase 2 (incl. byte-level); the candidate is exactly
+ * [merge commit of (pre-merge tip, new base)] + [one commit touching only the unit file]; the new
+ * base is a strict descendant of the old base and lies in the controller's main history.
+ */
+export function reverifyLineage({ payload, candidate, controller, statuses }) {
+  const fail = (reason) => ({ ok: false, stop: STOP.NEW_REVIEW_REQUIRED, reason });
+  try {
+    const { candidateSha, oldCandidateSha, preMergeTipSha, oldBaseSha, unitPath, controllerRef } = payload;
+    for (const [name, value] of Object.entries({ candidateSha, oldCandidateSha, preMergeTipSha, oldBaseSha })) {
+      if (!SHA_RE.test(String(value))) return fail(`${name} is not a 40-hex SHA`);
+    }
+    const segments = String(unitPath).split('/');
+    if (
+      !/^[A-Za-z0-9._/-]+$/.test(String(unitPath)) ||
+      String(unitPath).startsWith('/') ||
+      segments.some((s) => s === '' || s === '.' || s === '..')
+    ) {
+      return fail('unit definition path is not a plain repo-relative path');
+    }
+
+    for (const ref of [preMergeTipSha, oldCandidateSha, candidateSha]) {
+      const line = String(candidate.out(['ls-tree', ref, '--', unitPath])).trim();
+      if (!/^100644 blob [0-9a-f]{40}\t/.test(line)) {
+        return fail(`unit definition at ${ref} is not a regular file (ls-tree: ${JSON.stringify(line)})`);
+      }
+    }
+
+    if (!candidate.ok(['merge-base', '--is-ancestor', oldCandidateSha, preMergeTipSha])) {
+      return fail('old_candidate_sha is not an ancestor of the pre-merge tip');
+    }
+    if (!hasCurrentGreenDevGovStatus(statuses)) {
+      return fail(`old_candidate_sha has no current green "${DEVGOV_STATUS_CONTEXT}" status -- it was never approved`);
+    }
+
+    const show = (ref) => Buffer.from(candidate.out(['show', `${ref}:${unitPath}`]));
+    const currentTipBytes = show(preMergeTipSha);
+    const priorApprovedBytes = show(oldCandidateSha);
+    const postEditBytes = show(candidateSha);
+
+    const phase1 = phase1VerifyOriginalIdentity(currentTipBytes, priorApprovedBytes);
+    if (!phase1.ok) return phase1;
+
+    const preBase = JSON.parse(currentTipBytes.toString('utf8')).base_sha;
+    if (preBase !== oldBaseSha) return fail('payload old_base_sha does not equal the pre-merge unit definition\'s own base_sha');
+    const newBase = JSON.parse(postEditBytes.toString('utf8')).base_sha;
+    if (!SHA_RE.test(String(newBase))) return fail('new base_sha is not a 40-hex SHA');
+
+    const phase2 = phase2VerifyOwnEdit(currentTipBytes, postEditBytes, newBase);
+    if (!phase2.ok) return phase2;
+
+    const parentsOf = (sha) => String(candidate.out(['rev-list', '--parents', '-n', '1', sha])).trim().split(/\s+/).slice(1);
+    const candidateParents = parentsOf(candidateSha);
+    if (candidateParents.length !== 1) return fail('candidate must be a single-parent bump commit on top of the merge commit');
+    const mergeCommit = candidateParents[0];
+    const mergeParents = parentsOf(mergeCommit);
+    if (mergeParents.length !== 2 || mergeParents[0] !== preMergeTipSha || mergeParents[1] !== newBase) {
+      return fail('the commit under the bump must be a merge of exactly [pre-merge tip, new base_sha]');
+    }
+    const changed = String(candidate.out(['diff', '--name-only', mergeCommit, candidateSha])).trim().split('\n').filter(Boolean);
+    if (changed.length !== 1 || changed[0] !== unitPath) {
+      return fail(`the bump commit must change only ${unitPath}, changed: ${JSON.stringify(changed)}`);
+    }
+
+    if (newBase === oldBaseSha) return fail('new base_sha equals the old base_sha -- not a base bump');
+    if (!controller.ok(['merge-base', '--is-ancestor', oldBaseSha, newBase])) {
+      return fail('new base_sha is not a strict descendant of the old base_sha');
+    }
+    if (!controller.ok(['merge-base', '--is-ancestor', newBase, controllerRef])) {
+      return fail('new base_sha is not in the protected controller main history');
+    }
+    return { ok: true, phase1: 'PASS', phase2: 'PASS', lineage: 'PASS' };
+  } catch (error) {
+    return fail(`lineage re-verification raised: ${error.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
 // I/O helpers (git/gh). Thin and literal -- bounded timeouts, bounded retries on the one
-// identified transient-failure-prone call, fail closed on anything unexpected.
+// identified transient-failure-prone call, fail closed on anything unexpected. NOTE: on Windows a
+// timeout kills the direct child only; git may leave grandchildren behind (observed in review).
 // ---------------------------------------------------------------------------------------------
 
 function sleepSync(ms) {
@@ -237,9 +438,12 @@ function run(cmd, args, opts = {}) {
   return result.stdout;
 }
 
+// Never throws. A spawn error (e.g. ETIMEDOUT) is surfaced both as .error and appended to stderr so
+// a timed-out command is not silently indistinguishable from an ordinary failure.
 function runAllowFail(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: DEFAULT_TIMEOUT_MS, ...opts });
-  return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
+  const errorText = result.error ? `\n[spawn error: ${result.error.message}]` : '';
+  return { status: result.status, stdout: result.stdout || '', stderr: `${result.stderr || ''}${errorText}`, error: result.error };
 }
 
 function git(worktree, args) {
@@ -260,48 +464,36 @@ function ghApiJson(args) {
 }
 
 /**
- * W1-VERIFY-DB finding (2026-09-30): the combined-status endpoint (/commits/{sha}/status) was
- * verified live to return only its first page of statuses, with no pagination handling in this
- * script. Use the array-shaped, genuinely paginatable list endpoint instead
- * (/commits/{sha}/statuses), with --paginate and an explicit per_page, and defensively parse
- * either output shape gh's --paginate might produce for an array response.
+ * The array-shaped, genuinely paginatable list endpoint (/commits/{sha}/statuses), not the combined
+ * /status endpoint (verified live to return only its first page). --method GET is required and NOT
+ * the default: gh api switches to POST the moment any -f/-F flag is present, which would hit the
+ * CREATE-a-status handler (verified live: 422 "State is not included in the list"). --jq '.[]'
+ * makes gh emit one compact JSON object per line across all pages, which is stable across gh
+ * versions (older gh concatenated per-page arrays, newer merges them).
  */
 function listCommitStatuses(repo, sha) {
-  // --method GET is required and NOT the default here: gh api switches to POST by default the
-  // moment any -f/-F flag is present, which would hit this endpoint's CREATE-a-status handler
-  // instead of LIST -- verified live (2026-09-30): omitting --method GET produced a 422
-  // "State is not included in the list" error from the create-status validator.
   const stdout = run('gh', [
     'api',
     '--method',
     'GET',
     '--paginate',
+    '--jq',
+    '.[]',
     '-f',
     'per_page=100',
     `repos/${repo}/commits/${sha}/statuses`,
   ]);
-  try {
-    const parsed = JSON.parse(stdout);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .flatMap((line) => {
-        const parsed = JSON.parse(line);
-        return Array.isArray(parsed) ? parsed : [parsed];
-      });
-  }
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 function readFileAtRef(worktree, ref, path) {
   return Buffer.from(run('git', ['-C', worktree, 'show', `${ref}:${path}`], { encoding: null }));
 }
 
-/**
- * Step 2: detect staleness via the same check this project's sessions already run by hand.
- */
 function detectStaleness(repo, prNumber) {
   const view = ghApiJson([`repos/${repo}/pulls/${prNumber}`]);
   return {
@@ -314,38 +506,38 @@ function detectStaleness(repo, prNumber) {
 }
 
 /**
- * Step 2 (continued): "locates the prior-approved DEV-GOV run for the current tip" -- walk the
- * branch's own history from its current tip backwards (never onto main, never past the merge-base
- * with the OLD base, since this design explicitly never chooses which historical proof is
- * "equivalent" across an unrelated line of history) and return the first commit whose GitHub
- * commit status includes a SUCCESS "DEV-GOV-V0 / trusted-execution" context. If the tip itself is
- * green, that's returned immediately (no extra commits landed since approval). Bounded to
- * MAX_COMMITS_TO_WALK commits and retries each transient-failure-prone gh api call with backoff.
+ * Step 2 (continued): walk the branch's own history from its tip backwards (never onto main, never
+ * past the merge-base with the OLD base) and return the first commit whose NEWEST DEV-GOV status is
+ * success. The tip is checked first, so a green tip is found even on a branch with a long history;
+ * only the walk BEYOND the tip is capped at MAX_COMMITS_TO_WALK. Each status lookup retries with
+ * backoff.
  */
 function locatePriorApprovedSha(worktree, repo, headSha, oldBaseSha) {
+  const green = (sha) => hasCurrentGreenDevGovStatus(withRetry(() => listCommitStatuses(repo, sha)));
+  if (green(headSha)) return headSha;
   const mergeBase = git(worktree, ['merge-base', headSha, oldBaseSha]);
-  const revList = git(worktree, ['rev-list', `${mergeBase}..${headSha}`]).split('\n').filter(Boolean);
-  const candidates = [headSha, ...revList.filter((sha) => sha !== headSha)];
-  if (candidates.length > MAX_COMMITS_TO_WALK) {
+  const older = git(worktree, ['rev-list', `${mergeBase}..${headSha}`]).split('\n').filter((s) => s && s !== headSha);
+  if (older.length > MAX_COMMITS_TO_WALK) {
     const error = new Error(
-      `${candidates.length} commits between the old base_sha and the branch tip, over the ${MAX_COMMITS_TO_WALK}-commit walk cap -- refusing to make that many sequential gh api calls`,
+      `${older.length} commits between the old base_sha and the branch tip (tip itself is not approved), over the ${MAX_COMMITS_TO_WALK}-commit walk cap -- refusing to make that many sequential gh api calls`,
     );
     error.code = 'TOO_MANY_COMMITS_TO_WALK';
     throw error;
   }
-  for (const sha of candidates) {
-    const statuses = withRetry(() => listCommitStatuses(repo, sha));
-    const hit = statuses.find(
-      (entry) => entry.context === 'DEV-GOV-V0 / trusted-execution' && entry.state === 'success',
-    );
-    if (hit) return sha;
+  for (const sha of older) {
+    if (green(sha)) return sha;
   }
   return null;
 }
 
 function tmpWorktreeAt(sourceWorktree, ref) {
   const dir = mkdtempSync(join(tmpdir(), 'devgov-rebase-reverify-base-'));
-  git(sourceWorktree, ['worktree', 'add', '--detach', dir, ref]);
+  try {
+    git(sourceWorktree, ['worktree', 'add', '--detach', dir, ref]);
+  } catch (error) {
+    removeTmpWorktree(sourceWorktree, dir);
+    throw error;
+  }
   return dir;
 }
 
@@ -361,7 +553,10 @@ function removeTmpWorktree(sourceWorktree, dir) {
 function runManifestEntries(definitionPath, candidateSha, definitionWorktree, executionWorktree, entries, verb) {
   const results = [];
   for (const entry of entries) {
-    const stdout = run(
+    // Honour the entry's own timeout_ms (28 of 59 real units declare one above the old fixed 150s
+    // wrapper) plus slack, so the outer wrapper can never kill a legitimately long proof.
+    const proofTimeout = Number.isInteger(entry.timeout_ms) ? entry.timeout_ms : DEFAULT_PROOF_TIMEOUT_MS;
+    const result = runAllowFail(
       'node',
       [
         'scripts/devgov/devgov.mjs',
@@ -377,9 +572,9 @@ function runManifestEntries(definitionPath, candidateSha, definitionWorktree, ex
         '--id',
         entry.id,
       ],
-      { timeout: DEVGOV_INVOCATION_TIMEOUT_MS },
+      { cwd: definitionWorktree, timeout: proofTimeout + PROOF_TIMEOUT_SLACK_MS },
     );
-    results.push({ id: entry.id, ...JSON.parse(stdout) });
+    results.push(parseControllerRun(result, entry.id));
   }
   return results;
 }
@@ -419,6 +614,11 @@ function stopResult(stop, reason, extra = {}) {
   return { result: 'STOP', stop, reason, ...extra };
 }
 
+function emitStop(result) {
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(1);
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const worktree = resolvePath(opts.worktree);
@@ -427,10 +627,7 @@ async function main() {
   // Step 2: detect staleness.
   const view = detectStaleness(repo, opts.pr);
   const scope = classifyStaleness(view);
-  if (!scope.inScope) {
-    console.log(JSON.stringify(stopResult(scope.stop, scope.reason, { pr: opts.pr }), null, 2));
-    process.exit(1);
-  }
+  if (!scope.inScope) emitStop(stopResult(scope.stop, scope.reason, { pr: opts.pr }));
 
   if (git(worktree, ['rev-parse', 'HEAD']) !== view.headRefOid) {
     throw new Error(
@@ -440,10 +637,22 @@ async function main() {
   if (git(worktree, ['status', '--porcelain']) !== '') {
     throw new Error('--worktree has uncommitted changes -- refuse to run against a dirty checkout');
   }
+  // Everything after the merge leaves the worktree mutated; say so, and say how to undo it.
+  const afterMerge = (stop, reason, extra = {}) =>
+    stopResult(stop, reason, {
+      worktreeMutated: true,
+      restoreCommand: `git -C "${worktree}" reset --hard ${view.headRefOid}`,
+      ...extra,
+    });
 
   const currentTipBytes = readFileAtRef(worktree, view.headRefOid, opts.definition);
   const currentDefinition = JSON.parse(currentTipBytes.toString('utf8'));
   const oldBaseSha = currentDefinition.base_sha;
+
+  // Fail closed on an empty RED/GREEN manifest BEFORE touching the worktree, so this STOP leaves
+  // nothing behind.
+  const manifestCheck = assertNonEmptyManifest(currentDefinition);
+  if (!manifestCheck.ok) emitStop(stopResult(manifestCheck.stop, manifestCheck.reason, { pr: opts.pr }));
 
   // Step 2 (continued): locate the prior-approved candidate SHA.
   let priorApprovedSha;
@@ -451,66 +660,51 @@ async function main() {
     priorApprovedSha = locatePriorApprovedSha(worktree, repo, view.headRefOid, oldBaseSha);
   } catch (error) {
     if (error.code === 'TOO_MANY_COMMITS_TO_WALK') {
-      console.log(JSON.stringify(stopResult(STOP.TOO_MANY_COMMITS_TO_WALK, error.message, { pr: opts.pr }), null, 2));
-      process.exit(1);
+      emitStop(stopResult(STOP.TOO_MANY_COMMITS_TO_WALK, error.message, { pr: opts.pr }));
     }
     throw error;
   }
   if (!priorApprovedSha) {
-    console.log(
-      JSON.stringify(
-        stopResult(STOP.NO_PRIOR_PROOF, 'no commit on this branch (back to the old base_sha) carries a green DEV-GOV-V0 / trusted-execution status', {
-          pr: opts.pr,
-        }),
-        null,
-        2,
+    emitStop(
+      stopResult(
+        STOP.NO_PRIOR_PROOF,
+        `no commit on this branch (back to the old base_sha) has a current green ${DEVGOV_STATUS_CONTEXT} status`,
+        { pr: opts.pr },
       ),
     );
-    process.exit(1);
   }
 
   // Step 3 / Phase 1.
   const priorApprovedBytes = readFileAtRef(worktree, priorApprovedSha, opts.definition);
   const phase1 = phase1VerifyOriginalIdentity(currentTipBytes, priorApprovedBytes);
-  if (!phase1.ok) {
-    console.log(JSON.stringify(stopResult(phase1.stop, phase1.reason, { pr: opts.pr, priorApprovedSha }), null, 2));
-    process.exit(1);
-  }
+  if (!phase1.ok) emitStop(stopResult(phase1.stop, phase1.reason, { pr: opts.pr, priorApprovedSha }));
 
   // Step 4: merge current base into the branch. git merge, never rebase, never squash -- matches
-  // the PR #203/#204 manual precedent (commit ef1109e5).
+  // the PR #203/#204 manual precedent (commit ef1109e5). --no-ff pins the commit shape the CI
+  // lineage check requires, even in the fast-forward case. git writes its CONFLICT lines to STDOUT.
   git(worktree, ['fetch', 'origin', view.baseRefName]);
   const newBaseSha = git(worktree, ['rev-parse', `origin/${view.baseRefName}`]);
-  const mergeResult = runAllowFail('git', ['-C', worktree, 'merge', '--no-edit', `origin/${view.baseRefName}`]);
+  const mergeResult = runAllowFail('git', ['-C', worktree, 'merge', '--no-ff', '--no-edit', `origin/${view.baseRefName}`]);
   if (mergeResult.status !== 0) {
-    runAllowFail('git', ['-C', worktree, 'merge', '--abort']);
-    // git merge writes its CONFLICT / "Automatic merge failed" lines to STDOUT, not stderr
-    // (verified live 2026-09-30) -- classify on both streams or every real conflict is misfiled.
+    const abort = runAllowFail('git', ['-C', worktree, 'merge', '--abort']);
     const classification = classifyMergeFailure(`${mergeResult.stdout}\n${mergeResult.stderr}`);
-    console.log(
-      JSON.stringify(stopResult(classification.stop, classification.reason, { pr: opts.pr, newBaseSha }), null, 2),
+    emitStop(
+      stopResult(classification.stop, classification.reason, {
+        pr: opts.pr,
+        newBaseSha,
+        ...(abort.status === 0 ? {} : { mergeAbortFailed: true, restoreCommand: `git -C "${worktree}" merge --abort` }),
+      }),
     );
-    process.exit(1);
   }
 
   // Step 5: bump base_sha (the one permitted edit), then Phase 2.
-  const postMergeDefinition = JSON.parse(readFileAtRef(worktree, 'HEAD', opts.definition).toString('utf8'));
-  postMergeDefinition.base_sha = newBaseSha;
-  writeFileSync(join(worktree, opts.definition), `${JSON.stringify(postMergeDefinition, null, 2)}\n`);
+  const postMergeText = readFileAtRef(worktree, 'HEAD', opts.definition).toString('utf8');
+  const bump = bumpBaseShaInText(postMergeText, newBaseSha);
+  if (!bump.ok) emitStop(afterMerge(bump.stop, bump.reason, { pr: opts.pr, newBaseSha }));
+  writeFileSync(join(worktree, opts.definition), bump.text);
   const postEditBytes = readFileSync(join(worktree, opts.definition));
   const phase2 = phase2VerifyOwnEdit(currentTipBytes, postEditBytes, newBaseSha);
-  if (!phase2.ok) {
-    console.log(JSON.stringify(stopResult(phase2.stop, phase2.reason, { pr: opts.pr, newBaseSha }), null, 2));
-    process.exit(1);
-  }
-
-  const manifestCheck = assertNonEmptyManifest(postMergeDefinition);
-  if (!manifestCheck.ok) {
-    console.log(
-      JSON.stringify(stopResult(manifestCheck.stop, manifestCheck.reason, { pr: opts.pr, newBaseSha }), null, 2),
-    );
-    process.exit(1);
-  }
+  if (!phase2.ok) emitStop(afterMerge(phase2.stop, phase2.reason, { pr: opts.pr, newBaseSha }));
 
   git(worktree, ['add', opts.definition]);
   git(worktree, [
@@ -520,8 +714,30 @@ async function main() {
   ]);
   const newCandidateSha = git(worktree, ['rev-parse', 'HEAD']);
 
+  // The same lineage re-verification CI will run, run locally first so a shape problem is caught
+  // before anything is pushed.
+  const gitCandidate = {
+    out: (args) => run('git', ['-C', worktree, ...args], { encoding: null }),
+    ok: (args) => runAllowFail('git', ['-C', worktree, ...args]).status === 0,
+  };
+  const lineage = reverifyLineage({
+    payload: {
+      candidateSha: newCandidateSha,
+      oldCandidateSha: priorApprovedSha,
+      preMergeTipSha: view.headRefOid,
+      oldBaseSha,
+      unitPath: opts.definition,
+      controllerRef: `origin/${view.baseRefName}`,
+    },
+    candidate: gitCandidate,
+    controller: { ok: gitCandidate.ok },
+    statuses: withRetry(() => listCommitStatuses(repo, priorApprovedSha)),
+  });
+  if (!lineage.ok) emitStop(afterMerge(lineage.stop, lineage.reason, { pr: opts.pr, newCandidateSha }));
+
   // Step 5 (continued): local RED/GREEN dry-run -- pre-check only, not the authoritative signed
   // proof (that happens in CI via devgov-v0-rebase-reverify.yml once dispatched).
+  const postMergeDefinition = JSON.parse(postEditBytes.toString('utf8'));
   const baseWorktree = opts.baseWorktree ? resolvePath(opts.baseWorktree) : tmpWorktreeAt(worktree, newBaseSha);
   let redResults = [];
   let greenResults = [];
@@ -546,24 +762,16 @@ async function main() {
     if (!opts.baseWorktree) removeTmpWorktree(worktree, baseWorktree);
   }
 
-  const redAllExpectedFail = redResults.every((r) => {
-    const spec = (postMergeDefinition.required_red || []).find((s) => s.id === r.id);
-    return r.evidence?.classification === (spec?.expected_classification || 'FAIL');
-  });
-  const greenAllPassed = greenResults.every((r) => r.evidence?.classification === 'PASS');
-  if (!redAllExpectedFail || !greenAllPassed) {
-    console.log(
-      JSON.stringify(
-        stopResult(
-          STOP.CANDIDATE_FAILURE,
-          'local RED/GREEN dry-run deviated after the rebase -- real candidate failure, not friction. Left un-pushed; surface for a new cold-review round.',
-          { pr: opts.pr, newCandidateSha, redResults, greenResults },
-        ),
-        null,
-        2,
-      ),
+  const verdict = evaluateDryRun(postMergeDefinition, redResults, greenResults);
+  if (!verdict.ok) {
+    emitStop(
+      afterMerge(verdict.stop, `${verdict.reason}. Left un-pushed; surface for a new cold-review round.`, {
+        pr: opts.pr,
+        newCandidateSha,
+        redResults,
+        greenResults,
+      }),
     );
-    process.exit(1);
   }
 
   const summary = {
@@ -575,6 +783,7 @@ async function main() {
     newBaseSha,
     newCandidateSha,
     unitDefinitionPath: opts.definition,
+    localLineageCheck: 'PASS',
     localRedGreenDryRun: 'PASS',
     pushed: false,
     dispatched: false,
@@ -586,26 +795,32 @@ async function main() {
   }
 
   if (opts.dispatch) {
-    run('gh', [
-      'api',
-      '--method',
-      'POST',
-      `repos/${repo}/dispatches`,
-      '-f',
-      'event_type=devgov-v0-rebase-reverify',
-      '-F',
-      `client_payload[candidate_sha]=${newCandidateSha}`,
-      '-F',
-      `client_payload[unit_definition_path]=${opts.definition}`,
-      '-F',
-      `client_payload[pr_number]=${opts.pr}`,
-      '-F',
-      `client_payload[old_candidate_sha]=${priorApprovedSha}`,
-      '-F',
-      `client_payload[old_base_sha]=${oldBaseSha}`,
-      '-F',
-      `client_payload[pre_merge_tip_sha]=${view.headRefOid}`,
-    ]);
+    try {
+      run('gh', [
+        'api',
+        '--method',
+        'POST',
+        `repos/${repo}/dispatches`,
+        '-f',
+        'event_type=devgov-v0-rebase-reverify',
+        '-F',
+        `client_payload[candidate_sha]=${newCandidateSha}`,
+        '-F',
+        `client_payload[unit_definition_path]=${opts.definition}`,
+        '-F',
+        `client_payload[pr_number]=${opts.pr}`,
+        '-F',
+        `client_payload[old_candidate_sha]=${priorApprovedSha}`,
+        '-F',
+        `client_payload[old_base_sha]=${oldBaseSha}`,
+        '-F',
+        `client_payload[pre_merge_tip_sha]=${view.headRefOid}`,
+      ]);
+    } catch (error) {
+      throw new Error(
+        `the push SUCCEEDED (candidate ${newCandidateSha} is on origin branch ${view.headRefName}) but the dispatch failed: ${error.message}`,
+      );
+    }
     summary.dispatched = true;
   }
 

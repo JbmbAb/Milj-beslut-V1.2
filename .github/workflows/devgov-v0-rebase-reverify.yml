@@ -4,33 +4,37 @@ run-name: DEV-GOV rebase-reverify ${{ github.event.client_payload.candidate_sha 
 # AUTOMATED-REBASE-REVERIFY-01 (Claude outputs/merge-queue-automation-2026-09-30/
 # AUTOMATED-REBASE-REVERIFY-DESIGN-2026-09-30.md, COLD_VERIFIED/ACCEPT for design §1-4,
 # 2026-09-30). This is NOT devgov-v0-orchestrate.yml with steps removed -- it is a separate file so
-# that neither workflow can silently grow the other's behavior. It covers only §1 steps 6 (sign) of
-# the design; steps 1-5 (staleness detection, Phase 1, merge, base_sha bump, Phase 2, local RED/GREEN
-# dry-run) run beforehand in scripts/dev-helpers/automated-rebase-reverify.mjs, which dispatches
-# this workflow only after Phase 2 (§1.3) has already passed against the NEW candidate_sha below.
+# that neither workflow can silently grow the other's behavior. It covers design §1 steps 6 (RED/GREEN
+# re-run + sign) and 7 (stop, post evidence); steps 1-5 (staleness detection, Phase 1, merge,
+# base_sha bump, Phase 2, local RED/GREEN dry-run) run beforehand in
+# scripts/dev-helpers/automated-rebase-reverify.mjs, which dispatches this workflow only after its
+# own local checks passed. Nothing this workflow does trusts that run: reverify-phases: re-derives
+# it from git.
 #
-# It deliberately has NO gate: job. devgov-v0-orchestrate.yml's own gate: job unconditionally
-# dispatches devgov-v0-gate.yml the moment sign: succeeds, with no way to stop earlier -- reusing
-# that file here would violate this design's own "never dispatches devgov-v0-gate.yml" rule (§2, §4)
-# regardless of the (already-fixed, see design doc) --repo defect that used to live in that job.
-# Dispatching devgov-v0-gate.yml for the candidate_sha this workflow signs remains a fully separate,
-# human-initiated action -- same as it is today for any other candidate.
+# STRUCTURAL DIFFERENCES from devgov-v0-orchestrate.yml (complete list, checked against that file at
+# this candidate's base_sha 740b2fdf by two independent reviews):
+#   - NO gate: job. orchestrate.yml's gate: unconditionally dispatches devgov-v0-gate.yml the moment
+#     sign: succeeds, with no way to stop earlier; reusing it would violate this design's own
+#     "never dispatches devgov-v0-gate.yml" rule (§2, §4). Dispatching the gate for the
+#     candidate_sha signed here stays a separate, human-initiated action, as for any candidate.
+#   - NO state: job.
+#   - ADDED reverify-phases: (no orchestrate.yml equivalent: its candidates are first-time, not
+#     rebased, so there is no prior approval to re-verify) and report-ready-for-owner-gate-dispatch:.
+#   - invariant-packs: additionally needs [plan]; red:/green:/sign: additionally need
+#     reverify-phases:.
+#   - plan: does not emit red_count/green_count, and validates the client_payload shape (stricter
+#     than orchestrate.yml, which has a smaller payload).
+#   - red:/green:/sign:/invariant-packs: otherwise identical in shape; sign: keeps
+#     environment: devgov-attestation, the only job that receives the signing key.
 #
-# Repaired 2026-09-30 per W1-VERIFY-DB's independent cold review (SOUND_WITH_CHANGES) of candidate
-# b7ddef9f, on Jimmy's GO: added the reverify-phases: job below (this file's own structural
-# difference from devgov-v0-orchestrate.yml was previously mis-described as "only the missing
-# gate: job" -- it was also missing invariant-packs:, now added, and had no independent check that
-# Phase 1/2 actually held, now added as reverify-phases:). The posted PR comment's Phase 1/2 lines
-# are no longer hardcoded text -- they are this job's own outputs, so a manually crafted
-# repository_dispatch payload that doesn't actually satisfy Phase 1/2 fails this job before
-# red/green/sign ever run, not just before the comment claims success.
-#
-# Expected github.event.client_payload keys:
+# Expected github.event.client_payload keys (all validated in plan:):
 #   candidate_sha          (string, required) - the NEW post-merge, post-base_sha-bump candidate SHA
-#   unit_definition_path   (string, required) - repository-relative DEV-GOV V1 unit definition path
-#   pr_number               (string, required) - PR to post the evidence comment on
-#   old_candidate_sha       (string, required) - the prior-approved candidate SHA (pre-rebase)
-#   old_base_sha            (string, required) - the unit definition's base_sha before this bump
+#   unit_definition_path   (string, required) - plain repo-relative DEV-GOV V1 unit definition path
+#   pr_number               (string, required) - PR to post the evidence comment on; must be the PR
+#                                                  whose head IS candidate_sha when the comment posts
+#   old_candidate_sha       (string, required) - the prior-approved candidate SHA (pre-rebase); must
+#                                                  carry a current green DEV-GOV-V0 status
+#   old_base_sha            (string, required) - must equal the pre-merge unit definition's base_sha
 #   pre_merge_tip_sha       (string, required) - the branch's own tip before this automation
 #                                                  touched anything (Phase 1's "current tip")
 on:
@@ -55,6 +59,8 @@ jobs:
         run: |
           test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
 
+      # bash [[ =~ ]] anchors the whole string, unlike grep -E which matches per line (a multi-line
+      # value such as "<valid>\n--flag" passed the earlier grep-based check).
       - name: Validate client_payload shape
         env:
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
@@ -62,12 +68,18 @@ jobs:
           OLD_BASE_SHA: ${{ github.event.client_payload.old_base_sha }}
           PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
         run: |
-          echo "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
-          echo "$OLD_CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'
-          echo "$OLD_BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'
-          echo "$PRE_MERGE_TIP_SHA" | grep -Eq '^[0-9a-f]{40}$'
-          echo "$PR_NUMBER" | grep -Eq '^[1-9][0-9]*$'
+          set -euo pipefail
+          sha_re='^[0-9a-f]{40}$'
+          pr_re='^[1-9][0-9]{0,8}$'
+          path_re='^[A-Za-z0-9._/-]+$'
+          for v in "$CANDIDATE_SHA" "$OLD_CANDIDATE_SHA" "$OLD_BASE_SHA" "$PRE_MERGE_TIP_SHA"; do
+            [[ "$v" =~ $sha_re ]] || { echo "client_payload contains a value that is not a 40-hex SHA" >&2; exit 1; }
+          done
+          [[ "$PR_NUMBER" =~ $pr_re ]] || { echo "client_payload.pr_number is not a positive integer" >&2; exit 1; }
+          [[ "$UNIT_DEFINITION_PATH" =~ $path_re ]] || { echo "client_payload.unit_definition_path has unexpected characters" >&2; exit 1; }
+          [[ "$UNIT_DEFINITION_PATH" != /* && "$UNIT_DEFINITION_PATH" != *..* ]] || { echo "client_payload.unit_definition_path is not a plain relative path" >&2; exit 1; }
 
       - name: Checkout exact candidate without executing candidate code
         uses: actions/checkout@v4
@@ -123,10 +135,10 @@ jobs:
           fs.appendFileSync(process.argv[3], `green_ids=${JSON.stringify(greenIds)}\n`);
           NODE
 
-  # Controller-owned invariant packs, identical in shape to devgov-v0-orchestrate.yml's own job of
-  # the same name (confirmed present at this candidate's own base_sha, 740b2fdf -- W1-VERIFY-DB
-  # finding, 2026-09-30: this job was missing from the first draft of this file, with a comment
-  # that incorrectly claimed gate: was the only structural difference from orchestrate.yml).
+  # Controller-owned invariant packs, identical to devgov-v0-orchestrate.yml's job of the same name
+  # except that it additionally needs [plan] (so a malformed payload is rejected before anything is
+  # checked out). Confirmed present in orchestrate.yml at this candidate's own base_sha, 740b2fdf --
+  # the first draft of this file omitted it.
   invariant-packs:
     name: Controller-owned invariant packs
     needs: [plan]
@@ -184,24 +196,30 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # W1-VERIFY-DB finding (2026-09-30): the PR comment's "Phase 1: PASS" / "Phase 2: PASS" lines were
-  # hardcoded literal text, never actually checked by this workflow -- it fully trusted the
-  # repository_dispatch payload's own narrative. This job independently re-derives both results from
-  # real git history at the three SHAs the payload names (never re-reading the dispatching script's
-  # local run). The verification LOGIC (phase1VerifyOriginalIdentity/phase2VerifyOwnEdit) is loaded
-  # from the protected default-branch controller checkout, never from the candidate: the candidate
-  # is untrusted input here, exactly as in plan:/sign: ("checkout exact candidate without executing
-  # candidate code"), so it is only ever read as git data (git show), never imported or run.
+  # Independent re-derivation of everything the dispatch payload asserts, from real git objects and
+  # the real commit-status API -- never from the dispatching script's own run. The verification LOGIC
+  # (reverifyLineage and the functions it calls) is loaded from the protected default-branch
+  # controller checkout; the candidate is untrusted input, read only as git data via git -C
+  # candidate, never imported or executed (same rule plan:/sign: follow: "checkout exact candidate
+  # without executing candidate code"). reverifyLineage has its own executed proof in the candidate's
+  # proof-unit (real git histories: the honest rebase is accepted, 13 forged or drifted inputs are
+  # rejected). It verifies: safe unit path; regular-file mode at all three refs; the old approval is
+  # an ancestor of the pre-merge tip AND its newest DEV-GOV-V0 / trusted-execution status is success;
+  # Phase 1; payload old_base_sha equals the pre-merge file's base_sha; Phase 2 (incl. byte-level);
+  # the candidate is exactly [merge of (pre-merge tip, new base)] + [one commit changing only the
+  # unit file]; the new base is a strict descendant of the old base and lies in main's history.
   # red/green/sign all depend on this job passing.
   reverify-phases:
-    name: Independently re-verify Phase 1 / Phase 2
+    name: Independently re-verify Phase 1 / Phase 2 / lineage
     needs: [plan]
     runs-on: ubuntu-latest
     outputs:
       phase1_result: ${{ steps.reverify.outputs.phase1_result }}
       phase2_result: ${{ steps.reverify.outputs.phase2_result }}
+      lineage_result: ${{ steps.reverify.outputs.lineage_result }}
     permissions:
       contents: read
+      statuses: read
     steps:
       - name: Require protected default-branch orchestrator
         env:
@@ -210,11 +228,12 @@ jobs:
         run: |
           test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
 
-      - name: Checkout protected controller
+      - name: Checkout protected controller with full history
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           path: controller
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout exact candidate with full history, as data only
@@ -225,29 +244,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify exact candidate and SHA ancestry
+      - name: Verify exact candidate checkout
         env:
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
-          OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
-          PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
         run: |
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           test -z "$(git -C candidate status --porcelain)"
-          git -C candidate merge-base --is-ancestor "$PRE_MERGE_TIP_SHA" "$CANDIDATE_SHA"
-          git -C candidate merge-base --is-ancestor "$OLD_CANDIDATE_SHA" "$PRE_MERGE_TIP_SHA"
+          test -z "$(git -C controller status --porcelain)"
 
-      - name: Independently re-derive Phase 1 and Phase 2 from git history
+      - name: Independently re-derive Phase 1, Phase 2 and lineage from git
         id: reverify
         env:
+          GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           OLD_CANDIDATE_SHA: ${{ github.event.client_payload.old_candidate_sha }}
+          OLD_BASE_SHA: ${{ github.event.client_payload.old_base_sha }}
           PRE_MERGE_TIP_SHA: ${{ github.event.client_payload.pre_merge_tip_sha }}
           UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
         run: |
           set -euo pipefail
           node - "$GITHUB_OUTPUT" <<'NODE'
-          const { execFileSync } = require('node:child_process');
+          const { execFileSync, spawnSync } = require('node:child_process');
           const fs = require('node:fs');
           const path = require('node:path');
           const { pathToFileURL } = require('node:url');
@@ -255,46 +273,47 @@ jobs:
           (async () => {
             const outputPath = process.argv[2];
             // Logic comes from the PROTECTED controller checkout. The candidate is data only.
-            const scriptPath = pathToFileURL(path.resolve('controller/scripts/dev-helpers/automated-rebase-reverify.mjs')).href;
-            const mod = await import(scriptPath);
-            const show = (ref, file) => execFileSync('git', ['-C', 'candidate', 'show', `${ref}:${file}`]);
+            const mod = await import(pathToFileURL(path.resolve('controller/scripts/dev-helpers/automated-rebase-reverify.mjs')).href);
+            const gitIn = (repo) => ({
+              out: (args) => execFileSync('git', ['-C', repo, ...args], { maxBuffer: 256 * 1024 * 1024 }),
+              ok: (args) => spawnSync('git', ['-C', repo, ...args], { stdio: 'ignore' }).status === 0,
+            });
+            const statuses = execFileSync(
+              'gh',
+              [
+                'api', '--method', 'GET', '--paginate', '--jq', '.[]', '-f', 'per_page=100',
+                `repos/${process.env.GITHUB_REPOSITORY}/commits/${process.env.OLD_CANDIDATE_SHA}/statuses`,
+              ],
+              { encoding: 'utf8' },
+            )
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((line) => JSON.parse(line));
 
-            const unitPath = process.env.UNIT_DEFINITION_PATH;
-            const currentTipBytes = show(process.env.PRE_MERGE_TIP_SHA, unitPath);
-            const priorApprovedBytes = show(process.env.OLD_CANDIDATE_SHA, unitPath);
-            const postEditBytes = show(process.env.CANDIDATE_SHA, unitPath);
-
-            const phase1 = mod.phase1VerifyOriginalIdentity(currentTipBytes, priorApprovedBytes);
-            if (!phase1.ok) {
-              console.error('PHASE1_REVERIFICATION_FAILED: ' + JSON.stringify(phase1));
+            const result = mod.reverifyLineage({
+              payload: {
+                candidateSha: process.env.CANDIDATE_SHA,
+                oldCandidateSha: process.env.OLD_CANDIDATE_SHA,
+                preMergeTipSha: process.env.PRE_MERGE_TIP_SHA,
+                oldBaseSha: process.env.OLD_BASE_SHA,
+                unitPath: process.env.UNIT_DEFINITION_PATH,
+                controllerRef: 'HEAD',
+              },
+              candidate: gitIn('candidate'),
+              controller: gitIn('controller'),
+              statuses,
+            });
+            if (!result.ok) {
+              console.error('LINEAGE_REVERIFICATION_FAILED: ' + JSON.stringify(result));
               process.exit(1);
             }
-
-            const expectedNewBaseSha = JSON.parse(postEditBytes.toString('utf8')).base_sha;
-            const phase2 = mod.phase2VerifyOwnEdit(currentTipBytes, postEditBytes, expectedNewBaseSha);
-            if (!phase2.ok) {
-              console.error('PHASE2_REVERIFICATION_FAILED: ' + JSON.stringify(phase2));
-              process.exit(1);
-            }
-
-            // phase2VerifyOwnEdit takes the expected base_sha from the file itself here, so on its
-            // own that comparison is vacuous. Anchor it to reality: the new base_sha must be a real
-            // 40-hex commit that is actually an ancestor of the candidate (i.e. it was really merged).
-            if (!/^[0-9a-f]{40}$/.test(expectedNewBaseSha)) {
-              console.error('PHASE2_REVERIFICATION_FAILED: new base_sha is not a 40-hex SHA');
-              process.exit(1);
-            }
-            try {
-              execFileSync('git', ['-C', 'candidate', 'merge-base', '--is-ancestor', expectedNewBaseSha, process.env.CANDIDATE_SHA]);
-            } catch {
-              console.error('PHASE2_REVERIFICATION_FAILED: new base_sha is not an ancestor of the candidate (base was never actually merged)');
-              process.exit(1);
-            }
-
-            fs.appendFileSync(outputPath, 'phase1_result=PASS\n');
-            fs.appendFileSync(outputPath, 'phase2_result=PASS\n');
-            console.log('Phase 1 and Phase 2 independently re-verified PASS from git history.');
-          })();
+            fs.appendFileSync(outputPath, 'phase1_result=PASS\nphase2_result=PASS\nlineage_result=PASS\n');
+            console.log('Phase 1, Phase 2 and lineage independently re-verified PASS from git history.');
+          })().catch((error) => {
+            console.error('reverify-phases raised: ' + (error && error.stack ? error.stack : error));
+            process.exit(1);
+          });
           NODE
 
   red:
@@ -329,12 +348,10 @@ jobs:
       proof_kind: GREEN
       test_id: ${{ matrix.test_id }}
 
-  # Identical shape and identical environment gate to devgov-v0-orchestrate.yml's own sign: job.
-  # This file's real structural difference from that one is: no gate: job (§2, §4's hard
-  # invariant), plus the reverify-phases: job above that orchestrate.yml has no equivalent of
-  # (orchestrate.yml's candidates are first-time, not rebased, so there is no prior approval to
-  # re-verify against). Same single human approval (JImMMbt, devgov-attestation environment) the
-  # manual rebase-reverify process already requires today.
+  # Identical shape and identical environment gate to devgov-v0-orchestrate.yml's own sign: job
+  # (verified byte-identical from runs-on onward by an independent review), plus the extra
+  # reverify-phases/invariant-packs needs. Same single human approval (JImMMbt, devgov-attestation
+  # environment) the manual rebase-reverify process already requires today.
   sign:
     name: Sign trusted execution attestations
     needs: [plan, invariant-packs, reverify-phases, red, green]
@@ -418,10 +435,11 @@ jobs:
           retention-days: 90
 
   # This is the design's §1 step 7 ("Stop.") made concrete: the last job in this workflow, no gate:
-  # job after it. Posts the evidenced PR comment the design requires (§4) -- old SHA, new SHA,
-  # RED/GREEN result, attestation reference -- and nothing else. Dispatching devgov-v0-gate.yml for
-  # candidate_sha remains a separate, explicit, human-initiated action from here on. Phase 1/Phase 2
-  # lines are this run's own reverify-phases: outputs, not hardcoded text.
+  # job after it. Posts the evidenced PR comment the design requires (§4) and nothing else.
+  # Dispatching devgov-v0-gate.yml for candidate_sha remains a separate, explicit, human-initiated
+  # action from here on. The Phase 1/2/lineage lines are this run's own reverify-phases: outputs,
+  # asserted to be PASS before anything is posted, and the comment is only posted to a PR whose head
+  # IS the candidate that was signed.
   report-ready-for-owner-gate-dispatch:
     name: Report READY_FOR_OWNER_GATE_DISPATCH
     needs: [plan, invariant-packs, reverify-phases, red, green, sign]
@@ -446,9 +464,15 @@ jobs:
           UNIT_DEFINITION_PATH: ${{ github.event.client_payload.unit_definition_path }}
           PHASE1_RESULT: ${{ needs.reverify-phases.outputs.phase1_result }}
           PHASE2_RESULT: ${{ needs.reverify-phases.outputs.phase2_result }}
+          LINEAGE_RESULT: ${{ needs.reverify-phases.outputs.lineage_result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          test "$PHASE1_RESULT" = "PASS"
+          test "$PHASE2_RESULT" = "PASS"
+          test "$LINEAGE_RESULT" = "PASS"
+          head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          test "$head_sha" = "$CANDIDATE_SHA"
           body="$(cat <<EOF
           ## AUTOMATED-REBASE-REVERIFY-01: READY_FOR_OWNER_GATE_DISPATCH
 
@@ -460,11 +484,12 @@ jobs:
           - Prior-approved candidate SHA (pre-rebase): \`$OLD_CANDIDATE_SHA\`
           - Prior \`base_sha\`: \`$OLD_BASE_SHA\`
           - New candidate SHA (post-merge, post-\`base_sha\`-bump): \`$CANDIDATE_SHA\`
-          - Phase 1 (pre-merge identity vs. original approval): $PHASE1_RESULT (independently
-            re-verified by this workflow's own \`reverify-phases\` job from git history, not just
-            reported by the dispatching script's invocation log)
-          - Phase 2 (post-edit self-check vs. Phase-1 snapshot): $PHASE2_RESULT (independently
-            re-verified by this workflow's own \`reverify-phases\` job)
+          - Phase 1 (pre-merge identity vs. original approval): $PHASE1_RESULT
+          - Phase 2 (post-edit self-check vs. Phase-1 snapshot, byte-level): $PHASE2_RESULT
+          - Lineage (merge of [pre-merge tip, new base] + one commit changing only the unit file;
+            new base in main's history; old approval has a current green DEV-GOV-V0 status): $LINEAGE_RESULT
+            (all three independently re-derived by this workflow's \`reverify-phases\` job from git
+            and the commit-status API, not reported by the dispatching script)
           - RED: re-run and still fails at the new base, on \`$CANDIDATE_SHA\`
           - GREEN: re-run and still passes on the new candidate, on \`$CANDIDATE_SHA\`
           - Fresh trusted-execution attestations signed this run (\`sign:\` job, \`devgov-attestation\`
