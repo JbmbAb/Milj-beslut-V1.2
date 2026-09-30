@@ -5,8 +5,8 @@ confirmed sound and cleared for implementation, before any production code was w
 K-28 ordering (returning to it after W3b's own RED-only-first candidate; not repeating W3a's
 disclosed deviation).
 **Unit:** `governance/devgov/units/lu-w3d-funding-risk-unresolved-layers-v1.json`
-**Base:** `ea1ced0e4eaa112e2913a6aaf7e4966253550a9e` (bumped from `81260bcf` -- see §5a for why and
-how it was re-verified).
+**Base:** `dc78d44cd47c9a9cc46ffc805a53751861221765` (bumped twice; see §5a and §5b for why and how
+each was re-verified).
 **Design authority:** `W3-DESIGN-DECISION-2026-09-28.writer-copy.md` §1 Group D, D3 -- last of the
 four named W3 units (W3c/W3a/W3b already merged). Full scope note, including every fact re-verified
 against current main and a finding the original design doc did not name (nothing currently
@@ -134,13 +134,50 @@ by a signing-mechanism restructure). This is the same discipline applied to the 
 dispatch failure during W3a: confirm the fix genuinely resolves the blocker locally before asking
 for a real dispatch run, rather than assuming a clean merge is sufficient.
 
+**Note added after §5a's own dispatch:** the bumped candidate (`5cdcb436`) was cold-reviewed a
+second time (independent RED/GREEN re-run and an independent `invariant-packs.mjs` run, both from
+scratch), dispatched, and the trusted-execution pipeline passed in full -- including confirming the
+new same-run `Sign trusted execution attestations` job (V1-THROUGHPUT's own change) replaced the
+prior two separate per-proof signing jobs, exactly as designed. This was the first real dispatch to
+exercise the new signing architecture for any unit in this program.
+
+## 5b. Second forced base bump: `ea1ced0e` -> `dc78d44c`, after Jimmy's `merge` on the already-dispatched candidate
+
+Jimmy issued `merge` on `5cdcb436` (already fully proven via the dispatch above) -- GitHub again
+refused: main had advanced by one more commit, `dc78d44cd47c9a9cc46ffc805a53751861221765`, PR #196
+("HD-sweep: A9 security/correctness findings HD-01/02/03/10/14/15/16"), a **different** session's
+governed unit (`hd-sweep-a9-01-v1`, its own `docs/architecture/audits/HD-SWEEP-A9-01-V1.md` and
+`governance/devgov/units/hd-sweep-a9-01-v1.json`). Confirmed via `git diff ea1ced0e dc78d44c --stat`:
+17 files, all under `server/{routes,security,services,modules}/**` and their tests, plus that unit's
+own two governance files -- zero overlap with this unit's own `allowed_paths`.
+
+**Worth recording, not acting on:** one of the 17 files, `server/services/bankComplianceService.ts`
+(and its test), is the exact same file W3b's C1 finding identified and left untouched as
+forward-only dead code (only the *route* calling it, `bankCompliance.routes.ts`, was deleted in
+W3b). PR #196's own HD-01 finding independently discovered the identical root bug
+(`evaluateComplianceRules([], [], {} as any, [])`, permanently-empty inputs) and fixed the function
+itself -- it now throws a `SecureError` instead of returning a fabricated report. Two independent
+sessions converged on the same root cause via two different, non-conflicting remediation
+strategies (retire the entry point vs. fail the function closed); no actual file conflict, since
+W3b never modified `bankComplianceService.ts`'s own content. Not this unit's concern to reconcile
+further -- noted here only so a future reader isn't surprised to see that file's history touched by
+two separate W-track/HD-track units.
+
+Merged clean (`git merge origin/main --no-edit`, no conflicts). Re-ran the RED probe against a
+freshly isolated `dc78d44c` worktree (still fails, same reason); re-ran GREEN via the exact embedded
+command against the merged candidate (still passes, 17/17). Re-ran the real `invariant-packs.mjs`
+CLI locally (controller = the fresh `dc78d44c` worktree, candidate = this merged tree): all 9
+invariants PASS, including `DG-IP-002-SIGNER-ISOLATION` again, since the signing architecture from
+§5a is still what this base carries forward.
+
 ## 6. Final disposition
 
 RED-only candidate cold-reviewed and cleared for implementation before any production code was
 written. Implementation complete: the RED probe still fails on a fresh base, now passes on this
 candidate (17/17), zero regressions in adjacent consumer tests (66/66 combined), typecheck clean on
 both the root and scoped checks. Two independent cold reviews (RED-design, then implementation), no
-outstanding findings. Full trusted-execution pipeline passed once already on `64316c65`; a same-day
-direct-to-main infra commit (`ea1ced0e`, §5a) then forced a base bump before the already-approved
-merge could complete -- re-verified locally (RED/GREEN/invariant-packs all clean) before requesting
-a fresh dispatch-go on the bumped candidate.
+outstanding findings. Full trusted-execution pipeline passed once already on `64316c65` (proving out
+the new V1-THROUGHPUT signing architecture for the first time in this program) and again on
+`5cdcb436`; two same-day direct-to-main/independent-PR commits (`ea1ced0e` §5a, `dc78d44c` §5b) each
+forced a base bump before the already-approved merge could complete -- both re-verified locally
+(RED/GREEN/invariant-packs all clean) before requesting the next dispatch-go.
