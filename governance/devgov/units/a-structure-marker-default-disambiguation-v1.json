@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "chatgpt/a-structure-marker-proof",
-  "base_sha": "30709500be3bf497fef3a013884f5ea10465cb26",
+  "base_sha": "8cd1b5041df5ca24b35c0964c9e1604c001ead81",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "packages/mps-chunking/src/text/APlusStructureAnnotator.ts",
