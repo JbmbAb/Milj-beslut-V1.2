@@ -89,14 +89,23 @@ describe('W4 -- resolveProjectContextReadiness', () => {
     expect(Object.prototype.hasOwnProperty.call(result, 'context')).toBe(false);
   });
 
-  it('has no bootstrap side effect from this read path -- the module never references the bootstrap-request mechanism', async () => {
+  it('has no bootstrap side effect from this read path -- the module never USES the bootstrap-request mechanism', async () => {
     // A readiness check must never queue provisioning as a side effect of a read. Asserted at the
     // source level, mirroring this program's established "absence as proof" convention: if this
-    // module ever starts importing or referencing the bootstrap-request mechanism, this test fails
-    // and forces an explicit design decision (Q-W4-1) rather than a silent behavior change.
+    // module ever starts importing or calling the bootstrap-request mechanism, this test fails and
+    // forces an explicit design decision (Q-W4-1) rather than a silent behavior change.
+    //
+    // Checked against CODE, not comments: the module's own doc comment legitimately names
+    // "ProjectContextBootstrapRequest" to explain why it is absent, so a bare textual search (an
+    // earlier version of this assertion) produced a false positive against its own documentation.
+    // Stripping comments first, then requiring an actual import path or a Prisma-style property
+    // access (`.projectContextBootstrapRequest`), targets real usage specifically.
     const { readFileSync } = await import('node:fs');
     const source = readFileSync('src/application/resolveProjectContextReadiness.ts', 'utf8');
-    expect(source).not.toMatch(/ProjectContextBootstrapRequest/);
-    expect(source).not.toMatch(/projectContextBootstrapRequest/);
+    const codeOnly = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(codeOnly).not.toMatch(/from\s+['"][^'"]*projectContextBootstrapRequest[^'"]*['"]/i);
+    expect(codeOnly).not.toMatch(/\.projectContextBootstrapRequest\b/);
   });
 });

@@ -1,7 +1,9 @@
-# LU-W4-PROJECT-CONTEXT-READINESS-CANONICAL-PROJECTION-V1 -- RED-only candidate
+# LU-W4-PROJECT-CONTEXT-READINESS-CANONICAL-PROJECTION-V1
 
-**Status:** CANDIDATE -- RED probes only, zero production code. For cold review of test design
-before any implementation, per the K-28 ordering.
+**Status:** CANDIDATE (implementation complete). RED probes were cold-reviewed on their own first
+(§1), confirmed sound and cleared for implementation -- including the mocking-boundary question
+this session itself flagged, independently confirmed correct by the reviewer -- before any
+production code was written, per the K-28 ordering.
 **Unit:** `governance/devgov/units/lu-w4-project-context-readiness-canonical-projection-v1.json`
 **Base:** `44e3e3df68a3ed3f22515eed55f3068fdc742baa` (W3d merged).
 **Design authority:** `Claude outputs/w4-design-2026-09-30/W4-PROJECT-CONTEXT-READINESS-CANONICAL-PROJECTION-DESIGN-2026-09-30.md`,
@@ -56,23 +58,79 @@ frozen by this RED-only candidate, matching Jimmy's own "RED-only ska frysa kont
 lösningen" (RED-only should freeze the contract, not the solution) framing for what *is* tested
 here (the fail-closed boundary), not an instruction to test the untested-here happy path of Part 2.
 
-## 2. Verified RED
+## 2. What changed (implementation, after the RED-only candidate was cleared for it)
 
-Both probes run via their exact embedded command, against a freshly isolated worktree
-(`C:\wt-w4-base`, pinned to `44e3e3df`, `node_modules` junctioned from `C:\wt-w4`'s own tree since
-`package.json`/`package-lock.json` are unchanged by this candidate):
-- `w4-resolve-project-context-readiness`: exit 1 (`Failed to resolve import
-  ".../resolveProjectContextReadiness"` -- the module does not exist yet, the correct RED state for
-  a zero-production-code candidate, matching the established precedent from W2/W3c/W3b's own first
-  RED-only candidates).
-- `w4-resolve-canonical-lu-projection`: exit 1 (same failure mode, for
-  `resolveCanonicalLuProjection`).
+- **`src/application/resolveProjectContextReadiness.ts`** (new): wraps
+  `resolveCanonicalProjectContext()` in a try/catch. On success, returns
+  `{status: 'READY', context}` with the real resolved `CanonicalProjectContext`. On **any** thrown
+  error, returns `{status: 'NOT_READY'}` -- no distinction between failure causes, matching Jimmy's
+  own explicit instruction that missing/invalid/authority-failed bindings are deliberately one
+  unified state in this first version. No import of, or reference to,
+  `ProjectContextBootstrapRequest` anywhere in the file.
+- **`src/application/resolveCanonicalLuProjection.ts`** (new): calls
+  `resolveProjectContextReadiness()` first; if not `READY`, returns `{status: 'NOT_AVAILABLE'}`
+  immediately. The `READY` branch **deliberately throws** (`W4_NOT_IMPLEMENTED: ...`) rather than
+  also returning `NOT_AVAILABLE` -- a self-caught design choice during implementation: silently
+  returning the same value for both branches would make "not yet built" indistinguishable from "an
+  intentional no-result design," which is exactly the kind of ambiguity this program's own
+  non-drive-by/no-silent-scope-creep norms exist to prevent. The `AVAILABLE` case itself is not
+  built in this candidate (§3).
 
-## 3. Non-claims -- what this candidate does not do
+**Self-caught bug during GREEN verification, not present in the reviewed RED-only candidate's
+intent:** the "no bootstrap side effect" test's original assertion (`expect(source).not.toMatch(/ProjectContextBootstrapRequest/)`)
+produced a false failure against the real implementation -- the new module's own doc comment
+legitimately *names* `ProjectContextBootstrapRequest` to explain why it is absent, and a bare
+textual search cannot distinguish that from actual usage. Fixed by stripping comments from the
+source before checking, and narrowing the check to an actual import path or a Prisma-style
+property access (`.projectContextBootstrapRequest`) -- targeting real usage specifically, not any
+mention of the concept. Re-verified RED (still fails for the same "module does not exist" reason,
+unaffected by this fix) and GREEN (now passes) after the correction.
 
-No production code. No GREEN proof has been run or can meaningfully be run yet. Does not specify
-the `READY`/`AVAILABLE` happy-path shape for Part 2 beyond the design note's own sketch (§1). Does
-not touch `resolveCanonicalProjectContext.ts` itself, `ProjectContextBindingProvider`, or any other
-part of the already-shipped, already-PROVEN governed binding chain -- both new modules are pure
-additive wrappers. Does not build the funding-risk or C-anmälan adapters, the layer-availability
-vocabulary, or any Loke-ingestion work -- all explicitly frozen per Jimmy's own scoping (§0).
+## 3. Verified evidence
+
+**RED**, re-confirmed against a fresh, separate worktree pinned to `44e3e3df` (`C:\wt-w4-base2`,
+junctioned `node_modules`, K-29 pattern) after cold review cleared the RED-only candidate for
+implementation, using the corrected test source (§2): both probes still fail for the same "module
+does not exist" reason as the original RED-only candidate, unchanged.
+
+**GREEN**, run via the exact embedded command against this candidate: both exit 0 -- 6/6 for
+`resolveProjectContextReadiness.test.ts`, 2/2 for `resolveCanonicalLuProjection.test.ts`. Includes
+the K-118-style byte-identity self-check, built in from the start -- verified it actually fires by
+deliberately appending a comment to `resolveProjectContextReadiness.test.ts`, confirming the GREEN
+proof then failed with exit 2 and the expected `W4_HARNESS_ERROR ... does not byte-match ...`
+message, then restoring the file and reconfirming exit 0 (6/6).
+
+**Typecheck:** both new files sit under `src/application/**`, and their tests under `tests/**` --
+both directories wholesale-excluded by `tsconfig.json`'s own `exclude` list, so a scoped,
+explicit-file-list check was required (same `compilerOptions` as `tsconfig.json`). Since neither
+file exists at base, a base-vs-candidate diff is not possible for them specifically (matching the
+established precedent for brand-new files); checked standalone on the candidate instead: **14
+errors**, all in transitively-imported packages (`packages/mps-lu/**`, `packages/mps-runtime/**`,
+`packages/mps-artifact-store/**`) -- the exact same files and error classes already flagged as
+pre-existing, unrelated errors in every prior W-unit's own scoped tsc check this session (W3a, W3c,
+W3d). **Zero errors** in either of this unit's own two new production files or two new test files.
+
+## 4. Non-claims -- what this unit does not do
+
+Does not specify or build the `READY`/`AVAILABLE` happy-path shape for Part 2 beyond the design
+note's own sketch and this candidate's own deliberate `W4_NOT_IMPLEMENTED` throw (§2) -- propagating
+an actually-verified governed assessment's findings and provenance is real future work. Does not
+touch `resolveCanonicalProjectContext.ts` itself, `ProjectContextBindingProvider`, or any other part
+of the already-shipped, already-PROVEN governed binding chain -- both new modules are pure additive
+wrappers with zero changes to existing files. Does not build the funding-risk or C-anmälan adapters,
+the layer-availability vocabulary, or any Loke-ingestion work -- all explicitly frozen per Jimmy's
+own scoping (§0). Does not wire either new function into any live route, service, or consumer --
+both are new, unreferenced application-layer functions with no caller yet.
+
+## 5. Final disposition
+
+RED-only candidate cold-reviewed and cleared for implementation before any production code was
+written, including independent confirmation of this session's own flagged mocking-boundary
+question. Implementation complete: both RED probes still fail on a fresh base, both now pass on
+this candidate (8/8 combined), a real bug in the unit's own test design was caught and fixed during
+GREEN verification (not glossed over), typecheck clean (zero errors in this unit's own files,
+identical pre-existing package errors on the candidate matching every prior unit's own scoped
+check). Awaiting cold review of the implementation itself before freezing the exact SHA, then the
+established chain: cold verification -> owner push-go -> PR (branch
+`w4-project-context-readiness-canonical-projection`, the unit's own `remote.branch`) -> dispatch
+(owner only) -> attestation -> merge.
