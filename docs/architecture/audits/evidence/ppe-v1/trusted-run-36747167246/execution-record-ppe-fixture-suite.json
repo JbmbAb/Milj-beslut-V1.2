@@ -1,0 +1,33 @@
+{
+  "controllerVerdict": {
+    "result": "FAIL",
+    "classification": "FAIL",
+    "message": "trusted runner observed FAIL, expected PASS"
+  },
+  "githubJobId": "109997014661",
+  "execution_record": {
+    "schema_version": "dev-gov-v1-trusted-execution-record",
+    "unit_id": "PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-V1",
+    "unit_definition_hash": "6e73f7d6affbb595f02fe9ae25aaafc7c0ad0c993014c2fed16865a2f7b15ed6",
+    "proof_contract_hash": "6e73f7d6affbb595f02fe9ae25aaafc7c0ad0c993014c2fed16865a2f7b15ed6",
+    "base_sha": "e617c7b7bb4613b95c6934004201eb14bec89ba0",
+    "candidate_sha": "e4b058ec3988c84638f2384c23211fabe96e1e33",
+    "execution_sha": "e4b058ec3988c84638f2384c23211fabe96e1e33",
+    "proof_type": "GREEN",
+    "test_id": "ppe-fixture-suite",
+    "command": "node -e \nconst cp = require('node:child_process');\nconst path = require('node:path');\nconst vitest = path.resolve('node_modules/vitest/vitest.mjs');\nconst r = cp.spawnSync(process.execPath, [vitest, 'run', '--config', 'vitest.config.ts', 'packages/mps-pattern-proof/tests'], { stdio: 'inherit', env: { ...process.env, CI: '1' } });\nif (r.error) { console.error('HARNESS: could not run vitest: ' + r.error.message); process.exit(2); }\nif (r.status === 0) { console.log('OK: PATTERN-PROOF-ENGINE-01 V1 suite green (validators, schemas, persistence, authority, isolation, state machine, six terminal-state fixtures, frozen target artifacts, Docker probe derivation/classification, CLI, adapter drift)'); process.exit(0); }\nconsole.error('VIOLATION: PATTERN-PROOF-ENGINE-01 V1 suite failed (vitest exit ' + r.status + ')');\nprocess.exit(1);\n",
+    "exit_code": 1,
+    "classification": "FAIL",
+    "environment_error": "",
+    "started_at": "2026-09-30T16:55:39.315Z",
+    "finished_at": "2026-09-30T16:55:50.529Z",
+    "runner_identity": "github-hosted:ubuntu-latest",
+    "controller_sha": "740b2fdfa1faffb19b922d4eaeb187ce492521cf",
+    "workflow_ref": "JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@refs/heads/main",
+    "workflow_run_id": "36747167246",
+    "workflow_run_attempt": "1",
+    "stdout_sha256": "bc8bb59dbd3c2160ec37a73823a657bc33e4d04735de3b07cb1f60e08de47a59",
+    "stderr_sha256": "3d23feaec919a17e743207cf4aa20065b78260badbafec938c18b52dddde5f48",
+    "result_digest": "8a7286994316fcf32c368fb51d9a320fa0ab78abf3e352811fbd9c30e8463a5c"
+  }
+}

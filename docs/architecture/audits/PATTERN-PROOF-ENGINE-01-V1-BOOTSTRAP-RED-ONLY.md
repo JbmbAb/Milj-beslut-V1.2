@@ -106,8 +106,10 @@ CLI and schema generator, `1290f76f` unit definition, first draft of this record
 `e3f3e4f3` cold-review round 1 corrections (R1, 18 findings), `21366c53` record §10, `41ad8001` cold-review round 2
 corrections (R2, findings F2–F10; F11 by the record rewrite in the evidence commit), `306f1b56` this rewrite of the record (R2 F1) with the adapter smoke-run evidence and the probes re-executed under
 the corrected code, `203297a4` cold-review round 3 corrections (R3: code F1–F6, record F1–F9, routine prompt F7)
-with the positive-control and locator-resolution evidence, then the packaging commit that fills §11, §13–§15 and §18
-(a commit cannot contain its own SHA).
+with the positive-control and locator-resolution evidence, `1817ab27` the packaging commit (§11, §13–§15, §18), `e4b058ec`
+its one-word correction — the candidate that received the owner's cold verification (§18) and the first trusted-execution
+dispatch (§14b) — and `8036a32c` the docker-availability correction made after that trusted run failed (§14b), then the
+evidence-and-record commit that describes it (a commit cannot contain its own SHA).
 
 ## 5. The engine, module by module
 
@@ -315,8 +317,12 @@ Caveats, disclosed: the docker executor runs with `--no-cache`, so each build re
 build layers stay in the session daemon's BuildKit cache (not pruned, nothing tagged); the node version inside the
 image differs from the host's and is not part of the identity line (the raw build log is not persisted; only the
 `matched` lines are); `DOCKER_HOST` and `--network host` are process
-inputs, not fields of the result; on the trusted runner the `devgov-candidate` user cannot reach a docker socket, so the
-unit's GREEN probes run with `--executor auto` and are expected to report `host-npm` fidelity there.
+inputs, not fields of the result; on the trusted runner the `devgov-candidate` user is not expected to reach a docker socket, and the
+unit's GREEN probes run with `--executor auto` so that they report `host-npm` fidelity there. The first trusted run
+(§14b) showed that this expectation did not hold for `e4b058ec`: the Docker CLI on the runner answered the availability
+query with exit status 0 although no usable daemon existed, and `auto` chose the docker executor. Since `8036a32c`
+availability requires a server version on stdout; whether the runner then reports `host-npm` is to be confirmed by the
+next trusted run.
 
 ## 9. Isolation proof — what it demonstrates
 
@@ -430,9 +436,10 @@ lines and the Dockerfile blob id.
 ## 13. RED (executed at `base_sha`)
 
 Executed in this session with `node scripts/dev-helpers/devgov-helper.mjs preflight <unit> --execute --base-worktree
-<detached worktree at e617c7b7> --no-remote --json` on a clean tree at `203297a4` (nothing touched the tree
-while it ran; `DOCKER_HOST` and `PPE_DOCKER_CA_BUNDLE` exported so `--executor auto` selected the docker executor).
-RED commands run in the base worktree; both must FAIL there (the engine is absent, the package unregistered):
+<detached worktree at e617c7b7> --no-remote --json` on a clean tree at `8036a32c` (nothing touched the tree while it
+ran; no Docker daemon was reachable from this session, so `--executor auto` used the `host-npm` executor for the two
+probe GREENs — the fidelity the trusted runner is meant to get). RED commands run in the base worktree; both must FAIL
+there (the engine is absent, the package unregistered):
 
 | Command id                 | Expected | Observed | Exit | OK  |
 | -------------------------- | -------- | -------- | ---- | --- |
@@ -441,9 +448,14 @@ RED commands run in the base worktree; both must FAIL there (the engine is absen
 
 Preflight verdict: `LIKELY_TO_PASS_DRY_RUN_OK`. No preflight finding above INFO. INFO findings: `DGL-022` (RED `ppe-engine-absent`): six paths exist at the candidate but not at `base_sha` and the program handles ENOENT explicitly, so absence may be the property under test (it is); `DGL-060`: 2 RED + 6 GREEN proofs, 8 execute jobs and as many sign jobs; `PRE-APPROVALS`: a trusted run waits for the protected reviewer up to three times (RED signing, GREEN signing, the gate run) and the producer cannot approve.
 
+Earlier runs of the same preflight at `306f1b56` and `203297a4` (with a working Docker daemon, hence the docker executor
+for the probe GREENs) gave the same table. **A passing preflight predicted a passing trusted run for `e4b058ec` and was
+wrong** (§14b): the preflight runs as root on this session's Docker CLI, the trusted run as an unprivileged user on the
+runner's. It is advisory evidence, never a substitute for the trusted run.
+
 ## 14. GREEN (executed at the candidate)
 
-Same preflight run, GREEN commands executed at the candidate `203297a4`:
+Same preflight run, GREEN commands executed at `8036a32c`:
 
 | Command id                             | Expected | Observed | Exit | OK  |
 | -------------------------------------- | -------- | -------- | ---- | --- |
@@ -454,13 +466,8 @@ Same preflight run, GREEN commands executed at the candidate `203297a4`:
 | `ppe-red-probe-builder-is-red`         | `PASS`   | `PASS`   | 0    | yes |
 | `ppe-red-probe-production-base-is-red` | `PASS`   | `PASS`   | 0    | yes |
 
-The preflight does not record probe fidelity; BuildKit cache records created in the session daemon during the run
-(15:17–15:18 UTC) show that `--executor auto` selected the docker executor for the two probe GREENs here. On the
-trusted runner they are expected to fall back to `host-npm` (§8 caveats). Wall clock of the whole preflight: 2 min
-43 s (15:16:07–15:18:50 UTC). An earlier run of the same preflight at `306f1b56` (before the R3 corrections) gave
-the identical result table and verdict. The record's later commits (this packaging commit) change only
-this document and no GREEN or RED input, so the trusted run at the final SHA re-executes the same commands; its result,
-not this table, is what §19 waits for.
+The record's later commits change only this document and its evidence files and no GREEN or RED input, so the trusted
+run at the final SHA re-executes the same commands; its result, not this table, is what §19 waits for.
 
 ## 14a. Adapter smoke run (executed through the Workflow tool in this session)
 
@@ -558,21 +565,79 @@ fs.writeFileSync(`${dir}/locator-resolution.json`, JSON.stringify(out, null, 2) 
 console.log(JSON.stringify({ total: out.total, byKind, unresolved: unresolved.length }));
 ```
 
+## 14b. Trusted execution attempt 1 — run 36747167246 at `e4b058ec`: failed, cause, correction
+
+**What happened.** On the owner's instruction the trusted execution of `e4b058ec` was started with a
+`repository_dispatch` (event `devgov-v0-orchestrate`, 2026-09-30 16:50 UTC; run
+[36747167246](https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/36747167246), controller `740b2fdf` on `main`).
+Result: `failure`. Plan, invariant packs, both RED commands and three of six GREEN commands passed; three GREEN
+commands did not, so the signing job, the gate dispatch and the handoff were skipped — no attestation was signed and
+no gate status was written. Nothing was forged, bypassed or re-run.
+
+| GREEN command                                                             | Trusted runner                        | Controller record                                |
+| ------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------ |
+| `ppe-engine-absent`, `ppe-package-unregistered`, `ppe-package-lint-clean` | PASS                                  | —                                                |
+| `ppe-red-probe-production-base-is-red`                                    | `BLOCKED_ENVIRONMENT` (exit 2, 1.4 s) | stdout hash `a24d6e01…`, stderr hash `60e24a51…` |
+| `ppe-red-probe-builder-is-red`                                            | `BLOCKED_ENVIRONMENT` (exit 2, 1.6 s) | stdout hash `f186db2a…`, stderr hash `c99aad8a…` |
+| `ppe-fixture-suite`                                                       | `FAIL` (exit 1, 11.2 s)               | stdout hash `bc8bb59d…`, stderr hash `3d23feae…` |
+
+**What could be observed.** The controller's execution record carries only SHA-256 hashes of the command's stdout and
+stderr, not the text, and the job log prints no command output. The failure could therefore not be read; it was
+reconstructed in two ways.
+
+1. _Decoding the stderr hash._ The probe CLI ends with one deterministic line (`<classification> <reason> probe=…
+stage=… fidelity=… executor=… elapsedMs=<n>`) and the proof wrapper appends one fixed line when the probe exits 2, so
+   the recorded stderr hash can be matched by enumerating the reason codes the engine can emit and `elapsedMs`. The method
+   was first validated on a local controller record (exact match). Both real records decode to **`BLOCKED` /
+   `INSTALL_STEP_NOT_STARTED`, executor `docker`, fidelity `docker-stage-prefix`, `elapsedMs` 214 and 192**: on the runner
+   `--executor auto` chose the docker executor, and the build never reached the install step. Files:
+   `evidence/ppe-v1/trusted-run-36747167246/decode-blocked-reason.mjs` and `decode-result.jsonl`.
+2. _Reproduction._ A replica of the runner's execution root (depth-1 checkouts owned by root, `node_modules` owned by an
+   unprivileged `devgov-candidate`, the controller invoked as root with a scrubbed environment and the `sudo` default
+   `PATH`, the same `execute-proof` command line) passed all three commands with this session's Docker CLI, even with the
+   same shallow checkout. Replacing the `docker` on `PATH` with a stub whose `info --format` exits 0 with an empty
+   `ServerVersion` and the error on stderr (`docker-stub.sh` in the evidence directory) reproduced both symptoms:
+
+| Replica, `e4b058ec` code            | Probe (production-base)         | Fixture suite                                                                                                                                       |
+| ----------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| this session's Docker CLI           | PASS                            | PASS (415 tests)                                                                                                                                    |
+| stub: `info` exits 0, empty version | `BLOCKED_ENVIRONMENT` after 1 s | `FAIL`: exactly two tests, terminal-states fixture 5 and the offline docker test in `red-probe.live.test.ts`, both `expected 'docker' to be 'none'` |
+
+**Root cause.** `dockerAvailable()` treated exit status 0 of `docker info --format {.ServerVersion}` as "a daemon is
+available". On the runner that query evidently exits 0 without a version although no usable daemon exists (this session's
+Docker 29.3.1 exits 1, which is why every earlier run looked fine). `--executor auto` then picked the docker executor,
+whose build failed before the install step (`BLOCKED`), and two tests that expect an unreachable daemon to yield
+`executorUsed: none` failed. _Established:_ executor `docker` and `INSTALL_STEP_NOT_STARTED` on the runner (hash decode);
+that the stub reproduces both symptoms and nothing else does. _Inferred, not observed:_ the runner's exact Docker CLI
+behaviour and version, and the text of its build error; neither was recorded. The next trusted run is the confirmation.
+
+**Correction `8036a32c`** (`packages/mps-pattern-proof/src/docker/executors.ts`, new
+`tests/docker-availability.test.ts`): a daemon is available only when `docker info` exits 0 **and** stdout is a version
+token; otherwise the reason is the last output line, `auto` falls back to `host-npm`, and an explicit docker executor is
+refused before any build. `spawnCollect` also returns stdout separately. Eight tests with a stub `docker` first on `PATH`
+cover exit 0 with an empty version, no output, non-version text, exit 1, no `docker` at all, plain and pre-release
+versions, and `executeRedProbe` refusing before a build; the unfixed `executors.ts` fails four of the eight. With the
+failing stub on `PATH` the whole package suite passes (18 files, 423 tests passed, 2 skipped), and the three previously failing commands pass
+through the replica's controller path.
+
+**Status of the candidate.** `e4b058ec` does not pass trusted execution and is superseded; the owner's cold
+verification (§18) applies to it, not to `8036a32c`. The code difference `e4b058ec..8036a32c` is the `executors.ts` change
+and the new test; everything else is this record and its evidence. A new cold verification of that difference and a new
+trusted-execution dispatch for the final SHA are required; none was sent. No review agent looked at `8036a32c`; its
+evidence is the test, the mutation check and the replica runs above.
+
 ## 15. Verification (local, this session)
 
-All executed in this session at the final code `203297a4` (later commits touch only evidence files and this record):
+All executed in this session at the final code `8036a32c` (later commits touch only evidence files and this record):
 
 - `prettier --check "packages/mps-pattern-proof/**/*.{ts,js,md,json}"` and this record: clean.
 - `eslint packages/mps-pattern-proof packages/mps-pattern-proof/workflow/ppe-v1.js`: 0 problems.
 - `tsc --noEmit -p packages/mps-pattern-proof/tsconfig.json`: 0 errors inside the package.
-- `vitest run --config vitest.config.ts packages/mps-pattern-proof/tests`: 17 files, 415 tests passed, 2 skipped (the 2 skipped are
-  the opt-in live probe tests behind `PPE_RUN_LIVE_PROBES=1`).
+- `vitest run --config vitest.config.ts packages/mps-pattern-proof/tests`: 18 files, 423 tests passed, 2 skipped (the 2 skipped are the opt-in live probe tests behind `PPE_RUN_LIVE_PROBES=1`).
 - `gen-workflow-adapter.ts`: `unchanged` (the generated schema block is byte-identical to the generator's output).
 - Compliance audits: `scripts/audit/final-freeze-audit.test.ts` passes; `scripts/audit/master-boundary-audit.test.ts`
   fails only on the seven pre-existing `packages/mps-lu/tests` files (§0.6) and does not name the package.
-- Root `tsc --noEmit -p tsconfig.json`: 87 errors at the frozen base (measured in the detached base worktree
-  with the checkout's `node_modules` linked in, then unlinked), 87 at the final code, 0 of them in the
-  package. Root `eslint .`: 437 problems (53 errors, 384 warnings) at the frozen base, 437 problems (53 errors, 384 warnings) at the final code, 0 in the package.
+- Root `tsc --noEmit -p tsconfig.json`: 87 errors at the frozen base (measured in the detached base worktree with the checkout's `node_modules` linked in, then unlinked), 87 at the final code, 0 of them in the package. Root `eslint .`: 437 problems (53 errors, 384 warnings) at the frozen base, 437 problems (53 errors, 384 warnings) at the final code, 0 in the package.
 - `devgov-helper lint` on the unit definition: 0 errors, 0 warnings, 2 info (plan: 2 RED + 6 GREEN).
 - Six terminal-state fixtures, the frozen §5 artifacts through the machine, the adapter drift test and the CLI exit
   contract are part of the vitest count above; the executed probe evidence is in §8 and §14a.
@@ -590,6 +655,11 @@ All executed in this session at the final code `203297a4` (later commits touch o
 - The install-command predicate and the lifecycle derivation model a bounded grammar (§5, Docker RED probes); every
   shape outside it fails closed as `BLOCKED`, which is by design, and a candidate that moves its install into such a
   shape will need a predicate extension in its own unit before it can be probed.
+- `--executor auto` decides once, from the availability query. If that query passes but the daemon cannot build, the
+  result is `BLOCKED` (never a false `FAIL` or `PASS`) and there is no fallback to `host-npm`; this is what made the
+  first trusted run fail before `8036a32c`, where the query itself was wrong (§14b).
+- The local dry run (`devgov-helper preflight --execute`) differs from the trusted run in user, `PATH`, Docker CLI version
+  and daemon access; it predicted a pass for `e4b058ec` and was wrong. Only the trusted run counts.
 - On the trusted runner the `devgov-candidate` user cannot open the root-owned execution checkout with git (exit 128,
   "dubious ownership"), so a `git_object` authority would resolve `GIT_UNAVAILABLE` there and `red-probe` records no
   Dockerfile blob locator; none of the unit's GREEN commands depends on `git_object` resolution (R2 F10).
@@ -597,19 +667,35 @@ All executed in this session at the final code `203297a4` (later commits touch o
 ## 17. Non-claims
 
 This unit does **not**: fix or propose a fix for the Dockerfile; invoke a writer or a verifier against the target;
-implement or enable `FULL_PATTERN_PROOF`; claim `PROVEN` or promote anything; create a new trust root; modify
+implement or enable `FULL_PATTERN_PROOF`; claim `PROVEN` or promote anything; claim that trusted execution passes (attempt 1 failed, §14b); create a new trust root; modify
 `scripts/devgov/devgov.mjs`, `.github/workflows/**`, `governance/devgov/schema/**` or `governance/devgov/invariant-packs/**`;
 open a pull request or merge; fire the routine; register the package in `architecture-authority-map.jsonc` (the map
 registers authorities, not packages; PPE owns none); resolve the §0.1 commit-identity policy.
 
 ## 18. Cold-review outcome
 
-Pending. Nothing in this record is self-approved. Before the push, four adversarial review rounds were run inside the
-producing session by reviewer agents that had not written the code (each instructed to refute, with a reproduction
-probe per finding): R1 returned 18 findings, corrected in `e3f3e4f3` (five residuals were re-raised by R2 and closed in `41ad8001`); R2
-returned 11 findings (F1 the stale record, F2–F10 code, F11 wording), corrected in `41ad8001` and by this rewrite;
-R3 (two reviewers, code and record) returned 15 findings — 6 on the code (3 minor, 3 nit) and 9 on the record (1 minor, 8 nit) — corrected in `203297a4`; R4 (one verifier re-running every R3 probe on `203297a4`) confirmed all fifteen corrections and reported one wording nit in §10, corrected in this packaging commit, so the rounds ended dry. No round found a false GREEN reachable on the real Dockerfile or a proof-policy path admitted by an allow-list. Those are the session's own
-reviews and do not count as the cold review this record waits for.
+**Owner's cold verification of `e4b058ec`** (reported to this session on 2026-09-30, not independently re-derived here):
+outcome `COLD_VERIFIED_WITH_DECLARED_GOVERNANCE_DEVIATION`. Reported findings: 89 changed paths, none outside the
+allow-list and none forbidden; `BOOTSTRAP_RED_ONLY` stops before `WRITER` and `FULL_PATTERN_PROOF` is unreachable from
+the adapter; the RED classification is fail-closed; `blocked_exit_codes: [2]` classifies as `BLOCKED_ENVIRONMENT` in the
+controller; the candidate identity binds to the full `candidate_sha`; CAS and authority verification fail closed and the
+verifier has no signing capability; `203297a4 → e4b058ec` changes only documentation; `e617c7b7` is the merge base. No
+technically blocking finding. The one remaining deviation is the declared commit identity (§0.1): the commits are
+Claude-authored although `development-governance.md` §1.1 names the Copilot Agent, and the frozen design limits the
+writer-commit rule to `FULL_PATTERN_PROOF`. The owner stated that this is **not** `PROVEN` and that the normal
+trusted-execution and finalization chain is still required.
+
+**What followed.** Trusted execution of `e4b058ec` failed (§14b). The correction `8036a32c` postdates the cold verification
+and is **not covered by it**; the new cold verification needs to cover `e4b058ec..8036a32c`.
+
+Before the push, four adversarial review rounds were run inside the producing session by reviewer agents that had not
+written the code (each instructed to refute, with a reproduction probe per finding): R1 returned 18 findings, corrected in
+`e3f3e4f3` (five residuals were re-raised by R2 and closed in `41ad8001`); R2 returned 11 findings (F1 the stale record,
+F2–F10 code, F11 wording), corrected in `41ad8001` and by the record rewrite; R3 (two reviewers, code and record) returned
+15 findings — 6 on the code (3 minor, 3 nit) and 9 on the record (1 minor, 8 nit) — corrected in `203297a4`; R4 (one
+verifier re-running every R3 probe on `203297a4`) confirmed all fifteen corrections and reported one wording nit,
+corrected in the packaging commit. No review round found what the trusted run found: none of them ran the code under the
+runner's Docker CLI behaviour. Those reviews are the session's own and do not count as the cold review.
 
 ## 19. Finalization rule
 

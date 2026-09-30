@@ -1,0 +1,90 @@
+{
+  "runId": 36747167246,
+  "runUrl": "https://github.com/JbmbAb/Milj-beslut-V1.2/actions/runs/36747167246",
+  "workflow": "DEV-GOV-V0 Proof Orchestrator (repository_dispatch devgov-v0-orchestrate)",
+  "dispatchedAtUtc": "2026-09-30T16:50:42Z",
+  "candidateSha": "e4b058ec3988c84638f2384c23211fabe96e1e33",
+  "unit": "governance/devgov/units/pattern-proof-engine-01-v1-bootstrap-red-only-v1.json",
+  "controllerShaOnMain": "740b2fdfa1faffb19b922d4eaeb187ce492521cf",
+  "outcome": "failure: Sign trusted execution attestations, Dispatch canonical trusted evidence gate and Publish machine-readable handoff were skipped; no attestation was signed and no gate status was written",
+  "jobs": [
+    {
+      "githubJobId": 109996165197,
+      "name": "Resolve unit proof plan",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109996165763,
+      "name": "Controller-owned invariant packs",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109996293656,
+      "name": "RED / ppe-package-unregistered / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109996293679,
+      "name": "RED / ppe-engine-absent / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109997014446,
+      "name": "GREEN / ppe-package-lint-clean / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109997014534,
+      "name": "GREEN / ppe-engine-absent / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109997014639,
+      "name": "GREEN / ppe-red-probe-builder-is-red / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "githubJobId": 109997014661,
+      "name": "GREEN / ppe-fixture-suite / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "githubJobId": 109997014714,
+      "name": "GREEN / ppe-red-probe-production-base-is-red / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "githubJobId": 109997014913,
+      "name": "GREEN / ppe-package-unregistered / Execute declared proof without signer authority",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "githubJobId": 109998267767,
+      "name": "Sign trusted execution attestations",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "githubJobId": 109998269416,
+      "name": "Dispatch canonical trusted evidence gate",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "githubJobId": 109998269956,
+      "name": "Publish machine-readable handoff",
+      "status": "completed",
+      "conclusion": "skipped"
+    }
+  ]
+}

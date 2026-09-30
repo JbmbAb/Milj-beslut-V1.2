@@ -1,0 +1,3 @@
+{"methodValidatedOnLocalRecord":{"elapsedMs":30662,"executor":"host","fidelity":"host-npm"}}
+{"stage":"production-base","stderr_sha256":"60e24a51b732dd9a0d243ad7c9c7dffa469716ac8e33a5934f0ab017cbfcce46","decoded":{"classification":"BLOCKED","reasonCode":"INSTALL_STEP_NOT_STARTED","executor":"docker","fidelity":"docker-stage-prefix","elapsedMs":214}}
+{"stage":"builder","stderr_sha256":"c99aad8adab632ec1a4a573946ff90f6ca060b248107e8421962a313fc18f6ce","decoded":{"classification":"BLOCKED","reasonCode":"INSTALL_STEP_NOT_STARTED","executor":"docker","fidelity":"docker-stage-prefix","elapsedMs":192}}
