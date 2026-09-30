@@ -15,6 +15,7 @@ export * from './artifacts';
 export * from './validators';
 export * from './schemas';
 export * from './schema-subset';
+export * from './adapter-schemas';
 export * from './persistence';
 export * from './authority';
 export * from './state-machine';
