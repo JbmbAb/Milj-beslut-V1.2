@@ -293,7 +293,10 @@ export function materializeHostLayout(
 // ---------------------------------------------------------------------------------------------
 
 interface SpawnCollectResult {
+  /** stdout and stderr interleaved in arrival order */
   readonly output: string;
+  /** stdout only (what a `--format` query actually printed) */
+  readonly stdout: string;
   readonly exitStatus: number | null;
   readonly timedOut: boolean;
   readonly spawnError?: ProbeSpawnError;
@@ -320,6 +323,7 @@ function spawnCollect(
 ): Promise<SpawnCollectResult> {
   return new Promise((resolve) => {
     const chunks: string[] = [];
+    const stdoutChunks: string[] = [];
     let timedOut = false;
     let settled = false;
     let spawnError: ProbeSpawnError | undefined;
@@ -330,11 +334,13 @@ function spawnCollect(
       clearTimeout(timer);
       const result: {
         output: string;
+        stdout: string;
         exitStatus: number | null;
         timedOut: boolean;
         spawnError?: ProbeSpawnError;
       } = {
         output: chunks.join(''),
+        stdout: stdoutChunks.join(''),
         exitStatus,
         timedOut,
       };
@@ -357,7 +363,10 @@ function spawnCollect(
       finish(null);
       return;
     }
-    child.stdout?.on('data', (data: Buffer | string) => chunks.push(String(data)));
+    child.stdout?.on('data', (data: Buffer | string) => {
+      chunks.push(String(data));
+      stdoutChunks.push(String(data));
+    });
     child.stderr?.on('data', (data: Buffer | string) => chunks.push(String(data)));
     child.on('error', (error) => {
       spawnError = serializeError(error);
@@ -403,7 +412,25 @@ function hostToolchain(): { node: string; npm: string; platform: string } {
   };
 }
 
-/** `docker info --format {{.ServerVersion}}` without a shell; never starts a daemon. */
+/** A Docker server version as printed by `--format {{.ServerVersion}}`: starts with a digit, one token. */
+const DOCKER_SERVER_VERSION_RE = /^\d\S*$/;
+
+function lastNonEmptyLine(text: string): string | undefined {
+  return text
+    .trim()
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .pop();
+}
+
+/**
+ * `docker info --format {{.ServerVersion}}` without a shell; never starts a daemon. A daemon counts
+ * as available only when the command exits 0 AND prints a server version on stdout. The exit status
+ * alone is not evidence: on the DEV-GOV trusted runner (run 36747167246) the Docker CLI exited 0 with
+ * an empty ServerVersion and the error text on stderr while the daemon could not be reached, which
+ * made `--executor auto` pick the docker executor and classify BLOCKED/INSTALL_STEP_NOT_STARTED
+ * instead of falling back to host-npm.
+ */
 export async function dockerAvailable(dockerHost?: string): Promise<{ ok: boolean; reason?: string }> {
   const env = dockerEnv(dockerHost);
   const result = await spawnCollect('docker', ['info', '--format', '{{.ServerVersion}}'], {
@@ -422,6 +449,12 @@ export async function dockerAvailable(dockerHost?: string): Promise<{ ok: boolea
         .filter((line) => line.length > 0)
         .pop() ?? 'docker info failed';
     return { ok: false, reason };
+  }
+  if (!DOCKER_SERVER_VERSION_RE.test(result.stdout.trim())) {
+    return {
+      ok: false,
+      reason: lastNonEmptyLine(result.output) ?? 'docker info printed no ServerVersion',
+    };
   }
   return { ok: true };
 }
@@ -567,7 +600,7 @@ function refusedExecution(
   workdir: string,
 ): RawProbeExecution {
   return buildExecution(
-    { output: '', exitStatus: null, timedOut: false, spawnError: { code, message } },
+    { output: '', stdout: '', exitStatus: null, timedOut: false, spawnError: { code, message } },
     {
       fidelity,
       installStepStarted: false,
