@@ -11,7 +11,7 @@
  * runtime ledger). Neither one mints authority; both only report whether a citation holds.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   attestationSubjectBinding,
@@ -172,7 +172,19 @@ export interface ParsedFileLineRef {
   readonly lines: readonly number[];
 }
 
-/** Parses `path:N`, `path:N-M`, `path:N,M,...` (mixed ranges allowed); undefined when malformed. */
+/**
+ * The most line numbers one `file_line` ref may name, counting every range. A governed citation names
+ * a handful of lines; expanding `Dockerfile:1-1000000000` would allocate a billion numbers before the
+ * resolver could compare them with the file length (PR #205 review: memory exhaustion in
+ * `ppe-cli run` on a hostile or erroneous artifact). A larger ref is malformed, not truncated.
+ */
+export const MAX_FILE_LINE_REF_LINES = 100_000;
+
+/**
+ * Parses `path:N`, `path:N-M`, `path:N,M,...` (mixed ranges allowed); undefined when malformed,
+ * including a number that is not a safe integer and a ref naming more than MAX_FILE_LINE_REF_LINES
+ * lines (checked before anything is expanded).
+ */
 export function parseFileLineRef(ref: string): ParsedFileLineRef | undefined {
   const trimmed = ref.trim();
   const colon = trimmed.lastIndexOf(':');
@@ -181,12 +193,20 @@ export function parseFileLineRef(ref: string): ParsedFileLineRef | undefined {
   if (!FILE_LINE_SPEC_RE.test(spec)) return undefined;
   const filePath = trimmed.slice(0, colon).replace(/\\/g, '/');
   if (filePath.length === 0) return undefined;
-  const lines: number[] = [];
+  const ranges: Array<readonly [number, number]> = [];
+  let total = 0;
   for (const part of spec.split(',')) {
     const [startText, endText] = part.split('-');
     const start = Number(startText);
     const end = endText === undefined ? start : Number(endText);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return undefined;
     if (start < 1 || end < start) return undefined;
+    total += end - start + 1;
+    if (total > MAX_FILE_LINE_REF_LINES) return undefined;
+    ranges.push([start, end]);
+  }
+  const lines: number[] = [];
+  for (const [start, end] of ranges) {
     for (let line = start; line <= end; line += 1) lines.push(line);
   }
   return { path: filePath, lines };
@@ -200,6 +220,7 @@ function countLines(text: string): number {
 
 export class RepositoryAuthorityResolver implements AuthorityLocatorResolver {
   private readonly repoRoot: string;
+  private realRootCache: string | undefined;
   private readonly gitObjectExists: ((ref: string) => Promise<boolean>) | undefined;
   private readonly artifactStore: PatternProofArtifactStore | undefined;
   private readonly attestations: AttestationAuthority | undefined;
@@ -247,10 +268,24 @@ export class RepositoryAuthorityResolver implements AuthorityLocatorResolver {
     if (absolute !== this.repoRoot && !absolute.startsWith(this.repoRoot + path.sep)) {
       return unresolved('PATH_OUTSIDE_REPO_ROOT');
     }
+    // The lexical check above does not see symlinks, and stat/read follow them (PR #205 review): a
+    // tracked `docs/source -> /outside/authority.txt` must not count as repository-governed evidence.
+    // The real path of the target has to stay below the real path of the root.
+    let real: string;
+    let realRoot: string;
+    try {
+      realRoot = this.realRootCache ??= realpathSync(this.repoRoot);
+      real = realpathSync(absolute);
+    } catch {
+      return unresolved('FILE_NOT_FOUND');
+    }
+    if (real !== realRoot && !real.startsWith(realRoot + path.sep)) {
+      return unresolved('PATH_OUTSIDE_REPO_ROOT');
+    }
     let text: string;
     try {
-      if (!statSync(absolute).isFile()) return unresolved('NOT_A_FILE');
-      text = readFileSync(absolute, 'utf8');
+      if (!statSync(real).isFile()) return unresolved('NOT_A_FILE');
+      text = readFileSync(real, 'utf8');
     } catch {
       return unresolved('FILE_NOT_FOUND');
     }
@@ -331,10 +366,17 @@ export class RepositoryAuthorityResolver implements AuthorityLocatorResolver {
     // The verifier lane may verify but never sign (frozen design sections 4 and 13).
     if ('sign' in authority.verification) return unresolved('VERIFICATION_PROVIDER_CAN_SIGN');
     const binding = ref.trim();
-    const attestation =
-      typeof authority.attestations === 'function'
-        ? await authority.attestations(binding)
-        : authority.attestations.get(binding);
+    let attestation: ArtifactAttestation | undefined;
+    try {
+      attestation =
+        typeof authority.attestations === 'function'
+          ? await authority.attestations(binding)
+          : authority.attestations.get(binding);
+    } catch {
+      // a rejecting lookup backend (transient CAS or network outage) must fail closed as an unresolved
+      // authority, never abort `resolveAll` or the state-machine transition that called it
+      return unresolved('ATTESTATION_LOOKUP_UNAVAILABLE');
+    }
     if (attestation === undefined) return unresolved('ATTESTATION_NOT_FOUND');
     if (attestationSubjectBinding(attestation) !== binding) return unresolved('ATTESTATION_BINDING_MISMATCH');
     const expectedSigner = authority.expectedSignerKeyId ?? authority.verification.keyId;

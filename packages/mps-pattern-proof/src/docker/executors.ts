@@ -22,6 +22,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PatternProofError } from '../errors';
 import { stripLeadingDotSlash, trimTrailingSlashes } from '../internal/linear-text';
 import type { ProbeSpawnError } from './classify';
 import { execFormTokens, instructionShellText, type ParsedInstruction } from './dockerfile-parse';
@@ -181,14 +182,38 @@ function expandSegments(
   }
 }
 
-/** Expands one COPY/ADD source against the context root (honoring .dockerignore). '' means the root. */
+function escapesContext(what: string, value: string): PatternProofError {
+  return new PatternProofError(
+    'PPE_PROBE_BLOCKED',
+    `${what} "${value}" leaves the build context; real Docker rejects it and so does the probe (BLOCKED, nothing is read or written)`,
+    { path: what, details: { value } },
+  );
+}
+
+/** Throws PPE_PROBE_BLOCKED unless `target` is `root` or below it (defense in depth for every write). */
+function assertContained(root: string, target: string, what: string): void {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(resolvedRoot + path.sep)) {
+    throw escapesContext(what, path.relative(resolvedRoot, resolvedTarget));
+  }
+}
+
+/**
+ * Expands one COPY/ADD source against the context root (honoring .dockerignore). '' means the root.
+ * The source is normalized first; one that still climbs out of the context (`../secret.json`,
+ * `a/../../x`) is refused with PPE_PROBE_BLOCKED instead of being read or copied (PR #205 review).
+ */
 export function expandContextSource(
   repoRoot: string,
   source: string,
   rules: readonly DockerignoreRule[],
 ): readonly string[] {
-  const clean = trimTrailingSlashes(stripLeadingDotSlash(source.replace(/\\/g, '/')));
-  if (clean === '' || clean === '.') return Object.freeze(['']);
+  const stripped = trimTrailingSlashes(stripLeadingDotSlash(source.replace(/\\/g, '/')));
+  if (stripped === '' || stripped === '.') return Object.freeze(['']);
+  const clean = path.posix.normalize(stripped);
+  if (clean === '..' || clean.startsWith('../')) throw escapesContext('COPY/ADD source', source);
+  if (clean === '.') return Object.freeze(['']);
   const out: string[] = [];
   expandSegments(repoRoot, '', clean.split('/'), 0, out);
   return Object.freeze(out.filter((relative) => !isDockerignored(rules, relative)));
@@ -231,7 +256,9 @@ export function materializeDockerContext(
         }
         continue;
       }
-      copyEntry(path.join(repoRoot, relative), path.join(contextDir, relative), rules, repoRoot);
+      const destination = path.join(contextDir, relative);
+      assertContained(contextDir, destination, 'COPY/ADD destination in the docker context');
+      copyEntry(path.join(repoRoot, relative), destination, rules, repoRoot);
     }
   }
   const files: string[] = [];
@@ -260,6 +287,7 @@ export function materializeHostLayout(
   for (const copy of copies) {
     const destRelative = hostDestination(workdir, copy.resolvedDest);
     const destAbsolute = path.join(hostRoot, destRelative);
+    assertContained(hostRoot, destAbsolute, 'COPY/ADD destination in the host layout');
     const matches = copy.sources.flatMap((source) => [...expandContextSource(repoRoot, source, rules)]);
     const destIsDirectory =
       copy.dest.endsWith('/') ||
