@@ -4,7 +4,7 @@
   "role": "producer",
   "mode": "writer",
   "branch": "claude/modest-hamilton-ndpu4t",
-  "base_sha": "e617c7b7bb4613b95c6934004201eb14bec89ba0",
+  "base_sha": "1e9d523fd551b940651e835f3194d412dd60409e",
   "ancestry_policy": "descendant_of_base",
   "allowed_paths": [
     "packages/mps-pattern-proof/**",
