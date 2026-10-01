@@ -260,8 +260,9 @@ The statements below were reported to the producing session and were not re-deri
 - `de6551af`: the same reviewer, working from the review bundle with SHA-256
   `0fdf5a33d93c4ec33528a3bf642fe6baa5eeaca0852d3774996f7f3a729d518a`, returned `COLD_VERIFIED` for the stale-base refresh
   and accepted `1e9d523f` as the refreshed design anchor.
-- The final state was verified directly against GitHub (reported to the producing session by the owner), and the unit was
-  classified `PROVEN / MERGED / FINALIZED`.
+- The independent reviewer reported that it directly verified the final state against GitHub (PR #205 merged; `main` at
+  `b40b7ff3`; merge parents `e8baf567` and `de6551af`; tree `a695c30b`) and classified the unit
+  `PROVEN / MERGED / FINALIZED`.
 
 This record does **not** assert that the intermediate commits `7ef11f48`, `d1b091da` and `bc092fa3` each received a separate
 independent cold review. The PPE code of the gated candidate (the `packages/mps-pattern-proof` subtree) is byte-identical to
