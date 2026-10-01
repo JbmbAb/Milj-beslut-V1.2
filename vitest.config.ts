@@ -21,6 +21,18 @@ export default defineConfig({
       '@miljobeslut/mps-policy': path.resolve(__dirname, 'packages/mps-policy/src/index.ts'),
       '@miljobeslut/mps-evolution': path.resolve(__dirname, 'packages/mps-evolution/src/index.ts'),
       '@miljobeslut/mps-canonical': path.resolve(__dirname, 'packages/mps-canonical/src/index.ts'),
+      '@miljobeslut/mps-workspace-observer': path.resolve(
+        __dirname,
+        'packages/mps-workspace-observer/src/index.ts',
+      ),
+      '@miljobeslut/mps-workspace-classifier': path.resolve(
+        __dirname,
+        'packages/mps-workspace-classifier/src/index.ts',
+      ),
+      '@miljobeslut/mps-workspace-harness': path.resolve(
+        __dirname,
+        'packages/mps-workspace-harness/src/index.ts',
+      ),
       '@miljobeslut/mps-benchmark': path.resolve(__dirname, 'packages/mps-benchmark/src/index.ts'),
       '@miljobeslut/mps-control-plane': path.resolve(__dirname, 'packages/mps-control-plane/src/index.ts'),
       '@miljobeslut/mps-console': path.resolve(__dirname, 'packages/mps-console/src/index.ts'),
@@ -263,6 +275,18 @@ export default defineConfig({
               __dirname,
               'packages/mps-knowledge-eval/src/index.ts',
             ),
+            '@miljobeslut/mps-workspace-observer': path.resolve(
+              __dirname,
+              'packages/mps-workspace-observer/src/index.ts',
+            ),
+            '@miljobeslut/mps-workspace-classifier': path.resolve(
+              __dirname,
+              'packages/mps-workspace-classifier/src/index.ts',
+            ),
+            '@miljobeslut/mps-workspace-harness': path.resolve(
+              __dirname,
+              'packages/mps-workspace-harness/src/index.ts',
+            ),
           },
         },
         test: {
@@ -295,6 +319,10 @@ export default defineConfig({
             'packages/mps-knowledge-corpus/**/*.test.ts',
             'packages/mps-knowledge-index/**/*.test.ts',
             'packages/mps-knowledge-eval/**/*.test.ts',
+            // WORKSPACE-LIFECYCLE-CONTROLLER-V1
+            'packages/mps-workspace-observer/**/*.test.ts',
+            'packages/mps-workspace-classifier/**/*.test.ts',
+            'packages/mps-workspace-harness/**/*.test.ts',
           ],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts'],

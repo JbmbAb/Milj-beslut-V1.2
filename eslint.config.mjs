@@ -150,6 +150,82 @@ export default tseslint.config(
     },
   },
   {
+    // WORKSPACE-LIFECYCLE-CONTROLLER-V1 / spec A2 + B1.
+    //
+    // The Observer/Classifier boundary is enforced mechanically, not by convention: the
+    // observation package may not import policy or disposition types, because the earliest
+    // symptom of that boundary eroding is an observer that quietly applies policy. Package
+    // dependencies say the same thing (the observer's package.json does not depend on the
+    // classifier), and a transitive import-graph test asserts it a third time; this rule is the
+    // one that fires while the code is being written.
+    files: ['packages/mps-workspace-observer/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@miljobeslut/mps-workspace-classifier',
+                '@miljobeslut/mps-workspace-classifier/*',
+                '@miljobeslut/mps-workspace-harness',
+                '@miljobeslut/mps-workspace-harness/*',
+                '@miljobeslut/mps-policy',
+                '@miljobeslut/mps-policy/*',
+                '**/mps-workspace-classifier/**',
+                '**/mps-workspace-harness/**',
+              ],
+              message:
+                'Observer packages must not import policy, disposition or harness code (spec A2/B1). Derived fields are allowed only when their raw inputs are in the same artifact.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // WORKSPACE-LIFECYCLE-CONTROLLER-V1 / spec A1 + B1: classify() is a pure function.
+    // No disk, no network, no Git, no clock — enforced here as well as by a runtime test.
+    files: ['packages/mps-workspace-classifier/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'node:fs',
+                'node:fs/*',
+                'fs',
+                'fs/*',
+                'node:child_process',
+                'child_process',
+                'node:net',
+                'net',
+                'node:http',
+                'node:https',
+                'http',
+                'https',
+                '@miljobeslut/mps-workspace-harness',
+                '@miljobeslut/mps-workspace-harness/*',
+              ],
+              message:
+                'The Classifier is a pure function of the snapshot: no disk, no network, no Git, no clock, and it never receives the expectations file (spec A1/B1).',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        { name: 'Date', message: 'The Classifier must not read a clock (spec A1).' },
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'Math', property: 'random', message: 'The Classifier must be deterministic (spec A1).' },
+      ],
+    },
+  },
+  {
     files: ['public/sw.js'],
     languageOptions: {
       globals: {
