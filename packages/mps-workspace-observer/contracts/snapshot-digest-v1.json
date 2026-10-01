@@ -1,0 +1,323 @@
+{
+  "schemaId": "WORKSPACE_SNAPSHOT_DIGEST_V1",
+  "version": "1.0.0",
+  "status": "FROZEN",
+  "ownedBy": "WORKSPACE-LIFECYCLE-CONTROLLER-V1 (observer package)",
+  "normativeAuthority": "workspace-lifecycle-controller-v1.1-SPEC-FREEZE.md A9, A10, A11, A12, A13, B6; Del D item 10",
+  "generatedBy": "scripts/workspace-lifecycle/build-snapshot-digest-vectors.mts",
+  "generatedFrom": "DIGEST_INCLUSION_TABLE in packages/mps-workspace-observer/src/snapshot/SnapshotDigest.ts. The table below is emitted from that constant so the artifact and the code cannot drift; SnapshotDigest.test.ts asserts the two are deep-equal.",
+  "payloadSchemaId": "WORKSPACE_SNAPSHOT_V1",
+  "digestDomain": "SNAPSHOT_V1",
+  "inclusionRule": {
+    "statementSv": "Ett fält får ingå i digesten om och endast om en reimplementation med annan logik, mot oförändrad omvärld, med nödvändighet producerar samma värde.",
+    "statementEn": "A field belongs in the digest iff a reimplementation with different logic, against an unchanged world, necessarily produces the same value.",
+    "statementNote": "One rule, quoted verbatim from the two places the freeze states it: A10 (Swedish) and B6 (English). Neither is a paraphrase of the other.",
+    "questionAnswered": "Has the observed world changed since the disposition was made? NOT: has our interpretation changed.",
+    "namedConsequences": [
+      "graphRelation fails the test and is excluded: it is our mapping of the topology, not the topology.",
+      "mergeBase passes and is kept: Git computes it, so a changed answer means the object graph actually moved.",
+      "observedAt, durations, versions and transcript references are excluded by A9: including them gives every re-observation a new digest, the V2 compare-and-swap can then never succeed, and the predictable response to a condition that always fails is to loosen it."
+    ],
+    "safetyRelevanceGate": "A9 adds a second gate on top of A10: a field that passes the inclusion test may still be excluded when it carries no removal safety and changes constantly. filesystem.entryCount is the worked case — it counts build output, no removal predicate reads it, and it changes on every compile."
+  },
+  "inclusionTable": {
+    "rowCount": 39,
+    "includedCount": 22,
+    "excludedCount": 17,
+    "rows": [
+      {
+        "field": "schemaId",
+        "included": true,
+        "justification": "Domain constant; identical for every conforming implementation."
+      },
+      {
+        "field": "repository.repoRoot",
+        "included": true,
+        "justification": "The observed root, spelled as given. The Observer never rewrites it."
+      },
+      {
+        "field": "repository.commonDir",
+        "included": true,
+        "justification": "git rev-parse --git-common-dir output, resolved by the frozen path rule."
+      },
+      {
+        "field": "repository.canonicalSha",
+        "included": true,
+        "justification": "World fact; the selection rule is frozen, so any implementation selects the same SHA."
+      },
+      {
+        "field": "repository.canonicalShaSource",
+        "included": true,
+        "justification": "Which frozen rule clause supplied the SHA. Determined by the same frozen rule, and a change of source is a change in what the reference actually is."
+      },
+      {
+        "field": "repository.canonicalShaStableAcrossWindow",
+        "included": true,
+        "justification": "BEFORE and AFTER reads of the same ref. A16 makes an unstable reference a property of the observation window that any implementation reading twice would find."
+      },
+      {
+        "field": "repository.canonicalRefUpdatedAtEpochSeconds",
+        "included": true,
+        "justification": "The reflog timestamp of the local tracking ref: a property of the world, not of this run. B9 staleness depends on it, and it changes exactly when the ref is updated."
+      },
+      {
+        "field": "repository.stashes[].stashCommit / firstParent",
+        "included": true,
+        "justification": "Raw reflog fields. A new stash must invalidate a disposition (A22)."
+      },
+      {
+        "field": "repository.stashes[].selector",
+        "included": false,
+        "justification": "stash@{n} is positional, and array order is already digest-covered. Including it would make a push or pop re-key dispositions twice over for one change the entries list already records."
+      },
+      {
+        "field": "repository.stashes[].attribution",
+        "included": false,
+        "justification": "Our parent-to-workspace mapping, not the repository’s. A different correlation rule could attribute differently against an unchanged world."
+      },
+      {
+        "field": "repository.mainWorktreeEntryNames",
+        "included": true,
+        "justification": "Raw directory entry names of the common dir, sorted. Carries the main worktree’s lock and in-progress state without depending on our idea of which names are \"lock-shaped\"."
+      },
+      {
+        "field": "repository.configuration",
+        "included": true,
+        "justification": "The frozen config keys and their values, as git reported them. Changing core.ignorecase changes what a path comparison means."
+      },
+      {
+        "field": "repository.canonicalUnitFiles",
+        "included": false,
+        "justification": "A pure function of the included canonicalSha — ls-tree at a fixed commit cannot change while the commit does not. Registry-adjacent reporting evidence; no WORKTREE_REMOVAL predicate reads it."
+      },
+      {
+        "field": "repository.mutationEvidence",
+        "included": false,
+        "justification": "Whether OUR OBSERVATION mutated anything is a property of the run, not of the observed world. It is a blocker and a report line, not an identity input."
+      },
+      {
+        "field": "workspaces[].caseId / comparisonKey",
+        "included": true,
+        "justification": "Source-invariant identity: caseId is SHA-256 over the comparison key, and the comparison key is a frozen pure function of a path spelling. Adding or removing a discovery source cannot change either."
+      },
+      {
+        "field": "workspaces[].preferredSpelling / spellings",
+        "included": false,
+        "justification": "Both depend on WHICH DISCOVERY SOURCES FIRED, not on the world. The frozen corpus proves it: one candidate carries C:\\lu-clean-final from S3 and C:/lu-clean-final from S1, S2 and S4, and dropping a source would change the preferred spelling while the directory stayed identical. They resolve to the same comparison key, which IS included, so nothing about which directory is meant is lost."
+      },
+      {
+        "field": "workspaces[].observationState",
+        "included": true,
+        "justification": "Whether the world answered. The mapping from outcome and exit code to state is fixed by the surface’s frozen interpretations, so it is not a free choice; and a workspace that stopped answering MUST invalidate a disposition."
+      },
+      {
+        "field": "workspaces[].unknownReason",
+        "included": true,
+        "justification": "TIMEOUT, SPAWN_ERROR, non-zero exit and inconclusive filesystem errors are caused by the world, and a change between them is a change in what the machine did."
+      },
+      {
+        "field": "workspaces[].notAttemptedReason",
+        "included": false,
+        "justification": "A fact about THIS RUN’s scope, not about the world. The same unchanged machine observed under a different scope would produce a different value, so it fails the inclusion test."
+      },
+      {
+        "field": "workspaces[].gitWorktreeList.*",
+        "included": true,
+        "justification": "git worktree list --porcelain fields, verbatim."
+      },
+      {
+        "field": "workspaces[].gitMetadata.registered / gitdirPointer / gitdirTargetPresent / registeredHead / metadataEntryNames",
+        "included": true,
+        "justification": "Raw metadata-directory facts. Entry NAMES rather than our lock/in-progress classification, so the digest does not depend on which names we currently consider lock-shaped."
+      },
+      {
+        "field": "workspaces[].gitMetadata.lockFiles / inProgressMarkers",
+        "included": false,
+        "justification": "Derived subsets of metadataEntryNames under our own pattern list. The raw names are included instead (A24: one authoritative representation)."
+      },
+      {
+        "field": "workspaces[].filesystem.pathPresent / entryType / errorCode / realpath / dotGitType / dotGitAbsent / dotGitPointer",
+        "included": true,
+        "justification": "lstat, realpath and the .git entry kind and pointer: what the OS answered."
+      },
+      {
+        "field": "workspaces[].filesystem.entryCount",
+        "included": false,
+        "justification": "Passes A10 but fails A9’s safety-relevance gate. It counts build output and ignored files, no removal predicate reads it, and it changes on every compile — so including it would guarantee the V2 compare-and-swap never succeeds on an active tree, which is precisely the pressure that gets a CAS condition loosened. The content signals that DO carry removal safety are trackedModificationCount and untrackedEntryCount, both included."
+      },
+      {
+        "field": "workspaces[].branchBinding.*",
+        "included": true,
+        "justification": "for-each-ref fields, verbatim."
+      },
+      {
+        "field": "workspaces[].toplevel",
+        "included": true,
+        "justification": "git rev-parse --show-toplevel output, verbatim."
+      },
+      {
+        "field": "workspaces[].workspaceGitDir / workspaceGitCommonDir / insideWorkTree / workspaceGitExitCode",
+        "included": true,
+        "justification": "The raw R-W-03 answers and the exit code they came with. Carried and covered because A2 permits a derived field only when its raw input is in the same artifact, and repositoryMembership and workspaceGitUnavailable are derivations over exactly these."
+      },
+      {
+        "field": "workspaces[].repositoryMembership / workspaceGitUnavailable",
+        "included": false,
+        "justification": "Derivations over the four raw values above, all of which are included. Excluding them keeps the digest neutral about HOW we resolve a relative common dir — a choice a reimplementation could reasonably make differently against an identical world."
+      },
+      {
+        "field": "workspaces[].toplevelMatchesCandidate",
+        "included": false,
+        "justification": "Derived from toplevel and preferredSpelling by the frozen comparison rule. Including it would be a second representation of one material fact (A24)."
+      },
+      {
+        "field": "workspaces[].symbolicRef",
+        "included": true,
+        "justification": "git symbolic-ref -q HEAD output, verbatim."
+      },
+      {
+        "field": "workspaces[].status.trackedModificationCount / untrackedEntryCount / unmergedCount / branch fields",
+        "included": true,
+        "justification": "Counts and branch headers from porcelain v2. The redaction policy never alters a count, so the frozen bytes and a live read agree."
+      },
+      {
+        "field": "workspaces[].status.pathsElided",
+        "included": false,
+        "justification": "A property of the capture’s truncation threshold, not of the workspace. Counts stay exact when it is true, so nothing is lost."
+      },
+      {
+        "field": "workspaces[].ancestry.*",
+        "included": true,
+        "justification": "headSha, object existence, both ancestry directions, mergeBase and the two commit counts. Git computes each of them; a changed answer means the object graph actually moved. mergeBase is kept for exactly that reason (A10)."
+      },
+      {
+        "field": "workspaces[].declaredUnitFiles",
+        "included": false,
+        "justification": "Registry-adjacent reporting evidence that no removal predicate reads. A change to these files inside a workspace already shows up in trackedModificationCount or untrackedEntryCount, which are included, so exclusion loses no change-detection power."
+      },
+      {
+        "field": "workspaces[].contentEvidence",
+        "included": false,
+        "justification": "Derived from ancestry.allUniqueCommitsPatchEquivalent. A24: the raw fact is already included."
+      },
+      {
+        "field": "workspaces[].graphRelation",
+        "included": false,
+        "justification": "Our mapping of the world, not the world (A10, named explicitly by the spec). A reimplementation could label the same topology differently."
+      },
+      {
+        "field": "workspaces[].proofs",
+        "included": false,
+        "justification": "Presentation of the commands that proved facts already covered. The strings are our formatting."
+      },
+      {
+        "field": "metadata.*",
+        "included": false,
+        "justification": "observedAt, durations, versions, coverage counts, scope and transcript references. A9 keeps them out so that re-observing an untouched machine reproduces the digest."
+      },
+      {
+        "field": "generation",
+        "included": false,
+        "justification": "Omitted entirely rather than excluded: the term has no normative, reproducible definition, and an undefined term makes the digest non-portable (A10)."
+      }
+    ]
+  },
+  "primitivePin": {
+    "packageName": "@miljobeslut/mps-canonical",
+    "packageVersion": "0.1.0",
+    "entryPoint": "DefaultCanonicalJson.toBytes",
+    "format": "JSON",
+    "canonicalBaseSha": "0d7b2bd566b0d5f7c9d27d645c941acd66cb1e85",
+    "sourceSha256": {
+      "packages/mps-canonical/package.json": "0436971e99af1916b2f5a7f9356cc051b2cf746d1f70bb973d6d9b885399dd26",
+      "packages/mps-canonical/src/CanonicalJson.ts": "c5f2af738795ba646d54a300a168c35ed46de7bb00fb822c8316917bea562e3d",
+      "packages/mps-canonical/src/CanonicalString.ts": "ae9a6334b30112b38e9a29990f32beec1b93945757704f710d0550fd845883dd",
+      "packages/mps-canonical/src/CanonicalNumber.ts": "f3bc10ad3340684ca9d68e56e063d59a9426bccb575d14d72d13ef655c758bad",
+      "packages/mps-canonical/src/CanonicalTimestamp.ts": "996d8d3ca3d41c5cc4146c8fce4396f5bd2ef1bdc1685bc2178e35e41d453c59",
+      "packages/mps-canonical/src/CanonicalBinary.ts": "e4aa6fbc97e940989782479e8eeb90d71bef263c1829c960ad876cc025eadb47",
+      "packages/mps-canonical/src/CanonicalRules.ts": "89979c5347d010ae761863238c1d20d2422f285a1ccba0110837b0d9d82822d9"
+    },
+    "behaviourChangeRule": "Any behavioural change in the pinned primitive (including a dependency or runtime change that alters produced bytes) REQUIRES a new schemaId (e.g. CAPTURE_BUNDLE_V2 / SNAPSHOT_V2). A patch or minor version bump of the package never re-uses an existing schemaId. Digests under a schemaId are therefore stable forever or the schemaId is retired.",
+    "copiedFrom": {
+      "file": "contracts/canonicalizer-contract-v1.json",
+      "contractVersion": "1.1.0",
+      "sha256": "577f47aec266eb969e0edf20ede3b8cc3b8cd4b75f89f2cd4fb7981a45096433",
+      "note": "The pin is COPIED from the Phase 0-frozen contract in the read-only authority mirror, never re-derived from this repository. A pin re-derived from the working tree would agree with whatever the working tree contains, which is the check the pin exists to perform. CanonicalDigest.test.ts recomputes the seven file digests and compares them to this map."
+    },
+    "noSecondCanonicaliser": "A11/B6 forbid writing another canonicaliser. V1 contributes exactly two things the primitive lacks: the domain framing below, and the structural payload restrictions P1-P7 that make the primitive’s lossy cases unreachable."
+  },
+  "domainSeparation": {
+    "preimage": "uint32be(len(schemaId)) || schemaId || uint32be(len(payload)) || payload",
+    "schemaIdEncoding": "UTF-8 bytes of the schemaId string (ASCII in practice); len = byte length",
+    "hash": "SHA-256 (FIPS 180-4)",
+    "outputEncoding": "lowercase hexadecimal, 64 characters",
+    "prefixSafety": "Because both components are length-prefixed, a preimage under schemaId X can never be a prefix of, or equal to, a preimage under a different schemaId (e.g. CAPTURE_BUNDLE_V1 vs CAPTURE_BUNDLE_V11).",
+    "schemaIdAcceptance": "A schemaId is a non-empty ASCII string matching ^[A-Z][A-Z0-9_]*$ of at most 64 bytes, used verbatim with no normalization. The domains map is the acceptance whitelist: CAPTURE_BUNDLE_V1 for Phase 0 and SNAPSHOT_V1 for V1. Any other identifier appears only inside vectors that demonstrate domain separation and prefix safety and is not an admissible domain.",
+    "domains": {
+      "CAPTURE_BUNDLE_V1": "Phase 0 captureDigest over redacted capture bundles. V1 never mints one; it recomputes them to verify the frozen corpus at load time.",
+      "SNAPSHOT_V1": "V1 identityDigest over the projection defined by the inclusion table above."
+    },
+    "demonstratedBy": [
+      "SD09 (domain separation)",
+      "SD10 (prefix safety)"
+    ]
+  },
+  "absenceEncoding": {
+    "rule": "An unobserved value is OMITTED from the payload. It is NEVER encoded as an explicit null, and never as a sentinel string or a zero. A value field appears if and only if its observation reached OBSERVED.",
+    "whyItMatters": "The pinned primitive emits an omitted field and an explicit null differently (contract R4), so without one consistent rule two conforming implementations of the same observation produce different bytes. Absence is also load-bearing on its own: \"the metadata directory was read and was empty\" and \"the metadata directory was never read\" are different facts, and a null would erase the difference.",
+    "workedExample": {
+      "absent": {
+        "payload": {},
+        "expectedDigest": "fa3a07e6dd6865d46e0c7ccf772de1370361747edb9c471041a5f1b7eae8e5d0"
+      },
+      "explicitNull": {
+        "payload": {
+          "headSha": null
+        },
+        "expectedDigest": "23d70d6a9c80d3a122941928b976dda837956f7f81fce10f0a9d606a0a9cbfd5"
+      },
+      "differ": true,
+      "note": "Both are valid payloads for the primitive; only the first is a valid V1 projection. The second is published so an implementation that writes null for \"not observed\" fails against a vector instead of producing a plausible wrong digest (SD02)."
+    },
+    "arrays": "An empty array is emitted as [] and is NOT the same as an omitted array (SD01 versus SD03)."
+  },
+  "notCasContentHash": {
+    "statement": "identityDigest is NOT the Mimer CAS content_hash and the two are never aliased or substituted (A13). A snapshot persisted in CAS may legitimately carry both.",
+    "identityDigestAnswers": "Has the world the disposition was grounded on changed?",
+    "contentHashAnswers": "Has the whole canonical content of the persisted artifact changed?",
+    "failureMode": "content_hash (BLAKE3, over a signed envelope) covers the entire envelope including provenance and timestamps, which A9 deliberately keeps OUT of identityDigest. Used as the V2 compare-and-swap condition it would differ between two observations of an untouched machine, so V2 could never delete anything, and the certain response to a condition that always fails is that the condition gets loosened. The CAS condition uses identityDigest, never the CAS reference.",
+    "differences": [
+      "algorithm: SHA-256 here, BLAKE3 for content_hash",
+      "framing: length-prefixed schemaId domain here, {_schema,_data} envelope for content_hash",
+      "question: world identity here, persisted-artifact identity for content_hash"
+    ]
+  },
+  "excludedUndefinedTerms": [
+    {
+      "term": "generation",
+      "rule": "Omitted entirely rather than excluded-with-a-value. The term has no normative, reproducible definition; an undefined term makes the digest non-portable, so A10 requires it to be defined or struck. It is struck. It appears in no payload, no projection and no artifact field."
+    }
+  ],
+  "testVectors": {
+    "file": "snapshot-digest-test-vectors-v1.json",
+    "sha256": "b8e33d4ce312fdab309a3fd13ead537f9ef2c63647304802ea343f3f069b9707",
+    "conformanceVectorCount": 13,
+    "classesCovered": [
+      "absent field versus explicit null (SD01, SD02)",
+      "empty list versus omitted list (SD01, SD03)",
+      "a with ring and o with diaeresis in a path (SD04)",
+      "the same path in different case (SD04, SD05)",
+      "integers at the safe-integer boundary (SD06)",
+      "negative zero collapsing to 0 (SD07)",
+      "U+2028 and U+2029 emitted raw (SD08)",
+      "domain separation (SD09)",
+      "prefix safety (SD10)",
+      "a workspace whose observation state is UNKNOWN (SD11)",
+      "unknownReason is digest-covered (SD11, SD12)",
+      "observationState is digest-covered, notAttemptedReason is not (SD11, SD13)"
+    ],
+    "reviewOwner": "Vectors prove conformance, not correctness. Review of the vector SET belongs to the independent adversarial verifier and is an item in the handover (A12)."
+  },
+  "digestRule": "snapshotDigestContractDigest = lowercase hex SHA-256 of the exact bytes of this file as versioned.",
+  "selfDigestEncoding": "UTF-8 without a byte-order mark, LF line endings, exactly one trailing LF. Digests are taken over those exact bytes; no re-serialization, re-indentation or line-ending conversion may precede hashing."
+}
