@@ -69,6 +69,9 @@
       "@miljobeslut/mps-knowledge-corpus": ["./packages/mps-knowledge-corpus/src/index.ts"],
       "@miljobeslut/mps-knowledge-index": ["./packages/mps-knowledge-index/src/index.ts"],
       "@miljobeslut/mps-knowledge-eval": ["./packages/mps-knowledge-eval/src/index.ts"],
+      "@miljobeslut/mps-knowledge-control-plane-adapter": [
+        "./packages/mps-knowledge-control-plane-adapter/src/index.ts"
+      ],
       "@miljobeslut/mps-policy": ["./packages/mps-policy/src/index.ts"],
       "@miljobeslut/mps-policy/*": ["./packages/mps-policy/*"],
       "@miljobeslut/mps-promotion": ["./packages/mps-promotion/src/index.ts"],
