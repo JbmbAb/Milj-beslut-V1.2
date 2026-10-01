@@ -1,0 +1,75 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-PROVEN-DOC-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "claude/modest-hamilton-ndpu4t",
+  "base_sha": "b40b7ff3bc0d8cc916ea7e456760b1e720433385",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-PROVEN.md",
+    "docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY.md",
+    "governance/devgov/units/pattern-proof-engine-01-v1-bootstrap-red-only-proven-doc-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**",
+    "src/**",
+    "tests/**",
+    "components/**",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "docs/architecture/PATTERN-PROOF-ENGINE-01-DESIGN-V1-FROZEN.md",
+    "docs/architecture/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-DESIGN-FROZEN.md",
+    "docs/architecture/audits/evidence/**",
+    "governance/devgov/units/pattern-proof-engine-01-v1-bootstrap-red-only-v1.json"
+  ],
+  "required_red": [
+    {
+      "id": "proven-record-binds-ppe-bootstrap-red-only-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst crypto = require('node:crypto');\nconst V = (m) => { console.error('PPE_PROVEN_DOC_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('PPE_PROVEN_DOC_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-PROVEN.md\";\n  const o = \"docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  let ob;\n  try { ob = fs.readFileSync(o); }\n  catch (e) { H('cannot read ' + o + ': ' + (e && e.message)); }\n  const keep = 75666;\n  const want = \"875600635cc1921f0ec470a844460bdcf98c1cb735b2e98f916fc387d4c2320e\";\n  if (ob.length <= keep) V('the candidate record was not extended (' + ob.length + ' bytes, base has ' + keep + ')');\n  const got = crypto.createHash('sha256').update(ob.subarray(0, keep)).digest('hex');\n  if (got !== want) V('the candidate record\\'s existing text changed: prefix sha256 ' + got + ' != ' + want);\n  const tail = ob.subarray(keep).toString('utf8');\n  if (!tail.includes(\"1e9d523fd551b940651e835f3194d412dd60409e\")) V('the appended section does not name the refreshed base anchor');\n  if (/\\*\\*Final state:\\*\\*\\s*PROVEN/.test(ob.toString('utf8'))) V('the candidate record must not carry a PROVEN final state; that is this separate record');\n  console.log('PPE_PROVEN_DOC_OK: record binds all required evidence; merge tree == candidate tree ' + mt + '; candidate record kept its ' + keep + ' bytes and gained ' + (ob.length - keep));\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"**Promotion PR:** #205\",\"**Scope:** `BOOTSTRAP_RED_ONLY`\",\"`FULL_PATTERN_PROOF` is not proven and is not claimed.\",\"`de6551af90451647df383ae9ddd4d593a8fa88c5`\",\"`b40b7ff3bc0d8cc916ea7e456760b1e720433385`\",\"`a695c30be51aca9f6473a0de3ca4165c3e003917`\",\"e8baf567ea218d275f8e3d9984aadaa5a69446bd\",\"1e9d523fd551b940651e835f3194d412dd60409e\",\"e617c7b7bb4613b95c6934004201eb14bec89ba0\",\"903f648b0918f7e0be72ee44e9deb5b68cd25671\",\"36839859536\",\"36840591032\",\"36747167246\",\"36767326235\",\"36768293778\",\"36776030683\",\"36780265080\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN and controller-owned packs verified for exact candidate SHA\",\"2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5\",\"57f2e7f5b7c071d941b27e94476b3bbaad47edf68ae0e805a6862a7417278366\",\"Squash and rebase were not used.\",\"ppe-engine-absent\",\"ppe-package-unregistered\",\"ppe-fixture-suite\",\"ppe-package-lint-clean\",\"ppe-red-probe-builder-is-red\",\"ppe-red-probe-production-base-is-red\",\"js/polynomial-redos\",\"`98cac708`\",\"88ec11d5\",\"CTL-REPO NOT_ALLOWED\",\"## Findings that are open, deferred or not shown (explicitly not resolved)\",\"Nothing in this section is resolved by the PROVEN state.\",\"### Deferred to the `FULL_PATTERN_PROOF` unit\",\"### Not reproduced, and not shown to be bootstrap-reachable\",\"4149819214\",\"4149941398\",\"4153569027\",\"4153569036\",\"4153569039\",\"570559240c5e96a7f2bdcc0f16a5813dea7e3beb2b39fe1e706d3dec9faeef39\",\"0fdf5a33d93c4ec33528a3bf642fe6baa5eeaca0852d3774996f7f3a729d518a\",\"## Non-claims\",\"resolve any finding in the section \\\"Findings that are open, deferred or not shown\\\"\",\"## Final disposition\",\"`PATTERN-PROOF-ENGINE-01 V1 BOOTSTRAP_RED_ONLY = PROVEN`\"]"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "proven-record-binds-ppe-bootstrap-red-only-evidence",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst crypto = require('node:crypto');\nconst V = (m) => { console.error('PPE_PROVEN_DOC_VIOLATION: ' + m); process.exit(1); };\nconst H = (m) => { console.error('PPE_PROVEN_DOC_HARNESS_ERROR: ' + m); process.exit(2); };\ntry {\n  const p = \"docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-PROVEN.md\";\n  const o = \"docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY.md\";\n  let s;\n  try { s = fs.readFileSync(p, 'utf8'); }\n  catch (e) { if (e && e.code === 'ENOENT') V('the PROVEN record does not exist on this tree: ' + p); H('cannot read ' + p + ': ' + (e && e.message)); }\n  const req = JSON.parse(process.argv[1]);\n  if (!Array.isArray(req) || req.length === 0) H('no required bindings supplied');\n  const missing = req.filter((x) => !s.includes(x));\n  if (missing.length > 0) V('the PROVEN record lacks required bindings: ' + missing.join(' | '));\n  const grab = (label) => { const m = new RegExp('\\\\*\\\\*' + label + ':\\\\*\\\\* `([0-9a-f]{40})`').exec(s); return m && m[1]; };\n  const mt = grab('Merge tree'), ct = grab('Candidate tree');\n  if (!mt || !ct) V('merge tree / candidate tree are not both stated as 40-hex SHAs');\n  if (mt !== ct) V('merge tree ' + mt + ' differs from candidate tree ' + ct + ': finalization is blocked');\n  let ob;\n  try { ob = fs.readFileSync(o); }\n  catch (e) { H('cannot read ' + o + ': ' + (e && e.message)); }\n  const keep = 75666;\n  const want = \"875600635cc1921f0ec470a844460bdcf98c1cb735b2e98f916fc387d4c2320e\";\n  if (ob.length <= keep) V('the candidate record was not extended (' + ob.length + ' bytes, base has ' + keep + ')');\n  const got = crypto.createHash('sha256').update(ob.subarray(0, keep)).digest('hex');\n  if (got !== want) V('the candidate record\\'s existing text changed: prefix sha256 ' + got + ' != ' + want);\n  const tail = ob.subarray(keep).toString('utf8');\n  if (!tail.includes(\"1e9d523fd551b940651e835f3194d412dd60409e\")) V('the appended section does not name the refreshed base anchor');\n  if (/\\*\\*Final state:\\*\\*\\s*PROVEN/.test(ob.toString('utf8'))) V('the candidate record must not carry a PROVEN final state; that is this separate record');\n  console.log('PPE_PROVEN_DOC_OK: record binds all required evidence; merge tree == candidate tree ' + mt + '; candidate record kept its ' + keep + ' bytes and gained ' + (ob.length - keep));\n} catch (e) { H('unexpected: ' + (e && e.stack ? e.stack : e)); }\n",
+        "[\"**Final state:** PROVEN\",\"**Promotion PR:** #205\",\"**Scope:** `BOOTSTRAP_RED_ONLY`\",\"`FULL_PATTERN_PROOF` is not proven and is not claimed.\",\"`de6551af90451647df383ae9ddd4d593a8fa88c5`\",\"`b40b7ff3bc0d8cc916ea7e456760b1e720433385`\",\"`a695c30be51aca9f6473a0de3ca4165c3e003917`\",\"e8baf567ea218d275f8e3d9984aadaa5a69446bd\",\"1e9d523fd551b940651e835f3194d412dd60409e\",\"e617c7b7bb4613b95c6934004201eb14bec89ba0\",\"903f648b0918f7e0be72ee44e9deb5b68cd25671\",\"36839859536\",\"36840591032\",\"36747167246\",\"36767326235\",\"36768293778\",\"36776030683\",\"36780265080\",\"DEV-GOV-V0 / trusted-execution\",\"Trusted RED/GREEN and controller-owned packs verified for exact candidate SHA\",\"2c9ef79592495aba9dd2ddc7913e91f48b6f233b4aa35b9573848dfadec246d5\",\"57f2e7f5b7c071d941b27e94476b3bbaad47edf68ae0e805a6862a7417278366\",\"Squash and rebase were not used.\",\"ppe-engine-absent\",\"ppe-package-unregistered\",\"ppe-fixture-suite\",\"ppe-package-lint-clean\",\"ppe-red-probe-builder-is-red\",\"ppe-red-probe-production-base-is-red\",\"js/polynomial-redos\",\"`98cac708`\",\"88ec11d5\",\"CTL-REPO NOT_ALLOWED\",\"## Findings that are open, deferred or not shown (explicitly not resolved)\",\"Nothing in this section is resolved by the PROVEN state.\",\"### Deferred to the `FULL_PATTERN_PROOF` unit\",\"### Not reproduced, and not shown to be bootstrap-reachable\",\"4149819214\",\"4149941398\",\"4153569027\",\"4153569036\",\"4153569039\",\"570559240c5e96a7f2bdcc0f16a5813dea7e3beb2b39fe1e706d3dec9faeef39\",\"0fdf5a33d93c4ec33528a3bf642fe6baa5eeaca0852d3774996f7f3a729d518a\",\"## Non-claims\",\"resolve any finding in the section \\\"Findings that are open, deferred or not shown\\\"\",\"## Final disposition\",\"`PATTERN-PROOF-ENGINE-01 V1 BOOTSTRAP_RED_ONLY = PROVEN`\"]"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [
+        2
+      ],
+      "timeout_ms": 30000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "claude/modest-hamilton-ndpu4t",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}
