@@ -1,0 +1,56 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "SEMANTIC-ABSENCE-AUTONOMY-LEDGER-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "governance/semantic-absence-autonomy-ledger-v1",
+  "base_sha": "406842dd21e69f779c412fc2ae814616ac840ba8",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "governance/control-plane/semantic-absence-falsification-v1.json",
+    "governance/control-plane/schema/semantic-absence-falsification-v1.schema.json",
+    "governance/control-plane/autonomy-semantic-absence-ledger-v1.json",
+    "governance/devgov/units/semantic-absence-autonomy-ledger-v1.json"
+  ],
+  "forbidden_paths": [
+    ".github/workflows/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "prisma/**",
+    "packages/**",
+    "server/**"
+  ],
+  "required_red": [
+    {
+      "id": "semantic-absence-policy-and-autonomy-ledger",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const policyPath='governance/control-plane/semantic-absence-falsification-v1.json';const ledgerPath='governance/control-plane/autonomy-semantic-absence-ledger-v1.json';if(!fs.existsSync(policyPath)||!fs.existsSync(ledgerPath)){console.error('SEMANTIC_ABSENCE_CONTRACT_MISSING');process.exit(1)};const p=JSON.parse(fs.readFileSync(policyPath,'utf8'));const l=JSON.parse(fs.readFileSync(ledgerPath,'utf8'));const dispositions=['UNRESOLVED','DERIVABLE','SEMANTIC_DUPLICATE','MECHANISM_ONLY','WRONG_ABSTRACTION_LEVEL','IRREDUCIBLE_SEMANTIC','BLOCKED_BY_PRECONDITION'];const rows=['AUTO-L0-L6-SCALE','AUTO-CEILING-CONSTRAINT','AUTONOMY-POLICY','AUTONOMY-DECISION','GOVERNED-ACTION-GATE-DECISION','GATE-CONSUMPTION','ACTION-DEFINITION-REGISTRY'];if(JSON.stringify(p.allowed_dispositions)!==JSON.stringify(dispositions))throw new Error('DISPOSITION_SET_MISMATCH');if(JSON.stringify(p.stop_questions.map(x=>x.id))!==JSON.stringify(['SA-1','SA-2','SA-3','SA-4','SA-5','SA-6']))throw new Error('STOP_QUESTIONS_MISMATCH');if(JSON.stringify(l.rows.map(x=>x.concept_id))!==JSON.stringify(rows))throw new Error('LEDGER_ROWS_MISMATCH');if(l.rows.some(x=>x.disposition!=='UNRESOLVED'))throw new Error('PREDETERMINED_LEDGER_OUTCOME');if(!l.known_blockers.some(x=>x.id==='AUTO-PRE-01'&&x.description.includes('not evaluated')))throw new Error('CONSTRAINT_BLOCKER_MISSING')"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha"
+    }
+  ],
+  "required_green": [
+    {
+      "id": "semantic-absence-policy-and-autonomy-ledger",
+      "command": "node",
+      "args": [
+        "-e",
+        "const fs=require('node:fs');const policyPath='governance/control-plane/semantic-absence-falsification-v1.json';const ledgerPath='governance/control-plane/autonomy-semantic-absence-ledger-v1.json';if(!fs.existsSync(policyPath)||!fs.existsSync(ledgerPath)){console.error('SEMANTIC_ABSENCE_CONTRACT_MISSING');process.exit(1)};const p=JSON.parse(fs.readFileSync(policyPath,'utf8'));const l=JSON.parse(fs.readFileSync(ledgerPath,'utf8'));const dispositions=['UNRESOLVED','DERIVABLE','SEMANTIC_DUPLICATE','MECHANISM_ONLY','WRONG_ABSTRACTION_LEVEL','IRREDUCIBLE_SEMANTIC','BLOCKED_BY_PRECONDITION'];const rows=['AUTO-L0-L6-SCALE','AUTO-CEILING-CONSTRAINT','AUTONOMY-POLICY','AUTONOMY-DECISION','GOVERNED-ACTION-GATE-DECISION','GATE-CONSUMPTION','ACTION-DEFINITION-REGISTRY'];if(JSON.stringify(p.allowed_dispositions)!==JSON.stringify(dispositions))throw new Error('DISPOSITION_SET_MISMATCH');if(JSON.stringify(p.stop_questions.map(x=>x.id))!==JSON.stringify(['SA-1','SA-2','SA-3','SA-4','SA-5','SA-6']))throw new Error('STOP_QUESTIONS_MISMATCH');if(JSON.stringify(l.rows.map(x=>x.concept_id))!==JSON.stringify(rows))throw new Error('LEDGER_ROWS_MISMATCH');if(l.rows.some(x=>x.disposition!=='UNRESOLVED'))throw new Error('PREDETERMINED_LEDGER_OUTCOME');if(!l.known_blockers.some(x=>x.id==='AUTO-PRE-01'&&x.description.includes('not evaluated')))throw new Error('CONSTRAINT_BLOCKER_MISSING')"
+      ],
+      "required_head": "candidate_sha"
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "governance/semantic-absence-autonomy-ledger-v1",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

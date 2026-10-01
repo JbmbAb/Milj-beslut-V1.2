@@ -1,0 +1,65 @@
+{
+  "schema_version": "semantic-absence-falsification-v1",
+  "policy_id": "SEMANTIC-ABSENCE-FALSIFICATION-01",
+  "status": "ACTIVE",
+  "purpose": "Prevent new normative concepts from entering Mimer until semantic absence has been falsified against existing canonical semantics.",
+  "default_disposition": "UNRESOLVED",
+  "allowed_dispositions": [
+    "UNRESOLVED",
+    "DERIVABLE",
+    "SEMANTIC_DUPLICATE",
+    "MECHANISM_ONLY",
+    "WRONG_ABSTRACTION_LEVEL",
+    "IRREDUCIBLE_SEMANTIC",
+    "BLOCKED_BY_PRECONDITION"
+  ],
+  "normative_rules": [
+    "A proposed normative concept MUST remain UNRESOLVED until every stop question has an evidence-backed answer.",
+    "No implementation, schema, artifact family or enum MAY be justified by a predicted disposition.",
+    "DERIVABLE means the proposed semantics can be deterministically obtained from existing canonical artifacts, policies or verified closures without adding irreducible meaning.",
+    "SEMANTIC_DUPLICATE means existing canonical semantics already express the same normative meaning, even if representation or naming differs.",
+    "MECHANISM_ONLY means the proposal is an implementation or verification mechanism and MUST NOT be promoted to a new normative semantic concept solely because it is useful operationally.",
+    "WRONG_ABSTRACTION_LEVEL means the proposal generalizes beyond demonstrated use cases or specializes semantics that belong at an existing broader boundary.",
+    "IRREDUCIBLE_SEMANTIC is permitted only after DERIVABLE, SEMANTIC_DUPLICATE, MECHANISM_ONLY and WRONG_ABSTRACTION_LEVEL have been falsified with repository evidence.",
+    "BLOCKED_BY_PRECONDITION means evaluation cannot proceed because an existing constitutional or verification guarantee is missing, ambiguous or contradicted.",
+    "A proposal that changes, weakens, depends on, or silently assumes an existing constitutional guarantee MUST stop as BLOCKED_BY_PRECONDITION until that guarantee is explicitly proved or amended.",
+    "Unknown, absent or unverified evidence MUST NOT be interpreted as satisfying semantic absence or a positive permission."
+  ],
+  "stop_questions": [
+    {
+      "id": "SA-1",
+      "question": "Does an existing canonical artifact, binding, invariant, policy or verified closure already express this meaning?"
+    },
+    {
+      "id": "SA-2",
+      "question": "Can the proposed meaning be deterministically derived from existing canonical inputs without introducing new normative state?"
+    },
+    {
+      "id": "SA-3",
+      "question": "Is the proposal semantically duplicate with an existing concept despite different naming or representation?"
+    },
+    {
+      "id": "SA-4",
+      "question": "Is the proposal only a mechanism, cache, projection, verifier output or operational convenience rather than irreducible semantics?"
+    },
+    {
+      "id": "SA-5",
+      "question": "Is the proposal at the wrong abstraction level, including premature generalization before a second demonstrated use case?"
+    },
+    {
+      "id": "SA-6",
+      "question": "Does the proposal change, weaken, depend on, or silently assume an existing constitutional or verification guarantee?"
+    }
+  ],
+  "decision_requirements": {
+    "required_evidence": [
+      "repository_paths",
+      "existing_semantics_examined",
+      "falsification_argument",
+      "known_counterexamples",
+      "preconditions"
+    ],
+    "forbid_predetermined_outcome": true,
+    "require_explicit_unresolved_state": true
+  }
+}
