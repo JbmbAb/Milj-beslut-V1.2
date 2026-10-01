@@ -1,0 +1,26 @@
+{
+  "program": "MIMER SOVEREIGN AUTONOMY PROGRAM",
+  "primary_focus": "LU_LOKALISERINGSUTREDNING",
+  "secondary_focus": "C_ANMALAN",
+  "current_phase": "PILOT_READINESS",
+  "verified_core_delta": "NONE",
+  "metric_target": {
+    "LU_MANUAL_INTERVENTION_COUNT": 0,
+    "LU_CLEAN_INSTALL_BLOCKERS": 0
+  },
+  "active_work": [
+    "LU_CANONICAL_CONVERGENCE",
+    "PROOF_INFRASTRUCTURE",
+    "MIGRATION_RECONCILIATION",
+    "MANUAL_INTERVENTION_REDUCTION"
+  ],
+  "parked_until_evidence": [
+    "MISSION_CORE_ARTIFACT",
+    "NEW_AUTHORITY_TYPE",
+    "NEW_DECISION_TYPE",
+    "GENERAL_OUTCOME_TYPE",
+    "GENERAL_GAO_ONTOLOGY",
+    "MIMERLM_TRAINING"
+  ],
+  "strict_system_rule": "Foundation bestämmer vad som är sant och reproducerbart. Autonomy bestämmer vad Mimer får göra. Cognition bestämmer hur Mimer försöker tänka. Prove semantic absence before creating a new normative concept."
+}
