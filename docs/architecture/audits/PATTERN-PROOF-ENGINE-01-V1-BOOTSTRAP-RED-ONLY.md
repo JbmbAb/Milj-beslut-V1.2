@@ -703,3 +703,18 @@ This record remains CANDIDATE until the exact candidate SHA receives `DEV-GOV-V0
 every declared RED and GREEN command, is merged with a merge commit, and the merge tree is verified equal to the gated
 candidate tree. With no independent cold audit, this unit is not asserted PROVEN by this record alone even after the
 gate passes. A `PROVEN` record, if any, is a separate file introduced by its own unit.
+
+## 20. Post-finalization correction: the frozen base anchor of the shipped unit definition
+
+Appended by `PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-PROVEN-DOC-V1`. Nothing above this section was edited; that unit
+pins it with a prefix hash, so the line numbers cited above and by the evidence under `evidence/ppe-v1/` are unchanged.
+
+- This record's header, §0 item 7 and §13 name `e617c7b7bb4613b95c6934004201eb14bec89ba0` as the frozen base. That was the
+  `base_sha` of the candidates up to and including `903f648b` (trusted runs `36747167246`, `36767326235` and
+  `36776030683`).
+- After `main` moved to `e8baf567ea218d275f8e3d9984aadaa5a69446bd`, the base was refreshed. The `base_sha` carried by the
+  unit definition at the gated and merged candidate `de6551af90451647df383ae9ddd4d593a8fa88c5` is
+  `1e9d523fd551b940651e835f3194d412dd60409e`: the design anchor refreshed onto `main` (a merge of `e617c7b7` and `e8baf567`,
+  with no PPE paths). The trusted RED proofs of the final run (`36839859536`, gate `36840591032`) executed at that base.
+- The status line at the top of this record, `CANDIDATE / NOT YET PROVEN`, describes the record as it was written. The final
+  state is carried by the separate record `PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-PROVEN.md`, as §19 requires.
