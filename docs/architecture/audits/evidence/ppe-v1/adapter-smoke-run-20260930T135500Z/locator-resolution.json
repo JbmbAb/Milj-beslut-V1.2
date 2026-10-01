@@ -1,0 +1,16 @@
+{
+  "checkedAt": "2026-09-30T15:00:08Z",
+  "repoRoot": "checkout at 306f1b56",
+  "artifacts": [
+    "discovery.json (findings)",
+    "dependency-graph.json (nodes, edges)",
+    "red-plan.json (probe authorityEvidence)"
+  ],
+  "total": 191,
+  "byKind": {
+    "file_line": 184,
+    "runtime_result": 2,
+    "git_object": 5
+  },
+  "unresolved": []
+}

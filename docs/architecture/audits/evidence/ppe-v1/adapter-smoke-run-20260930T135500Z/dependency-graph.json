@@ -1,0 +1,299 @@
+{
+  "nodes": [
+    { "id": "Dockerfile:stage:base", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:1-13", "note": "FROM node:22-alpine AS base; apk deps, puppeteer env, appuser, WORKDIR /app" },
+      { "kind": "git_object", "ref": "e3f3e4f30e2fc846dc963a12bc74d1fdeddade05:Dockerfile", "note": "Dockerfile at the run base SHA; git diff base..HEAD for Dockerfile is empty, so cited lines are current" }
+    ] },
+    { "id": "Dockerfile:stage:builder", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:16", "note": "FROM base AS builder" }
+    ] },
+    { "id": "Dockerfile:builder:copy-manifests", "kind": "docker-copy-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:17-18", "note": "COPY package*.json ./ and COPY tsconfig.json ./ -- the only files present before the install" }
+    ] },
+    { "id": "Dockerfile:builder:npm-ci", "kind": "docker-install-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:20", "note": "RUN npm ci --legacy-peer-deps, without --ignore-scripts" }
+    ] },
+    { "id": "Dockerfile:builder:copy-source", "kind": "docker-copy-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:26", "note": "COPY . . -- first COPY that brings scripts/ into the stage, after the install" }
+    ] },
+    { "id": "Dockerfile:builder:npm-run-build", "kind": "docker-run-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:29", "note": "RUN npm run build" }
+    ] },
+    { "id": "Dockerfile:stage:production-base", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:32-33", "note": "FROM base AS production-base; NODE_ENV=production" }
+    ] },
+    { "id": "Dockerfile:production-base:copy-manifests", "kind": "docker-copy-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:35", "note": "COPY package*.json ./ -- only files present before the install" }
+    ] },
+    { "id": "Dockerfile:production-base:npm-ci-omit-dev", "kind": "docker-install-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:37", "note": "RUN npm ci --omit=dev --legacy-peer-deps, without --ignore-scripts" }
+    ] },
+    { "id": "Dockerfile:production-base:copy-from-builder", "kind": "docker-copy-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:40-50", "note": "COPY prisma and COPY --from=builder of .prisma, @prisma/client, dist, server, src, app, config, types, stubs, root *.ts; scripts/ is not among them" }
+    ] },
+    { "id": "Dockerfile:stage:web", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:58-61", "note": "FROM production-base AS web; CMD npm start" }
+    ] },
+    { "id": "Dockerfile:stage:gdpr-worker", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:64-65", "note": "FROM production-base AS gdpr-worker" }
+    ] },
+    { "id": "Dockerfile:stage:search-indexer-worker", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:68-69", "note": "FROM production-base AS search-indexer-worker" }
+    ] },
+    { "id": "Dockerfile:stage:domstol-rss-worker", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:72-73", "note": "FROM production-base AS domstol-rss-worker" }
+    ] },
+    { "id": ".dockerignore", "kind": "docker-ignore-file", "evidence": [
+      { "kind": "file_line", "ref": ".dockerignore:1-20", "note": "scripts/ is not excluded; only .git, .github, node_modules, build outputs, env files, logs and agent dirs are" }
+    ] },
+    { "id": "package.json:scripts.postinstall", "kind": "npm-lifecycle-script", "evidence": [
+      { "kind": "file_line", "ref": "package.json:46", "note": "postinstall: node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs; the only install-time lifecycle hook" },
+      { "kind": "git_object", "ref": "e3f3e4f30e2fc846dc963a12bc74d1fdeddade05:package.json", "note": "package.json at the run base SHA; git diff base..HEAD for package.json is empty" }
+    ] },
+    { "id": "package.json:scripts.build", "kind": "npm-script", "evidence": [
+      { "kind": "file_line", "ref": "package.json:11", "note": "build: vite build" }
+    ] },
+    { "id": "package.json:scripts.start", "kind": "npm-script", "evidence": [
+      { "kind": "file_line", "ref": "package.json:8", "note": "start: node --import tsx server/index.ts" }
+    ] },
+    { "id": "scripts/postinstall-prisma-generate.mjs", "kind": "script-file", "evidence": [
+      { "kind": "file_line", "ref": "scripts/postinstall-prisma-generate.mjs:8-17", "note": "dummy DATABASE_URL fallback, spawnSync npx prisma generate, exit with child status" }
+    ] },
+    { "id": "scripts/copy-cesium-assets.cjs", "kind": "script-file", "evidence": [
+      { "kind": "file_line", "ref": "scripts/copy-cesium-assets.cjs:4-14", "note": "source path node_modules/cesium/Build/Cesium; exit 1 when missing" },
+      { "kind": "file_line", "ref": "scripts/copy-cesium-assets.cjs:20-33", "note": "copies Assets, Widgets, Workers, ThirdParty into public/cesium" }
+    ] },
+    { "id": "package.json:devDependencies.prisma", "kind": "npm-dev-dependency", "evidence": [
+      { "kind": "file_line", "ref": "package.json:142", "note": "devDependencies block start" },
+      { "kind": "file_line", "ref": "package.json:169", "note": "prisma: ^7.9.1 (CLI), omitted by --omit=dev" }
+    ] },
+    { "id": "package.json:dependencies.@prisma/client", "kind": "npm-dependency", "evidence": [
+      { "kind": "file_line", "ref": "package.json:106", "note": "@prisma/client: ^7.9.1 runtime dependency" }
+    ] },
+    { "id": "package.json:dependencies.cesium", "kind": "npm-dependency", "evidence": [
+      { "kind": "file_line", "ref": "package.json:112", "note": "cesium: ^1.144.0 runtime dependency" }
+    ] },
+    { "id": "docker-compose.staging.yml:services.app.build", "kind": "declared-build-contract", "evidence": [
+      { "kind": "file_line", "ref": "docker-compose.staging.yml:5-8", "note": "build: context ., dockerfile Dockerfile, target web -- declared full-stack staging build" }
+    ] },
+    { "id": "cloudbuild.yaml:steps.build-web", "kind": "declared-build-contract", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:43-54", "note": "docker build -f Dockerfile --target=web" },
+      { "kind": "file_line", "ref": "cloudbuild.yaml:10", "note": "comment: Dockerfile targets that must match: web, gdpr-worker, search-indexer-worker, domstol-rss-worker" }
+    ] },
+    { "id": "cloudbuild.yaml:steps.build-gdpr-worker", "kind": "declared-build-contract", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:56-67", "note": "docker build -f Dockerfile --target=gdpr-worker" }
+    ] },
+    { "id": "cloudbuild.yaml:steps.build-search-worker", "kind": "declared-build-contract", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:69-80", "note": "docker build -f Dockerfile --target=search-indexer-worker" }
+    ] },
+    { "id": "cloudbuild.yaml:steps.build-domstol-worker", "kind": "declared-build-contract", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:82-93", "note": "docker build -f Dockerfile --target=domstol-rss-worker" }
+    ] },
+    { "id": "Dockerfile.gcp:stage:builder", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:17-28", "note": "builder: prisma inputs copied first, dummy DATABASE_URL, npm ci --ignore-scripts, explicit npx prisma generate" }
+    ] },
+    { "id": "Dockerfile.gcp:builder:npm-ci-ignore-scripts", "kind": "docker-install-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:26", "note": "RUN npm ci --legacy-peer-deps --no-audit --prefer-offline --ignore-scripts (postinstall never runs)" }
+    ] },
+    { "id": "Dockerfile.gcp:stage:production", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:36-54", "note": "production: same pattern with --omit=dev --ignore-scripts, tsx assertion, explicit prisma generate" }
+    ] },
+    { "id": "Dockerfile.gcp:production:npm-ci-ignore-scripts", "kind": "docker-install-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:51-54", "note": "RUN npm ci --omit=dev ... --ignore-scripts && test -f node_modules/.bin/tsx && npx prisma generate" }
+    ] },
+    { "id": "Dockerfile.gcp:production:copy-scripts", "kind": "docker-copy-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:63", "note": "COPY --from=builder /app/scripts ./scripts, after the install" }
+    ] },
+    { "id": ".github/workflows/deploy-gcp.yml:build-docker-image", "kind": "deploy-path", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-gcp.yml:89-97", "note": "docker build -f Dockerfile.gcp --target production --build-arg CACHEBUST" },
+      { "kind": "file_line", "ref": ".github/workflows/deploy-gcp.yml:14-19", "note": "triggers: workflow_run on staging branch after CI, workflow_dispatch" },
+      { "kind": "file_line", "ref": ".github/workflows/deploy-gcp.yml:3-12", "note": "dual-track A header: GCP = staging/pilot; main/master do not trigger" }
+    ] },
+    { "id": "docker-compose.prod.yml:services.app.build", "kind": "deploy-path", "evidence": [
+      { "kind": "file_line", "ref": "docker-compose.prod.yml:7-10", "note": "primary prod compose: dockerfile Dockerfile.gcp, target production" }
+    ] },
+    { "id": ".github/workflows/deploy-staging.yml:npm-ci", "kind": "deploy-path", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:52-63", "note": "actions/checkout (full tree, scripts/ present), setup-node, npm ci, npm run build; no docker build" },
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:1-7", "note": "header: Vercel path is optional; full-stack staging deferred to GCP or docker-compose.staging.yml" },
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:79-85", "note": "Vercel CLI deploy" }
+    ] },
+    { "id": "Dockerfile.fly:stage:builder", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:14-21", "note": "builder: COPY package*.json, tsconfig.json, prisma; npm ci without --ignore-scripts" }
+    ] },
+    { "id": "Dockerfile.fly:builder:npm-ci", "kind": "docker-install-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:21", "note": "RUN npm ci --no-audit --prefer-offline, without --ignore-scripts, scripts/ absent" }
+    ] },
+    { "id": "Dockerfile.fly:stage:production", "kind": "docker-stage", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:38-45", "note": "production: COPY package*.json, tsconfig.json; npm ci --omit=dev without --ignore-scripts" }
+    ] },
+    { "id": "Dockerfile.fly:production:npm-ci-omit-dev", "kind": "docker-install-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:43-45", "note": "RUN npm ci --omit=dev --no-audit --prefer-offline && npm install --no-save tsx@4" }
+    ] },
+    { "id": "Dockerfile.fly:production:copy-scripts", "kind": "docker-copy-step", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:63", "note": "COPY --from=builder /app/scripts ./scripts, after both installs" }
+    ] }
+  ],
+  "edges": [
+    { "from": "Dockerfile:stage:builder", "to": "Dockerfile:stage:base", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:16", "note": "FROM base AS builder" } ] },
+    { "from": "Dockerfile:stage:production-base", "to": "Dockerfile:stage:base", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:32", "note": "FROM base AS production-base" } ] },
+    { "from": "Dockerfile:stage:production-base", "to": "Dockerfile:stage:builder", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:41-50", "note": "COPY --from=builder ..., so a production-base build first executes the builder stage" } ] },
+    { "from": "Dockerfile:stage:web", "to": "Dockerfile:stage:production-base", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:58", "note": "FROM production-base AS web" } ] },
+    { "from": "Dockerfile:stage:gdpr-worker", "to": "Dockerfile:stage:production-base", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:64", "note": "FROM production-base AS gdpr-worker" } ] },
+    { "from": "Dockerfile:stage:search-indexer-worker", "to": "Dockerfile:stage:production-base", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:68", "note": "FROM production-base AS search-indexer-worker" } ] },
+    { "from": "Dockerfile:stage:domstol-rss-worker", "to": "Dockerfile:stage:production-base", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:72", "note": "FROM production-base AS domstol-rss-worker" } ] },
+
+    { "from": "Dockerfile:builder:copy-manifests", "to": "Dockerfile:stage:builder", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:17-18" } ] },
+    { "from": "Dockerfile:builder:npm-ci", "to": "Dockerfile:stage:builder", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:20" } ] },
+    { "from": "Dockerfile:builder:copy-source", "to": "Dockerfile:stage:builder", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:26" } ] },
+    { "from": "Dockerfile:builder:npm-run-build", "to": "Dockerfile:stage:builder", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:29" } ] },
+    { "from": "Dockerfile:production-base:copy-manifests", "to": "Dockerfile:stage:production-base", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:35" } ] },
+    { "from": "Dockerfile:production-base:npm-ci-omit-dev", "to": "Dockerfile:stage:production-base", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:37" } ] },
+    { "from": "Dockerfile:production-base:copy-from-builder", "to": "Dockerfile:stage:production-base", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:40-50" } ] },
+
+    { "from": "Dockerfile:builder:npm-ci", "to": "package.json:scripts.postinstall", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:20", "note": "npm ci without --ignore-scripts runs the install-time lifecycle hook" },
+      { "kind": "file_line", "ref": "package.json:46", "note": "the postinstall hook that npm ci runs" } ] },
+    { "from": "Dockerfile:production-base:npm-ci-omit-dev", "to": "package.json:scripts.postinstall", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:37", "note": "npm ci --omit=dev without --ignore-scripts runs the install-time lifecycle hook" },
+      { "kind": "file_line", "ref": "package.json:46" } ] },
+    { "from": "package.json:scripts.postinstall", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "calls", "evidence": [
+      { "kind": "file_line", "ref": "package.json:46", "note": "node scripts/postinstall-prisma-generate.mjs, resolved relative to the install cwd" } ] },
+    { "from": "package.json:scripts.postinstall", "to": "scripts/copy-cesium-assets.cjs", "relationType": "calls", "evidence": [
+      { "kind": "file_line", "ref": "package.json:46", "note": "&& node scripts/copy-cesium-assets.cjs, resolved relative to the install cwd" } ] },
+    { "from": "scripts/postinstall-prisma-generate.mjs", "to": "package.json:devDependencies.prisma", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "scripts/postinstall-prisma-generate.mjs:12-15", "note": "spawnSync npx prisma generate; the prisma CLI is a devDependency" },
+      { "kind": "file_line", "ref": "package.json:169" } ] },
+    { "from": "scripts/postinstall-prisma-generate.mjs", "to": "package.json:dependencies.@prisma/client", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "scripts/postinstall-prisma-generate.mjs:12-15", "note": "prisma generate writes the client into node_modules/.prisma / @prisma/client" },
+      { "kind": "file_line", "ref": "package.json:106" } ] },
+    { "from": "scripts/copy-cesium-assets.cjs", "to": "package.json:dependencies.cesium", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "scripts/copy-cesium-assets.cjs:4-14", "note": "hard exit 1 when node_modules/cesium/Build/Cesium is missing" },
+      { "kind": "file_line", "ref": "package.json:112" } ] },
+
+    { "from": "Dockerfile:builder:npm-ci", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:17-20", "note": "ORDERING DEFECT: at line 20 only package*.json and tsconfig.json exist in /app; the hook needs scripts/postinstall-prisma-generate.mjs" },
+      { "kind": "file_line", "ref": "package.json:46" },
+      { "kind": "file_line", "ref": "Dockerfile:26", "note": "the providing COPY . . runs only after the install step" } ] },
+    { "from": "Dockerfile:builder:npm-ci", "to": "scripts/copy-cesium-assets.cjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:17-20", "note": "ORDERING DEFECT: second half of the hook, also absent at line 20" },
+      { "kind": "file_line", "ref": "package.json:46" },
+      { "kind": "file_line", "ref": "Dockerfile:26" } ] },
+    { "from": "Dockerfile:builder:copy-source", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:26", "note": "COPY . . provides scripts/ -- the later step that satisfies the earlier requires-present" },
+      { "kind": "file_line", "ref": ".dockerignore:1-20", "note": "scripts/ is not excluded from the build context" } ] },
+    { "from": "Dockerfile:builder:copy-source", "to": "scripts/copy-cesium-assets.cjs", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:26" },
+      { "kind": "file_line", "ref": ".dockerignore:1-20" } ] },
+    { "from": "Dockerfile:builder:copy-source", "to": ".dockerignore", "relationType": "verifies-against", "evidence": [
+      { "kind": "file_line", "ref": ".dockerignore:1-20", "note": "COPY . . content is filtered by .dockerignore; scripts/ passes the filter" } ] },
+    { "from": "Dockerfile:builder:npm-run-build", "to": "package.json:scripts.build", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:29" },
+      { "kind": "file_line", "ref": "package.json:11" } ] },
+
+    { "from": "Dockerfile:production-base:npm-ci-omit-dev", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:35-37", "note": "ORDERING DEFECT: only package*.json exists at line 37; no later step in this stage ever provides scripts/" },
+      { "kind": "file_line", "ref": "package.json:46" },
+      { "kind": "file_line", "ref": "Dockerfile:40-50", "note": "the subsequent COPY --from=builder list does not include scripts/" } ] },
+    { "from": "Dockerfile:production-base:npm-ci-omit-dev", "to": "scripts/copy-cesium-assets.cjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:35-37" },
+      { "kind": "file_line", "ref": "package.json:46" },
+      { "kind": "file_line", "ref": "Dockerfile:40-50" } ] },
+    { "from": "Dockerfile:production-base:npm-ci-omit-dev", "to": "package.json:devDependencies.prisma", "relationType": "verifies-against", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:37", "note": "--omit=dev excludes the prisma CLI, which the hook's npx prisma generate would need" },
+      { "kind": "file_line", "ref": "package.json:142" },
+      { "kind": "file_line", "ref": "package.json:169" } ] },
+    { "from": "Dockerfile:production-base:copy-from-builder", "to": "package.json:dependencies.@prisma/client", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:41-42", "note": "COPY --from=builder node_modules/.prisma and node_modules/@prisma/client" } ] },
+    { "from": "Dockerfile:stage:web", "to": "package.json:scripts.start", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile:61", "note": "CMD npm start" },
+      { "kind": "file_line", "ref": "package.json:8" } ] },
+
+    { "from": "docker-compose.staging.yml:services.app.build", "to": "Dockerfile:stage:web", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "docker-compose.staging.yml:5-8", "note": "dockerfile: Dockerfile, target: web" },
+      { "kind": "file_line", "ref": "Dockerfile:58-61" } ] },
+    { "from": "cloudbuild.yaml:steps.build-web", "to": "Dockerfile:stage:web", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:43-54", "note": "-f Dockerfile --target=web" },
+      { "kind": "file_line", "ref": "Dockerfile:58" } ] },
+    { "from": "cloudbuild.yaml:steps.build-gdpr-worker", "to": "Dockerfile:stage:gdpr-worker", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:56-67", "note": "-f Dockerfile --target=gdpr-worker" },
+      { "kind": "file_line", "ref": "Dockerfile:64" } ] },
+    { "from": "cloudbuild.yaml:steps.build-search-worker", "to": "Dockerfile:stage:search-indexer-worker", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:69-80", "note": "-f Dockerfile --target=search-indexer-worker" },
+      { "kind": "file_line", "ref": "Dockerfile:68" } ] },
+    { "from": "cloudbuild.yaml:steps.build-domstol-worker", "to": "Dockerfile:stage:domstol-rss-worker", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "cloudbuild.yaml:82-93", "note": "-f Dockerfile --target=domstol-rss-worker" },
+      { "kind": "file_line", "ref": "Dockerfile:72" } ] },
+
+    { "from": "Dockerfile.gcp:builder:npm-ci-ignore-scripts", "to": "Dockerfile.gcp:stage:builder", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:26" } ] },
+    { "from": "Dockerfile.gcp:production:npm-ci-ignore-scripts", "to": "Dockerfile.gcp:stage:production", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:51-54" } ] },
+    { "from": "Dockerfile.gcp:production:copy-scripts", "to": "Dockerfile.gcp:stage:production", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:63" } ] },
+    { "from": "Dockerfile.gcp:stage:production", "to": "Dockerfile.gcp:stage:builder", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:56-63", "note": "COPY --from=builder lines" } ] },
+    { "from": "Dockerfile.gcp:production:npm-ci-ignore-scripts", "to": "package.json:devDependencies.prisma", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:53", "note": "explicit npx prisma generate replaces the bypassed postinstall hook" },
+      { "kind": "file_line", "ref": "Dockerfile.gcp:51", "note": "--ignore-scripts: package.json postinstall is NOT invoked here (mitigation)" } ] },
+    { "from": "Dockerfile.gcp:builder:npm-ci-ignore-scripts", "to": "package.json:devDependencies.prisma", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:28", "note": "explicit npx prisma generate after the --ignore-scripts install" },
+      { "kind": "file_line", "ref": "Dockerfile.gcp:26" } ] },
+    { "from": "Dockerfile.gcp:production:copy-scripts", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:63", "note": "scripts/ arrives after both installs, which is safe only because they pass --ignore-scripts" } ] },
+    { "from": "Dockerfile.gcp:production:copy-scripts", "to": "scripts/copy-cesium-assets.cjs", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.gcp:63" } ] },
+    { "from": ".github/workflows/deploy-gcp.yml:build-docker-image", "to": "Dockerfile.gcp:stage:production", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-gcp.yml:89-97", "note": "docker build -f Dockerfile.gcp --target production; does not touch the root Dockerfile" },
+      { "kind": "file_line", "ref": "Dockerfile.gcp:36" } ] },
+    { "from": "docker-compose.prod.yml:services.app.build", "to": "Dockerfile.gcp:stage:production", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "docker-compose.prod.yml:7-10", "note": "dockerfile Dockerfile.gcp, target production" },
+      { "kind": "file_line", "ref": "Dockerfile.gcp:36" } ] },
+
+    { "from": ".github/workflows/deploy-staging.yml:npm-ci", "to": "package.json:scripts.postinstall", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:59", "note": "npm ci without --ignore-scripts" },
+      { "kind": "file_line", "ref": "package.json:46" } ] },
+    { "from": ".github/workflows/deploy-staging.yml:npm-ci", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:52-59", "note": "satisfied: actions/checkout provides the full tree including scripts/ before npm ci" } ] },
+    { "from": ".github/workflows/deploy-staging.yml:npm-ci", "to": "scripts/copy-cesium-assets.cjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:52-59", "note": "satisfied by the full checkout" } ] },
+    { "from": ".github/workflows/deploy-staging.yml:npm-ci", "to": "docker-compose.staging.yml:services.app.build", "relationType": "verifies-against", "evidence": [
+      { "kind": "file_line", "ref": ".github/workflows/deploy-staging.yml:7", "note": "header defers full-stack staging (WebSocket, workers, PostGIS) to GCP or docker-compose.staging.yml" } ] },
+
+    { "from": "Dockerfile.fly:builder:npm-ci", "to": "Dockerfile.fly:stage:builder", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:21" } ] },
+    { "from": "Dockerfile.fly:production:npm-ci-omit-dev", "to": "Dockerfile.fly:stage:production", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:43-45" } ] },
+    { "from": "Dockerfile.fly:production:copy-scripts", "to": "Dockerfile.fly:stage:production", "relationType": "binds-to", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:63" } ] },
+    { "from": "Dockerfile.fly:stage:production", "to": "Dockerfile.fly:stage:builder", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:53-63", "note": "COPY --from=builder lines" } ] },
+    { "from": "Dockerfile.fly:builder:npm-ci", "to": "package.json:scripts.postinstall", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:21", "note": "npm ci without --ignore-scripts" },
+      { "kind": "file_line", "ref": "package.json:46" } ] },
+    { "from": "Dockerfile.fly:builder:npm-ci", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:16-21", "note": "same ordering shape: only package*.json, tsconfig.json, prisma/ present at the install" },
+      { "kind": "file_line", "ref": "Dockerfile.fly:25", "note": "COPY . . comes after the install" } ] },
+    { "from": "Dockerfile.fly:production:npm-ci-omit-dev", "to": "package.json:scripts.postinstall", "relationType": "invokes", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:43", "note": "npm ci --omit=dev without --ignore-scripts" },
+      { "kind": "file_line", "ref": "package.json:46" } ] },
+    { "from": "Dockerfile.fly:production:npm-ci-omit-dev", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "requires-present", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:38-43", "note": "only package*.json and tsconfig.json present at the install" },
+      { "kind": "file_line", "ref": "Dockerfile.fly:63", "note": "scripts/ copied only after the install" } ] },
+    { "from": "Dockerfile.fly:production:copy-scripts", "to": "scripts/postinstall-prisma-generate.mjs", "relationType": "imports", "evidence": [
+      { "kind": "file_line", "ref": "Dockerfile.fly:63" } ] }
+  ]
+}

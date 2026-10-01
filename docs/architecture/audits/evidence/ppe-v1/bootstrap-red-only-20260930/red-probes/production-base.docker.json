@@ -1,0 +1,64 @@
+{
+  "probeId": "red-production-base-npm-ci-postinstall",
+  "stageName": "production-base",
+  "assertedBehavior": "The root Dockerfile's production-base stage must be able to execute its declared npm dependency-install step without failing because package.json lifecycle-script dependencies are absent from the filesystem state established by that stage before the install step.",
+  "authorityEvidence": {
+    "kind": "file_line",
+    "ref": "docker-compose.staging.yml:6-8",
+    "note": "direct declared staging web-build contract: root Dockerfile, target web"
+  },
+  "classification": "FAIL",
+  "reasonCode": "LIFECYCLE_SCRIPT_MODULE_NOT_FOUND",
+  "matched": [
+    "#12 42.51 > miljobeslut-se-2.0@0.0.0 postinstall",
+    "#12 42.58 Error: Cannot find module '/app/scripts/postinstall-prisma-generate.mjs'",
+    "#12 42.58   code: 'MODULE_NOT_FOUND',",
+    "#12 42.59 npm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs",
+    "#12 ERROR: process \"/bin/sh -c npm ci --omit=dev --legacy-peer-deps\" did not complete successfully: exit code: 1"
+  ],
+  "fidelity": "docker-stage-prefix",
+  "executorRequested": "docker",
+  "executorUsed": "docker",
+  "prefix": {
+    "lineage": [
+      "base",
+      "production-base"
+    ],
+    "contextSources": [
+      "package*.json"
+    ],
+    "installCommand": "npm ci --omit=dev --legacy-peer-deps",
+    "installLine": 37,
+    "baseImage": "node:22-alpine",
+    "derivedDockerfileDigest": "sha256:df5570abc9f971add2c516ee75338fed9f1101a05fa29a7882da64e314d31070"
+  },
+  "toolchainIdentity": "node v22.22.2; npm 10.9.7; linux x64 6.18.44-fc-v50; docker client 29.3.1; docker server 29.3.1; base image node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+  "evidence": [
+    {
+      "kind": "runtime_result",
+      "ref": "ppe-red-probe:red-production-base-npm-ci-postinstall:2026-09-30T13:04:44.857Z:FAIL",
+      "note": "docker-stage-prefix; reason LIFECYCLE_SCRIPT_MODULE_NOT_FOUND"
+    },
+    {
+      "kind": "file_line",
+      "ref": "Dockerfile:37",
+      "note": "install step of the probed stage"
+    },
+    {
+      "kind": "git_object",
+      "ref": "a3b31b8eda0280c2a899cebdaf856a3eacbfd103",
+      "note": "blob of Dockerfile as probed"
+    }
+  ],
+  "startedAt": "2026-09-30T13:04:44.857Z",
+  "elapsedMs": 124531,
+  "outputExcerpt": "#12 42.51 > miljobeslut-se-2.0@0.0.0 postinstall\n#12 42.58 Error: Cannot find module '/app/scripts/postinstall-prisma-generate.mjs'\n#12 42.58   code: 'MODULE_NOT_FOUND',\n#12 42.59 npm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs\n#12 ERROR: process \"/bin/sh -c npm ci --omit=dev --legacy-peer-deps\" did not complete successfully: exit code: 1",
+  "exitStatus": 1,
+  "timedOut": false,
+  "installStepStarted": true,
+  "contextFiles": [
+    "package-lock.json",
+    "package.json",
+    "ppe-ca-bundle.crt"
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "probeId": "red-production-base-npm-ci-postinstall",
+  "stageName": "production-base",
+  "assertedBehavior": "The root Dockerfile's production-base stage must be able to execute its declared npm dependency-install step without failing because package.json lifecycle-script dependencies are absent from the filesystem state established by that stage before the install step.",
+  "authorityEvidence": {
+    "kind": "file_line",
+    "ref": "docker-compose.staging.yml:6-8",
+    "note": "direct declared staging web-build contract: root Dockerfile, target web"
+  },
+  "classification": "BLOCKED",
+  "reasonCode": "DOCKER_UNAVAILABLE",
+  "matched": [],
+  "fidelity": "docker-stage-prefix",
+  "executorRequested": "docker",
+  "executorUsed": "none",
+  "blockedReason": "failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+  "prefix": {
+    "lineage": [
+      "base",
+      "production-base"
+    ],
+    "contextSources": [
+      "package*.json"
+    ],
+    "installCommand": "npm ci --omit=dev --legacy-peer-deps",
+    "installLine": 37,
+    "baseImage": "node:22-alpine"
+  },
+  "toolchainIdentity": "node v22.22.2; npm not-run; linux x64; base image node:22-alpine",
+  "evidence": [
+    {
+      "kind": "runtime_result",
+      "ref": "ppe-red-probe:red-production-base-npm-ci-postinstall:2026-09-30T13:10:49.238Z:BLOCKED"
+    },
+    {
+      "kind": "file_line",
+      "ref": "Dockerfile:37",
+      "note": "install step of the probed stage"
+    },
+    {
+      "kind": "git_object",
+      "ref": "a3b31b8eda0280c2a899cebdaf856a3eacbfd103",
+      "note": "blob of Dockerfile as probed"
+    }
+  ],
+  "startedAt": "2026-09-30T13:10:49.238Z",
+  "elapsedMs": 0,
+  "outputExcerpt": "failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory",
+  "exitStatus": null,
+  "timedOut": false,
+  "installStepStarted": false,
+  "contextFiles": []
+}

@@ -1,0 +1,33 @@
+{
+  "controllerVerdict": {
+    "result": "BLOCKED_ENVIRONMENT",
+    "classification": "BLOCKED_ENVIRONMENT",
+    "message": "trusted runner observed BLOCKED_ENVIRONMENT, expected PASS"
+  },
+  "githubJobId": "109997014639",
+  "execution_record": {
+    "schema_version": "dev-gov-v1-trusted-execution-record",
+    "unit_id": "PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-V1",
+    "unit_definition_hash": "6e73f7d6affbb595f02fe9ae25aaafc7c0ad0c993014c2fed16865a2f7b15ed6",
+    "proof_contract_hash": "6e73f7d6affbb595f02fe9ae25aaafc7c0ad0c993014c2fed16865a2f7b15ed6",
+    "base_sha": "e617c7b7bb4613b95c6934004201eb14bec89ba0",
+    "candidate_sha": "e4b058ec3988c84638f2384c23211fabe96e1e33",
+    "execution_sha": "e4b058ec3988c84638f2384c23211fabe96e1e33",
+    "proof_type": "GREEN",
+    "test_id": "ppe-red-probe-builder-is-red",
+    "command": "node -e \nconst cp = require('node:child_process');\nconst path = require('node:path');\nconst tsx = path.resolve('node_modules/tsx/dist/cli.mjs');\nconst probe = 'packages/mps-pattern-proof/scripts/red-probe.ts';\nconst r = cp.spawnSync(process.execPath, [tsx, probe, '--dockerfile', 'Dockerfile', '--stage', 'builder', '--executor', 'auto', '--timeout-ms', '780000', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });\nif (r.error) { console.error('HARNESS: could not run the RED probe: ' + r.error.message); process.exit(2); }\nprocess.stdout.write(String(r.stdout).slice(0, 6000));\nprocess.stderr.write(String(r.stderr).slice(0, 2000));\nif (r.status === 1) { console.log('OK: builder RED probe classified FAIL (RED confirmed: the declared install step fails on an absent lifecycle-script dependency; frozen RedPlanArtifact red-builder-npm-ci-postinstall)'); process.exit(0); }\nif (r.status === 2) { console.error('HARNESS: RED probe BLOCKED (could not execute: no docker daemon and no host npm/network)'); process.exit(2); }\nif (r.status === 0) { console.error('VIOLATION: builder RED probe classified PASS on this tree -- the frozen RED state no longer holds; this unit only asserts the engine, a Dockerfile change belongs to FULL_PATTERN_PROOF'); process.exit(1); }\nconsole.error('HARNESS: unexpected probe exit ' + r.status);\nprocess.exit(2);\n",
+    "exit_code": 2,
+    "classification": "BLOCKED_ENVIRONMENT",
+    "environment_error": "",
+    "started_at": "2026-09-30T16:55:30.980Z",
+    "finished_at": "2026-09-30T16:55:32.561Z",
+    "runner_identity": "github-hosted:ubuntu-latest",
+    "controller_sha": "740b2fdfa1faffb19b922d4eaeb187ce492521cf",
+    "workflow_ref": "JbmbAb/Milj-beslut-V1.2/.github/workflows/devgov-v0-attest.yml@refs/heads/main",
+    "workflow_run_id": "36747167246",
+    "workflow_run_attempt": "1",
+    "stdout_sha256": "f186db2abde0fb855c68c1268cf8dda4c9f59382e7f785b4d8be4fb3955ceb97",
+    "stderr_sha256": "c99aad8adab632ec1a4a573946ff90f6ca060b248107e8421962a313fc18f6ce",
+    "result_digest": "08120af52979240949a22d11c97c75d286de9c7d98255dd9d2f2f5791509c675"
+  }
+}

@@ -1,0 +1,1 @@
+FAIL LIFECYCLE_SCRIPT_MODULE_NOT_FOUND probe=red-builder-npm-ci-postinstall stage=builder fidelity=host-npm executor=host elapsedMs=39321

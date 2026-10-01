@@ -1,0 +1,146 @@
+{
+  "schema_version": "dev-gov-v1-unit-definition",
+  "unit": "PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-V1",
+  "role": "producer",
+  "mode": "writer",
+  "branch": "claude/modest-hamilton-ndpu4t",
+  "base_sha": "1e9d523fd551b940651e835f3194d412dd60409e",
+  "ancestry_policy": "descendant_of_base",
+  "allowed_paths": [
+    "packages/mps-pattern-proof/**",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "scripts/audit/master-boundary-audit.test.ts",
+    "docs/architecture/audits/evidence/ppe-v1/**",
+    "governance/devgov/units/pattern-proof-engine-01-v1-bootstrap-red-only-v1.json",
+    "docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY.md"
+  ],
+  "forbidden_paths": [
+    ".github/**",
+    "scripts/devgov/**",
+    "governance/devgov/schema/**",
+    "governance/devgov/invariant-packs/**",
+    "prisma/**",
+    "server/**",
+    "services/**",
+    "src/**",
+    "components/**",
+    "Dockerfile",
+    "Dockerfile.gcp",
+    "Dockerfile.fly",
+    "docker-compose*.yml",
+    "cloudbuild.yaml",
+    "package.json",
+    "package-lock.json"
+  ],
+  "required_red": [
+    {
+      "id": "ppe-engine-absent",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst files = [\n  'packages/mps-pattern-proof/src/index.ts',\n  'packages/mps-pattern-proof/src/state-machine.ts',\n  'packages/mps-pattern-proof/src/isolation.ts',\n  'packages/mps-pattern-proof/scripts/red-probe.ts',\n  'packages/mps-pattern-proof/scripts/ppe-cli.ts',\n  'packages/mps-pattern-proof/workflow/ppe-v1.js',\n];\nconst present = files.filter((f) => fs.existsSync(f));\nif (present.length === 0) { console.error('VIOLATION: no PATTERN-PROOF-ENGINE-01 V1 engine exists on this tree (ENOENT for all ' + files.length + ' files)'); process.exit(1); }\nif (present.length === files.length) { console.log('OK: engine fully present (' + files.length + ' files)'); process.exit(0); }\nconsole.error('HARNESS: partial presence, unexpected: ' + present.join(', '));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "ppe-package-unregistered",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nlet vitest, tsconfig;\ntry { vitest = fs.readFileSync('vitest.config.ts', 'utf8'); tsconfig = fs.readFileSync('tsconfig.json', 'utf8'); } catch (e) { console.error('HARNESS: cannot read root config: ' + e.message); process.exit(2); }\nconst inVitest = vitest.includes(\"'packages/mps-pattern-proof/**/*.test.ts'\") && vitest.includes(\"'@miljobeslut/mps-pattern-proof'\");\nconst inTsconfig = tsconfig.includes('\"@miljobeslut/mps-pattern-proof\"');\nif (!inVitest && !inTsconfig) { console.error('VIOLATION: @miljobeslut/mps-pattern-proof is registered in neither vitest.config.ts nor tsconfig.json'); process.exit(1); }\nif (inVitest && inTsconfig) { console.log('OK: package registered in vitest (compliance include + alias) and tsconfig paths'); process.exit(0); }\nconsole.error('HARNESS: partial registration, unexpected: vitest=' + inVitest + ' tsconfig=' + inTsconfig);\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "FAIL",
+      "required_head": "base_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    }
+  ],
+  "required_green": [
+    {
+      "id": "ppe-engine-absent",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nconst files = [\n  'packages/mps-pattern-proof/src/index.ts',\n  'packages/mps-pattern-proof/src/state-machine.ts',\n  'packages/mps-pattern-proof/src/isolation.ts',\n  'packages/mps-pattern-proof/scripts/red-probe.ts',\n  'packages/mps-pattern-proof/scripts/ppe-cli.ts',\n  'packages/mps-pattern-proof/workflow/ppe-v1.js',\n];\nconst present = files.filter((f) => fs.existsSync(f));\nif (present.length === 0) { console.error('VIOLATION: no PATTERN-PROOF-ENGINE-01 V1 engine exists on this tree (ENOENT for all ' + files.length + ' files)'); process.exit(1); }\nif (present.length === files.length) { console.log('OK: engine fully present (' + files.length + ' files)'); process.exit(0); }\nconsole.error('HARNESS: partial presence, unexpected: ' + present.join(', '));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "ppe-package-unregistered",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst fs = require('node:fs');\nlet vitest, tsconfig;\ntry { vitest = fs.readFileSync('vitest.config.ts', 'utf8'); tsconfig = fs.readFileSync('tsconfig.json', 'utf8'); } catch (e) { console.error('HARNESS: cannot read root config: ' + e.message); process.exit(2); }\nconst inVitest = vitest.includes(\"'packages/mps-pattern-proof/**/*.test.ts'\") && vitest.includes(\"'@miljobeslut/mps-pattern-proof'\");\nconst inTsconfig = tsconfig.includes('\"@miljobeslut/mps-pattern-proof\"');\nif (!inVitest && !inTsconfig) { console.error('VIOLATION: @miljobeslut/mps-pattern-proof is registered in neither vitest.config.ts nor tsconfig.json'); process.exit(1); }\nif (inVitest && inTsconfig) { console.log('OK: package registered in vitest (compliance include + alias) and tsconfig paths'); process.exit(0); }\nconsole.error('HARNESS: partial registration, unexpected: vitest=' + inVitest + ' tsconfig=' + inTsconfig);\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 30000
+    },
+    {
+      "id": "ppe-fixture-suite",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst path = require('node:path');\nconst vitest = path.resolve('node_modules/vitest/vitest.mjs');\nconst r = cp.spawnSync(process.execPath, [vitest, 'run', '--config', 'vitest.config.ts', 'packages/mps-pattern-proof/tests'], { stdio: 'inherit', env: { ...process.env, CI: '1' } });\nif (r.error) { console.error('HARNESS: could not run vitest: ' + r.error.message); process.exit(2); }\nif (r.status === 0) { console.log('OK: PATTERN-PROOF-ENGINE-01 V1 suite green (validators, schemas, persistence, authority, isolation, state machine, six terminal-state fixtures, frozen target artifacts, Docker probe derivation/classification, CLI, adapter drift)'); process.exit(0); }\nconsole.error('VIOLATION: PATTERN-PROOF-ENGINE-01 V1 suite failed (vitest exit ' + r.status + ')');\nprocess.exit(1);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 600000
+    },
+    {
+      "id": "ppe-package-lint-clean",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst path = require('node:path');\nconst eslint = path.resolve('node_modules/eslint/bin/eslint.js');\nconst r = cp.spawnSync(process.execPath, [eslint, 'packages/mps-pattern-proof', 'packages/mps-pattern-proof/workflow/ppe-v1.js'], { encoding: 'utf8' });\nif (r.error) { console.error('HARNESS: could not run eslint: ' + r.error.message); process.exit(2); }\nif (r.status === 0) { console.log('OK: packages/mps-pattern-proof and the orchestrator adapter are eslint-clean'); process.exit(0); }\nif (r.status === 1) { console.error('VIOLATION: eslint reports problems in packages/mps-pattern-proof:\\n' + String(r.stdout).slice(0, 4000)); process.exit(1); }\nconsole.error('HARNESS: unexpected eslint exit ' + r.status + '; stderr=' + String(r.stderr).slice(0, 300));\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 300000
+    },
+    {
+      "id": "ppe-red-probe-builder-is-red",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst path = require('node:path');\nconst tsx = path.resolve('node_modules/tsx/dist/cli.mjs');\nconst probe = 'packages/mps-pattern-proof/scripts/red-probe.ts';\nconst r = cp.spawnSync(process.execPath, [tsx, probe, '--dockerfile', 'Dockerfile', '--stage', 'builder', '--executor', 'auto', '--timeout-ms', '780000', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });\nif (r.error) { console.error('HARNESS: could not run the RED probe: ' + r.error.message); process.exit(2); }\nprocess.stdout.write(String(r.stdout).slice(0, 6000));\nprocess.stderr.write(String(r.stderr).slice(0, 2000));\nif (r.status === 1) { console.log('OK: builder RED probe classified FAIL (RED confirmed: the declared install step fails on an absent lifecycle-script dependency; frozen RedPlanArtifact red-builder-npm-ci-postinstall)'); process.exit(0); }\nif (r.status === 2) { console.error('HARNESS: RED probe BLOCKED (could not execute: no docker daemon and no host npm/network)'); process.exit(2); }\nif (r.status === 0) { console.error('VIOLATION: builder RED probe classified PASS on this tree -- the frozen RED state no longer holds; this unit only asserts the engine, a Dockerfile change belongs to FULL_PATTERN_PROOF'); process.exit(1); }\nconsole.error('HARNESS: unexpected probe exit ' + r.status);\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 900000
+    },
+    {
+      "id": "ppe-red-probe-production-base-is-red",
+      "command": "node",
+      "args": [
+        "-e",
+        "\nconst cp = require('node:child_process');\nconst path = require('node:path');\nconst tsx = path.resolve('node_modules/tsx/dist/cli.mjs');\nconst probe = 'packages/mps-pattern-proof/scripts/red-probe.ts';\nconst r = cp.spawnSync(process.execPath, [tsx, probe, '--dockerfile', 'Dockerfile', '--stage', 'production-base', '--executor', 'auto', '--timeout-ms', '780000', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });\nif (r.error) { console.error('HARNESS: could not run the RED probe: ' + r.error.message); process.exit(2); }\nprocess.stdout.write(String(r.stdout).slice(0, 6000));\nprocess.stderr.write(String(r.stderr).slice(0, 2000));\nif (r.status === 1) { console.log('OK: production-base RED probe classified FAIL (RED confirmed: the declared install step fails on an absent lifecycle-script dependency; frozen RedPlanArtifact red-production-base-npm-ci-postinstall)'); process.exit(0); }\nif (r.status === 2) { console.error('HARNESS: RED probe BLOCKED (could not execute: no docker daemon and no host npm/network)'); process.exit(2); }\nif (r.status === 0) { console.error('VIOLATION: production-base RED probe classified PASS on this tree -- the frozen RED state no longer holds; this unit only asserts the engine, a Dockerfile change belongs to FULL_PATTERN_PROOF'); process.exit(1); }\nconsole.error('HARNESS: unexpected probe exit ' + r.status);\nprocess.exit(2);\n"
+      ],
+      "expected_classification": "PASS",
+      "required_head": "candidate_sha",
+      "blocked_exit_codes": [2],
+      "timeout_ms": 900000
+    }
+  ],
+  "trusted_execution": {
+    "issuer": "github-actions:JbmbAb/Milj-beslut-V1.2:devgov-v0-attest",
+    "key_id": "devgov-ci-ed25519-v1"
+  },
+  "remote": {
+    "name": "origin",
+    "branch": "claude/modest-hamilton-ndpu4t",
+    "push_policy": "no_force",
+    "absent_policy": "deny_absent"
+  }
+}

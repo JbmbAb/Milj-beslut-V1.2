@@ -62,6 +62,8 @@ export default defineConfig({
         'packages/mps-knowledge-index/src/index.ts',
       ),
       '@miljobeslut/mps-knowledge-eval': path.resolve(__dirname, 'packages/mps-knowledge-eval/src/index.ts'),
+      // PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY
+      '@miljobeslut/mps-pattern-proof': path.resolve(__dirname, 'packages/mps-pattern-proof/src/index.ts'),
       '@miljobeslut/spatial-provider-postgis': path.resolve(
         __dirname,
         'packages/spatial-provider-postgis/src/index.ts',
@@ -263,6 +265,11 @@ export default defineConfig({
               __dirname,
               'packages/mps-knowledge-eval/src/index.ts',
             ),
+            // PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY
+            '@miljobeslut/mps-pattern-proof': path.resolve(
+              __dirname,
+              'packages/mps-pattern-proof/src/index.ts',
+            ),
           },
         },
         test: {
@@ -295,6 +302,8 @@ export default defineConfig({
             'packages/mps-knowledge-corpus/**/*.test.ts',
             'packages/mps-knowledge-index/**/*.test.ts',
             'packages/mps-knowledge-eval/**/*.test.ts',
+            // PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY
+            'packages/mps-pattern-proof/**/*.test.ts',
           ],
           environment: 'node',
           setupFiles: ['tests/setup/env.ts'],

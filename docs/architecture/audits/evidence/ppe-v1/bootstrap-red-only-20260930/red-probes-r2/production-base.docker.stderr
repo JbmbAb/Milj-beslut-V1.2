@@ -1,0 +1,1 @@
+FAIL LIFECYCLE_SCRIPT_MODULE_NOT_FOUND probe=red-production-base-npm-ci-postinstall stage=production-base fidelity=docker-stage-prefix executor=docker elapsedMs=74043

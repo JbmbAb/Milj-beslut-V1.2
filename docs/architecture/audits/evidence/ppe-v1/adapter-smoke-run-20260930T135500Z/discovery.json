@@ -1,0 +1,299 @@
+{
+  "findings": [
+    {
+      "category": "build-ordering-defect",
+      "description": "Root Dockerfile, stage `builder`: at the install step only package*.json and tsconfig.json have been copied (lines 17-18) before `RUN npm ci --legacy-peer-deps` (line 20). The repository's `scripts/` directory (which the package.json postinstall hook executes) only arrives with `COPY . .` at line 26, after the install. npm ci therefore runs the postinstall hook in a tree where scripts/postinstall-prisma-generate.mjs does not exist and the RUN step exits 1.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile:16-20",
+          "note": "builder stage: COPY package*.json, COPY tsconfig.json, then npm ci without --ignore-scripts"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile:26",
+          "note": "`COPY . .` (the first COPY that brings scripts/) comes after the install"
+        },
+        {
+          "kind": "file_line",
+          "ref": "package.json:46",
+          "note": "postinstall runs node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".dockerignore:1-20",
+          "note": "scripts/ is not excluded, so the ordering (not the ignore file) is why it is absent at line 20"
+        },
+        {
+          "kind": "runtime_result",
+          "ref": "npm ci --legacy-peer-deps | isolated cwd=/tmp/ppe-repro-builder-6er2jc containing only package.json, package-lock.json, tsconfig.json copied from checkout e3f3e4f30e2fc846dc963a12bc74d1fdeddade05 (Dockerfile builder-stage file set, lines 17-18); env PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true | node v22.22.2, npm 10.9.7, linux x64 | started 2026-09-30T14:06:20Z, ended 2026-09-30T14:06:54Z | exit status 1 | failure signature: '> miljobeslut-se-2.0@0.0.0 postinstall' then 'Error: Cannot find module /tmp/ppe-repro-builder-6er2jc/scripts/postinstall-prisma-generate.mjs' code MODULE_NOT_FOUND; 'npm error command sh -c node scripts/postinstall-prisma-generate.mjs && node scripts/copy-cesium-assets.cjs'; node_modules had 716 entries (cesium/Build/Cesium present) when the hook failed",
+          "note": "isolated reproduction of the builder-stage install with exactly the files the stage has at line 20"
+        },
+        {
+          "kind": "runtime_result",
+          "ref": "npm ci --legacy-peer-deps --ignore-scripts (positive control) | isolated cwd=/tmp/ppe-repro-ctrl-jlzjYC containing only package.json, package-lock.json, tsconfig.json copied from checkout e3f3e4f30e2fc846dc963a12bc74d1fdeddade05; env PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true | node v22.22.2, npm 10.9.7, linux x64 | started 2026-09-30T14:07:18Z, ended 2026-09-30T14:07:49Z | exit status 0 | no lifecycle script executed, 716 node_modules entries installed",
+          "note": "positive control: same file set installs cleanly with --ignore-scripts, so the absent lifecycle-script file is the sole cause"
+        }
+      ]
+    },
+    {
+      "category": "build-ordering-defect",
+      "description": "Root Dockerfile, stage `production-base`: `COPY package*.json ./` (line 35) then `RUN npm ci --omit=dev --legacy-peer-deps` (line 37) again without --ignore-scripts, so the same postinstall hook runs with no scripts/ present. This stage never receives scripts/ at all: the later COPY --from=builder lines (41-50) copy node_modules/.prisma, @prisma/client, dist, server, src, app, config, types, stubs and root *.ts only. Additionally, with --omit=dev the `prisma` CLI (a devDependency, package.json:169) is not installed, so even if the hook script existed its `npx prisma generate` would have to fetch prisma at build time.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile:32-37",
+          "note": "production-base: COPY package*.json then npm ci --omit=dev --legacy-peer-deps"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile:40-50",
+          "note": "what production-base copies afterwards; scripts/ is not among them"
+        },
+        {
+          "kind": "file_line",
+          "ref": "package.json:46",
+          "note": "postinstall hook"
+        },
+        {
+          "kind": "file_line",
+          "ref": "package.json:142",
+          "note": "devDependencies block starts here"
+        },
+        {
+          "kind": "file_line",
+          "ref": "package.json:169",
+          "note": "`prisma` CLI is a devDependency, omitted by --omit=dev"
+        }
+      ]
+    },
+    {
+      "category": "lifecycle-script",
+      "description": "package.json declares exactly one npm lifecycle script that fires on install: `postinstall` (no preinstall/install/prepare). It chains two node scripts. scripts/postinstall-prisma-generate.mjs sets a dummy DATABASE_URL and spawns `npx prisma generate` (exits with the child status); scripts/copy-cesium-assets.cjs copies node_modules/cesium/Build/Cesium/{Assets,Widgets,Workers,ThirdParty} into public/cesium and exits 1 if the cesium build dir is missing. Both are resolved relative to the install cwd (`node scripts/...`), so their absence makes the hook, and therefore npm ci, fail with MODULE_NOT_FOUND before either body runs.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "package.json:46"
+        },
+        {
+          "kind": "file_line",
+          "ref": "scripts/postinstall-prisma-generate.mjs:8-17",
+          "note": "dummy DATABASE_URL fallback, spawnSync npx prisma generate, exit with child status"
+        },
+        {
+          "kind": "file_line",
+          "ref": "scripts/copy-cesium-assets.cjs:4-14",
+          "note": "source path under node_modules/cesium; hard exit 1 when missing"
+        },
+        {
+          "kind": "file_line",
+          "ref": "scripts/copy-cesium-assets.cjs:20-33",
+          "note": "copies four Cesium subdirectories into public/cesium"
+        },
+        {
+          "kind": "file_line",
+          "ref": "package.json:112",
+          "note": "cesium is a runtime dependency"
+        },
+        {
+          "kind": "file_line",
+          "ref": "package.json:106",
+          "note": "@prisma/client is a runtime dependency"
+        }
+      ]
+    },
+    {
+      "category": "declared-build-contract",
+      "description": "docker-compose.staging.yml is the declared full-stack staging build and points at the defective root Dockerfile: `build: { context: ., dockerfile: Dockerfile, target: web }`. Target `web` derives from production-base (line 58), which derives from builder via COPY --from, so a staging compose build executes both defective install steps (line 20 first). cloudbuild.yaml likewise builds all four service images (web, gdpr-worker, search-indexer-worker, domstol-rss-worker) from `-f Dockerfile` with `--target` set to those stage names; every one of these targets sits on production-base.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "docker-compose.staging.yml:5-8",
+          "note": "dockerfile: Dockerfile, target: web"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile:58-61",
+          "note": "FROM production-base AS web; CMD npm start"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile:64,68,72",
+          "note": "worker targets all FROM production-base"
+        },
+        {
+          "kind": "file_line",
+          "ref": "cloudbuild.yaml:10",
+          "note": "comment listing the four Dockerfile targets that must match"
+        },
+        {
+          "kind": "file_line",
+          "ref": "cloudbuild.yaml:43-54",
+          "note": "build-web: -f Dockerfile --target=web"
+        },
+        {
+          "kind": "file_line",
+          "ref": "cloudbuild.yaml:56-93",
+          "note": "worker images: -f Dockerfile with --target=gdpr-worker / search-indexer-worker / domstol-rss-worker"
+        }
+      ]
+    },
+    {
+      "category": "existing-mitigation",
+      "description": "Dockerfile.gcp already contains the mitigation for this exact ordering: both of its install steps pass `--ignore-scripts` (builder line 26, production line 51), copy prisma/ and prisma.config.ts before installing, set a dummy DATABASE_URL, and then run `npx prisma generate` explicitly (lines 28 and 53) instead of relying on the postinstall hook. Its production stage also asserts node_modules/.bin/tsx exists (line 52) and copies scripts/ afterwards (line 63). Dockerfile.gcp does NOT replicate the second half of the hook (copy-cesium-assets.cjs), so public/cesium is not populated in that image by the build itself.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile.gcp:19-28",
+          "note": "builder: prisma inputs copied first, npm ci --ignore-scripts, explicit prisma generate"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile.gcp:43-54",
+          "note": "production: same pattern with --omit=dev, --ignore-scripts, tsx assertion, explicit prisma generate"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile.gcp:63",
+          "note": "scripts/ copied only after install"
+        }
+      ]
+    },
+    {
+      "category": "existing-mitigation",
+      "description": "Outside Docker the repository already treats the hook as something to bypass or invoke explicitly: the devgov workflows install with `npm ci --ignore-scripts`, and smoke-integrations.yml runs `node scripts/postinstall-prisma-generate.mjs` as its own step. Numerous audit documents record that trusted execution installs with --ignore-scripts and so never runs the postinstall.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/devgov-v0.yml:28",
+          "note": "npm ci --ignore-scripts"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/devgov-v0-attest.yml:155",
+          "note": "npm ci --prefix ... --ignore-scripts"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/smoke-integrations.yml:36,61",
+          "note": "explicit node scripts/postinstall-prisma-generate.mjs steps"
+        },
+        {
+          "kind": "file_line",
+          "ref": "docs/architecture/audits/LU-CANONICAL-RUNTIME-HARDENING-R1.md:96-97",
+          "note": "documents that --ignore-scripts skips the postinstall"
+        }
+      ]
+    },
+    {
+      "category": "deploy-path",
+      "description": ".github/workflows/deploy-gcp.yml (Cloud Run; per its header GCP is staging/pilot under dual-track A, triggered by CI on the `staging` branch or manual dispatch) builds `docker build -f Dockerfile.gcp --target production --build-arg CACHEBUST=<sha> .` and therefore does not go through the defective root Dockerfile. docker-compose.prod.yml (declared primary prod, own server) also builds Dockerfile.gcp target production. The root Dockerfile is exercised by docker-compose.staging.yml and cloudbuild.yaml only.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/deploy-gcp.yml:3-12",
+          "note": "dual-track header: GCP = staging/pilot, main/master do not trigger"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/deploy-gcp.yml:14-19",
+          "note": "triggers: workflow_run on staging branch, workflow_dispatch"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/deploy-gcp.yml:89-97",
+          "note": "docker build -f Dockerfile.gcp --target production"
+        },
+        {
+          "kind": "file_line",
+          "ref": "docker-compose.prod.yml:7-10",
+          "note": "primary prod compose: dockerfile Dockerfile.gcp, target production"
+        }
+      ]
+    },
+    {
+      "category": "deploy-path",
+      "description": ".github/workflows/deploy-staging.yml is the optional Vercel staging path. It does not build any Docker image: it runs `npm ci` on a full checkout (where scripts/ exists, so the postinstall succeeds), `npm run build`, `prisma migrate deploy`, then the Vercel CLI. Its header explicitly defers full-stack staging (WebSocket, workers, PostGIS) to GCP or docker-compose.staging.yml, i.e. to the defective Dockerfile build contract.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/deploy-staging.yml:1-7",
+          "note": "header; line 7 points full-stack staging to docker-compose.staging.yml"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/deploy-staging.yml:52-63",
+          "note": "checkout, setup-node, npm ci on full tree, npm run build"
+        },
+        {
+          "kind": "file_line",
+          "ref": ".github/workflows/deploy-staging.yml:79-85",
+          "note": "Vercel deploy, no docker build"
+        }
+      ]
+    },
+    {
+      "category": "deploy-path",
+      "description": "Dockerfile.fly (Fly.io/Railway path, not wired to any workflow or compose file in the repo) has the same ordering shape as the root Dockerfile: builder copies package*.json, tsconfig.json and prisma/ then runs `npm ci --no-audit --prefer-offline` without --ignore-scripts (line 21), and production runs `npm ci --omit=dev ...` (line 43) with only package*.json and tsconfig.json present. scripts/ is copied only at line 63. It is therefore exposed to the same postinstall failure; it is reported here as context, not as the target.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile.fly:14-21",
+          "note": "builder install without --ignore-scripts, scripts/ absent"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile.fly:38-45",
+          "note": "production install without --ignore-scripts"
+        },
+        {
+          "kind": "file_line",
+          "ref": "Dockerfile.fly:63",
+          "note": "scripts/ copied after install"
+        }
+      ]
+    },
+    {
+      "category": "history",
+      "description": "git blame attributes both root Dockerfile install steps (lines 17-20, 35-37) and the package.json postinstall line (46) to the same boundary commit c656ec6f (2026-09-03, the earliest commit in the available history, marked `^` by blame), so within this checkout the defect has been present since the visible history begins; no later commit touched the Dockerfile.",
+      "evidence": [
+        {
+          "kind": "git_object",
+          "ref": "c656ec6f396a273ab90e117d6a77c2d26bf6f7fb:Dockerfile",
+          "note": "Dockerfile blob at the boundary commit; blame shows lines 17-20 and 35-37 from it"
+        },
+        {
+          "kind": "git_object",
+          "ref": "c656ec6f396a273ab90e117d6a77c2d26bf6f7fb:package.json",
+          "note": "package.json blob at the boundary commit; blame shows line 46 from it"
+        },
+        {
+          "kind": "git_object",
+          "ref": "e3f3e4f30e2fc846dc963a12bc74d1fdeddade05:Dockerfile",
+          "note": "Dockerfile at the run base SHA; identical lines cited above"
+        }
+      ]
+    },
+    {
+      "category": "prior-observation",
+      "description": "The repository's own audit record for this engine already documents the same failure signature from a real docker build of production-base (step #12: postinstall -> Cannot find module /app/scripts/postinstall-prisma-generate.mjs -> exit 1) and notes citation drift (frozen `package.json:44` is now line 46). The frozen design names this Dockerfile/postinstall defect as the chosen V1 target. Reported as context only; this stage's findings above were derived from the current files and the fresh reproduction, not from these documents.",
+      "evidence": [
+        {
+          "kind": "file_line",
+          "ref": "docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY.md:206-216",
+          "note": "derived prefixes and decisive docker-build lines from the earlier run"
+        },
+        {
+          "kind": "file_line",
+          "ref": "docs/architecture/audits/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY.md:313",
+          "note": "citation drift package.json:44 -> 46"
+        },
+        {
+          "kind": "file_line",
+          "ref": "docs/architecture/PATTERN-PROOF-ENGINE-01-V1-BOOTSTRAP-RED-ONLY-DESIGN-FROZEN.md:102-103",
+          "note": "V1 target statement"
+        }
+      ]
+    }
+  ]
+}

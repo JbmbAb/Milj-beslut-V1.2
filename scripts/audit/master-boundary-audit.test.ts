@@ -64,6 +64,9 @@ describe("Master Boundary Audit", () => {
       "packages/spatial-provider-postgis/tests/SpatialProviderPostGIS.test.ts",
       "packages/spatial-provider-postgis/tests/LUMagicMomentPostGIS.test.ts",
       "packages/spatial-provider-postgis/tests/LUEnforcement.test.ts",
+
+      // PATTERN-PROOF-ENGINE-01 V1 (2026-09-30): PPE persists its protocol artifacts through the injected ArtifactRepositoryPort per frozen design section 13 (reuse CAS-backed storage, no new store).
+      "packages/mps-pattern-proof/src/persistence.ts",
     ];
 
     const violations: string[] = [];
