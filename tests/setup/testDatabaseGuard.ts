@@ -16,6 +16,10 @@
  *      `.env.local`, not `.env` -- whatever its working directory, and it is guarded from its
  *      first import of server/loadEnvFirst on. This worker itself keeps the Vitest rule.
  *      A test that builds a child's env from scratch must set MIMER_TEST_MODE=1 itself.
+ *   4. removes every CAS setting inherited from the shell (MIMERS_*, *_CAS* -- e.g. a MIMERS_ROOT
+ *      naming the demonstrator's CAS), so neither this worker nor any process a test starts can
+ *      write into it; a test that needs a CAS creates its own temp root
+ *      (tests/setup/casTestIsolationRoot.ts). TDG-3, server/modules/test-db-guard/testCasIsolation.ts.
  *
  * Policy and denylist: server/modules/test-db-guard/testDatabaseTargetPolicy.ts. The destructive
  * GIS globalSetup admission (tests/setup/disposableGisTestDatabase.ts) uses the same policy.
@@ -33,6 +37,10 @@
  */
 import { installTestDatabaseConnectionGuard } from '../../server/modules/test-db-guard/installTestDatabaseConnectionGuard';
 import {
+  noteRemovedCasEnv,
+  removeInheritedCasEnv,
+} from '../../server/modules/test-db-guard/testCasIsolation';
+import {
   assertNoKnownLiveDatabaseInEnv,
   isHermeticTestProcess,
   TEST_MODE_ENV,
@@ -46,3 +54,6 @@ assertNoKnownLiveDatabaseInEnv(process.env, 'Vitest setup (tests/setup/testDatab
 if (!isHermeticTestProcess(process.env)) {
   process.env[TEST_MODE_ENV] = vitestWorkerTestModeMarker(process.pid);
 }
+
+// Before every test file: no CAS setting of the shell (or of an earlier file) reaches the test.
+noteRemovedCasEnv(removeInheritedCasEnv(process.env), 'Vitest setup (tests/setup/testDatabaseGuard.ts)');

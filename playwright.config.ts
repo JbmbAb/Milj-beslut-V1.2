@@ -1,6 +1,3 @@
-import { mkdirSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { ensureDockerDatabaseEndpointDiscovery } from './server/modules/test-db-guard/dockerPublishedDatabaseEndpoints';
 import { installTestDatabaseConnectionGuard } from './server/modules/test-db-guard/installTestDatabaseConnectionGuard';
@@ -11,6 +8,11 @@ import {
   resolveLocalE2eServerPlan,
   type LocalE2eServerPlan,
 } from './server/modules/test-db-guard/localE2eServerPolicy';
+import {
+  createFreshTestCasRoots,
+  noteRemovedCasEnv,
+  removeInheritedCasEnv,
+} from './server/modules/test-db-guard/testCasIsolation';
 
 function trim(value: string | undefined): string {
   return String(value || '').trim();
@@ -48,11 +50,14 @@ const geminiApiKey = trim(process.env.GEMINI_API_KEY) || (process.env.CI ? 'ci-g
 
 // U30-A: the server refuses to start without the durable Mimers CAS root (no `.data/mimers`
 // fallback any more). ADV-1 rest: that root must also be an EXISTING absolute directory -- it is never
-// created implicitly. The harness therefore creates its OWN default test root; a caller-provided
-// MIMERS_ROOT is used as given and must already exist.
-const callerMimersRoot = trim(process.env.MIMERS_ROOT);
-const e2eMimersRoot = callerMimersRoot || path.join(os.tmpdir(), `miljobeslut-e2e-mimers-${localApiPort}`);
-if (!callerMimersRoot && !isExternalTarget) mkdirSync(e2eMimersRoot, { recursive: true });
+// created implicitly.
+// TEST-DB-GUARD (OD-K0-5), TDG-3: a test never touches live data, so a CAS setting from the caller's
+// shell (MIMERS_ROOT=<the demonstrator's CAS>, MIMERS_*, *_CAS*) is never used: it is removed from
+// the runner and the workers -- Playwright starts both servers with { ...process.env, ...env } --
+// and the API server gets a FRESH CAS of this run, a new directory in the temp dir
+// (server/modules/test-db-guard/testCasIsolation.ts).
+noteRemovedCasEnv(removeInheritedCasEnv(process.env), 'playwright.config.ts');
+const e2eCas = localPlan ? createFreshTestCasRoots() : null;
 
 const serverEnv = {
   NODE_ENV: 'development',
@@ -77,8 +82,9 @@ const serverEnv = {
   TIMOCOM_API_KEY: 'mock-e2e-timocom-key',
   CORS_ALLOW_ORIGINS: localUiBaseUrl,
   START_WORKERS_IN_PROCESS: 'false',
-  // U30-A: the E2E harness names an explicit test root (see e2eMimersRoot above).
-  MIMERS_ROOT: e2eMimersRoot,
+  // U30-A / TDG-3: the fresh CAS of this run (see e2eCas above), never the caller's.
+  MIMERS_ROOT: e2eCas ? e2eCas.mimersRoot : '',
+  ADMIN_ROLE_GRANT_CAS_ROOT: e2eCas ? e2eCas.adminRoleGrantCasRoot : '',
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
