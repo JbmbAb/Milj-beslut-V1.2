@@ -36,29 +36,37 @@ RUN npm run postinstall
 # Bygg frontend (Vite)
 RUN npm run build
 
+# Ta bort devDependencies på plats. Runtime-steget kopierar exakt detta
+# node_modules, inklusive file:-länkarna till packages/, i stället för att
+# köra en andra npm ci utan packages/.
+RUN npm prune --omit=dev --legacy-peer-deps --ignore-scripts
+
 # Steg 2: Produktionsbas (gemensam för alla slutliga images)
 FROM base AS production-base
 ENV NODE_ENV=production
 
-COPY package*.json ./
-# Installera endast produktionsberoenden
-RUN npm ci --omit=dev --legacy-peer-deps
+# Runtime får byggstegets egna bytes. node_modules/@miljobeslut/* är länkar
+# till ../../packages/*, så packages/ måste följa med, och tsconfig.json bär
+# de tsconfig-paths som tsx löser @miljobeslut-importer med. server/ importerar
+# också services/, scripts/ och rotens *.ts (db.server.ts, constants.ts, types.ts).
+# --chown i stället för chown -R: en rekursiv chown kopierar hela node_modules
+# till ett nytt lager.
+RUN chown appuser:appgroup /app
+COPY --from=builder --chown=appuser:appgroup /app/package.json /app/package-lock.json /app/tsconfig.json ./
+COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
+COPY --from=builder --chown=appuser:appgroup /app/packages ./packages
+COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
+COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
+COPY --from=builder --chown=appuser:appgroup /app/server ./server
+COPY --from=builder --chown=appuser:appgroup /app/src ./src
+COPY --from=builder --chown=appuser:appgroup /app/services ./services
+COPY --from=builder --chown=appuser:appgroup /app/scripts ./scripts
+COPY --from=builder --chown=appuser:appgroup /app/app ./app
+COPY --from=builder --chown=appuser:appgroup /app/config ./config
+COPY --from=builder --chown=appuser:appgroup /app/types ./types
+COPY --from=builder --chown=appuser:appgroup /app/stubs ./stubs
+COPY --from=builder --chown=appuser:appgroup /app/*.ts ./
 
-# Kopiera byggartefakter och källkod som behövs i produktion
-COPY prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/server ./server
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/app ./app
-COPY --from=builder /app/config ./config
-COPY --from=builder /app/types ./types
-COPY --from=builder /app/stubs ./stubs
-COPY --from=builder /app/*.ts ./
-
-# Sätt non-root ägare och byt användare
-RUN chown -R appuser:appgroup /app
 USER appuser
 
 # --- Slutsteg: Webbserver (default) ---
