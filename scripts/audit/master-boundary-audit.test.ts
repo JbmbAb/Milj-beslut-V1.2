@@ -67,6 +67,23 @@ describe("Master Boundary Audit", () => {
 
       // PATTERN-PROOF-ENGINE-01 V1 (2026-09-30): PPE persists its protocol artifacts through the injected ArtifactRepositoryPort per frozen design section 13 (reuse CAS-backed storage, no new store).
       "packages/mps-pattern-proof/src/persistence.ts",
+
+      // U30F2 (2026-10-02), test hygiene only: test files that seed or tamper with a TEST-LOCAL repository
+      // (new InMemoryArtifactRepository(), a CasBackedArtifactRepository over a mkdtemp directory, or the
+      // default MimersIntegration.create() like MimersIntegration.test.ts above). Each .put() call site was
+      // read; none is a production write path. No product file is added here: SpatialDatasetRetention.ts
+      // writes through SpatialProviderPostGIS.putSpatialDatasetGovernanceArtifact (authorized above).
+      "packages/spatial-provider-postgis/tests/StagingCleanupProtection.test.ts", // InMemoryArtifactRepository (U30-B2)
+      "packages/spatial-provider-postgis/tests/SpatialProviderPostGISNotCheckedReport.test.ts", // InMemoryArtifactRepository (U30-R2)
+      "packages/mps-runtime/src/unit/MimersByteStorageBackendIndexRead.test.ts", // mkdtemp CAS (U30-A6)
+      "packages/mps-runtime/src/unit/MimersByteStorageBackendObjectMissing.test.ts", // mkdtemp CAS (ADV-1)
+      "packages/mps-lu/tests/ProjectContextBindingOperationalEnvelopeV2.test.ts", // InMemoryArtifactRepository
+      "packages/mps-lu/tests/P4ALU05RealRuntimeEntrypoint.test.ts", // InMemoryArtifactRepository
+      "packages/mps-lu/tests/LuReplayColdVerify.test.ts", // InMemoryArtifactRepository
+      "packages/mps-lu/tests/LuManifestWormIdempotency.test.ts", // InMemoryArtifactRepository
+      "packages/mps-lu/tests/LuDeterministicReExecution.test.ts", // InMemoryArtifactRepository
+      "packages/mps-lu/tests/H15DocumentEvidenceRehashColdReplay.test.ts", // InMemoryArtifactRepository
+      "packages/mps-lu/tests/GeoJsonCoordinateTransform.test.ts", // default MimersIntegration.create()
     ];
 
     const violations: string[] = [];

@@ -19,6 +19,8 @@ import {
 } from "@miljobeslut/mps-lu";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
+import type { ContentHash } from "../../mps-compliance/src/artifacts/ContentHash";
+import { sha256ContentHash } from "../../mps-compliance/src/canonical/sha256Canonical";
 import { resolveLayerBinding } from "./SpatialLayerRegistry";
 import { verifySpatialLayerRuntimeBinding, SpatialLayerRuntimeBindingError } from "./SpatialDatasetRuntimeBinding";
 
@@ -405,4 +407,36 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
   async close(): Promise<void> {
     await this.pool.end();
   }
+}
+
+/**
+ * The dataset-governance artifacts of retain-before-replace (SpatialDatasetRetention, U30-B1 / U30F2 H3):
+ * the retention record, the retained-relation claim and the target's retention claim.
+ */
+export const SPATIAL_DATASET_GOVERNANCE_ARTIFACT_TYPES = [
+  "SPATIAL_DATASET_RETENTION_RECORD",
+  "SPATIAL_DATASET_RETAINED_RELATION_CLAIM",
+  "SPATIAL_DATASET_TARGET_RETENTION_CLAIM",
+] as const;
+
+export const REJECT_SPATIAL_GOVERNANCE_ARTIFACT_INVALID = "REJECT_SPATIAL_GOVERNANCE_ARTIFACT_INVALID" as const;
+
+/**
+ * master-boundary-audit: the PostGIS engine (an authorized CAS writer) is the one place the package writes
+ * CAS. Dataset-governance artifacts go through here, narrowly: only the three types above, and only a body
+ * whose content_hash is the canonical hash of its own payload, written under its own artifact_id -- no
+ * other artifact, no relabelling. The caller injects the repository (the durable Mimers CAS).
+ */
+export async function putSpatialDatasetGovernanceArtifact(
+  repo: ArtifactRepositoryPort,
+  body: { readonly artifact_id: string; readonly artifact_type: string; readonly content_hash: ContentHash; readonly payload: unknown },
+): Promise<void> {
+  if (!(SPATIAL_DATASET_GOVERNANCE_ARTIFACT_TYPES as readonly string[]).includes(body.artifact_type)) {
+    throw new Error(`${REJECT_SPATIAL_GOVERNANCE_ARTIFACT_INVALID}: ${body.artifact_type} is not a dataset-governance artifact`);
+  }
+  const expected = sha256ContentHash(body.payload);
+  if (body.content_hash.algorithm !== expected.algorithm || body.content_hash.value !== expected.value) {
+    throw new Error(`${REJECT_SPATIAL_GOVERNANCE_ARTIFACT_INVALID}: ${body.artifact_id} content_hash is not the hash of its payload`);
+  }
+  await repo.put({ artifact_id: body.artifact_id, content_hash: body.content_hash, body });
 }

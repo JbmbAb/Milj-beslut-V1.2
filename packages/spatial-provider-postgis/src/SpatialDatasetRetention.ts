@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import type { ContentHash } from "../../mps-compliance/src/artifacts/ContentHash";
 import { sha256ContentHash } from "../../mps-compliance/src/canonical/sha256Canonical";
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
-import {
-  SPATIAL_STACK_V1,
-  type SpatialEngineFingerprint,
-} from "../../mps-lu/src/artifacts/SpatialEngineFingerprint";
+// LU-API-BOUNDARY-STEP4: the LU package root, never an mps-lu/src deep import.
+import { SPATIAL_STACK_V1, type SpatialEngineFingerprint } from "@miljobeslut/mps-lu";
+// master-boundary-audit: this module never writes CAS itself; its governance artifacts go through the
+// PostGIS engine's one dataset-governance writer (an authorized CAS writer).
+import { putSpatialDatasetGovernanceArtifact } from "./SpatialProviderPostGIS";
 import { committedRetentionDigestPrecondition } from "./RetentionDigestPrecondition";
 import { committedFirstImportAdmissions, type FirstImportAdmission } from "./FirstImportAdmission";
 import {
@@ -790,7 +791,7 @@ export async function writeOrVerifyRetentionRecord(
   }
   await ensureRetainedRelationClaim(repo, record, rejectCode);
   try {
-    await repo.put({ artifact_id: record.artifact_id, content_hash: record.content_hash, body: record });
+    await putSpatialDatasetGovernanceArtifact(repo, record);
   } catch (error) {
     throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `writing retention record ${record.artifact_id}: ${describe(error)}`, {
       cause: error,
@@ -846,7 +847,7 @@ async function ensureRetainedRelationClaim(
     payload,
   };
   try {
-    await repo.put({ artifact_id: claimId, content_hash: body.content_hash, body });
+    await putSpatialDatasetGovernanceArtifact(repo, body);
   } catch (error) {
     throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `writing relation claim ${claimId}: ${describe(error)}`, { cause: error });
   }
@@ -876,7 +877,7 @@ async function ensureTargetRetentionClaim(
   };
   const body = { artifact_id: claimId, artifact_type: SPATIAL_DATASET_TARGET_RETENTION_CLAIM, content_hash: sha256ContentHash(payload), payload };
   try {
-    await repo.put({ artifact_id: claimId, content_hash: body.content_hash, body });
+    await putSpatialDatasetGovernanceArtifact(repo, body);
   } catch (error) {
     throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `writing target claim ${claimId}: ${describe(error)}`, { cause: error });
   }
