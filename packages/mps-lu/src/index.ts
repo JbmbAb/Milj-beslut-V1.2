@@ -10,6 +10,7 @@ export * from "./artifacts/SpatialEvidenceArtifact";
 export * from "./artifacts/SpatialEvidenceIdentity";
 export * from "./artifacts/SpatialResultSemantics";
 export * from "./artifacts/SpatialEngineFingerprint";
+export * from "./artifacts/SpatialLayerUnavailableEvidence";
 export * from "./artifacts/LUProjectContextArtifact";
 export * from "./artifacts/LUPropertyContextArtifact";
 export * from "./artifacts/ProjectContextBindingArtifact";

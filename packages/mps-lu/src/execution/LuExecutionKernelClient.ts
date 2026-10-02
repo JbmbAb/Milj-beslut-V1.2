@@ -55,7 +55,54 @@ import { LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from "../artifacts/LuExecutionAuth
 import { verifyLuExecutionAuthorityChain } from "./LuExecutionAuthorityChain.js";
 import { verifyLuSourceAuthorityForAssessment } from "../governance/LuSourceAuthorityWiring.js";
 import { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
+import {
+  SPATIAL_LAYER_UNAVAILABLE,
+  isSpatialLayerUnavailableEvidenceValid,
+} from "../artifacts/SpatialLayerUnavailableEvidence.js";
 export { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
+
+/**
+ * U30-R: every pinned NOT_CHECKED cause (`unavailable_layers[].evidence_ref`) must resolve from the
+ * run's own repository, be self-consistent, and record exactly the layer and reason the entry
+ * claims -- otherwise the finding would cite a cause that does not say what the finding says.
+ * Runs before anything is written. Returns the references to pin in the assessment's evidence set.
+ * Entries without `evidence_ref` (pre-U30-R callers) are left exactly as before.
+ */
+async function verifyPinnedUnavailableLayerCauses(
+  repo: import("../../../mps-runtime/src/kernel/ExecutionKernel.js").ArtifactRepositoryPort,
+  unavailableLayers: readonly SpatialLayerUnavailable[],
+): Promise<ArtifactReference[]> {
+  const pinned: ArtifactReference[] = [];
+  for (const entry of unavailableLayers) {
+    const ref = entry.evidence_ref;
+    if (!ref) continue;
+    if (ref.artifact_type !== SPATIAL_LAYER_UNAVAILABLE) {
+      throw new Error(
+        `REJECT_LU_UNAVAILABLE_LAYER_CAUSE: layer "${entry.dataset}" cites ${ref.artifact_type}, not ${SPATIAL_LAYER_UNAVAILABLE}`,
+      );
+    }
+    let resolved: unknown;
+    try {
+      resolved = await repo.resolve(ref);
+    } catch {
+      throw new Error(
+        `REJECT_LU_UNAVAILABLE_LAYER_CAUSE: ${ref.artifact_id} for layer "${entry.dataset}" is not in the artifact repository`,
+      );
+    }
+    if (!isSpatialLayerUnavailableEvidenceValid(resolved) || resolved.artifact_id !== ref.artifact_id) {
+      throw new Error(
+        `REJECT_LU_UNAVAILABLE_LAYER_CAUSE: ${ref.artifact_id} is not a self-consistent ${SPATIAL_LAYER_UNAVAILABLE} record`,
+      );
+    }
+    if (resolved.payload.layer_ref.layer_id !== entry.dataset || resolved.payload.cause.reason !== entry.reason) {
+      throw new Error(
+        `REJECT_LU_UNAVAILABLE_LAYER_CAUSE: ${ref.artifact_id} does not record layer "${entry.dataset}" with the declared reason`,
+      );
+    }
+    pinned.push({ artifact_id: ref.artifact_id, artifact_type: ref.artifact_type });
+  }
+  return pinned;
+}
 
 /**
  * The single LU rule-evaluation construction point.
@@ -250,6 +297,7 @@ async function executeLuAssessment(
   bootstrap: boolean,
 ): Promise<LuKernelRunResult> {
   const repo = input.artifact_repository ?? (await MimersIntegration.create()).artifactRepository;
+  const pinnedUnavailableCauseRefs = await verifyPinnedUnavailableLayerCauses(repo, input.unavailable_layers ?? []);
   const registry = input.registry ?? createLuRegistryRuntime();
   const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
   if (!capability) {
@@ -509,7 +557,15 @@ async function executeLuAssessment(
           : undefined;
 
         assessment = createGovernedLocalizationAssessment({
-          draft: input.assessment_draft,
+          // U30-R: the assessment's evidence set carries every pinned NOT_CHECKED cause its
+          // findings cite, so deterministic re-execution can resolve and re-verify them from CAS.
+          draft:
+            pinnedUnavailableCauseRefs.length > 0
+              ? {
+                  ...input.assessment_draft,
+                  evidence_refs: [...input.assessment_draft.evidence_refs, ...pinnedUnavailableCauseRefs],
+                }
+              : input.assessment_draft,
           findings,
           outcome: result.outcome,
           attestation,
@@ -573,7 +629,8 @@ export interface CanonicalLuKernelRunInput
  */
 export type LuCanonicalRuntimeContractErrorCode =
   | "LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN"
-  | "LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID";
+  | "LU_CANONICAL_IDENTITY_SUBJECT_V3_INVALID"
+  | "LU_CANONICAL_UNAVAILABLE_LAYER_CAUSE_NOT_PINNED";
 
 export class LuCanonicalRuntimeContractError extends Error {
   readonly code: LuCanonicalRuntimeContractErrorCode;
@@ -628,6 +685,27 @@ function assertCanonicalIdentitySubjectV3(input: unknown): void {
 }
 
 /**
+ * U30-R: a new canonical product assessment never carries a NOT_CHECKED finding whose cause is
+ * unpinned -- that finding could not be reproduced by deterministic re-execution, and verify would
+ * have to report it as NOT_CHECKED_CAUSE_NOT_PINNED. The provider pins every cause it reports.
+ */
+function assertUnavailableLayerCausesPinned(input: unknown): void {
+  const entries = (input as { unavailable_layers?: unknown } | null | undefined)?.unavailable_layers;
+  if (entries === undefined) return;
+  const unpinned = Array.isArray(entries)
+    ? entries
+        .filter((entry) => !isArtifactReferenceShape((entry as { evidence_ref?: unknown } | null)?.evidence_ref))
+        .map((entry) => String((entry as { dataset?: unknown } | null)?.dataset ?? "?"))
+    : ["unavailable_layers"];
+  if (unpinned.length > 0) {
+    throw new LuCanonicalRuntimeContractError(
+      "LU_CANONICAL_UNAVAILABLE_LAYER_CAUSE_NOT_PINNED",
+      `runCanonicalLuProductAssessment requires a pinned SPATIAL_LAYER_UNAVAILABLE cause for every unavailable layer; unpinned: ${unpinned.join(", ")}`,
+    );
+  }
+}
+
+/**
  * LU-CANONICAL-RUNTIME-HARDENING-R1 -- the public product boundary.
  *
  * Fails closed BEFORE the general engine is entered:
@@ -636,7 +714,8 @@ function assertCanonicalIdentitySubjectV3(input: unknown): void {
  *    mutation with race semantics); and even past this check it hands the engine an explicit
  *    `bootstrap = false`, so it cannot obtain bootstrap admission through a later env read either;
  *  - if `identity_subject_v3` is missing or structurally broken, the call is rejected -- the type
- *    requirement above is not the only line of defence for untyped callers.
+ *    requirement above is not the only line of defence for untyped callers;
+ *  - (U30-R) if any `unavailable_layers` entry lacks its pinned cause (`evidence_ref`).
  *
  * A valid call reaches the unchanged engine.
  */
@@ -651,5 +730,6 @@ export async function runCanonicalLuProductAssessment(
     );
   }
   assertCanonicalIdentitySubjectV3(input);
+  assertUnavailableLayerCausesPinned(input);
   return executeLuAssessment(input, false);
 }

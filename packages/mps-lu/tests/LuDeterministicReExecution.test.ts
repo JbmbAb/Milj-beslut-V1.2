@@ -64,6 +64,77 @@ function draft(): LocalizationAssessmentDraft {
   };
 }
 
+/**
+ * U30-R. A content-addressed record of WHY a layer could not be checked, built independently of
+ * the production factory (same RFC8785/sha256 formula, written out here) so the test is an oracle
+ * for the identity contract, not a mirror of the code under test.
+ */
+const EBH_VERSION_HASH = "02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186";
+function layerUnavailableCause(layer: string, versionHash: string, reason: string) {
+  const property_context_ref = { artifact_id: "prop-reexec", artifact_type: "PROPERTY" };
+  const payload = {
+    contract_version: "spatial-layer-unavailable-v1",
+    layer_ref: { layer_id: layer, version_hash: versionHash, layer_version: "v1.0" },
+    provider: "fixture-provider",
+    query_contract: {
+      query_contract_version: "spatial-query-contract-v3",
+      spatial_canonical_version: "sv-canonical-3",
+      relation: "DWITHIN",
+      subject: { kind: "PROPERTY_CONTEXT_CENTROID", property_context_ref, crs: "EPSG:3006" },
+      parameters: { distance_meters: 500, max_features_per_layer: 50 },
+      selection: { predicate_semantics: "EXISTS" },
+    },
+    cause: { kind: "QUERY_EXECUTION_FAILED", reason },
+  };
+  const references = [property_context_ref];
+  const content_hash = sha256ContentHash({ artifact_type: "SPATIAL_LAYER_UNAVAILABLE", references, payload });
+  return {
+    artifact_id: `layer-unavailable-${layer}-${content_hash.value.slice(0, 24)}`,
+    artifact_type: "SPATIAL_LAYER_UNAVAILABLE",
+    content_hash,
+    references,
+    payload,
+  };
+}
+
+type Finding = LocalizationAssessmentArtifact["payload"]["findings"][number];
+/** Same semantic-set order GovernedAssessmentPersistence enforces on V3/V4 (rule \0 version \0 id). */
+function canonicalFindingOrder(findings: readonly Finding[]): Finding[] {
+  const key = (f: Finding) => `${f.rule_id}\u0000${f.rule_version}\u0000${f.finding_id}`;
+  return [...findings].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+}
+function canonicalRuleRefsFrom(findings: readonly Finding[]) {
+  const key = (r: { rule_id: string; rule_version: string }) => `${r.rule_id}\u0000${r.rule_version}`;
+  const unique = new Map(findings.map((f) => [key(f), { rule_id: f.rule_id, rule_version: f.rule_version }] as const));
+  return [...unique.values()].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+}
+
+/** Water hit + ebh unavailable; when `pinCause` the ebh cause is pinned the way the provider does it. */
+async function runWithUnavailableEbh(repo: ArtifactRepositoryPort, siteId: string, pinCause: boolean) {
+  const ev = spatialEvidence(siteId, "water");
+  await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
+  const reason = "QueryFailedError: simulated";
+  const cause = layerUnavailableCause("ebh", EBH_VERSION_HASH, reason);
+  await repo.put({ artifact_id: cause.artifact_id, content_hash: cause.content_hash, body: cause });
+  const causeRef = { artifact_id: cause.artifact_id, artifact_type: cause.artifact_type };
+  const run = await runLuAssessmentViaKernel({
+    site_id: siteId,
+    deterministic_seed: `seed:${siteId}`,
+    evidence: [ev],
+    unavailable_layers: [pinCause ? { dataset: "ebh", reason, evidence_ref: causeRef } : { dataset: "ebh", reason }],
+    artifact_repository: repo,
+    assessment_draft: { ...draft(), site_id: siteId, evidence_refs: [{ artifact_id: ev.artifact_id, artifact_type: ev.artifact_type }] },
+  } as Parameters<typeof runLuAssessmentViaKernel>[0]);
+  return { run, cause, causeRef };
+}
+
+function storeTampered(repo: ArtifactRepositoryPort, tampered: LocalizationAssessmentArtifact) {
+  (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(tampered.artifact_id, {
+    content_hash: tampered.content_hash,
+    body: tampered,
+  });
+}
+
 async function runAssessment(repo: ArtifactRepositoryPort, siteId: string, evidence: SpatialEvidenceArtifact[]) {
   for (const ev of evidence) await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
   return runLuAssessmentViaKernel({
@@ -211,5 +282,127 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     const reexec = await reExecuteLocalizationAssessment({ assessmentArtifactId: futureVersionAssessment.artifact_id, artifactRepository: repo });
     expect(reexec.outcome).toBe("DENY");
     expect(reexec.mismatches).toEqual([{ code: "UNSUPPORTED_CONTRACT_VERSION", detail: expect.stringContaining("unknown assessment_contract_version") }]);
+  });
+
+  it("17: unavailable layer -> re-execution reproduces the identical NOT_CHECKED finding (PASS)", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run, causeRef } = await runWithUnavailableEbh(repo, "reexec-nc", true);
+    const stored = run.assessment!.payload.findings.find((f) => f.finding_id === "finding-notchecked-ebh");
+    expect(stored?.risk_level).toBe("NOT_CHECKED"); // precondition (green before U30-R)
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo });
+    expect(r.mismatches).toEqual([]); // RED before U30-R: [FINDINGS_MISMATCH, RULE_REFS_MISMATCH]
+    expect(r.outcome).toBe("PASS"); // RED before U30-R: DENY
+    expect(r.fresh_findings.find((f) => f.finding_id === stored!.finding_id)?.explanation).toBe(stored!.explanation);
+
+    // The cause is pinned, not merely remembered: the NOT_CHECKED finding cites it and the
+    // assessment's own evidence set carries it.
+    expect(stored!.evidence_refs).toEqual([causeRef]);
+    expect(run.assessment!.payload.evidence_refs).toContainEqual(causeRef);
+  });
+
+  it("18: a NOT_CHECKED finding added to the stored assessment is not reproduced -> DENY, FINDINGS_MISMATCH (never derived from stored findings)", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailableEbh(repo, "reexec-nc-forged", true);
+    const forged: Finding = {
+      finding_id: "finding-notchecked-protected_area",
+      rule_id: "LU-PROTECTED-001",
+      rule_version: "2.0",
+      risk_level: "NOT_CHECKED",
+      evidence_refs: [],
+      explanation: 'Lagret "protected_area" kunde inte kontrolleras (QueryFailedError: forged). Ej kontrollerbart - underlag saknas.',
+    } as Finding;
+    const findings = canonicalFindingOrder([...run.assessment!.payload.findings, forged]);
+    const tampered = reselfHash({
+      ...run.assessment!,
+      payload: { ...run.assessment!.payload, findings, rule_refs: canonicalRuleRefsFrom(findings) },
+    });
+    storeTampered(repo, tampered);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: tampered.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.some((m) => m.code === "FINDINGS_MISMATCH")).toBe(true);
+    expect(r.mismatches.some((m) => m.code === ("NOT_CHECKED_CAUSE_NOT_PINNED" as string))).toBe(false);
+    expect(r.fresh_findings.some((f) => f.finding_id === forged.finding_id)).toBe(false);
+  });
+
+  it("18b: a forged NOT_CHECKED in an assessment that pins no cause at all still never PASSes", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const result = await runAssessment(repo, "reexec-nc-forged-nopin", [spatialEvidence("nc-forged-nopin", "water")]);
+    const forged = {
+      finding_id: "finding-notchecked-ebh",
+      rule_id: "LU-EBH-001",
+      rule_version: "2.0",
+      risk_level: "NOT_CHECKED",
+      evidence_refs: [],
+      explanation: 'Lagret "ebh" kunde inte kontrolleras (QueryFailedError: forged). Ej kontrollerbart - underlag saknas.',
+    } as Finding;
+    const findings = canonicalFindingOrder([...result.assessment!.payload.findings, forged]);
+    const tampered = reselfHash({
+      ...result.assessment!,
+      payload: { ...result.assessment!.payload, findings, rule_refs: canonicalRuleRefsFrom(findings) },
+    });
+    storeTampered(repo, tampered);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: tampered.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.length).toBeGreaterThan(0);
+  });
+
+  it("19: historical assessment whose NOT_CHECKED cause was never pinned -> NOT_CHECKED_CAUSE_NOT_PINNED, not FINDINGS_MISMATCH", async () => {
+    const repo = new InMemoryArtifactRepository();
+    // Exactly what every producer emitted before U30-R: { dataset, reason } and nothing pinned.
+    const { run } = await runWithUnavailableEbh(repo, "reexec-nc-historical", false);
+    const stored = run.assessment!.payload.findings.find((f) => f.finding_id === "finding-notchecked-ebh");
+    expect(stored?.risk_level).toBe("NOT_CHECKED");
+    expect(stored?.evidence_refs).toEqual([]);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo });
+    expect(r.mismatches.map((m) => m.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]); // RED before U30-R
+    expect(r.mismatches[0]!.detail).toContain("finding-notchecked-ebh");
+    expect(r.outcome).toBe("DENY"); // never PASS: the NOT_CHECKED finding cannot be re-derived
+  });
+
+  it("19b: the same historical gap on a V4-declared assessment -> NOT_CHECKED_CAUSE_NOT_PINNED", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailableEbh(repo, "reexec-nc-historical-v4", false);
+    const v4 = reselfHash({
+      ...run.assessment!,
+      payload: {
+        ...run.assessment!.payload,
+        assessment_contract_version: "localization-assessment-v4",
+        canonicalizer_id: "rfc8785-sha256-v1",
+        authority_evidence_ref: { artifact_id: "authority-evidence-historical", artifact_type: "authority_evidence" },
+      },
+    });
+    storeTampered(repo, v4);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: v4.artifact_id, artifactRepository: repo });
+    expect(r.mismatches.map((m) => m.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]); // RED before U30-R
+    expect(r.outcome).toBe("DENY");
+  });
+
+  it("20: pinned NOT_CHECKED cause tampered in CAS (reason rewritten, stale hash) -> DENY, TAMPERED_EVIDENCE", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run, cause } = await runWithUnavailableEbh(repo, "reexec-nc-cause-tampered", true);
+    const rewritten = { ...cause, payload: { ...cause.payload, cause: { ...cause.payload.cause, reason: "rewritten" } } };
+    (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(cause.artifact_id, {
+      content_hash: cause.content_hash,
+      body: rewritten,
+    });
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["TAMPERED_EVIDENCE"]);
+  });
+
+  it("20b: pinned NOT_CHECKED cause missing from CAS -> DENY, MISSING_PINNED_EVIDENCE", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run, cause } = await runWithUnavailableEbh(repo, "reexec-nc-cause-missing", true);
+    (repo as unknown as { store: Map<string, unknown> }).store.delete(cause.artifact_id);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MISSING_PINNED_EVIDENCE"]);
   });
 });

@@ -174,6 +174,10 @@ export class LURuleEngine {
    * `rule_version: "2.0"` on a `NOT_CHECKED` finding is the same version as that rule's normal
    * LOW/MEDIUM/HIGH findings (bumped above): the rule's contract, not any single outcome, is
    * what changed by admitting this new non-severity state.
+   *
+   * U30-R: when the entry carries the pinned cause (`evidence_ref` to a SPATIAL_LAYER_UNAVAILABLE
+   * record), the finding cites it; finding id, rule, version, risk level and wording are
+   * unchanged. Without it (pre-U30-R callers) `evidence_refs` stays `[]`, exactly as before.
    */
   private evaluateUnavailableLayers(input: LURuleEvaluationInput): AssessmentFinding[] {
     const findings: AssessmentFinding[] = [];
@@ -190,7 +194,9 @@ export class LURuleEngine {
         explanation:
           `Lagret "${unavailable.dataset}" kunde inte kontrolleras (${unavailable.reason}). ` +
           "Ej kontrollerbart - underlag saknas.",
-        evidence_refs: [],
+        evidence_refs: unavailable.evidence_ref
+          ? [{ artifact_id: unavailable.evidence_ref.artifact_id, artifact_type: unavailable.evidence_ref.artifact_type }]
+          : [],
       });
     }
     return findings;

@@ -117,10 +117,17 @@ export function assertSpatialQueryContractV3NumericParameters(parameters: unknow
  * `reason` is a short, stable error-class label plus a brief technical description -- never a
  * raw stack trace or full driver error object, since this value can end up referenced from an
  * assessment artifact.
+ *
+ * U30-R (LU 72h): `evidence_ref`, when present, points at the content-addressed
+ * SPATIAL_LAYER_UNAVAILABLE record the provider minted for this failure
+ * (artifacts/SpatialLayerUnavailableEvidence.ts) -- still not a spatial result, only the pinned
+ * cause. The NOT_CHECKED finding cites it, so re-execution can reproduce the finding from CAS.
+ * Absent on every entry produced before U30-R (cause not pinned).
  */
 export interface SpatialLayerUnavailable {
   readonly dataset: string;
   readonly reason: string;
+  readonly evidence_ref?: ArtifactReference;
 }
 
 /**
