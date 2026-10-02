@@ -265,7 +265,12 @@ describe('U20CDF2 (G3 / owner invariant): a layer with a stored risk finding was
       { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_HIT', evidence_artifact_id: hit.artifact_id, reason: null },
     ]);
     const negative = ev('ebh', { exists: false, match_count_observed: 0 });
+    // U20CDF3 (low 4): the NOT_CHECKED finding still wins (never a no-hit), and the row now says that the
+    // record ALSO holds evidence for the layer -- an invalid combination (RECORD_INTEGRITY_ERROR).
     expect(computeGovernedLayerChecks({ requestedLayers: ['ebh'], evidence: [negative], unavailableLayers: [], findings: [{ rule_id: 'LU-EBH-001', risk_level: 'NOT_CHECKED' }] })).toEqual([
+      { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'NOT_CHECKED', evidence_artifact_id: negative.artifact_id, reason: 'NOT_CHECKED_FINDING_WITH_EVIDENCE' },
+    ]);
+    expect(computeGovernedLayerChecks({ requestedLayers: ['ebh'], evidence: [], unavailableLayers: [], findings: [{ rule_id: 'LU-EBH-001', risk_level: 'NOT_CHECKED' }] })).toEqual([
       { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NOT_CHECKED_FINDING' },
     ]);
   });

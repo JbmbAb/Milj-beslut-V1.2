@@ -247,6 +247,22 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   // producer writes are a typed integrity error, ahead of the historical classification.
   const integrity: string[] = [];
   for (const id of pinned?.outside_governed_layers_artifact_ids ?? []) integrity.push(`EVIDENCE_OUTSIDE_GOVERNED_LAYERS:${id}`);
+  // U20CDF3 (U20CDF2 verification H5.1 / low 4): a NOT_CHECKED finding of a layer's rule next to stored
+  // evidence for that layer -- with or without a risk finding beside it. The gate rejects evidence +
+  // unavailable for one layer and the rule engine writes NOT_CHECKED only for an unavailable layer, so
+  // no known producer writes this; it used to read as "0 av M".
+  const notCheckedRules = new Set(
+    findings.filter((finding) => finding?.risk_level === 'NOT_CHECKED').map((finding) => finding.rule_id),
+  );
+  for (const entry of checks) {
+    if (!entry || typeof entry !== 'object') continue;
+    const check = entry as GovernedLayerCheck;
+    if (check.layer === GOVERNED_DOCUMENT_CHECK_LAYER) continue;
+    const contradicted =
+      check.reason === 'NOT_CHECKED_FINDING_WITH_EVIDENCE' ||
+      (check.status === 'CHECKED_HIT' && check.rule_id !== null && notCheckedRules.has(check.rule_id) && check.evidence_artifact_id !== null);
+    if (contradicted) integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${check.layer}`);
+  }
   if (integrity.length > 0) return { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: integrity, coverage: null };
   const riskRules = new Set(findings.filter(isGovernedRiskFinding).map((finding) => finding.rule_id));
   const basis: string[] = [];

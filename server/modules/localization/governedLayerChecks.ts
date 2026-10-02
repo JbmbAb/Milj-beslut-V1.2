@@ -28,7 +28,9 @@ export interface GovernedLayerCheck {
   readonly evidence_artifact_id: string | null;
   /**
    * For NOT_CHECKED: the provider's reason, 'NOT_CHECKED_FINDING', 'NO_EVIDENCE',
-   * 'UNRECOGNIZED_RESULT' or 'PINNED_EVIDENCE_UNREADABLE'.
+   * 'UNRECOGNIZED_RESULT' or 'PINNED_EVIDENCE_UNREADABLE'; U20CDF3 (low 4):
+   * 'NOT_CHECKED_FINDING_WITH_EVIDENCE' when the record also holds evidence for the layer (an invalid
+   * combination; evidence_artifact_id then names that evidence).
    * U20CDF2: on a CHECKED_HIT only 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' (a stored risk finding whose
    * record lacks the consistent evidence a current run pins); null on every consistent check.
    */
@@ -240,8 +242,10 @@ export interface LayerCheckFindingLike {
  *     current producer pins with every such finding (one valid evidence with exists:true, all of the
  *     layer's evidence in the normal form, no NOT_CHECKED finding beside it) the row says so:
  *     reason FINDING_WITHOUT_CONSISTENT_EVIDENCE -- still completed, never hidden;
- *  3. a stored NOT_CHECKED finding -> NOT_CHECKED (NOT_CHECKED_FINDING), also beside evidence (a
- *     combination the fresh-run gate rejects, so only an older record can hold it);
+ *  3. a stored NOT_CHECKED finding -> NOT_CHECKED (NOT_CHECKED_FINDING); U20CDF3 (low 4): beside
+ *     stored evidence for the layer (a combination the fresh-run gate rejects and no known producer
+ *     writes) -> NOT_CHECKED with reason NOT_CHECKED_FINDING_WITH_EVIDENCE, which makes the record a
+ *     RECORD_INTEGRITY_ERROR -- the finding still wins (never a no-hit), and never "0 av M";
  *  4. no evidence -> NOT_CHECKED (NO_EVIDENCE: silence is never "checked");
  *  5. evidence outside the normal form -> NOT_CHECKED (UNRECOGNIZED_RESULT);
  *  6. otherwise CHECKED_HIT / CHECKED_NO_HIT from `exists`, exactly as the rule engine reads it.
@@ -293,7 +297,11 @@ export function computeGovernedLayerChecks(input: {
         reason: consistent ? null : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
       };
     }
-    if (hasNotCheckedFinding) return notChecked('NOT_CHECKED_FINDING');
+    if (hasNotCheckedFinding) {
+      return layerEvidence.length > 0
+        ? notChecked('NOT_CHECKED_FINDING_WITH_EVIDENCE', layerEvidence[0]!.artifact_id)
+        : notChecked('NOT_CHECKED_FINDING');
+    }
     if (layerEvidence.length === 0) return notChecked('NO_EVIDENCE');
 
     // U20-D (M2b findings 8 and 9), now through the one normal form: an evidence that declares

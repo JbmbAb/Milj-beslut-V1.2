@@ -139,3 +139,59 @@ describe('U20CDF3 (low 2): stored evidence for a layer outside the governed M is
     expect(statement.coverage?.checks_completed).toBe(5);
   });
 });
+
+const notChecked = (layer: string): AssessmentFinding => ({
+  finding_id: `finding-notchecked-${layer}`, rule_id: RULE[layer]!, rule_version: '2.0', risk_level: 'NOT_CHECKED',
+  explanation: 'x', evidence_refs: [],
+});
+
+describe('U20CDF3 (U20CDF2 verification H5.1 / low 4): a NOT_CHECKED finding next to stored evidence for the same layer is an invalid combination, never "0 av M"', () => {
+  it('the verifier probe S5: NOT_CHECKED on every layer plus readable negative evidence on every layer -> RECORD_INTEGRITY_ERROR', async () => {
+    const { details, statement } = await readBack(NEGATIVES, LAYERS.map(notChecked));
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(LAYERS.map((layer) => `NOT_CHECKED_FINDING_WITH_EVIDENCE:${layer}`));
+    expect(statement.coverage).toBeNull();
+    expect(statement.statement_sv).toBe(`${INTEGRITY_SV} Täckningsgrad och samlad risknivå kan därför inte fastställas.`);
+    expect(statement.statement_sv).not.toMatch(/\b0 av \d|Ingen samlad risknivå kan presenteras|låg risk/i);
+    // Per layer: still not checked (the NOT_CHECKED finding is never overruled into a no-hit), but as
+    // an integrity error pointing at the contradicting evidence -- never "Ingen registrerad träff".
+    for (const [index, layer] of LAYERS.entries()) {
+      const row = details.governedLayerChecks.find((check) => check.layer === layer)!;
+      expect(row).toMatchObject({
+        status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING_WITH_EVIDENCE',
+        evidence_artifact_id: NEGATIVES[index]!.artifact_id, coverage_state: 'TECHNICAL_ERROR',
+      });
+      expect(row.message_sv).toMatch(/^Integritetsfel: bedömningen innehåller både ett fynd om att .+ inte kunde kontrolleras och evidens för lagret\. Ingen slutsats om lagret\.$/);
+    }
+  });
+
+  it('on a single layer, the rest current -> RECORD_INTEGRITY_ERROR naming that layer', async () => {
+    const { statement } = await readBack(NEGATIVES, [notChecked('natura2000')]);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['NOT_CHECKED_FINDING_WITH_EVIDENCE:natura2000']);
+    expect(statement.statement_sv).not.toMatch(/\b\d+ av \d+ kontroller/);
+  });
+
+  it('with a hit, a stored risk finding AND a NOT_CHECKED finding for the layer -> RECORD_INTEGRITY_ERROR, the risk still named', async () => {
+    const hit = spatialEvidence('water', true);
+    const evidence = [hit, ...NEGATIVES.filter((e) => e.payload.source_metadata.dataset !== 'water')];
+    const findings: AssessmentFinding[] = [
+      { finding_id: 'finding-water-medium', rule_id: RULE.water!, rule_version: '2.0', risk_level: 'MEDIUM', explanation: 'x', evidence_refs: [ref(hit)] },
+      notChecked('water'),
+    ];
+    const { details, statement } = await readBack(evidence, findings);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['NOT_CHECKED_FINDING_WITH_EVIDENCE:water']);
+    expect(statement.statement_sv).toContain('Bedömningens lagrade fynd redovisas var för sig: risknivå måttlig – Brunnar.');
+    // A layer with a stored risk finding stays completed (owner invariant).
+    expect(details.governedLayerChecks[0]).toMatchObject({ layer: 'water', status: 'CHECKED_HIT' });
+  });
+
+  it('a NOT_CHECKED finding WITHOUT evidence for the layer is the current form -> DETERMINED (control)', async () => {
+    const evidence = NEGATIVES.filter((e) => e.payload.source_metadata.dataset !== 'ebh');
+    const { details, statement } = await readBack(evidence, [notChecked('ebh')]);
+    expect(statement.coverage_state).toBe('DETERMINED');
+    expect(statement.coverage?.checks_completed).toBe(4);
+    expect(details.governedLayerChecks[1]).toMatchObject({ layer: 'ebh', status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING', evidence_artifact_id: null });
+  });
+});

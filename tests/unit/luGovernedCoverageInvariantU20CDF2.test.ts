@@ -375,9 +375,14 @@ type LayerRecord = { readonly evidence: EvidenceState; readonly finding: Finding
 type StoredRecord = { readonly layers: Record<Layer, LayerRecord>; readonly document: DocumentState; readonly otherRule: boolean };
 
 /** The oracle, from the specification: what the coverage state of such a record must be. */
-function expectedCoverageState(record: StoredRecord): 'PINNED_EVIDENCE_UNREADABLE' | 'HISTORICAL_COVERAGE_UNKNOWN' | 'DETERMINED' {
+function expectedCoverageState(record: StoredRecord): 'PINNED_EVIDENCE_UNREADABLE' | 'RECORD_INTEGRITY_ERROR' | 'HISTORICAL_COVERAGE_UNKNOWN' | 'DETERMINED' {
   if (LAYERS.some((l) => UNREADABLE.has(record.layers[l].evidence)) || record.document === 'UNREADABLE_WITH_FINDING') {
     return 'PINNED_EVIDENCE_UNREADABLE';
+  }
+  // U20CDF3 (low 4): a NOT_CHECKED finding next to stored evidence for the same layer is an invalid
+  // combination (no known producer writes it) -- formerly "NC wins" and the record counted as current.
+  if (LAYERS.some((l) => (record.layers[l].finding === 'NC' || record.layers[l].finding === 'HIGH_NC') && record.layers[l].evidence !== 'NONE')) {
+    return 'RECORD_INTEGRITY_ERROR';
   }
   for (const layer of LAYERS) {
     const { evidence: ev, finding } = record.layers[layer];
@@ -388,7 +393,7 @@ function expectedCoverageState(record: StoredRecord): 'PINNED_EVIDENCE_UNREADABL
       if (!(VALID_HIT.has(ev) && !notChecked)) return 'HISTORICAL_COVERAGE_UNKNOWN';
       continue;
     }
-    if (notChecked) continue; // the layer is reported as not checked (also beside contradictory evidence)
+    if (notChecked) continue; // without evidence: the layer is reported as not checked
     if (ev === 'NONE') return 'HISTORICAL_COVERAGE_UNKNOWN'; // the record says nothing about the layer
     if (INVALID.has(ev)) return 'HISTORICAL_COVERAGE_UNKNOWN'; // the gate would have rejected it
     if (VALID_HIT.has(ev)) return 'HISTORICAL_COVERAGE_UNKNOWN'; // the rule engine fires on every hit
@@ -485,6 +490,9 @@ async function assertStored(record: StoredRecord) {
   if (expected === 'HISTORICAL_COVERAGE_UNKNOWN') {
     expect(statement.statement_sv.startsWith(HISTORICAL_SV), label).toBe(true);
   }
+  if (expected === 'RECORD_INTEGRITY_ERROR') {
+    expect(statement.statement_sv.startsWith('Integritetsfel: '), label).toBe(true);
+  }
   if (expected === 'PINNED_EVIDENCE_UNREADABLE') {
     // (3) unreadable pinned evidence is never "no hit": a technical error, overall and per layer.
     expect(statement.statement_sv.startsWith('Den pinnade evidensen kan inte verifieras: '), label).toBe(true);
@@ -569,6 +577,6 @@ describe('U20CDF2 invariant C: stored records read back -- (1) risk never disapp
       await assertStored(record);
     }
     // The sample reaches every state.
-    expect([...seen].sort()).toEqual(['DETERMINED', 'HISTORICAL_COVERAGE_UNKNOWN', 'PINNED_EVIDENCE_UNREADABLE']);
+    expect([...seen].sort()).toEqual(['DETERMINED', 'HISTORICAL_COVERAGE_UNKNOWN', 'PINNED_EVIDENCE_UNREADABLE', 'RECORD_INTEGRITY_ERROR']);
   }, 120_000);
 });

@@ -252,7 +252,9 @@ describe('U12 computeGovernedLayerChecks (pure)', () => {
       requestedLayers: ['ebh'], evidence: [evidence('ebh', false)], unavailableLayers: [],
       findings: [{ rule_id: 'LU-EBH-001', risk_level: 'NOT_CHECKED' }],
     });
-    expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING' });
+    // U20CDF3 (low 4): still NOT_CHECKED (the finding wins, never a no-hit); the reason now also says the
+    // record holds evidence for the layer -- an invalid combination the record-level state reports.
+    expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING_WITH_EVIDENCE', evidence_artifact_id: 'evidence-ebh-x' });
   });
 
   it('an evidence result without a boolean `exists` is NOT_CHECKED (UNRECOGNIZED_RESULT), never no-hit', () => {
