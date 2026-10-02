@@ -548,6 +548,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const showProgress =
     Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidenceLoad.status === 'loading');
 
+  // Item 4: one ring only when every checked layer used the same governed search radius.
+  const distinctRadii = [...new Set(checks.map((c) => c.searchRadiusMeters).filter((r): r is number => r !== null))];
+  const searchRadiusMeters = distinctRadii.length === 1 ? distinctRadii[0]! : null;
+
   return (
     <div
       data-testid="lu-workspace"
@@ -936,6 +940,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 localizationGeometry
                   ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] }
                   : null
+              }
+              productMode
+              assessmentAvailable={assessmentPresence === 'present'}
+              evidenceReloadNonce={evidenceNonce}
+              searchRadiusMeters={searchRadiusMeters}
+              currentLocationLabel={
+                localizationGeometry?.provenance === 'user_defined'
+                  ? 'Kontrollpunkt: angiven av användaren'
+                  : 'Kontrollpunkt: beräknad mittpunkt av fastigheten (ej inmätt)'
               }
             />
           </Suspense>

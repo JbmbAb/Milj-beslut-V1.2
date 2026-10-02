@@ -48,6 +48,20 @@ interface CesiumMapViewProps {
   focusEvidenceArtifactId?: string | null;
   focusEvidenceNonce?: number;
   onFocusEvidenceMissing?: () => void;
+  /**
+   * DEMO M2a item 4 (governed LU product view). Hides the fixture toggle, the 'Använd fixture'
+   * fallback, the internal overlay labels and the layer toggles (governed evidence carries no
+   * object geometry, so they change nothing), and shows a plain legend instead.
+   */
+  productMode?: boolean;
+  /** productMode only: false = no governed assessment yet -> no evidence fetch, honest empty state. */
+  assessmentAvailable?: boolean;
+  /** Bump to re-fetch the governed evidence (e.g. after a new assessment run). */
+  evidenceReloadNonce?: number;
+  /** The governed search radius (distance_meters) drawn as a ring around the current point. */
+  searchRadiusMeters?: number | null;
+  /** How the current point was made, e.g. 'Beräknad mittpunkt (ej inmätt)'. */
+  currentLocationLabel?: string;
 }
 
 const CesiumMapView: React.FC<CesiumMapViewProps> = ({
@@ -64,6 +78,11 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   focusEvidenceArtifactId = null,
   focusEvidenceNonce = 0,
   onFocusEvidenceMissing,
+  productMode = false,
+  assessmentAvailable,
+  evidenceReloadNonce = 0,
+  searchRadiusMeters = null,
+  currentLocationLabel,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<CesiumAdapter | null>(null);
@@ -74,6 +93,8 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   const [evidenceCount, setEvidenceCount] = useState<number | null>(null);
   const [evidenceMeta, setEvidenceMeta] = useState<CesiumEvidenceMeta | null>(null);
   const [emptyEvidence, setEmptyEvidence] = useState(false);
+  const [awaitingAssessment, setAwaitingAssessment] = useState(false);
+  const [geometrylessEvidence, setGeometrylessEvidence] = useState(false);
 
   const [visibleLayers, setVisibleLayers] = useState<Record<CesiumEvidenceLayerKey, boolean>>({
     water: true,
@@ -171,11 +192,20 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   useEffect(() => {
     if (!adapterRef.current) return;
     if (currentLocationPoint) {
-      adapterRef.current.setCurrentLocationPoint(currentLocationPoint.lat, currentLocationPoint.lng);
+      adapterRef.current.setCurrentLocationPoint(currentLocationPoint.lat, currentLocationPoint.lng, currentLocationLabel);
     } else {
       adapterRef.current.clearCurrentLocationPoint();
     }
-  }, [currentLocationPoint]);
+  }, [currentLocationPoint, currentLocationLabel]);
+
+  useEffect(() => {
+    if (!adapterRef.current) return;
+    if (currentLocationPoint && typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0) {
+      adapterRef.current.setSearchRadiusRing(currentLocationPoint.lat, currentLocationPoint.lng, searchRadiusMeters);
+    } else {
+      adapterRef.current.clearSearchRadiusRing();
+    }
+  }, [currentLocationPoint, searchRadiusMeters]);
 
   useEffect(() => {
     if (!adapterRef.current) return;
@@ -185,9 +215,23 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     setEvidenceError(null);
     setEvidenceMeta(null);
     setEmptyEvidence(false);
+    setAwaitingAssessment(false);
+    setGeometrylessEvidence(false);
 
     const run = async () => {
       try {
+        // DEMO M2a: no governed assessment yet -> show the property only; never fetch or show
+        // evidence, and never read the absence of results as 'no hits'.
+        if (productMode && assessmentAvailable === false) {
+          await adapterRef.current.setPropertyGeometry(propertyGeometry, propertyCoordinates);
+          adapterRef.current?.clearEvidenceLayers();
+          if (!cancelled) {
+            setEvidenceCount(null);
+            setAwaitingAssessment(true);
+          }
+          return;
+        }
+
         if (mode === 'fixture') {
           const scene = await loadCesiumL0L1FixtureScene();
           if (cancelled || !adapterRef.current) return;
@@ -250,6 +294,8 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
             feature_count: typeof geojson.meta?.feature_count === 'number' ? geojson.meta.feature_count : count,
           });
           setEmptyEvidence(count === 0);
+          const features = Array.isArray(geojson?.features) ? geojson.features : [];
+          setGeometrylessEvidence(features.length > 0 && features.every((f: { geometry?: unknown }) => !f?.geometry));
         }
       } catch (err) {
         if (!cancelled) {
@@ -269,7 +315,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyGeometry, propertyCoordinates, mode, reloadToken, projectId]);
+  }, [propertyGeometry, propertyCoordinates, mode, reloadToken, projectId, productMode, assessmentAvailable, evidenceReloadNonce]);
 
   useEffect(() => {
     adapterRef.current?.setLayerVisibility(visibleLayers);
@@ -297,6 +343,38 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       data-testid="cesium-map-view"
       data-evidence-mode={mode}
     >
+      {productMode ? (
+        <div
+          data-testid="cesium-product-legend"
+          className="absolute top-4 left-4 z-10 bg-slate-900/90 text-white p-3 rounded-xl shadow-lg border border-slate-700/50 backdrop-blur-md flex flex-col gap-1.5 w-[270px] text-[11px]"
+        >
+          <p className="font-black uppercase tracking-wider text-slate-300">Karta</p>
+          <p className="text-slate-300">Fastighetsgränsen från fastighetsuppslaget.</p>
+          {currentLocationPoint ? (
+            <p className="text-slate-300">
+              <span style={{ color: '#00FF00' }}>●</span> {currentLocationLabel ?? 'Kontrollpunkt'}
+            </p>
+          ) : null}
+          {typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0 && currentLocationPoint ? (
+            <p data-testid="cesium-search-radius-legend" className="text-slate-300">
+              <span style={{ color: '#00FFFF' }}>◯</span> Sökradie {searchRadiusMeters} m – visar var kontrollen sökte, inte var
+              några objekt ligger.
+            </p>
+          ) : null}
+          {geometrylessEvidence ? (
+            <p data-testid="cesium-geometryless-note" className="text-slate-400">
+              Kontrollresultaten saknar objektgeometri och visas därför inte som objekt på kartan. Se listan Kontroller.
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => adapterRef.current?.resetCameraOverview()}
+            className="mt-1 text-[10px] font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg px-2 py-1.5 text-left transition-colors"
+          >
+            Återställ kamera (Sverige)
+          </button>
+        </div>
+      ) : (
       <div className="absolute top-4 left-4 z-10 bg-slate-900/90 text-white p-3 rounded-xl shadow-lg border border-slate-700/50 backdrop-blur-md flex flex-col gap-2 w-[250px]">
         <div className="flex items-center gap-2 pointer-events-none">
           <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
@@ -369,7 +447,9 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           </p>
         )}
       </div>
+      )}
 
+      {!productMode && (
       <div className="absolute top-16 right-4 z-10 bg-slate-900/90 text-white p-4 rounded-xl shadow-lg border border-slate-700/50 backdrop-blur-md w-52 flex flex-col gap-2.5">
         <h6 className="text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 flex items-center gap-1.5">
           <i className="fas fa-layer-group text-cyan-400" />
@@ -407,6 +487,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           ))}
         </div>
       </div>
+      )}
 
       {pickingLocation && (
         <div
@@ -419,11 +500,31 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
 
       {loadingEvidence && (
         <div className="absolute bottom-4 right-4 z-10 bg-indigo-600 text-white px-3 py-1.5 rounded-lg shadow text-[11px] font-bold tracking-tight animate-pulse pointer-events-none">
-          Hämtar SpatialEvidence...
+          {productMode ? 'Hämtar kontrollresultat…' : 'Hämtar SpatialEvidence...'}
         </div>
       )}
 
-      {emptyEvidence && !loadingEvidence && !evidenceError && (
+      {productMode && awaitingAssessment && !loadingEvidence && (
+        <div
+          data-testid="cesium-awaiting-assessment"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-slate-900/95 text-white px-4 py-3 rounded-xl shadow border border-slate-700 max-w-md text-center"
+        >
+          <p className="text-[11px] font-black uppercase tracking-wider text-slate-300">Inga kontrollresultat att visa ännu</p>
+          <p className="text-[10px] text-slate-400 mt-1">Kontrollresultat visas när det finns en bedömning för kontrollpunkten.</p>
+        </div>
+      )}
+
+      {productMode && emptyEvidence && !loadingEvidence && !evidenceError && (
+        <div
+          data-testid="cesium-empty-evidence"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-slate-900/95 text-white px-4 py-3 rounded-xl shadow border border-slate-700 max-w-md text-center"
+        >
+          <p className="text-[11px] font-black uppercase tracking-wider text-slate-300">Inga kontrollresultat i underlaget</p>
+          <p className="text-[10px] text-slate-400 mt-1">Det betyder inte att inga objekt finns – kontrollerna har inte gett något resultat att visa.</p>
+        </div>
+      )}
+
+      {!productMode && emptyEvidence && !loadingEvidence && !evidenceError && (
         <div
           data-testid="cesium-empty-evidence"
           className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-slate-900/95 text-white px-4 py-3 rounded-xl shadow border border-slate-700 max-w-md text-center"
@@ -440,7 +541,9 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           data-testid="cesium-evidence-error"
           className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-rose-950/95 text-white px-4 py-3 rounded-xl shadow border border-rose-700/50 max-w-lg w-[min(92%,28rem)]"
         >
-          <p className="text-[11px] font-black uppercase tracking-wider text-rose-200">Evidensfel</p>
+          <p className="text-[11px] font-black uppercase tracking-wider text-rose-200">
+            {productMode ? 'Kontrollresultaten kunde inte hämtas' : 'Evidensfel'}
+          </p>
           <p className="text-[10px] text-rose-100/90 mt-1">{evidenceError}</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <button
@@ -451,7 +554,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
             >
               Försök igen
             </button>
-            {mode === 'live' && (
+            {mode === 'live' && !productMode && (
               <button
                 type="button"
                 data-testid="cesium-fallback-fixture"

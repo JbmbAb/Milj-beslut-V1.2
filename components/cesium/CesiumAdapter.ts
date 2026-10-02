@@ -12,6 +12,8 @@ export interface CesiumAdapterConfig {
 
 const DRAFT_LOCATION_MARKER_ID = 'localization-draft-marker';
 const CURRENT_LOCATION_MARKER_ID = 'localization-current-marker';
+// DEMO M2a: the governed search radius around the control point (a RADIUS, not object positions).
+const SEARCH_RADIUS_RING_ID = 'localization-search-radius-ring';
 
 export class CesiumAdapter {
   /**
@@ -138,9 +140,39 @@ export class CesiumAdapter {
     this.viewer.entities.removeById(DRAFT_LOCATION_MARKER_ID);
   }
 
-  /** The persisted, current LocalizationGeometry point. */
-  public setCurrentLocationPoint(lat: number, lng: number): void {
-    this.setLocationMarker(CURRENT_LOCATION_MARKER_ID, lat, lng, Color.LIME, 'Aktuell lokalisering');
+  /** The persisted, current LocalizationGeometry point. label lets the caller say how it was made. */
+  public setCurrentLocationPoint(lat: number, lng: number, label = 'Aktuell lokalisering'): void {
+    this.setLocationMarker(CURRENT_LOCATION_MARKER_ID, lat, lng, Color.LIME, label);
+  }
+
+  /**
+   * DEMO M2a: draws the governed SEARCH RADIUS (existence-within-distance query) as a ring around
+   * the control point. It is derived only from the point and the evidence's distance_meters; it
+   * shows where the check looked, never where any object is (the governed evidence carries no
+   * object geometry). Flat ellipsoid terrain, so a height-0 outline is visible.
+   */
+  public setSearchRadiusRing(lat: number, lng: number, radiusMeters: number): void {
+    if (this.destroyed) return;
+    this.viewer.entities.removeById(SEARCH_RADIUS_RING_ID);
+    if (!(radiusMeters > 0)) return;
+    this.viewer.entities.add({
+      id: SEARCH_RADIUS_RING_ID,
+      position: Cartesian3.fromDegrees(lng, lat, 0),
+      ellipse: {
+        semiMajorAxis: radiusMeters as any,
+        semiMinorAxis: radiusMeters as any,
+        height: 0 as any,
+        material: Color.CYAN.withAlpha(0.06) as any,
+        outline: true as any,
+        outlineColor: Color.CYAN.withAlpha(0.9) as any,
+      } as any,
+      properties: { title: `Sökradie ${radiusMeters} m` } as any,
+    });
+  }
+
+  public clearSearchRadiusRing(): void {
+    if (this.destroyed) return;
+    this.viewer.entities.removeById(SEARCH_RADIUS_RING_ID);
   }
 
   public clearCurrentLocationPoint(): void {

@@ -838,6 +838,11 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-check-details')).toHaveTextContent('Brunnar');
     expect(screen.getByTestId('lu-verify-result-pass')).toBeInTheDocument();
     expect(lastCesiumMapViewProps.evidenceMode).toBe('live');
+    // Item 4: governed product map -- no fixture controls, radius ring from governed distance_meters.
+    expect(lastCesiumMapViewProps.productMode).toBe(true);
+    expect(lastCesiumMapViewProps.assessmentAvailable).toBe(true);
+    expect(lastCesiumMapViewProps.searchRadiusMeters).toBe(500);
+    expect(lastCesiumMapViewProps.currentLocationLabel).toBe('Kontrollpunkt: beräknad mittpunkt av fastigheten (ej inmätt)');
   });
 
   it('DEMO M2a: a finding with no spatial evidence (e.g. document-only) exposes no "Visa underlag" action', async () => {
