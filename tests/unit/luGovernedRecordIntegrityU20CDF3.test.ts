@@ -255,3 +255,28 @@ describe('U20CDF3 (U20CDF2 verification H4 / low 3): a stored finding with a sev
     expect(statement.coverage_state).toBe('DETERMINED');
   });
 });
+
+describe('U20CDF3 (low 7b; found by the specification oracle): two evidences for one layer in a stored record are an invalid combination', () => {
+  it('a hit and a no-hit for one layer, no finding -> RECORD_INTEGRITY_ERROR, the row never "checked"', async () => {
+    const hit = spatialEvidence('water', true);
+    const { details, statement } = await readBack([hit, ...NEGATIVES], []);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['DUPLICATE_LAYER_EVIDENCE:water']);
+    expect(statement.statement_sv).not.toMatch(/\b\d+ av \d+ kontroller/);
+    expect(details.governedLayerChecks[0]).toMatchObject({ layer: 'water', status: 'NOT_CHECKED', reason: 'DUPLICATE_LAYER_EVIDENCE', coverage_state: 'TECHNICAL_ERROR' });
+    expect(details.governedLayerChecks[0]!.message_sv).toBe('Integritetsfel: bedömningen innehåller mer än en evidens för Brunnar. Ingen slutsats om lagret.');
+  });
+
+  it('with a stored risk finding the layer stays completed (CHECKED_HIT), the risk is named, the record is still an integrity error', async () => {
+    const hit = spatialEvidence('water', true);
+    const findings: AssessmentFinding[] = [
+      { finding_id: 'f-water', rule_id: RULE.water!, rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: [ref(hit)] },
+    ];
+    const { details, statement } = await readBack([hit, ...NEGATIVES], findings);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['DUPLICATE_LAYER_EVIDENCE:water']);
+    expect(statement.statement_sv).toContain('risknivå hög – Brunnar');
+    expect(details.governedLayerChecks[0]).toMatchObject({ layer: 'water', status: 'CHECKED_HIT', reason: 'DUPLICATE_LAYER_EVIDENCE', evidence_artifact_id: hit.artifact_id });
+    expect(details.governedLayerChecks[0]!.message_sv).toMatch(/^Träff enligt bedömningens lagrade fynd för Brunnar \(Provider\) \(risknivå hög\)\. Integritetsfel: bedömningen innehåller mer än en evidens för Brunnar\.$/);
+  });
+});

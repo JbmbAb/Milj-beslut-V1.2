@@ -195,6 +195,8 @@ const COVERAGE_STATE_BY_REASON: Readonly<Record<string, GovernedCoverageState>> 
   NOT_CHECKED_FINDING_WITH_EVIDENCE: 'TECHNICAL_ERROR',
   // U20CDF3 (low 3): a stored finding whose severity is outside the governed values.
   FINDING_WITH_UNKNOWN_SEVERITY: 'TECHNICAL_ERROR',
+  // U20CDF3 (low 7b): more than one evidence for one layer.
+  DUPLICATE_LAYER_EVIDENCE: 'TECHNICAL_ERROR',
   NO_EVIDENCE: 'NOT_CHECKED',
   UNRECOGNIZED_RESULT: 'INCOMPLETE_EVIDENCE',
   PINNED_EVIDENCE_UNREADABLE: 'TECHNICAL_ERROR',
@@ -248,6 +250,14 @@ function spatialCheckMessageSv(
   storedRiskLevel: string | null = null,
 ): string {
   const source = sourceLabelSv(check.layer, view);
+  if (check.reason === 'DUPLICATE_LAYER_EVIDENCE') {
+    const duplicate = `Integritetsfel: bedömningen innehåller mer än en evidens för ${governedLayerLabelSv(check.layer)}.`;
+    return check.status === 'CHECKED_HIT'
+      ? `Träff enligt bedömningens lagrade fynd för ${source}` +
+          (storedRiskLevel ? ` (${riskLevelPhraseSv(storedRiskLevel)})` : '') +
+          `. ${duplicate}`
+      : `${duplicate} Ingen slutsats om lagret.`;
+  }
   if (check.reason === 'FINDING_WITH_UNKNOWN_SEVERITY') {
     return (
       `Integritetsfel: bedömningen innehåller ett fynd för ${governedLayerLabelSv(check.layer)} med en allvarlighetsgrad ` +

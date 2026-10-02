@@ -31,7 +31,9 @@ export interface GovernedLayerCheck {
    * 'UNRECOGNIZED_RESULT' or 'PINNED_EVIDENCE_UNREADABLE'; U20CDF3 (low 4):
    * 'NOT_CHECKED_FINDING_WITH_EVIDENCE' when the record also holds evidence for the layer (an invalid
    * combination; evidence_artifact_id then names that evidence); U20CDF3 (low 3):
-   * 'FINDING_WITH_UNKNOWN_SEVERITY' for a stored finding of the layer's rule with an unknown severity.
+   * 'FINDING_WITH_UNKNOWN_SEVERITY' for a stored finding of the layer's rule with an unknown severity;
+   * 'DUPLICATE_LAYER_EVIDENCE' (also on a CHECKED_HIT) when the record holds more than one evidence for
+   * the layer -- the gate admits one outcome per layer.
    * U20CDF2: on a CHECKED_HIT only 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' (a stored risk finding whose
    * record lacks the consistent evidence a current run pins); null on every consistent check.
    */
@@ -306,7 +308,9 @@ export function computeGovernedLayerChecks(input: {
         rule_id: ruleId,
         status: 'CHECKED_HIT',
         evidence_artifact_id: hitIndex >= 0 ? layerEvidence[hitIndex]!.artifact_id : (layerEvidence[0]?.artifact_id ?? null),
-        reason: consistent ? null : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
+        // U20CDF3 (low 7b): still completed (a known risk), but more than one evidence for one layer is
+        // an invalid combination (RECORD_INTEGRITY_ERROR), not merely an inconsistent one.
+        reason: layerEvidence.length > 1 ? 'DUPLICATE_LAYER_EVIDENCE' : consistent ? null : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
       };
     }
     // U20CDF3 (low 3): a finding of the layer's rule with a severity outside the governed values cannot
@@ -320,6 +324,10 @@ export function computeGovernedLayerChecks(input: {
         : notChecked('NOT_CHECKED_FINDING');
     }
     if (layerEvidence.length === 0) return notChecked('NO_EVIDENCE');
+    // U20CDF3 (low 7b; found by the specification oracle): two evidences for one layer -- e.g. a hit and
+    // a no-hit -- are not one query's outcome; the gate rejects them (DUPLICATE_LAYER_OUTCOME), and a
+    // stored record holding them is an integrity error, never "checked".
+    if (layerEvidence.length > 1) return notChecked('DUPLICATE_LAYER_EVIDENCE', layerEvidence[0]!.artifact_id);
 
     // U20-D (M2b findings 8 and 9), now through the one normal form: an evidence that declares
     // another result kind, a non-boolean `exists`, or a match count contradicting it cannot be read

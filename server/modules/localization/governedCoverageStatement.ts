@@ -263,6 +263,8 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
       check.reason === 'NOT_CHECKED_FINDING_WITH_EVIDENCE' ||
       (check.status === 'CHECKED_HIT' && check.rule_id !== null && notCheckedRules.has(check.rule_id) && check.evidence_artifact_id !== null);
     if (contradicted) integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${check.layer}`);
+    // U20CDF3 (low 7b): more than one evidence for one layer (the gate admits one outcome per layer).
+    if (check.reason === 'DUPLICATE_LAYER_EVIDENCE') integrity.push(`DUPLICATE_LAYER_EVIDENCE:${check.layer}`);
   }
   // U20CDF3 (U20CDF2 verification H4 / low 3): a stored finding with a severity outside the governed
   // values ('high', 'CRITICAL', ...) used to be silently ignored (machine level LOW, nothing in the

@@ -19,8 +19,9 @@
  *     objects can be missing or fail to read): every per-layer state (12 evidence states x 6 finding
  *     states) on each of the five layers, against three backgrounds and five document states --
  *     exhaustive -- plus 2,000 seeded random records over all five layers at once.
- * The expected coverage state in C comes from an oracle written from the specification (what a
- * current run can produce), not from the implementation.
+ * U20CDF3 (U20CDF2 verification H7 / low 7): part C's oracle is rewritten from the owner's
+ * specification and the producer contract (the gate + the rule engine), no longer a restatement of
+ * the implementation's per-layer choices; part B2 adds a broad, generated set of invalid forms.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -542,52 +543,111 @@ describe('U20CDF3 invariant B2: a broad, generated set of invalid forms is rejec
 });
 
 // ------------------------------------------------------------------------------------------------
-// C. stored records through the read path
+// C. stored records through the read path -- U20CDF3 (U20CDF2 verification H7 / low 7): an oracle
+// written from the owner's specification and the producer contract, NOT from the implementation
 // ------------------------------------------------------------------------------------------------
+//
+// The U20CDF2 oracle restated the implementation's own per-layer choices (e.g. "NOT_CHECKED wins
+// over evidence -> current", reproduced from the code). This one is derived from two sources only:
+//
+//  1. The owner's locked specification (2026-10-02 night), as four universal properties checked on
+//     EVERY record, whatever the oracle says about its state:
+//       (S1) a known risk never disappears -- every stored HIGH/MEDIUM/LOW is visible (overall or
+//            named), and a finding of unknown severity is named too;
+//       (S2) historical unknown coverage is never 0 -- a record that says nothing about a governed
+//            layer never gets a count, and never "0 av M";
+//       (S3) unreadable pinned evidence is never "no hit";
+//       (S4) "N av M" only for a record whose coverage can be established; an invalid combination
+//            fails closed as an integrity error ("ogiltig kombination fail-closed"); never an extra row.
+//  2. What the current producer can write (the gate + the rule engine; read from their contracts,
+//     not from governedLayerChecks.ts): per layer exactly one of
+//       a. one valid negative evidence, no finding of the layer's rule          -> checked, no hit
+//       b. one valid hit evidence + HIGH/MEDIUM/LOW finding(s), no NOT_CHECKED   -> checked, hit
+//       c. no evidence + NOT_CHECKED finding(s) only                            -> not checked
+//     and for the document check: nothing pinned and no document finding; DE + VF pinned (with or
+//     without the document finding, OD-K0-3); DE only and no finding. Only for such a record can the
+//     coverage be established, so only such a record gets a count -- and the count is exactly
+//     (#a + #b + 1 if DE + VF pinned) of 6.
+//  Invalid combinations no producer writes, by the owner's normal-form rule an integrity error:
+//     a NOT_CHECKED finding beside stored evidence of the same layer; stored evidence of a dataset
+//     outside the governed layers; two evidences for one layer (the gate admits one outcome per
+//     layer); a finding whose severity is outside HIGH/MEDIUM/LOW/NOT_CHECKED.
+//  Everything else outside the producer shapes (a silent layer, evidence outside the normal form, a
+//  hit without its finding, a risk finding without the consistent evidence, a document finding
+//  without the pinned documents) gets no count; the specification does not say which of the two
+//  "not determinable" states it is, so the oracle does not either.
+//  A finding of a rule outside the M checks is not described by the specification: such records are
+//  checked against S1-S4 only.
 
-type FindingState = 'NONE' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NC' | 'HIGH_NC';
-const FINDING_STATES: readonly FindingState[] = ['NONE', 'HIGH', 'MEDIUM', 'LOW', 'NC', 'HIGH_NC'];
-const DOCUMENT_STATES: readonly DocumentState[] = ['NONE', 'PINNED_WITH_FINDING', 'PINNED_NO_FINDING', 'UNREADABLE_WITH_FINDING', 'FINDING_NO_REFS'];
-type LayerRecord = { readonly evidence: EvidenceState; readonly finding: FindingState };
-type StoredRecord = { readonly layers: Record<Layer, LayerRecord>; readonly document: DocumentState; readonly otherRule: boolean };
+type FindingState = 'NONE' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NC' | 'HIGH_NC' | 'UNKNOWN_SEVERITY';
+const FINDING_STATES: readonly FindingState[] = ['NONE', 'HIGH', 'MEDIUM', 'LOW', 'NC', 'HIGH_NC', 'UNKNOWN_SEVERITY'];
+/** Two evidences for one layer: two negatives, or a hit and a negative. */
+type StoredEvidenceState = EvidenceState | 'DUP_NO_HIT' | 'DUP_HIT_NO_HIT';
+const STORED_EVIDENCE_STATES: readonly StoredEvidenceState[] = [...EVIDENCE_STATES, 'DUP_NO_HIT', 'DUP_HIT_NO_HIT'];
+const UNKNOWN_SEVERITY_VALUES: readonly unknown[] = ['high', ' HIGH', 'CRITICAL', '', null, 3];
+const DOCUMENT_STATES: readonly DocumentState[] = ['NONE', 'PINNED_WITH_FINDING', 'PINNED_NO_FINDING', 'DE_ONLY', 'UNREADABLE_WITH_FINDING', 'FINDING_NO_REFS'];
+type LayerRecord = { readonly evidence: StoredEvidenceState; readonly finding: FindingState; readonly unknownValue?: unknown };
+type StoredRecord = {
+  readonly layers: Record<Layer, LayerRecord>;
+  readonly document: DocumentState;
+  readonly otherRule: boolean;
+  /** Stored, readable evidence of a dataset outside the governed layers. */
+  readonly foreign: null | 'flood' | 'WATER';
+};
 
-/** The oracle, from the specification: what the coverage state of such a record must be. */
-function expectedCoverageState(record: StoredRecord): 'PINNED_EVIDENCE_UNREADABLE' | 'RECORD_INTEGRITY_ERROR' | 'HISTORICAL_COVERAGE_UNKNOWN' | 'DETERMINED' {
-  if (LAYERS.some((l) => UNREADABLE.has(record.layers[l].evidence)) || record.document === 'UNREADABLE_WITH_FINDING') {
-    return 'PINNED_EVIDENCE_UNREADABLE';
+type OracleVerdict =
+  | { readonly kind: 'UNREADABLE'; readonly lasting: boolean }
+  | { readonly kind: 'COUNT'; readonly completed: number }
+  | { readonly kind: 'NO_COUNT'; readonly integrity: boolean }
+  | { readonly kind: 'ANY' };
+
+const RISK_FINDINGS = new Set<FindingState>(['HIGH', 'MEDIUM', 'LOW']);
+
+/** The oracle (see the header of this part): from the specification and the producer contract. */
+function specOracle(record: StoredRecord): OracleVerdict {
+  const layerStates = LAYERS.map((l) => record.layers[l]);
+  // (S3) an unreadable pinned object: a technical/integrity error, never a recount.
+  const unreadable = layerStates.some((s) => UNREADABLE.has(s.evidence as EvidenceState)) || record.document === 'UNREADABLE_WITH_FINDING';
+  if (unreadable) {
+    const lasting = layerStates.some((s) => s.evidence === 'UNREADABLE_NOT_FOUND') || record.document === 'UNREADABLE_WITH_FINDING';
+    return { kind: 'UNREADABLE', lasting };
   }
-  // U20CDF3 (low 4): a NOT_CHECKED finding next to stored evidence for the same layer is an invalid
-  // combination (no known producer writes it) -- formerly "NC wins" and the record counted as current.
-  if (LAYERS.some((l) => (record.layers[l].finding === 'NC' || record.layers[l].finding === 'HIGH_NC') && record.layers[l].evidence !== 'NONE')) {
-    return 'RECORD_INTEGRITY_ERROR';
+  // (S4) invalid combinations no producer writes: fail-closed as an integrity error.
+  const invalidCombination =
+    record.foreign !== null ||
+    layerStates.some((s) => s.finding === 'UNKNOWN_SEVERITY') ||
+    layerStates.some((s) => s.evidence === 'DUP_NO_HIT' || s.evidence === 'DUP_HIT_NO_HIT') ||
+    layerStates.some((s) => (s.finding === 'NC' || s.finding === 'HIGH_NC') && s.evidence !== 'NONE');
+  if (invalidCombination) return { kind: 'NO_COUNT', integrity: true };
+  // The producer shapes.
+  let completed = 0;
+  for (const { evidence: ev, finding } of layerStates) {
+    if (VALID_NO_HIT.has(ev as EvidenceState) && finding === 'NONE') completed += 1; // a
+    else if (VALID_HIT.has(ev as EvidenceState) && RISK_FINDINGS.has(finding)) completed += 1; // b
+    else if (ev === 'NONE' && finding === 'NC') continue; // c
+    else return record.otherRule ? { kind: 'ANY' } : { kind: 'NO_COUNT', integrity: false };
   }
-  for (const layer of LAYERS) {
-    const { evidence: ev, finding } = record.layers[layer];
-    const risk = finding === 'HIGH' || finding === 'MEDIUM' || finding === 'LOW' || finding === 'HIGH_NC';
-    const notChecked = finding === 'NC' || finding === 'HIGH_NC';
-    if (risk) {
-      // A current run pins exactly one valid hit with every risk finding, never a NOT_CHECKED beside it.
-      if (!(VALID_HIT.has(ev) && !notChecked)) return 'HISTORICAL_COVERAGE_UNKNOWN';
-      continue;
-    }
-    if (notChecked) continue; // without evidence: the layer is reported as not checked
-    if (ev === 'NONE') return 'HISTORICAL_COVERAGE_UNKNOWN'; // the record says nothing about the layer
-    if (INVALID.has(ev)) return 'HISTORICAL_COVERAGE_UNKNOWN'; // the gate would have rejected it
-    if (VALID_HIT.has(ev)) return 'HISTORICAL_COVERAGE_UNKNOWN'; // the rule engine fires on every hit
-  }
-  if (record.document === 'FINDING_NO_REFS') return 'HISTORICAL_COVERAGE_UNKNOWN';
-  return 'DETERMINED';
+  const documentShape = record.document === 'NONE' || record.document === 'PINNED_WITH_FINDING' || record.document === 'PINNED_NO_FINDING' || record.document === 'DE_ONLY';
+  if (!documentShape) return record.otherRule ? { kind: 'ANY' } : { kind: 'NO_COUNT', integrity: false };
+  if (record.otherRule) return { kind: 'ANY' };
+  return { kind: 'COUNT', completed: completed + (record.document === 'PINNED_WITH_FINDING' || record.document === 'PINNED_NO_FINDING' ? 1 : 0) };
 }
 
-function expectedCompleted(record: StoredRecord): number {
-  let completed = 0;
-  for (const layer of LAYERS) {
-    const { evidence: ev, finding } = record.layers[layer];
-    const risk = finding === 'HIGH' || finding === 'MEDIUM' || finding === 'LOW' || finding === 'HIGH_NC';
-    if (risk) completed += 1;
-    else if (finding !== 'NC' && (VALID_HIT.has(ev) || VALID_NO_HIT.has(ev))) completed += 1;
-  }
-  return completed + (record.document === 'PINNED_WITH_FINDING' || record.document === 'PINNED_NO_FINDING' ? 1 : 0);
+/** Readable evidence of a dataset outside the governed layers, content-addressed like the provider's. */
+function foreignEvidence(dataset: string): SpatialEvidence {
+  const key = `foreign:${dataset}`;
+  const cached = evidenceCache.get(key);
+  if (cached) return cached;
+  const base = evidence('water', 'HIT');
+  const payload = {
+    ...base.payload,
+    layer_ref: { layer_id: dataset, version_hash: REGISTRY_HASH.water, layer_version: 'v1.0' },
+    source_metadata: { ...base.payload.source_metadata, dataset },
+  };
+  const content_hash = buildSpatialEvidenceContentHash(payload as never);
+  const built: SpatialEvidence = { ...base, artifact_id: `evidence-${dataset}-${content_hash.value.slice(0, 16)}`, content_hash, payload: payload as SpatialEvidence['payload'] };
+  evidenceCache.set(key, built);
+  return built;
 }
 
 async function readStored(record: StoredRecord) {
@@ -596,12 +656,14 @@ async function readStored(record: StoredRecord) {
   const refs: { artifact_id: string; artifact_type: string }[] = [];
   const findings: AssessmentFinding[] = [];
   for (const layer of LAYERS) {
-    const { evidence: state, finding } = record.layers[layer];
-    let cited: { artifact_id: string; artifact_type: string }[] = [];
-    if (state !== 'NONE') {
-      const ev = evidence(layer, state);
+    const { evidence: state, finding, unknownValue } = record.layers[layer];
+    const pinned: SpatialEvidence[] =
+      state === 'NONE' ? []
+        : state === 'DUP_NO_HIT' ? [evidence(layer, 'NO_HIT'), evidence(layer, 'NO_HIT_NOCOUNT')]
+          : state === 'DUP_HIT_NO_HIT' ? [evidence(layer, 'HIT'), evidence(layer, 'NO_HIT')]
+            : [evidence(layer, state)];
+    for (const ev of pinned) {
       refs.push(ref(ev));
-      cited = [ref(ev)];
       if (state === 'UNREADABLE_READ_ERROR') {
         store.set(ev.artifact_id, ev);
         failing.add(ev.artifact_id);
@@ -609,19 +671,30 @@ async function readStored(record: StoredRecord) {
         store.set(ev.artifact_id, ev);
       }
     }
-    const levels = finding === 'HIGH_NC' ? ['HIGH', 'NOT_CHECKED'] : finding === 'NC' ? ['NOT_CHECKED'] : finding === 'NONE' ? [] : [finding];
-    for (const level of levels) {
+    const cited = pinned.map(ref);
+    const levels: unknown[] =
+      finding === 'HIGH_NC' ? ['HIGH', 'NOT_CHECKED']
+        : finding === 'NC' ? ['NOT_CHECKED']
+          : finding === 'NONE' ? []
+            : finding === 'UNKNOWN_SEVERITY' ? [unknownValue ?? 'high']
+              : [finding];
+    levels.forEach((level, index) => {
       findings.push({
-        finding_id: level === 'NOT_CHECKED' ? `finding-notchecked-${layer}` : `finding-${layer}-${level}`,
+        finding_id: level === 'NOT_CHECKED' ? `finding-notchecked-${layer}` : `finding-${layer}-${index}`,
         rule_id: RULE[layer], rule_version: '2.0', risk_level: level as AssessmentFinding['risk_level'],
         explanation: 'x', evidence_refs: level === 'NOT_CHECKED' ? [] : cited,
       });
-    }
+    });
+  }
+  if (record.foreign) {
+    const ev = foreignEvidence(record.foreign);
+    refs.push(ref(ev));
+    store.set(ev.artifact_id, ev);
   }
   const document = documentPart(record.document);
   refs.push(...document.refs);
   findings.push(...document.findings);
-  if (record.document === 'PINNED_WITH_FINDING' || record.document === 'PINNED_NO_FINDING') {
+  if (record.document === 'PINNED_WITH_FINDING' || record.document === 'PINNED_NO_FINDING' || record.document === 'DE_ONLY') {
     store.set(DE.artifact_id, DE);
     store.set(VF.artifact_id, VF);
   }
@@ -648,89 +721,107 @@ async function readStored(record: StoredRecord) {
   return { details, statement, findings };
 }
 
-async function assertStored(record: StoredRecord) {
-  const label = `stored ${LAYERS.map((l) => `${l}=${record.layers[l].evidence}/${record.layers[l].finding}`).join(' ')} doc=${record.document} other=${record.otherRule}`;
+async function assertStored(record: StoredRecord): Promise<{ verdict: OracleVerdict; state: string }> {
+  const label =
+    `stored ${LAYERS.map((l) => `${l}=${record.layers[l].evidence}/${record.layers[l].finding}`).join(' ')} ` +
+    `doc=${record.document} other=${record.otherRule} foreign=${record.foreign}`;
   const { details, statement, findings } = await readStored(record);
   const rows = details.governedLayerChecks;
-  const expected = expectedCoverageState(record);
-  expect(statement.coverage_state, label).toBe(expected);
+  const verdict = specOracle(record);
+  const text = statement.statement_sv;
+
+  // (S4) never an extra row: exactly the five governed layers and the document check.
+  expect(rows.map((r) => r.layer), label).toEqual([...LAYERS, 'document']);
+  // The machine level is the one derivation the fresh run uses (OD-K0-1), unchanged.
   expect(statement.risk_level, label).toBe(machineRisk(findings));
 
-  if (expected === 'DETERMINED') {
-    expect(statement.coverage?.checks_completed, label).toBe(expectedCompleted(record));
-  } else {
-    // (2)/(3): no count is presented -- not in the machine value, not in the text.
+  switch (verdict.kind) {
+    case 'UNREADABLE':
+      expect(statement.coverage_state, label).toBe('PINNED_EVIDENCE_UNREADABLE');
+      expect(text.startsWith('Den pinnade evidensen kan inte verifieras: '), label).toBe(true);
+      expect(statement.pinned_evidence?.retryable, label).toBe(!verdict.lasting);
+      expect(statement.pinned_evidence?.technical_error_class, label).toBe(verdict.lasting ? 'EVIDENCE_NOT_FOUND' : 'EVIDENCE_READ_ERROR');
+      break;
+    case 'COUNT':
+      expect(statement.coverage_state, label).toBe('DETERMINED');
+      expect(statement.coverage?.checks_total, label).toBe(6);
+      expect(statement.coverage?.checks_completed, label).toBe(verdict.completed);
+      if (verdict.completed === 0) expect(text, label).toBe('Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.');
+      else expect(text, label).toContain(`${verdict.completed} av 6 kontroller genomförda`);
+      break;
+    case 'NO_COUNT':
+      if (verdict.integrity) {
+        expect(statement.coverage_state, label).toBe('RECORD_INTEGRITY_ERROR');
+        expect(text.startsWith('Integritetsfel: '), label).toBe(true);
+      } else {
+        expect(['HISTORICAL_COVERAGE_UNKNOWN', 'RECORD_INTEGRITY_ERROR'], label).toContain(statement.coverage_state);
+      }
+      if (statement.coverage_state === 'HISTORICAL_COVERAGE_UNKNOWN') expect(text.startsWith(HISTORICAL_SV), label).toBe(true);
+      break;
+    case 'ANY':
+      break;
+  }
+  // (S2)/(S4) a count only for a determined record: never "N av M" -- in particular never "0 av M" --
+  // for any other state, and none at all when a governed layer is unrecorded.
+  if (statement.coverage_state !== 'DETERMINED') {
     expect(statement.coverage, label).toBeNull();
-    expect(statement.statement_sv, label).not.toMatch(COUNT_PATTERN);
-    expect(statement.statement_sv, label).not.toMatch(/Ingen samlad risknivå kan presenteras/);
+    expect(text, label).not.toMatch(COUNT_PATTERN);
+    expect(text, label).not.toMatch(/Ingen samlad risknivå kan presenteras/);
   }
-  if (expected === 'HISTORICAL_COVERAGE_UNKNOWN') {
-    expect(statement.statement_sv.startsWith(HISTORICAL_SV), label).toBe(true);
+  if (LAYERS.some((l) => record.layers[l].evidence === 'NONE' && record.layers[l].finding === 'NONE')) {
+    expect(statement.coverage, `${label}: a silent layer`).toBeNull();
+    expect(text, `${label}: a silent layer`).not.toMatch(/\b0 av \d/);
   }
-  if (expected === 'RECORD_INTEGRITY_ERROR') {
-    expect(statement.statement_sv.startsWith('Integritetsfel: '), label).toBe(true);
-  }
-  if (expected === 'PINNED_EVIDENCE_UNREADABLE') {
-    // (3) unreadable pinned evidence is never "no hit": a technical error, overall and per layer.
-    expect(statement.statement_sv.startsWith('Den pinnade evidensen kan inte verifieras: '), label).toBe(true);
-    const lasting =
-      LAYERS.some((l) => record.layers[l].evidence === 'UNREADABLE_NOT_FOUND') || record.document === 'UNREADABLE_WITH_FINDING';
-    expect(statement.pinned_evidence?.retryable, label).toBe(!lasting);
-    expect(statement.pinned_evidence?.technical_error_class, label).toBe(lasting ? 'EVIDENCE_NOT_FOUND' : 'EVIDENCE_READ_ERROR');
-    for (const layer of LAYERS) {
-      if (!UNREADABLE.has(record.layers[layer].evidence)) continue;
-      const row = rows.find((r) => r.layer === layer)!;
-      expect(row.status === 'CHECKED_NO_HIT' || row.message_sv.includes('Ingen registrerad träff'), `${label}: ${layer}`).toBe(false);
-      const finding = record.layers[layer].finding;
-      if (finding !== 'NC') expect(row.coverage_state, `${label}: ${layer}`).toBe('TECHNICAL_ERROR');
-    }
-  }
-  // Never "no hit" without readable, valid negative evidence behind it.
+  // (S3) an unreadable layer is never "no hit".
   for (const layer of LAYERS) {
     const row = rows.find((r) => r.layer === layer)!;
-    if (row.status === 'CHECKED_NO_HIT') expect(VALID_NO_HIT.has(record.layers[layer].evidence), `${label}: ${layer}`).toBe(true);
-    // The evidence details read each stored result through the same normal form: an evidence
-    // outside it is "ofullständigt underlag", never a hit or a no-hit.
-    const ev = record.layers[layer].evidence;
-    if (INVALID.has(ev)) {
-      const detail = details.evidenceDetails.find((d) => d.evidence_artifact_id === evidence(layer, ev).artifact_id)!;
-      expect(detail.message_sv, `${label}: ${layer} detail`).toMatch(/^Ofullständigt underlag: /);
+    if (UNREADABLE.has(record.layers[layer].evidence as EvidenceState)) {
+      expect(row.status === 'CHECKED_NO_HIT' || row.message_sv.includes('Ingen registrerad träff'), `${label}: ${layer}`).toBe(false);
+    }
+    // "No hit" only with exactly one readable, valid negative evidence and no finding of the layer.
+    if (row.status === 'CHECKED_NO_HIT') {
+      expect(VALID_NO_HIT.has(record.layers[layer].evidence as EvidenceState) && record.layers[layer].finding === 'NONE', `${label}: ${layer}`).toBe(true);
     }
   }
+  // (S1) a known risk never disappears; and a finding of unknown severity is named, never ignored.
   assertKnownRiskNamed(label, statement, rows, findings);
+  if (LAYERS.some((l) => record.layers[l].finding === 'UNKNOWN_SEVERITY')) {
+    expect(text, label).toContain('okänd allvarlighetsgrad');
+  }
+  return { verdict, state: statement.coverage_state };
 }
 
 function layersWith(background: LayerRecord, target: Layer, state: LayerRecord): Record<Layer, LayerRecord> {
   return Object.fromEntries(LAYERS.map((l) => [l, l === target ? state : background])) as Record<Layer, LayerRecord>;
 }
 
-describe('U20CDF2 invariant C: stored records read back -- (1) risk never disappears, (2) historical never 0, (3) unreadable never "no hit"', () => {
+describe('U20CDF3 invariant C: stored records read back against an oracle written from the specification', () => {
   const BACKGROUNDS: Record<string, LayerRecord> = {
     current: { evidence: 'NO_HIT', finding: 'NONE' },
     notChecked: { evidence: 'NONE', finding: 'NC' },
     silent: { evidence: 'NONE', finding: 'NONE' },
   };
 
-  it(`every per-layer state (${EVIDENCE_STATES.length} evidence x ${FINDING_STATES.length} findings) on every layer x 3 backgrounds x ${DOCUMENT_STATES.length} document states`, async () => {
+  it(`every per-layer state (${STORED_EVIDENCE_STATES.length} evidence x ${FINDING_STATES.length} findings) on every layer x 3 backgrounds x ${DOCUMENT_STATES.length} document states`, async () => {
     let checked = 0;
     for (const [, background] of Object.entries(BACKGROUNDS)) {
       for (const target of LAYERS) {
-        for (const ev of EVIDENCE_STATES) {
+        for (const ev of STORED_EVIDENCE_STATES) {
           for (const finding of FINDING_STATES) {
             for (const document of DOCUMENT_STATES) {
-              await assertStored({ layers: layersWith(background, target, { evidence: ev, finding }), document, otherRule: false });
+              await assertStored({ layers: layersWith(background, target, { evidence: ev, finding }), document, otherRule: false, foreign: null });
               checked += 1;
             }
           }
         }
       }
     }
-    expect(checked).toBe(3 * LAYERS.length * EVIDENCE_STATES.length * FINDING_STATES.length * DOCUMENT_STATES.length);
-  }, 120_000);
+    expect(checked).toBe(3 * LAYERS.length * STORED_EVIDENCE_STATES.length * FINDING_STATES.length * DOCUMENT_STATES.length);
+  }, 180_000);
 
-  it('2,000 seeded random records over all five layers at once (plus a stored finding of a rule outside the M checks)', async () => {
+  it('3,000 seeded random records over all five layers at once (foreign datasets, unknown severities, a rule outside M)', async () => {
     // mulberry32, fixed seed: deterministic.
-    let seed = 0x20cdf2;
+    let seed = 0x20cdf3;
     const random = () => {
       seed = (seed + 0x6d2b79f5) | 0;
       let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -738,22 +829,32 @@ describe('U20CDF2 invariant C: stored records read back -- (1) risk never disapp
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     const pick = <T,>(values: readonly T[]) => values[Math.floor(random() * values.length)]!;
-    // Half of the layer draws come from the states a current run records, so that whole-record
-    // current (DETERMINED) combinations are reached often enough to be tested, not only by chance.
-    const CURRENT_LAYER_STATES: readonly LayerRecord[] = [
+    // Half of the layer draws are producer shapes, so whole-record COUNT verdicts are reached often.
+    const PRODUCER_LAYER_STATES: readonly LayerRecord[] = [
       { evidence: 'NO_HIT', finding: 'NONE' }, { evidence: 'NO_HIT_NOCOUNT', finding: 'NONE' },
       { evidence: 'HIT', finding: 'HIGH' }, { evidence: 'HIT_NOCOUNT', finding: 'MEDIUM' }, { evidence: 'HIT_CAP', finding: 'LOW' },
       { evidence: 'NONE', finding: 'NC' },
     ];
-    const drawLayer = (): LayerRecord => (random() < 0.5 ? pick(CURRENT_LAYER_STATES) : { evidence: pick(EVIDENCE_STATES), finding: pick(FINDING_STATES) });
+    const drawLayer = (): LayerRecord =>
+      random() < 0.55
+        ? pick(PRODUCER_LAYER_STATES)
+        : { evidence: pick(STORED_EVIDENCE_STATES), finding: pick(FINDING_STATES), unknownValue: pick(UNKNOWN_SEVERITY_VALUES) };
     const seen = new Set<string>();
-    for (let n = 0; n < 2000; n += 1) {
+    const states = new Set<string>();
+    for (let n = 0; n < 3000; n += 1) {
       const layers = Object.fromEntries(LAYERS.map((l) => [l, drawLayer()])) as Record<Layer, LayerRecord>;
-      const record = { layers, document: pick(DOCUMENT_STATES), otherRule: random() < 0.3 };
-      seen.add(expectedCoverageState(record));
-      await assertStored(record);
+      const record: StoredRecord = {
+        layers,
+        document: random() < 0.6 ? pick(['NONE', 'PINNED_WITH_FINDING', 'PINNED_NO_FINDING', 'DE_ONLY'] as const) : pick(DOCUMENT_STATES),
+        otherRule: random() < 0.15,
+        foreign: random() < 0.1 ? pick(['flood', 'WATER'] as const) : null,
+      };
+      const { verdict, state } = await assertStored(record);
+      seen.add(verdict.kind === 'NO_COUNT' ? `NO_COUNT:${verdict.integrity}` : verdict.kind);
+      states.add(state);
     }
-    // The sample reaches every state.
-    expect([...seen].sort()).toEqual(['DETERMINED', 'HISTORICAL_COVERAGE_UNKNOWN', 'PINNED_EVIDENCE_UNREADABLE', 'RECORD_INTEGRITY_ERROR']);
-  }, 120_000);
+    // The sample reaches every oracle verdict and every record state the read path can produce.
+    expect([...seen].sort()).toEqual(['ANY', 'COUNT', 'NO_COUNT:false', 'NO_COUNT:true', 'UNREADABLE']);
+    expect([...states].sort()).toEqual(['DETERMINED', 'HISTORICAL_COVERAGE_UNKNOWN', 'PINNED_EVIDENCE_UNREADABLE', 'RECORD_INTEGRITY_ERROR']);
+  }, 180_000);
 });
