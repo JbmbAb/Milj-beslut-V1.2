@@ -35,6 +35,7 @@ import { CasBackedArtifactRepository } from '../../packages/mps-runtime/src/repo
 import { attestProductViewerCapability, attestViewerCapabilityIssuerArtifact } from '../../server/modules/localization/productViewerCapabilityAuthority';
 import { attestViewerIdentityArtifact, attestViewerIdentityIssuerArtifact } from '../../server/modules/localization/viewerIdentityAuthority';
 import {
+  LocalizationViewerCapabilityProvider,
   resolveLocalizationViewerRuntimeConfigForProject,
   type ViewerCapabilityCurrentnessDependencies,
 } from '../../server/modules/localization/createLocalizationViewerRuntime';
@@ -119,16 +120,21 @@ async function seed() {
 
 async function buildCapability(
   issuer: { artifact_id: string; artifact_type: string; payload: { issuer_key_id: string } } & object,
-  overrides: Partial<Pick<ProductViewerCapabilityArtifact['payload'], 'project_context_binding_ref' | 'valid_from' | 'valid_until'>> = {},
+  overrides: Partial<
+    Pick<
+      ProductViewerCapabilityArtifact['payload'],
+      'subject_project_id' | 'project_context_binding_ref' | 'viewer_identity_ref' | 'product_release_ref' | 'valid_from' | 'valid_until'
+    >
+  > = {},
   signing: LocalPemSigningKeyProvider = capabilityKey.provider,
 ): Promise<ProductViewerCapabilityArtifact> {
   const unsigned = createProductViewerCapabilityArtifact({
     issuer_key_id: capabilityKey.keyId,
     issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
-    subject_project_id: PROJECT_ID,
+    subject_project_id: overrides.subject_project_id ?? PROJECT_ID,
     project_context_binding_ref: overrides.project_context_binding_ref ?? BINDING_REF,
-    viewer_identity_ref: VIEWER_IDENTITY_REF,
-    product_release_ref: RELEASE_REF,
+    viewer_identity_ref: overrides.viewer_identity_ref ?? VIEWER_IDENTITY_REF,
+    product_release_ref: overrides.product_release_ref ?? RELEASE_REF,
     product_release_hash: RELEASE_HASH,
     valid_from: overrides.valid_from ?? '2026-01-01T00:00:00.000Z',
     valid_until: overrides.valid_until ?? '2027-01-01T00:00:00.000Z',
@@ -255,12 +261,21 @@ describe('W-CATCH2 #13: skipped ONLY when the capability\'s own content proves i
     await put(future);
     expect(await outcome([completedRequest(future.artifact_id)])).toEqual({ config: null });
   });
-  it('a capability bound to a superseded binding next to the current one -> the current one', async () => {
-    const { issuer, capability } = await seed();
-    const stale = await buildCapability(issuer, { project_context_binding_ref: { artifact_id: 'project-context-binding-superseded', artifact_type: 'project_context_binding' } });
-    await put(stale);
-    const result = await outcome([completedRequest(stale.artifact_id), completedRequest(capability.artifact_id)]);
-    expect('config' in result && result.config?.capabilityArtifactId).toBe(capability.artifact_id);
+  // W-CATCH3 (CATCH2 verifier finding 1): this case used to read a COMPLETED row of the CURRENT binding
+  // naming a capability of another binding as "superseded, skip it". The rows are selected on exactly the
+  // current binding, so that is a misfiled row (damage), now a typed fault (see the W-CATCH3 block below).
+  // A binding that really moves on is the race below: the capability's own binding was current when its
+  // row was selected and is superseded when it is verified.
+  it('the binding is superseded while the resolution runs (the capability names the binding its row was selected on) -> proven not current, skipped -> null', async () => {
+    const { capability } = await seed();
+    let calls = 0;
+    const provider = {
+      resolveCurrent: async () => {
+        calls += 1;
+        return (calls === 1 ? BINDING_REF : { artifact_id: 'project-context-binding-successor', artifact_type: 'project_context_binding' }) as never;
+      },
+    } as unknown as ProjectContextBindingProvider;
+    expect(await outcome([completedRequest(capability.artifact_id)], provider)).toEqual({ config: null });
   });
 });
 
@@ -341,5 +356,193 @@ describe('W-CATCH2 #13: the current binding of the subject itself', () => {
     const down = () => new ProjectContextBindingCurrentUnavailableError(false, Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' }));
     expectTyped(await outcome([], bindingProvider(0, down)), 'current-binding', 'READ_ERROR', true);
     expect(hermeticPrismaTouches).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 1, probes V1-V9): the object read under a capability id must BE
+// that capability, and a completed row selected on exactly this subject can only differ from its
+// capability through damage. The CAS resolver hands back whatever bytes the index entry points at
+// (it compares neither the envelope nor the body with the id it was asked for), so before this an
+// index entry pointing at another capability's bytes, or a misfiled row, read as "not configured"
+// (null -> 404) or let another valid capability win silently past the ambiguity check.
+// ------------------------------------------------------------------------------------------------
+
+/** Points the index entry of `fromId` at the CAS object of `toId` (a misdirected index entry). */
+function pointIndexAt(fromId: string, toId: string): void {
+  const { hash } = JSON.parse(readFileSync(indexEntryPath(toId), 'utf8')) as { hash: string };
+  writeFileSync(indexEntryPath(fromId), JSON.stringify({ artifact_id: fromId, hash }));
+}
+
+function expectIntegrity(result: Awaited<ReturnType<typeof outcome>>, refusalCode: string | null = null): void {
+  expectTyped(result, 'viewer-capability', 'STORAGE_INTEGRITY_FAULT', false);
+  expect('error' in result && result.error.refusalCode).toBe(refusalCode);
+}
+
+const EXPIRED_WINDOW = { valid_from: '2025-01-01T00:00:00.000Z', valid_until: '2025-06-01T00:00:00.000Z' } as const;
+const OTHER_WINDOW = { valid_from: '2026-03-01T00:00:00.000Z', valid_until: '2027-03-01T00:00:00.000Z' } as const;
+
+describe('W-CATCH3 #13: the object read under a capability id is that capability (V1, V2, V9)', () => {
+  it('V1: the index entry of the ONLY capability points at an EXPIRED capability of the same subject -> typed STORAGE_INTEGRITY_FAULT, never null "not configured"', async () => {
+    const { issuer, capability } = await seed();
+    const expired = await buildCapability(issuer, EXPIRED_WINDOW);
+    await put(expired);
+    pointIndexAt(capability.artifact_id, expired.artifact_id);
+    expectIntegrity(await outcome([completedRequest(capability.artifact_id)]));
+  });
+  it('V2: the index entry of the only capability points at a valid capability of ANOTHER project -> typed STORAGE_INTEGRITY_FAULT', async () => {
+    const { issuer, capability } = await seed();
+    const foreign = await buildCapability(issuer, { subject_project_id: 'project-someone-else' });
+    await put(foreign);
+    pointIndexAt(capability.artifact_id, foreign.artifact_id);
+    expectIntegrity(await outcome([completedRequest(capability.artifact_id)]));
+  });
+  it('the index entry points at ANOTHER VALID capability of the same subject -> typed STORAGE_INTEGRITY_FAULT, never that other capability', async () => {
+    const { issuer, capability } = await seed();
+    const sibling = await buildCapability(issuer, OTHER_WINDOW);
+    await put(sibling);
+    pointIndexAt(capability.artifact_id, sibling.artifact_id);
+    expectIntegrity(await outcome([completedRequest(capability.artifact_id)]));
+  });
+  it('V9a (intact control): two distinct valid capabilities -> AMBIGUOUS, unchanged', async () => {
+    const { issuer, capability } = await seed();
+    const other = await buildCapability(issuer, OTHER_WINDOW);
+    await put(other);
+    const result = await outcome([completedRequest(capability.artifact_id), completedRequest(other.artifact_id)]);
+    expect('error' in result && result.error.message).toMatch(/^REJECT_LU_VIEWER_CAPABILITY_AMBIGUOUS_CURRENT/);
+  });
+  it('V9b: the same two, but X\'s index entry points at an expired object -> typed STORAGE_INTEGRITY_FAULT, the other valid one is NEVER chosen silently', async () => {
+    const { issuer, capability } = await seed();
+    const other = await buildCapability(issuer, OTHER_WINDOW);
+    await put(other);
+    const expired = await buildCapability(issuer, EXPIRED_WINDOW);
+    await put(expired);
+    pointIndexAt(capability.artifact_id, expired.artifact_id);
+    for (const order of [
+      [completedRequest(capability.artifact_id), completedRequest(other.artifact_id)],
+      [completedRequest(other.artifact_id), completedRequest(capability.artifact_id)],
+    ]) {
+      expectIntegrity(await outcome(order));
+    }
+  });
+});
+
+describe('W-CATCH3 #13: a completed row selected on exactly this subject differs from its capability only by damage (V3, V4)', () => {
+  const MISFILED: Array<[string, Parameters<typeof buildCapability>[1], string]> = [
+    ['another project', { subject_project_id: 'project-someone-else' }, 'REJECT_VIEWER_CAPABILITY_PROJECT'],
+    ['another binding', { project_context_binding_ref: { artifact_id: 'project-context-binding-elsewhere', artifact_type: 'project_context_binding' } }, 'REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING'],
+    ['another viewer identity', { viewer_identity_ref: { artifact_id: 'viewer-identity-elsewhere', artifact_type: 'viewer_identity' } }, 'REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY'],
+    ['another release', { product_release_ref: { artifact_id: 'product-release-elsewhere', artifact_type: 'product_release' } }, 'REJECT_VIEWER_CAPABILITY_RELEASE_REF'],
+  ];
+  for (const [what, overrides, refusal] of MISFILED) {
+    it(`V3: the row names a valid capability of ${what} -> typed STORAGE_INTEGRITY_FAULT (${refusal} kept as the reason), never "not current"`, async () => {
+      const { issuer } = await seed();
+      const misfiled = await buildCapability(issuer, overrides);
+      await put(misfiled);
+      expectIntegrity(await outcome([completedRequest(misfiled.artifact_id)]), refusal);
+    });
+    it(`V3 next to the valid capability: a row naming a capability of ${what} -> typed, the valid one is never chosen silently`, async () => {
+      const { issuer, capability } = await seed();
+      const misfiled = await buildCapability(issuer, overrides);
+      await put(misfiled);
+      expectIntegrity(await outcome([completedRequest(misfiled.artifact_id), completedRequest(capability.artifact_id)]), refusal);
+    });
+  }
+  it('V4: a COMPLETED row whose capability id is the empty string -> typed STORAGE_INTEGRITY_FAULT, never skipped', async () => {
+    const { capability } = await seed();
+    expectIntegrity(await outcome([completedRequest('')]));
+    expectIntegrity(await outcome([completedRequest(''), completedRequest(capability.artifact_id)]));
+  });
+  it('V4: a COMPLETED row without a capability id (null) -> typed STORAGE_INTEGRITY_FAULT, never skipped (mutation OWN-X7)', async () => {
+    const { capability } = await seed();
+    const withoutId = { ...completedRequest('x'), capabilityArtifactId: null };
+    expectIntegrity(await outcome([withoutId]));
+    expectIntegrity(await outcome([completedRequest(capability.artifact_id), withoutId]));
+  });
+  it('a row listed for this subject that is not of this subject (another release, or not COMPLETED) -> typed STORAGE_INTEGRITY_FAULT', async () => {
+    const { capability } = await seed();
+    expectIntegrity(await outcome([{ ...completedRequest(capability.artifact_id), releaseArtifactId: 'product-release-elsewhere' }]));
+    expectIntegrity(await outcome([{ ...completedRequest(capability.artifact_id), status: 'FAILED' }]));
+  });
+});
+
+describe('W-CATCH3 #13: what stays proof of "not current", and what stays unchanged (V5-V8)', () => {
+  it('a refusal-shaped error that carries a cause (a failed READ inside the verification) is never proof of "not current" (mutation OWN-X2)', async () => {
+    const { issuer, capability } = await seed();
+    const inner = repository();
+    const eio = Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+    const repo = {
+      put: (artifact: never) => inner.put(artifact),
+      resolve: async <T,>(ref: { artifact_id: string; artifact_type: string }): Promise<T> => {
+        if (ref.artifact_id === issuer.artifact_id) throw new Error('REJECT_VIEWER_CAPABILITY_EXPIRED', { cause: eio });
+        return inner.resolve<T>(ref);
+      },
+    };
+    const result = await (async () => {
+      try {
+        return { config: await resolveLocalizationViewerRuntimeConfigForProject(PROJECT_ID, repo as never, deps([completedRequest(capability.artifact_id)])) };
+      } catch (error) {
+        return { error: error as Error & Record<string, unknown> };
+      }
+    })();
+    expectTyped(result, 'viewer-capability', 'READ_ERROR', true);
+  });
+  it('V5: the whole index directory is gone -> typed MISSING_FROM_CAS (the known ENOENT limit fails closed here: the completed row says it must exist)', async () => {
+    const { capability } = await seed();
+    rmSync(indexDir, { recursive: true, force: true });
+    expectTyped(await outcome([completedRequest(capability.artifact_id)]), 'viewer-capability', 'MISSING_FROM_CAS', false);
+  });
+  it('V7/V8 controls: proven absence of the binding -> null; a valid capability -> its config', async () => {
+    const { capability } = await seed();
+    expect(await outcome([completedRequest(capability.artifact_id)])).toMatchObject({ config: { capabilityArtifactId: capability.artifact_id } });
+    const emptyIndex = { listBindingRefs: async () => [], listSupersessionRefs: async () => [] };
+    const { ProjectContextBindingProvider } = await import('../../server/modules/localization/projectContextBindingRuntime');
+    expect(await outcome([], new ProjectContextBindingProvider(repository(), emptyIndex as never, {} as never))).toEqual({ config: null });
+  });
+});
+
+describe('W-CATCH3 #13: the runtime provider re-reads the resolved capability by its id -- the object must be that capability', () => {
+  it('the index entry of the configured capability points at another VALID capability of the same subject -> refused as a lasting integrity fault, never the other capability', async () => {
+    const { issuer, capability } = await seed();
+    const sibling = await buildCapability(issuer, OTHER_WINDOW);
+    await put(sibling);
+    pointIndexAt(capability.artifact_id, sibling.artifact_id);
+    const provider = new LocalizationViewerCapabilityProvider(
+      repository(),
+      {
+        capabilityArtifactId: capability.artifact_id,
+        expectedProjectId: PROJECT_ID,
+        expectedContextBindingId: BINDING_REF.artifact_id,
+        expectedViewerIdentityId: VIEWER_IDENTITY_REF.artifact_id,
+        expectedReleaseId: RELEASE_REF.artifact_id,
+        expectedReleaseHash: RELEASE_HASH,
+      },
+      () => NOW,
+      bindingProvider(),
+    );
+    const failure = await provider.resolve().then(
+      () => null,
+      (error: unknown) => error as Error & Record<string, unknown>,
+    );
+    expect(failure, 'the other capability is never handed to the viewer').not.toBeNull();
+    expect(failure?.message).toMatch(/^REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE/);
+    expect({ faultClass: failure?.faultClass, retryable: failure?.retryable }).toEqual({ faultClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+  });
+  it('control: the intact configured capability still resolves', async () => {
+    const { capability } = await seed();
+    const provider = new LocalizationViewerCapabilityProvider(
+      repository(),
+      {
+        capabilityArtifactId: capability.artifact_id,
+        expectedProjectId: PROJECT_ID,
+        expectedContextBindingId: BINDING_REF.artifact_id,
+        expectedViewerIdentityId: VIEWER_IDENTITY_REF.artifact_id,
+        expectedReleaseId: RELEASE_REF.artifact_id,
+        expectedReleaseHash: RELEASE_HASH,
+      },
+      () => NOW,
+      bindingProvider(),
+    );
+    await expect(provider.resolve()).resolves.toMatchObject({ artifact_id: capability.artifact_id });
   });
 });

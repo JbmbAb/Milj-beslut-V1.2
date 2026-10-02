@@ -454,59 +454,79 @@ describe('VIEWER-CAPABILITY-ISSUER-TRUST-CHAIN-V1: runtime', () => {
     ).rejects.toThrow('REJECT_LU_VIEWER_CAPABILITY_AMBIGUOUS_CURRENT');
   });
 
-  it('a stale completed capability cannot win over one bound to the current subject', async () => {
+  // W-CATCH3 (CATCH2 verifier finding 1): the completed rows are selected on exactly the current
+  // (project, binding, release, viewer identity). A row of this subject naming a capability of ANOTHER
+  // binding, release or viewer identity can therefore only be a misfiled row -- a lasting integrity
+  // fault, never "not current" (skipped, or null "not configured") and never a silent win for the
+  // other capability. Before W-CATCH3 these three cases were skipped.
+  it('a completed row of the current subject naming a capability of another binding fails closed -- it never wins and the valid one is never chosen silently', async () => {
     const repository = new InMemoryArtifactRepository();
     const { capability, issuer } = await seed(repository);
-    const stale = await buildCapability(issuer, {
+    const misfiled = await buildCapability(issuer, {
       project_context_binding_ref: {
         artifact_id: 'project-context-binding-superseded',
         artifact_type: 'project_context_binding',
       },
     });
-    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+    await repository.put({ artifact_id: misfiled.artifact_id, content_hash: misfiled.content_hash, body: misfiled });
 
-    const resolved = await resolveLocalizationViewerRuntimeConfigForProject(
-      PROJECT_ID,
-      repository,
-      currentnessDependencies([
-        completedRequest(stale.artifact_id),
-        completedRequest(capability.artifact_id),
-      ]),
-    );
-    expect(resolved?.capabilityArtifactId).toBe(capability.artifact_id);
+    await expect(
+      resolveLocalizationViewerRuntimeConfigForProject(
+        PROJECT_ID,
+        repository,
+        currentnessDependencies([
+          completedRequest(misfiled.artifact_id),
+          completedRequest(capability.artifact_id),
+        ]),
+      ),
+    ).rejects.toMatchObject({
+      name: 'LuReadFaultError',
+      subject: 'viewer-capability',
+      faultClass: 'STORAGE_INTEGRITY_FAULT',
+      retryable: false,
+      refusalCode: 'REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING',
+    });
   });
 
-  it('rejects a completed capability for a different product release rather than treating its request as current', async () => {
+  it('a completed row of the current subject naming a capability for a different product release fails closed as an integrity fault, never null', async () => {
     const repository = new InMemoryArtifactRepository();
     const { issuer } = await seed(repository);
-    const stale = await buildCapability(issuer, {
+    const misfiled = await buildCapability(issuer, {
       product_release_ref: { artifact_id: 'product-release-superseded', artifact_type: 'product_release' },
     });
-    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+    await repository.put({ artifact_id: misfiled.artifact_id, content_hash: misfiled.content_hash, body: misfiled });
 
     await expect(
       resolveLocalizationViewerRuntimeConfigForProject(
         PROJECT_ID,
         repository,
-        currentnessDependencies([completedRequest(stale.artifact_id)]),
+        currentnessDependencies([completedRequest(misfiled.artifact_id)]),
       ),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({
+      name: 'LuReadFaultError',
+      faultClass: 'STORAGE_INTEGRITY_FAULT',
+      refusalCode: 'REJECT_VIEWER_CAPABILITY_RELEASE_REF',
+    });
   });
 
-  it('rejects a completed capability for a different viewer identity rather than treating its request as current', async () => {
+  it('a completed row of the current subject naming a capability for a different viewer identity fails closed as an integrity fault, never null', async () => {
     const repository = new InMemoryArtifactRepository();
     const { issuer } = await seed(repository);
-    const stale = await buildCapability(issuer, {
+    const misfiled = await buildCapability(issuer, {
       viewer_identity_ref: { artifact_id: 'viewer-identity-superseded', artifact_type: 'viewer_identity' },
     });
-    await repository.put({ artifact_id: stale.artifact_id, content_hash: stale.content_hash, body: stale });
+    await repository.put({ artifact_id: misfiled.artifact_id, content_hash: misfiled.content_hash, body: misfiled });
 
     await expect(
       resolveLocalizationViewerRuntimeConfigForProject(
         PROJECT_ID,
         repository,
-        currentnessDependencies([completedRequest(stale.artifact_id)]),
+        currentnessDependencies([completedRequest(misfiled.artifact_id)]),
       ),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({
+      name: 'LuReadFaultError',
+      faultClass: 'STORAGE_INTEGRITY_FAULT',
+      refusalCode: 'REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY',
+    });
   });
 });
