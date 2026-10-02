@@ -792,7 +792,7 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     const realResolve = s.repository.resolve.bind(s.repository);
     s.repository.resolve = async <T,>(ref: ArtifactReference): Promise<T> => {
       if (ref.artifact_id === s.locationRef.artifact_id) throw new Error('EIO: i/o error, read');
-      return realResolve<T>(ref);
+      return (await realResolve(ref)) as T;
     };
 
     expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
