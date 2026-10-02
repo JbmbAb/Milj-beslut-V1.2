@@ -54,6 +54,8 @@ export const SPATIAL_DATASET_RETENTION_FAILED = "SPATIAL_DATASET_RETENTION_FAILE
 export type SpatialDatasetRetentionFailureReason =
   | "INVALID_IDENTIFIER"
   | "OUTGOING_VERSION_CHANGED"
+  /** F5: the live table holds rows but the ledger names no SUCCESS batch for it. */
+  | "NO_SUCCESS_BATCH_FOR_LIVE_DATA"
   | "RETAINED_RELATION_MISSING"
   | "NO_COMMON_COLUMNS"
   | "DIGEST_MISMATCH"
@@ -242,6 +244,12 @@ export async function listSuccessBatchVersions(db: SqlPort, target: QualifiedTab
     versions.push(row);
   }
   return versions;
+}
+
+/** True when the relation holds at least one row (stops at the first row). */
+export async function relationHasRows(db: SqlPort, relation: QualifiedTable): Promise<boolean> {
+  const result = await db.query<{ has_rows: boolean }>(`SELECT EXISTS (SELECT 1 FROM ${quoteTable(relation)}) AS has_rows`);
+  return Boolean(result.rows[0]?.has_rows);
 }
 
 export async function relationExists(db: SqlPort, relation: QualifiedTable): Promise<boolean> {
@@ -520,8 +528,11 @@ export async function ensureOutgoingVersionRetained(input: {
 
 export type ReplaceRetentionStatus =
   | { readonly kind: "RETAINED"; readonly outcome: EnsureRecordOutcome; readonly record: SpatialDatasetRetentionRecord; readonly created_retained_relation: boolean }
-  /** The live table had no SUCCESS batch: nothing governed (and so nothing bindable) is replaced. */
-  | { readonly kind: "NO_GOVERNED_OUTGOING_VERSION" };
+  /**
+   * F5: first import into an EMPTY live table (no SUCCESS batch, no row -- checked again under the
+   * exclusive lock): nothing exists that could be replaced.
+   */
+  | { readonly kind: "FIRST_IMPORT_EMPTY_LIVE" };
 
 /**
  * PRES-05 replace: retain the outgoing version, then TRUNCATE + INSERT.
@@ -532,6 +543,12 @@ export type ReplaceRetentionStatus =
  * Phase B (one transaction, ACCESS EXCLUSIVE lock on the target): the outgoing SUCCESS batch must
  * be unchanged since phase A; `ensureOutgoingVersionRetained`; only then TRUNCATE and `insertSql`.
  * Any failure rolls back phase B with no TRUNCATE executed.
+ *
+ * F5 (U30F): the ledger's SUCCESS batch is the only admission identity that says WHAT is being
+ * replaced. When there is none and the live table holds rows, the promote is refused
+ * (NO_SUCCESS_BATCH_FOR_LIVE_DATA) -- no TRUNCATE, no promotion -- even if CAS holds a retention
+ * record for some version: a CAS record never stands in for the batch identity. Only a first import
+ * into an empty live table (FIRST_IMPORT_EMPTY_LIVE) proceeds without a SUCCESS batch.
  */
 export async function retainOutgoingThenReplace(input: {
   readonly db: TransactionalSqlPort;
@@ -548,9 +565,17 @@ export async function retainOutgoingThenReplace(input: {
   let targetSql: string;
   let outgoing: ImportBatchRow | null;
   let createdRetainedRelation = false;
+  const noSuccessBatch = () =>
+    reject(
+      "NO_SUCCESS_BATCH_FOR_LIVE_DATA",
+      `${formatQualifiedTable(target)} holds rows but the ledger has no SUCCESS batch for it: what would be replaced has no ` +
+        "admission identity, so it cannot be retained or bound (a CAS retention record does not stand in for it). " +
+        "Promote refused; nothing truncated.",
+    );
   try {
     targetSql = quoteTable(target);
     outgoing = await findCurrentSuccessBatch(db, target);
+    if (!outgoing && (await relationHasRows(db, target))) throw noSuccessBatch();
     if (outgoing) {
       const retained = retainedRelationFor(target, outgoing.content_bundle_sha256);
       if (!(await relationExists(db, retained))) {
@@ -564,7 +589,10 @@ export async function retainOutgoingThenReplace(input: {
       }
     }
   } catch (error) {
-    if (error instanceof SpatialDatasetRetentionError) throw reject(error.reason, error.message, error);
+    if (error instanceof SpatialDatasetRetentionError) {
+      if (error.code === REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED) throw error;
+      throw reject(error.reason, error.message, error);
+    }
     throw reject("DATABASE_ERROR", `preparing retention for ${formatQualifiedTable(target)}: ${describe(error)}`, error);
   }
 
@@ -583,7 +611,9 @@ export async function retainOutgoingThenReplace(input: {
       const ensured = await ensureOutgoingVersionRetained({ db: tx, repo, target, outgoing: current });
       status = { kind: "RETAINED", outcome: ensured.outcome, record: ensured.record, created_retained_relation: createdRetainedRelation };
     } else {
-      status = { kind: "NO_GOVERNED_OUTGOING_VERSION" };
+      // F5: re-checked under the exclusive lock -- rows that arrived since phase A are not replaced.
+      if (await relationHasRows(tx, target)) throw noSuccessBatch();
+      status = { kind: "FIRST_IMPORT_EMPTY_LIVE" };
     }
     await tx.execute(`TRUNCATE ${targetSql}`);
     await tx.execute(insertSql);

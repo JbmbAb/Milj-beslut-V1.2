@@ -59,6 +59,11 @@ const h = vi.hoisted(() => {
         return last ? [{ id: last.id, content_bundle_sha256: last.content_bundle_sha256, dataset_version: last.dataset_version }] : [];
       }
       if (s.startsWith('SELECT to_regclass')) return [{ exists: state.tables.has(String(params[0]).replace(/"/g, '')) }];
+      if (s.startsWith('SELECT EXISTS (SELECT 1 FROM')) {
+        const m = s.match(/FROM "([^"]+)"\."([^"]+)"/)!;
+        state.log.push(`has-rows:${m[1]}.${m[2]}`);
+        return [{ has_rows: (state.tables.get(`${m[1]}.${m[2]}`)?.digest.row_count ?? 0) > 0 }];
+      }
       if (s.includes('FROM pg_attribute')) return state.tables.get(`${params[0]}.${params[1]}`)?.columns ?? [];
       if (s.startsWith('WITH row_hashes')) {
         const m = s.match(/FROM "([^"]+)"\."([^"]+)" src/)!;
@@ -247,6 +252,20 @@ describe('import-librarian-manifest promote: retain before replace (U30-B2, PRES
     await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED \[CAS_UNAVAILABLE\]/);
     expect(h.state.log).not.toContain('TRUNCATE');
     expect(h.state.updates).toEqual([]);
+  });
+
+  it('F5: the ledger has no SUCCESS batch but live holds rows -> promote refused, no TRUNCATE, batch FAILED (a CAS record never stands in)', async () => {
+    seed();
+    h.state.batches.splice(h.state.batches.findIndex((b) => b.id === 'batch-v1'), 1);
+    // CAS still records the version live holds; it must not matter.
+    const outgoingId = retentionRecordId({ schema: 'env', table: 'sgu_well' }, HASH_V1);
+    h.state.casStore.set(outgoingId, { content_hash: { value: 'x' }, body: { artifact_id: outgoingId } });
+    const { processManifest } = await loadScript();
+
+    await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED \[NO_SUCCESS_BATCH_FOR_LIVE_DATA\]/);
+    expect(h.state.log).not.toContain('TRUNCATE');
+    expect(h.state.log).not.toContain('INSERT');
+    expect(h.state.updates.map((u) => u.status)).toEqual(['PROMOTE_STARTED', 'FAILED']);
   });
 
   it('--retry-failed never deletes SUCCESS ledger rows', async () => {

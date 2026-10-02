@@ -67,7 +67,10 @@ class FakeDb implements TransactionalSqlPort {
   /** Returned by the LIMIT 1 lookup on its Nth call (1-based), to simulate a concurrent change. */
   currentBatchOverride: { onCall: number; row: ImportBatchRow | null } | null = null;
   failOn: RegExp | null = null;
+  /** Answer of the "live has rows" probe on its Nth call (1-based), to simulate a concurrent insert. */
+  hasRowsOverride: { onCall: number; value: boolean } | null = null;
   private currentLookups = 0;
+  private hasRowsLookups = 0;
 
   async query<T = Record<string, unknown>>(sql: string, params: readonly unknown[] = []): Promise<{ rows: T[] }> {
     const s = sql.replace(/\s+/g, " ").trim();
@@ -92,6 +95,18 @@ class FakeDb implements TransactionalSqlPort {
     if (s.startsWith("SELECT to_regclass")) {
       const key = String(params[0]).replace(/"/g, "");
       return { rows: [{ exists: this.tables.has(key) }] as T[] };
+    }
+    if (s.startsWith("SELECT EXISTS (SELECT 1 FROM")) {
+      const m = s.match(/FROM "([^"]+)"\."([^"]+)"/);
+      const key = `${m![1]}.${m![2]}`;
+      this.hasRowsLookups += 1;
+      this.log.push(`has-rows:${key}`);
+      if (this.hasRowsOverride && this.hasRowsOverride.onCall === this.hasRowsLookups) {
+        return { rows: [{ has_rows: this.hasRowsOverride.value }] as T[] };
+      }
+      const t = this.tables.get(key);
+      if (!t) throw new Error(`relation ${key} does not exist`);
+      return { rows: [{ has_rows: t.digest.row_count > 0 }] as T[] };
     }
     if (s.includes("FROM pg_attribute")) {
       const t = this.tables.get(`${params[0]}.${params[1]}`);
@@ -370,12 +385,56 @@ describe("retainOutgoingThenReplace: the PRES-05 gate before TRUNCATE", () => {
     expect(db.log).not.toContain("TRUNCATE");
   });
 
-  it("no SUCCESS batch for the target (nothing governed, nothing bindable) -> replace proceeds without a record", async () => {
+  it("F5: no SUCCESS batch while live holds rows -> REJECT NO_SUCCESS_BATCH_FOR_LIVE_DATA, no TRUNCATE, no promotion", async () => {
     const db = retainedScenario();
     db.successBatches = [];
+    const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL }));
+    expect(error.code).toBe(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED);
+    expect(error.reason).toBe("NO_SUCCESS_BATCH_FOR_LIVE_DATA");
+    expect(db.log).not.toContain("TRUNCATE");
+    expect(db.log).not.toContain("INSERT");
+  });
+
+  it("F5: a CAS retention record for the live version never stands in for the missing SUCCESS batch", async () => {
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db: retainedScenario(), repo: store, target: TARGET, insertSql: INSERT_SQL });
+    expect(await resolveRetentionRecord(store, TARGET, HASH_V1)).not.toBeNull();
+
+    const db = retainedScenario();
+    db.successBatches = []; // the ledger lost its SUCCESS rows; CAS still records v1
+    const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db, store), target: TARGET, insertSql: INSERT_SQL }));
+    expect(error.reason).toBe("NO_SUCCESS_BATCH_FOR_LIVE_DATA");
+    expect(db.log).not.toContain("TRUNCATE");
+  });
+
+  it("F5: first import (no SUCCESS batch, live table empty) proceeds, the emptiness re-checked under the exclusive lock", async () => {
+    const db = retainedScenario();
+    db.successBatches = [];
+    db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: { row_count: 0, digest: "0".repeat(64) } });
     const status = await retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL });
-    expect(status).toEqual({ kind: "NO_GOVERNED_OUTGOING_VERSION" });
-    expect(db.log).toEqual(["query:current-batch", "BEGIN", "lock:ACCESS EXCLUSIVE", "query:current-batch", "TRUNCATE", "INSERT", "COMMIT"]);
+    expect(status).toEqual({ kind: "FIRST_IMPORT_EMPTY_LIVE" });
+    expect(db.log).toEqual([
+      "query:current-batch",
+      "has-rows:env.sgu_well",
+      "BEGIN",
+      "lock:ACCESS EXCLUSIVE",
+      "query:current-batch",
+      "has-rows:env.sgu_well",
+      "TRUNCATE",
+      "INSERT",
+      "COMMIT",
+    ]);
+  });
+
+  it("F5: rows appearing in an empty live table between the phases -> REJECT, no TRUNCATE", async () => {
+    const db = retainedScenario();
+    db.successBatches = [];
+    db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: { row_count: 0, digest: "0".repeat(64) } });
+    db.hasRowsOverride = { onCall: 2, value: true };
+    const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL }));
+    expect(error.reason).toBe("NO_SUCCESS_BATCH_FOR_LIVE_DATA");
+    expect(db.log).not.toContain("TRUNCATE");
+    expect(db.log[db.log.length - 1]).toBe("ROLLBACK");
   });
 });
 

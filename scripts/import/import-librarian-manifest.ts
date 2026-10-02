@@ -538,7 +538,9 @@ async function processManifest(manifestPath: string) {
                   `record ${retention.record.artifact_id} ${retention.outcome}${retention.created_retained_relation ? ', relation created' : ''})`,
               );
             } else {
-              logger.warn(`   - No SUCCESS batch for ${target_schema}.${target_table}: no governed outgoing version to retain`);
+              // F5: only reachable for an EMPTY live table (checked under the exclusive lock). A live
+              // table with rows but no SUCCESS batch is refused inside retainOutgoingThenReplace.
+              logger.info(`   - First import: ${target_schema}.${target_table} was empty and has no SUCCESS batch; nothing to retain`);
             }
           }
         } else {
