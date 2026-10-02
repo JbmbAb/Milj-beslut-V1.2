@@ -39,7 +39,14 @@ import { registerLocalizationGeometry } from './localizationGeometryProjection';
 import { PrismaLocalizationGeometrySupersessionIndex } from '../../repositories/localizationGeometrySupersessionRepository';
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
-import { isExactlyTheDeterministicArtifact, isProjectAccessDenied, LuReadFaultError, readExistingOrProvenAbsent, toReadFaultError } from './readFaultClassification';
+import {
+  assertReadUnderItsOwnId,
+  isExactlyTheDeterministicArtifact,
+  isProjectAccessDenied,
+  LuReadFaultError,
+  readExistingOrProvenAbsent,
+  toReadFaultError,
+} from './readFaultClassification';
 import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
 import { classifyLocalizationGeometryCurrentnessError, LocalizationGeometryCurrentnessError } from './localizationGeometryCurrentness';
 
@@ -84,6 +91,9 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<Localizati
   );
   if (read.found) {
     const existing = read.value;
+    // W-CATCH3 (CATCH2 verifier finding 2): the object under the issuer's id must BE the issuer -- an index
+    // entry pointing at another object is a lasting integrity fault, never a refusal of "this issuer".
+    assertReadUnderItsOwnId('geometry-supersession-issuer', existing, bareIssuer.artifact_id);
     // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
     // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
     if (isExactlyTheDeterministicArtifact(existing, bareIssuer)) return existing;
@@ -189,7 +199,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
     // read as "predecessor superseded" and mark this SUPERSEDED, even though nothing is actually
     // stale; it's this exact request's own prior success. Recognizing reuse first means a retry
     // of an already-completed transition always reports success, never a false SUPERSEDED.
-    const reused = await tryReuseExistingSupersession({ repo, expectedId: bareArtifact.artifact_id, issuer, verification });
+    const reused = await tryReuseExistingSupersession({ repo, bareArtifact, issuer, verification });
     if (reused) {
       await registerLocalizationGeometry({ projectId: input.projectId, geometry: successor! });
       await registerEdge(input.projectId, reused, input.predecessorGeometryArtifactId, input.successorGeometryArtifactId);
@@ -250,22 +260,32 @@ async function registerEdge(
 
 async function tryReuseExistingSupersession(args: {
   readonly repo: ArtifactRepositoryPort;
-  readonly expectedId: string;
+  /** The relation this exact request deterministically names (without its attestation). */
+  readonly bareArtifact: ReturnType<typeof createLocalizationGeometrySupersessionArtifact>;
   readonly issuer: LocalizationGeometrySupersessionIssuerArtifact;
   readonly verification: Parameters<typeof verifyLocalizationGeometrySupersessionArtifact>[0]['verification'];
 }): Promise<string | null> {
+  const expectedId = args.bareArtifact.artifact_id;
   // W-CATCH2 #11 (OD-R2): "not minted yet" ONLY on the proven absence of exactly this id; a read error
   // or a damaged existing relation is a typed fault, never re-issued over.
   const read = await readExistingOrProvenAbsent<LocalizationGeometrySupersessionArtifact>(
     args.repo,
-    { artifact_id: args.expectedId, artifact_type: 'localization_geometry_supersession' },
+    { artifact_id: expectedId, artifact_type: 'localization_geometry_supersession' },
     'geometry-supersession',
   );
   if (!read.found) return null; // proven absence: proceed to issue.
   const existing = read.value;
+  // W-CATCH3 (CATCH2 verifier finding 2, probe S3): the object under the deterministic id must BE that
+  // relation -- an index entry pointing at another (even valid) relation is a lasting integrity fault,
+  // never a COMPLETED request with another relation -- and exactly the relation this request names,
+  // field for field (the same discipline as the issuers); its attestation is verified below.
+  assertReadUnderItsOwnId('geometry-supersession', existing, expectedId);
+  if (!isExactlyTheDeterministicArtifact(existing, args.bareArtifact)) {
+    throw new LuReadFaultError('geometry-supersession', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored relation is not the relation its id names'));
+  }
   try {
     await verifyLocalizationGeometrySupersessionArtifact({ artifact: existing, issuer: args.issuer, verification: args.verification });
-    return existing.artifact_id;
+    return expectedId;
   } catch (error) {
     // W-CATCH2 #11: an existing relation for this exact request that does not verify is never re-issued
     // over (the same id: either the same bytes, or a WORM/collision error) -- a typed refusal instead.
@@ -298,7 +318,7 @@ export async function mintLegacyBackfillSupersession(args: {
     issuer_key_id: signing.keyId,
     issued_at: args.issuedAt,
   });
-  const reused = await tryReuseExistingSupersession({ repo: args.repo, expectedId: bareArtifact.artifact_id, issuer, verification });
+  const reused = await tryReuseExistingSupersession({ repo: args.repo, bareArtifact, issuer, verification });
   if (reused) {
     await registerLocalizationGeometry({ projectId: args.projectId, geometry: successor });
     await registerEdge(args.projectId, reused, args.predecessorGeometryArtifactId, args.successorGeometryArtifactId);

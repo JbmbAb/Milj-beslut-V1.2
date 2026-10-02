@@ -41,6 +41,7 @@ import { resolveCurrentViewerIdentity } from '../../../src/application/resolveCu
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
 import {
+  assertReadUnderItsOwnId,
   isProjectAccessDenied,
   isProvenBindingAbsence,
   isExactlyTheDeterministicArtifact,
@@ -118,6 +119,9 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<ViewerCapa
   );
   if (read.found) {
     const existing = read.value;
+    // W-CATCH3 (CATCH2 verifier finding 2): the object under the issuer's id must BE the issuer -- an index
+    // entry pointing at another object is a lasting integrity fault, never a refusal of "this issuer".
+    assertReadUnderItsOwnId('viewer-capability-issuer', existing, bareIssuer.artifact_id);
     // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
     // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
     if (isExactlyTheDeterministicArtifact(existing, bareIssuer)) return existing;
@@ -246,14 +250,13 @@ export async function executeViewerCapabilityProvisioning(input: {
       valid_until: validUntil,
     };
     const bareCapability = createProductViewerCapabilityArtifact(barePayloadInput);
-    const expectedCapabilityId = bareCapability.artifact_id;
 
     // Reconciliation-first: a capability for this EXACT subject may already exist (a prior
     // attempt got far enough to mint, or a duplicate request for the same subject). Never
     // re-mint; verify and reuse.
     const reused = await tryReuseExistingCapability({
       repo,
-      expectedCapabilityId,
+      bareCapability,
       projectId: input.projectId,
       bindingId: input.contextBindingArtifactId,
       viewerIdentityId: input.viewerIdentityArtifactId,
@@ -296,7 +299,8 @@ export async function executeViewerCapabilityProvisioning(input: {
 
 async function tryReuseExistingCapability(args: {
   readonly repo: ArtifactRepositoryPort;
-  readonly expectedCapabilityId: string;
+  /** The capability this exact request deterministically names (without its attestation). */
+  readonly bareCapability: ReturnType<typeof createProductViewerCapabilityArtifact>;
   readonly projectId: string;
   readonly bindingId: string;
   readonly viewerIdentityId: string;
@@ -304,15 +308,24 @@ async function tryReuseExistingCapability(args: {
   readonly releaseHash: string;
   readonly currentBindingProvider: ProjectContextBindingProvider;
 }): Promise<string | null> {
+  const expectedCapabilityId = args.bareCapability.artifact_id;
   // W-CATCH2 #10 (OD-R2): "not minted yet" ONLY on the proven absence of exactly this id; a read error
   // or a damaged existing capability is a typed fault, never re-issued over.
   const read = await readExistingOrProvenAbsent<ProductViewerCapabilityArtifact>(
     args.repo,
-    { artifact_id: args.expectedCapabilityId, artifact_type: 'viewer_capability' },
+    { artifact_id: expectedCapabilityId, artifact_type: 'viewer_capability' },
     'viewer-capability',
   );
   if (!read.found) return null; // proven absence: proceed to issue.
   const existing = read.value;
+  // W-CATCH3 (CATCH2 verifier finding 2, probe P4): the object under the deterministic id must BE that
+  // capability -- an index entry pointing at another (even valid) capability is a lasting integrity
+  // fault, never a COMPLETED request with another capability -- and exactly the capability this request
+  // names, field for field (the same discipline as the issuers); its attestation is verified below.
+  assertReadUnderItsOwnId('viewer-capability', existing, expectedCapabilityId);
+  if (!isExactlyTheDeterministicArtifact(existing, args.bareCapability)) {
+    throw new LuReadFaultError('viewer-capability', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored capability is not the capability its id names'));
+  }
   try {
     await verifyProductViewerCapability({
       capability: existing,
@@ -326,7 +339,7 @@ async function tryReuseExistingCapability(args: {
       now: new Date(),
       currentBindingProvider: args.currentBindingProvider,
     });
-    return existing.artifact_id;
+    return expectedCapabilityId;
   } catch (error) {
     // W-CATCH2 #10: an existing capability for this exact subject that does not verify is never
     // re-issued over (a re-issue yields the same id: either the same bytes, or a WORM/collision error).
