@@ -73,6 +73,12 @@ interface CesiumMapViewProps {
   /** The governed search radius (distance_meters) drawn as a ring around the current point. */
   searchRadiusMeters?: number | null;
   /**
+   * productMode (W-M2d item 7): the point the displayed assessment was made for (the read-back's
+   * verified bound point). When given, the ring is drawn around it -- not around the current point,
+   * which may have changed since.
+   */
+  searchRadiusCenter?: { lat: number; lng: number } | null;
+  /**
    * productMode only (DEMO M2c item 2): why no ring is drawn although the assessment has a search
    * radius -- e.g. the assessment was made for another point than the one shown. Legend text.
    */
@@ -95,6 +101,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   productEvidence,
   onProductEvidenceRetry,
   searchRadiusMeters = null,
+  searchRadiusCenter = null,
   searchRadiusWithheldNote = null,
   currentLocationLabel,
 }) => {
@@ -201,14 +208,17 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     }
   }, [currentLocationPoint, currentLocationLabel]);
 
+  // Primitive deps: callers pass a fresh object per render.
+  const ringLat = searchRadiusCenter?.lat ?? currentLocationPoint?.lat ?? null;
+  const ringLng = searchRadiusCenter?.lng ?? currentLocationPoint?.lng ?? null;
   useEffect(() => {
     if (!adapterRef.current) return;
-    if (currentLocationPoint && typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0) {
-      adapterRef.current.setSearchRadiusRing(currentLocationPoint.lat, currentLocationPoint.lng, searchRadiusMeters);
+    if (ringLat !== null && ringLng !== null && typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0) {
+      adapterRef.current.setSearchRadiusRing(ringLat, ringLng, searchRadiusMeters);
     } else {
       adapterRef.current.clearSearchRadiusRing();
     }
-  }, [currentLocationPoint, searchRadiusMeters]);
+  }, [ringLat, ringLng, searchRadiusMeters]);
 
   // ---- productMode: property geometry (independent of the evidence, so a new evidence result never
   // re-flies the camera).
@@ -421,10 +431,12 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
               <span style={{ color: '#00FF00' }}>●</span> {currentLocationLabel ?? 'Kontrollpunkt'}
             </p>
           ) : null}
-          {typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0 && currentLocationPoint ? (
+          {typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0 && (searchRadiusCenter || currentLocationPoint) ? (
             <p data-testid="cesium-search-radius-legend" className="text-slate-300">
-              <span style={{ color: '#FFFFFF' }}>◯</span> Sökradie {searchRadiusMeters} m – visar var kontrollen sökte, inte var
-              några objekt ligger.
+              <span style={{ color: '#FFFFFF' }}>◯</span>{' '}
+              {searchRadiusCenter
+                ? `Sökradie ${searchRadiusMeters} m kring den kontrollpunkt bedömningen gjordes för – visar var kontrollen sökte, inte var några objekt ligger.`
+                : `Sökradie ${searchRadiusMeters} m – visar var kontrollen sökte, inte var några objekt ligger.`}
             </p>
           ) : null}
           {searchRadiusWithheldNote ? (

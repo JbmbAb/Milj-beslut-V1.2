@@ -88,7 +88,17 @@ type LocalizationGeometryView = {
   wgs84LngLat: [number, number];
   provisioningStatus: LocalizationIdentityProvisioningStatus;
   provisioningFailureDetail?: string | null;
+  /**
+   * W-M2d item 7 (localizationGeometryService.ts LocalizationGeometryView): set by POST geometry.
+   * PENDING/LEASED: the predecessor->successor edge is not confirmed yet, and GET keeps answering with
+   * the PREVIOUS point until it is. SUPERSEDED: a faster concurrent save moved current elsewhere.
+   * FAILED: the point is saved, but the change of current point did not go through.
+   */
+  supersessionStatus?: 'PENDING' | 'LEASED' | 'COMPLETED' | 'FAILED' | 'SUPERSEDED' | null;
 };
+
+/** W-M2d item 7: how long a just-saved point is polled for before the view stops waiting (2 s each). */
+const PENDING_SAVE_MAX_POLLS = 60;
 
 type LuFindingView = {
   finding_id: string;
@@ -170,6 +180,11 @@ type GovernedResult = {
    * read-back; null when the answer does not state it.
    */
   assessedGeometryId: string | null;
+  /**
+   * W-M2d item 7 (U20-D c41fd77d): the coordinates of the point THIS assessment is bound to, read and
+   * verified by the server from the assessment's own localization_geometry_ref; null unless VERIFIED.
+   */
+  assessedPoint: { lat: number; lng: number } | null;
   /** W-M2d item 2: the read-back's overallStatement, unparsed (presentLuOverallStatement reads it). */
   overallStatement: unknown;
 };
@@ -235,6 +250,16 @@ function assessedGeometryIdOf(result: CurrentAssessmentResponse): string | null 
   return typeof id === 'string' && id ? id : null;
 }
 
+/** W-M2d item 7: the read-back's verified bound point ([lng, lat] WGS84), or null. */
+function assessedPointOf(result: CurrentAssessmentResponse): { lat: number; lng: number } | null {
+  const g = result.localizationGeometry && typeof result.localizationGeometry === 'object'
+    ? (result.localizationGeometry as { bound_geometry_status?: unknown; coordinates_wgs84?: unknown })
+    : null;
+  if (!g || g.bound_geometry_status !== 'VERIFIED' || !Array.isArray(g.coordinates_wgs84)) return null;
+  const [lng, lat] = g.coordinates_wgs84 as unknown[];
+  return typeof lng === 'number' && Number.isFinite(lng) && typeof lat === 'number' && Number.isFinite(lat) ? { lat, lng } : null;
+}
+
 /**
  * DEMO M2c item 2: is the displayed control point the one the displayed assessment was made for?
  *   none     -- no assessment (or no point) is shown, nothing to bind
@@ -290,6 +315,7 @@ function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assess
     evidenceDetails: parseServerArray(result.evidenceDetails),
     propertyRoot: result.propertyRoot,
     assessedGeometryId: assessedGeometryIdOf(result),
+    assessedPoint: assessedPointOf(result),
     overallStatement: result.overallStatement,
   };
 }
@@ -371,6 +397,22 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [draftPoint, setDraftPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [savingLocation, setSavingLocation] = useState(false);
   const [saveLocationError, setSaveLocationError] = useState<LuErrorPresentation | null>(null);
+  /**
+   * W-M2d item 7 (M2c verification finding 5): a point the user just saved whose change of current
+   * point the server has not confirmed yet (POST supersessionStatus PENDING/LEASED). GET geometry
+   * keeps answering with the PREVIOUS point until then, so a poll must never overwrite the saved one.
+   */
+  const [pendingSave, setPendingSave] = useState<LocalizationGeometryView | null>(null);
+  const pendingSaveRef = useRef<LocalizationGeometryView | null>(null);
+  const [pendingPolls, setPendingPolls] = useState(0);
+  /** W-M2d item 7: what happened to a save whose change of current point did not go through. */
+  const [saveOutcomeNote, setSaveOutcomeNote] = useState<string | null>(null);
+
+  const setPending = (view: LocalizationGeometryView | null) => {
+    pendingSaveRef.current = view;
+    setPendingSave(view);
+    setPendingPolls(0);
+  };
 
   const fieldStyle: React.CSSProperties = {
     width: '100%',
@@ -395,6 +437,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setLookingUp(true);
     clearResultState();
     setRunOutcome(null);
+    setPending(null);
+    setSaveOutcomeNote(null);
     expectedRunRef.current = null;
     try {
       const info = await fetchPropertyInfo(designation.trim(), getActiveProjectId() || undefined);
@@ -440,6 +484,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         `/api/localization/${encodeURIComponent(projectId)}/geometry`,
         { method: 'GET' },
       );
+      // W-M2d item 7: while a just-saved point waits for the server's confirmation, GET answers with
+      // the previous point -- that answer never replaces the saved point on screen.
+      const pending = pendingSaveRef.current;
+      if (pending && result.geometry?.artifact_id !== pending.artifact_id) return pending;
+      if (pending) setPending(null);
       setLocalizationGeometry(result.geometry);
       return result.geometry;
     } catch (err) {
@@ -553,7 +602,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   }, [displayedAssessmentId, spatialRefsKey, evidenceNonce]);
 
   // While the point's execution identity is being prepared by the worker, re-poll the same GET.
+  // (Not while a just-saved point waits for confirmation: the effect below polls then.)
   useEffect(() => {
+    if (pendingSave) return;
     const status = localizationGeometry?.provisioningStatus;
     if (status !== 'PENDING' && status !== 'LEASED') return;
     const timer = setTimeout(() => {
@@ -561,7 +612,25 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     }, 2000);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
+  }, [localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus, pendingSave]);
+
+  // W-M2d item 7: a just-saved point is polled until GET answers with it (the server has confirmed
+  // the change of current point) -- every 2 s, at most PENDING_SAVE_MAX_POLLS times; it is never
+  // replaced by the previous point meanwhile (loadCurrentGeometry above).
+  useEffect(() => {
+    if (!pendingSave || pendingPolls >= PENDING_SAVE_MAX_POLLS) return;
+    const timer = setTimeout(() => {
+      void loadCurrentGeometry().finally(() => setPendingPolls((n) => n + 1));
+    }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSave, pendingPolls]);
+
+  /** W-M2d item 7: stop waiting for a saved point and show what the project's current point is. */
+  const showServerCurrentPoint = async () => {
+    setPending(null);
+    await loadCurrentGeometry();
+  };
 
   const [retryingProvisioning, setRetryingProvisioning] = useState(false);
   const retryProvisioning = async () => {
@@ -573,7 +642,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         `/api/localization/${encodeURIComponent(projectId)}/geometry-identity-retry`,
         { method: 'POST' },
       );
-      setLocalizationGeometry(result.geometry);
+      // W-M2d item 7: the retry answers with the project's CURRENT point; it never replaces a
+      // just-saved point that is still waiting for confirmation.
+      if (!pendingSaveRef.current || pendingSaveRef.current.artifact_id === result.geometry?.artifact_id) {
+        setLocalizationGeometry(result.geometry);
+      }
     } catch (err) {
       setGeometryError(presentLuError(err, 'geometry-retry'));
     } finally {
@@ -610,7 +683,26 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           },
         },
       );
-      setLocalizationGeometry(result.geometry);
+      const saved = result.geometry;
+      const supersession = saved?.supersessionStatus ?? null;
+      setSaveOutcomeNote(null);
+      if (supersession === 'PENDING' || supersession === 'LEASED') {
+        // W-M2d item 7: shown as saved, marked as not yet confirmed, and protected from polling.
+        setPending(saved);
+        setLocalizationGeometry(saved);
+      } else if (supersession === 'SUPERSEDED' || supersession === 'FAILED') {
+        // The point is saved, but it will not become the current one: show what IS current.
+        setPending(null);
+        setSaveOutcomeNote(
+          supersession === 'SUPERSEDED'
+            ? 'Kontrollpunkten sparades, men en annan ändring av kontrollpunkten hann före. Projektets aktuella kontrollpunkt visas.'
+            : 'Kontrollpunkten sparades, men bytet till den nya punkten kunde inte genomföras. Projektets aktuella kontrollpunkt visas.',
+        );
+        await loadCurrentGeometry();
+      } else {
+        setPending(null);
+        setLocalizationGeometry(saved);
+      }
       setPickingLocation(false);
       setDraftPoint(null);
     } catch (err) {
@@ -785,7 +877,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     if (def) setSelectedCheck(def.key);
   };
 
-  const isExecutionReady = localizationGeometry?.provisioningStatus === 'COMPLETED';
+  // W-M2d item 7: a run uses the project's CURRENT point -- never while a saved point is unconfirmed.
+  const isExecutionReady = localizationGeometry?.provisioningStatus === 'COMPLETED' && !pendingSave;
   const projectReady = Boolean(getActiveProjectId());
   const incoherencePresentation = useMemo(
     () =>
@@ -1003,12 +1096,20 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   // says "where the check searched", so it is never drawn around another point.
   const distinctRadii = [...new Set(checks.map((c) => c.searchRadiusMeters).filter((r): r is number => r !== null))];
   const governedRadius = distinctRadii.length === 1 ? distinctRadii[0]! : null;
-  const searchRadiusMeters = pointBinding === 'bound' ? governedRadius : null;
+  // W-M2d item 7: the ring is drawn around the point the assessment was made for -- the read-back's
+  // own verified bound point (U20-D c41fd77d). Without those coordinates it is drawn only when the
+  // shown point IS the assessed one (same artifact id), and withheld otherwise.
+  const assessedPoint = governed?.assessedPoint ?? null;
+  const searchRadiusCenter =
+    pointBinding === 'none' || pointBinding === 'unknown'
+      ? null
+      : assessedPoint ?? (pointBinding === 'bound' && localizationGeometry ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] } : null);
+  const searchRadiusMeters = searchRadiusCenter ? governedRadius : null;
   const searchRadiusWithheldNote =
-    governedRadius === null
+    governedRadius === null || searchRadiusCenter
       ? null
       : pointBinding === 'changed'
-        ? 'Sökradien visas inte: bedömningen gjordes för en annan kontrollpunkt än den som visas.'
+        ? 'Sökradien visas inte: bedömningen gjordes för en annan kontrollpunkt än den som visas, och dess punkt anges inte i svaret.'
         : pointBinding === 'unknown'
           ? 'Sökradien visas inte: det går inte att bekräfta vilken kontrollpunkt bedömningen gjordes för.'
           : null;
@@ -1067,7 +1168,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             data-testid="lu-run"
             disabled={!site || running || !isExecutionReady || persistedAssessmentLoading}
             title={
-              !isExecutionReady && site
+              pendingSave && site
+                ? 'Den nya kontrollpunkten bekräftas fortfarande.'
+                : !isExecutionReady && site
                 ? 'Analysen förbereds fortfarande.'
                 : persistedAssessmentLoading
                   ? 'Den sparade bedömningen läses in.'
@@ -1136,7 +1239,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 {localizationGeometry.wgs84LngLat[1].toFixed(6)}, {localizationGeometry.wgs84LngLat[0].toFixed(6)}
               </p>
               <p data-testid="lu-geometry-readiness" className="text-xs opacity-80">
-                {localizationGeometry.provisioningStatus === 'PENDING' || localizationGeometry.provisioningStatus === 'LEASED' ? (
+                {pendingSave ? (
+                  'Väntar på att den nya kontrollpunkten bekräftas…'
+                ) : localizationGeometry.provisioningStatus === 'PENDING' || localizationGeometry.provisioningStatus === 'LEASED' ? (
                   'Förbereder analysen…'
                 ) : localizationGeometry.provisioningStatus === 'COMPLETED' ? (
                   <span style={{ color: '#34D399' }}>Klar att bedöma</span>
@@ -1156,7 +1261,35 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                   {retryingProvisioning ? 'Försöker igen…' : 'Försök igen'}
                 </button>
               ) : null}
+              {pendingSave ? (
+                // W-M2d item 7: the saved point is shown as saved, and honestly as not yet current.
+                <div data-testid="lu-geometry-pending" className="text-xs space-y-1 border p-2" style={{ borderColor: '#F97316', color: '#FDBA74' }}>
+                  <p>
+                    Den nya kontrollpunkten är sparad men ännu inte bekräftad som projektets aktuella punkt. Tills bytet är
+                    bekräftat gäller projektets tidigare kontrollpunkt, och ingen bedömning körs.
+                  </p>
+                  {pendingPolls >= PENDING_SAVE_MAX_POLLS ? (
+                    <p data-testid="lu-geometry-pending-stale">Bytet har inte bekräftats ännu.</p>
+                  ) : null}
+                  <button
+                    type="button"
+                    data-testid="lu-geometry-pending-show-current"
+                    disabled={geometryLoading}
+                    onClick={() => void showServerCurrentPoint()}
+                    className="px-2 py-1 text-xs font-semibold border disabled:opacity-40"
+                    style={{ borderColor: '#F97316' }}
+                  >
+                    Visa projektets aktuella kontrollpunkt
+                  </button>
+                </div>
+              ) : null}
             </div>
+          ) : null}
+
+          {saveOutcomeNote ? (
+            <p data-testid="lu-geometry-save-outcome" className="text-xs" style={{ color: '#FDBA74' }}>
+              {saveOutcomeNote}
+            </p>
           ) : null}
 
           {geometryError ? (
@@ -1474,7 +1607,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             >
               <p>
                 {pointBinding === 'changed'
-                  ? 'Kontrollpunkten har ändrats sedan bedömningen gjordes: bedömningen gjordes för en annan kontrollpunkt än den som visas. Sökradien ritas därför inte på kartan. Läs in på nytt för att visa projektets aktuella kontrollpunkt och bedömning tillsammans.'
+                  ? `Kontrollpunkten har ändrats sedan bedömningen gjordes: bedömningen gjordes för en annan kontrollpunkt än den som visas. ${
+                      searchRadiusCenter
+                        ? 'Sökradien på kartan visar var bedömningen sökte – kring bedömningens egen kontrollpunkt.'
+                        : 'Sökradien ritas därför inte på kartan.'
+                    } Läs in på nytt för att visa projektets aktuella kontrollpunkt och bedömning tillsammans.`
                   : 'Det går inte att bekräfta att bedömningen gjordes för den kontrollpunkt som visas – svaret anger inte bedömningens kontrollpunkt. Sökradien ritas därför inte på kartan.'}
               </p>
               {pointBinding === 'changed' ? (
@@ -1590,6 +1727,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               productEvidence={productEvidence}
               onProductEvidenceRetry={retryMapEvidence}
               searchRadiusMeters={searchRadiusMeters}
+              searchRadiusCenter={searchRadiusCenter}
               searchRadiusWithheldNote={searchRadiusWithheldNote}
               currentLocationLabel={
                 localizationGeometry?.provenance === 'user_defined'

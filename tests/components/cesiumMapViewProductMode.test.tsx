@@ -99,6 +99,23 @@ describe('DEMO M2a item 4 / M2b: CesiumMapView in product mode', () => {
     expect(await screen.findByTestId('cesium-geometryless-note')).toBeInTheDocument();
   });
 
+  it('W-M2d item 7: the ring is drawn around the point the assessment was made for, and the legend says so', async () => {
+    render(
+      <CesiumMapView
+        {...baseProps}
+        currentLocationPoint={{ lat: 59.89, lng: 17.76 }}
+        productEvidence={LOADED}
+        searchRadiusMeters={500}
+        searchRadiusCenter={{ lat: 59.87, lng: 17.74 }}
+      />,
+    );
+    await waitFor(() => expect(adapter.setSearchRadiusRing).toHaveBeenCalledWith(59.87, 17.74, 500));
+    expect(adapter.setSearchRadiusRing).not.toHaveBeenCalledWith(59.89, 17.76, 500);
+    expect(screen.getByTestId('cesium-search-radius-legend')).toHaveTextContent(
+      'Sökradie 500 m kring den kontrollpunkt bedömningen gjordes för – visar var kontrollen sökte, inte var några objekt ligger.',
+    );
+  });
+
   it('M2c item 2: when the workspace withholds the ring (assessment made for another point) the legend says why', async () => {
     render(
       <CesiumMapView

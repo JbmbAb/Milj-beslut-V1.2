@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LuWorkspace } from '../../components/app/lu/LuWorkspace';
-import { governedReadBack } from '../fixtures/luGovernedReadBack';
+import { boundPoint, governedReadBack } from '../fixtures/luGovernedReadBack';
 
 vi.mock('@miljobeslut/mps-identity', () => ({
   designTokens: {
@@ -2077,6 +2077,74 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.queryByTestId('lu-control-retry')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lu-site-ready')).not.toBeInTheDocument();
     expect(callApi).not.toHaveBeenCalledWith(expect.stringContaining('/current-assessment'), expect.anything());
+  });
+
+  it('item 7: a just-saved control point is never switched back by polling while the server confirms it; the ring stays at the assessed point', async () => {
+    const user = userEvent.setup();
+    let serverCurrent: 'A' | 'B' = 'A';
+    const pointA = { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', wgs84LngLat: [17.74, 59.87], provisioningStatus: 'COMPLETED' };
+    // POST answer (localizationGeometryService.saveUserLocalizationGeometry): the saved point, its
+    // identity being prepared and its supersession edge not yet confirmed -- GET keeps returning A.
+    const pointB = { artifact_id: 'loc-geom-B', provenance: 'user_defined', wgs84LngLat: [17.76, 59.89], provisioningStatus: 'PENDING', supersessionStatus: 'PENDING' };
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-A', localizationGeometry: boundPoint('loc-geom-1', [17.74, 59.87]) }) });
+    const base = callApi.getMockImplementation()!;
+    callApi.mockImplementation((url: string, o?: { method?: string }) => {
+      if (url.endsWith('/geometry') && o?.method === 'POST') return Promise.resolve({ ok: true, geometry: pointB });
+      if (url.endsWith('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: serverCurrent === 'A' ? pointA : { ...pointB, provisioningStatus: 'COMPLETED', supersessionStatus: null },
+        });
+      }
+      return base(url, o);
+    });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'NO_HIT'));
+    expect(lastCesiumMapViewProps.searchRadiusCenter).toEqual({ lat: 59.87, lng: 17.74 });
+
+    await user.click(screen.getByTestId('lu-start-picking-location'));
+    act(() => lastCesiumMapViewProps.onLocationPick(59.89, 17.76));
+    await user.click(await screen.findByTestId('lu-save-location'));
+    await waitFor(() => expect(screen.getByTestId('lu-geometry-current')).toHaveTextContent('59.890000, 17.760000'));
+
+    // Polling runs (every 2 s) while GET still answers with the previous point A.
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    expect(screen.getByTestId('lu-geometry-current')).toHaveTextContent('59.890000, 17.760000');
+    expect(screen.getByTestId('lu-geometry-pending')).toHaveTextContent(
+      'Den nya kontrollpunkten är sparad men ännu inte bekräftad som projektets aktuella punkt.',
+    );
+    expect(screen.getByTestId('lu-run')).toBeDisabled();
+    // The shown assessment was made for A: said honestly, and the ring is drawn around A itself.
+    expect(screen.getByTestId('lu-point-binding')).toHaveTextContent('Kontrollpunkten har ändrats sedan bedömningen gjordes');
+    expect(screen.getByTestId('lu-point-binding-reload')).toHaveTextContent('Läs in på nytt');
+    expect(lastCesiumMapViewProps.searchRadiusMeters).toBe(500);
+    expect(lastCesiumMapViewProps.searchRadiusCenter).toEqual({ lat: 59.87, lng: 17.74 });
+    expect(lastCesiumMapViewProps.currentLocationPoint).toEqual({ lat: 59.89, lng: 17.76 });
+
+    // The server confirms the change: GET now answers with B, and the pending notice goes.
+    serverCurrent = 'B';
+    await waitFor(() => expect(screen.queryByTestId('lu-geometry-pending')).not.toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.getByTestId('lu-geometry-current')).toHaveTextContent('59.890000, 17.760000');
+  }, 15000);
+
+  it('item 7: a save whose change of current point was overtaken says so and shows the project\'s current point', async () => {
+    const user = userEvent.setup();
+    const pointA = { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', wgs84LngLat: [17.74, 59.87], provisioningStatus: 'COMPLETED' };
+    const pointB = { artifact_id: 'loc-geom-B', provenance: 'user_defined', wgs84LngLat: [17.76, 59.89], provisioningStatus: 'PENDING', supersessionStatus: 'SUPERSEDED' };
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-A' }) });
+    const base = callApi.getMockImplementation()!;
+    callApi.mockImplementation((url: string, o?: { method?: string }) => {
+      if (url.endsWith('/geometry') && o?.method === 'POST') return Promise.resolve({ ok: true, geometry: pointB });
+      if (url.endsWith('/geometry')) return Promise.resolve({ ok: true, geometry: pointA });
+      return base(url, o);
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-start-picking-location'));
+    act(() => lastCesiumMapViewProps.onLocationPick(59.89, 17.76));
+    await user.click(await screen.findByTestId('lu-save-location'));
+    expect(await screen.findByTestId('lu-geometry-save-outcome')).toHaveTextContent('en annan ändring av kontrollpunkten hann före');
+    expect(screen.getByTestId('lu-geometry-current')).toHaveTextContent('59.870000, 17.740000');
+    expect(screen.queryByTestId('lu-geometry-pending')).not.toBeInTheDocument();
   });
 
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
