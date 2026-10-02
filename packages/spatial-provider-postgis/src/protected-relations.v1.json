@@ -1,0 +1,69 @@
+{
+  "contract": "mimer-protected-relations-v1",
+  "purpose": "U30F F1 (PRES-05): the relations no ungoverned path may drop, truncate, delete from, insert into, update, overwrite, append to, rename or redefine. Single source for the TypeScript gate (ProtectedRelationGate.ts) and its Python and PowerShell bindings. Adding or removing an entry is a reviewed code change; there is no runtime override.",
+  "retained_staging_schemas": ["lm_staging"],
+  "relations": [
+    {
+      "relation": "env.sgu_well",
+      "class": "LU_LIVE_LAYER",
+      "basis": "SpatialLayerRegistry water; ADMIT-V1 lu.water_wells"
+    },
+    {
+      "relation": "env.ebh_potentiellt_fororenade_omraden",
+      "class": "LU_LIVE_LAYER",
+      "basis": "SpatialLayerRegistry ebh; ADMIT-V1 lu.ebh"
+    },
+    {
+      "relation": "env.protected_area",
+      "class": "LU_LIVE_LAYER",
+      "basis": "SpatialLayerRegistry protected_area; ADMIT-V1 lu.protected_area"
+    },
+    {
+      "relation": "env.natura2000_area",
+      "class": "LU_LIVE_LAYER",
+      "basis": "SpatialLayerRegistry natura2000; ADMIT-V1 lu.natura2000"
+    },
+    {
+      "relation": "env.water_protection_area",
+      "class": "LU_LIVE_LAYER",
+      "basis": "SpatialLayerRegistry water_protection_area; ADMIT-V1 lu.water_protection"
+    },
+    {
+      "relation": "env.registerenhetsomradesytor",
+      "class": "LU_LIVE_LAYER",
+      "basis": "ADMIT-V1 lu.property_unit source table (the property root)"
+    },
+    {
+      "relation": "climate.flood_risk_area",
+      "class": "LU_LIVE_LAYER",
+      "basis": "ADMIT-V1 lu.flood_risk"
+    },
+    {
+      "relation": "env.sgu_soil_type_25k_100k",
+      "class": "LU_LIVE_LAYER",
+      "basis": "ADMIT-V1 lu.soil_type"
+    },
+    {
+      "relation": "env.sgu_landslide_feature",
+      "class": "LU_LIVE_LAYER",
+      "basis": "ADMIT-V1 lu.landslide"
+    },
+    {
+      "relation": "hydro.water_catchment",
+      "class": "LU_LIVE_LAYER",
+      "basis": "ADMIT-V1 lu.viss_waterbody"
+    },
+    {
+      "relation": "env.sks_nyckelbiotoper",
+      "class": "LU_LIVE_LAYER",
+      "basis": "ADMIT-V1 lu.sks_nature"
+    },
+    {
+      "relation": "core.property_unit",
+      "class": "LU_DERIVED",
+      "basis": "ADMIT-V1 lu.property_unit (env.registerenhetsomradesytor -> sync core.property_unit)",
+      "derived_from": "env.registerenhetsomradesytor",
+      "sanctioned_rebuild": "scripts/db/sync-property-unit-from-env.ts"
+    }
+  ]
+}
