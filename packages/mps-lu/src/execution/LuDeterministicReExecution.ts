@@ -43,7 +43,15 @@ import {
 } from "./LuReExecutionStorageError.js";
 import { executionIdentityCanonicalBody } from "./ExecutionIdentityAttestation.js";
 import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
-import { computeExecutionManifestIdV3 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
+import {
+  computeExecutionManifestIdV3,
+  type ExecutionIdentitySubjectV3,
+} from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
+import {
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
+  LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4,
+} from "../artifacts/LocalizationAssessmentArtifact.js";
+import { isBootstrapExecutionReplayAllowed } from "./LuReExecutionBootstrapAllowance.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -126,6 +134,25 @@ import { computeExecutionManifestIdV3 } from "../../../mps-runtime/src/execution
  *    run's outcome.
  * What this proves is deterministic consistency of the replay against the pinned artifacts. It does
  * NOT prove authenticity: no signature is checked here (U30R3-REPORT, "Vad verify inte bevisar").
+ *
+ * U30-R4 (owner 2026-10-03 (4) item 7; U30-R3 verifier F1) -- the anti-downgrade binding. The V4 binding
+ * above applies only to an assessment that itself declares V4, so a forger could drop the authority
+ * evidence, relabel the assessment V1-V3 and point it at another assessment's outcome. Every v2 outcome
+ * (FROZEN_EXECUTION_OUTCOME_CONTRACT_VERSION_V2, d8b18cd9, 2026-08-24) postdates the V1/V2 assessment
+ * contracts and the canonical V3-subject product path (6fdd1186), so for an assessment over a v2 outcome
+ * (`executionSubjectBindingMismatch`):
+ *  - a V1/V2 label is CONTRACT_DOWNGRADE_REFUSED: no code that wrote V1/V2 assessments ever wrote a v2
+ *    outcome (33c19b58, which made every new assessment V3, is an ancestor of d8b18cd9);
+ *  - a V3 assessment must be bound to the canonical V3 subject its execution was derived from: the
+ *    manifest names the execution identity, whose V3 subject must derive that very manifest id
+ *    (preimage-bound, never trusted from a stored claim), and the assessment's localization point must be
+ *    the subject's. Otherwise EXECUTION_SUBJECT_MISMATCH;
+ *  - an execution that cannot be bound at all -- a legacy site/V2-scoped manifest, or a V3-subject manifest
+ *    whose identity was never issued (bootstrap admission) -- is EXECUTION_SUBJECT_UNBOUND, unless the
+ *    verifying process is an explicit dev/test bootstrap (isBootstrapExecutionReplayAllowed).
+ * A V1 outcome (before 2026-08-24) carries no lineage and is left exactly as before (R-1). A V3 relabel of a
+ * V4 over its OWN execution and point cannot be told from a V3 made while V3 was canonical (2026-08-24 ..
+ * 2026-09-16): nothing in the execution chain records that the run required authority (U30R4-REPORT).
  */
 
 export type LuReExecutionMismatchCode =
@@ -135,7 +162,13 @@ export type LuReExecutionMismatchCode =
   | "MANIFEST_ATTEMPT_MISMATCH"
   | "MISSING_PINNED_EVIDENCE"
   | "TAMPERED_EVIDENCE"
-  | "UNSUPPORTED_CONTRACT_VERSION";
+  | "UNSUPPORTED_CONTRACT_VERSION"
+  /** U30-R4: a V1/V2 assessment over a v2 outcome -- a contract older than the execution it pins. */
+  | "CONTRACT_DOWNGRADE_REFUSED"
+  /** U30-R4: a V3 assessment over a canonical V3-subject execution it is not bound to (point, subject). */
+  | "EXECUTION_SUBJECT_MISMATCH"
+  /** U30-R4: a V3 assessment over an execution with no governed subject (bootstrap/legacy), product configuration. */
+  | "EXECUTION_SUBJECT_UNBOUND";
 
 export interface LuReExecutionMismatch {
   readonly code: LuReExecutionMismatchCode;
@@ -293,6 +326,9 @@ export async function reExecuteLocalizationAssessment(args: {
   readonly assessmentArtifactId: string;
   readonly artifactRepository: ArtifactRepositoryPort;
 }): Promise<LuReExecutionResult> {
+  // U30-R4: decided once, before any await -- whether this process is an explicit dev/test bootstrap that
+  // may accept an execution with no governed subject. The product configuration never is.
+  const bootstrapExecutionsAllowed = isBootstrapExecutionReplayAllowed(process.env);
   // The caller's input, not a pinned artifact: a genuine absence keeps the repository's own
   // not-found error; a storage fault is the typed technical error (OD-R2).
   const assessmentRead = await readPinnedArtifact<LocalizationAssessmentArtifact>(
@@ -435,6 +471,17 @@ export async function reExecuteLocalizationAssessment(args: {
   const authorityMismatch = await authoritySubjectMismatch(assessment, manifestIdFromAttemptRef, args.artifactRepository);
   if (authorityMismatch) {
     return denied(authorityMismatch);
+  }
+  // U30-R4: a V1-V3 assessment over a v2 outcome is bound to its execution's subject, or refused.
+  const subjectMismatch = await executionSubjectBindingMismatch(
+    assessment,
+    outcome,
+    attempt.manifest_ref,
+    args.artifactRepository,
+    bootstrapExecutionsAllowed,
+  );
+  if (subjectMismatch) {
+    return denied(subjectMismatch);
   }
 
   const { spatial_evidence, document_evidence, verified_document_facts, mismatches } = await resolveEvidence({
@@ -581,8 +628,8 @@ function exactOutputBindingMismatch(
  * step is a hash or a preimage-resistant derivation; none trusts a stored claim, and no signature is
  * verified (that is authenticity, not consistency -- see the module header).
  *
- * Applies to V4 only: V1-V3 assessments pin no authority subject, so they keep the finding-level
- * binding alone (U30R3-REPORT, remaining boundary). Genuine absence of a pinned artifact is
+ * Applies to V4 only: V1-V3 assessments pin no authority subject; over a v2 outcome they are bound to the
+ * execution's subject by executionSubjectBindingMismatch (U30-R4) instead. Genuine absence of a pinned artifact is
  * MANIFEST_ATTEMPT_MISMATCH; a storage fault is LuReExecutionStorageError (OD-R2).
  */
 async function authoritySubjectMismatch(
@@ -660,6 +707,93 @@ async function authoritySubjectMismatch(
     point.artifact_type !== subject.localization_geometry_ref?.artifact_type
   ) {
     return unbound(`the assessment's localization point is not the one its authority subject ${subjectRef.artifact_id} was issued for`);
+  }
+  return null;
+}
+
+/** Every computeExecutionManifestIdV3 id has this prefix; legacy site-scoped and V2-scoped ids never derive from a V3 subject. */
+const V3_SUBJECT_MANIFEST_PREFIX = "lu-manifest-v3-";
+
+/**
+ * U30-R4 -- the anti-downgrade binding for an assessment WITHOUT authority evidence (V1-V3), see the module
+ * header. Applies only to a v2 outcome; a V4 assessment is bound by authoritySubjectMismatch, and a V1
+ * outcome (no lineage, before 2026-08-24) is historical and unchanged.
+ *
+ *  - V1/V2 label over a v2 outcome -> CONTRACT_DOWNGRADE_REFUSED (never produced: the V1/V2 producer is gone
+ *    in the ancestor 33c19b58 of the v2 outcome d8b18cd9);
+ *  - V3 over a v2 outcome: the attempt's manifest -> the execution identity it names -> that identity's
+ *    `subject_v3`, which must derive the very manifest id (computeExecutionManifestIdV3; the id is
+ *    preimage-bound to the subject, so no stored claim is trusted) -> the assessment's localization point
+ *    must be the subject's. Any break is EXECUTION_SUBJECT_MISMATCH -- never excused by the bootstrap flag;
+ *  - no governed subject to bind (a manifest not derived from a V3 subject, or an identity that is not in
+ *    CAS: admitted under bootstrap, never issued) -> EXECUTION_SUBJECT_UNBOUND, unless the verifying
+ *    process is an explicit dev/test bootstrap (isBootstrapExecutionReplayAllowed).
+ * Genuine absence of the pinned manifest is MANIFEST_ATTEMPT_MISMATCH; a storage fault is
+ * LuReExecutionStorageError (OD-R2). Details carry ids only.
+ */
+async function executionSubjectBindingMismatch(
+  assessment: LocalizationAssessmentArtifact,
+  outcome: FrozenExecutionOutcomeIdentity,
+  manifestRef: ArtifactReference,
+  repository: ArtifactRepositoryPort,
+  bootstrapExecutionsAllowed: boolean,
+): Promise<LuReExecutionMismatch | null> {
+  const declared = assessment.payload.assessment_contract_version;
+  if (declared === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4) return null;
+  if (!("capability_execution_ref" in outcome)) return null;
+
+  if (declared !== LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3) {
+    return {
+      code: "CONTRACT_DOWNGRADE_REFUSED",
+      detail:
+        `assessment declares ${declared ?? "no contract version (V1)"} but pins the v2 execution outcome ` +
+        `${assessment.payload.execution_outcome_ref.artifact_id}; every v2 outcome postdates the V1/V2 assessment contracts`,
+    };
+  }
+
+  const manifestId = manifestRef.artifact_id;
+  const unbound = (detail: string): LuReExecutionMismatch | null =>
+    bootstrapExecutionsAllowed ? null : { code: "EXECUTION_SUBJECT_UNBOUND", detail: `execution subject binding: ${detail}` };
+  const mismatch = (detail: string): LuReExecutionMismatch => ({
+    code: "EXECUTION_SUBJECT_MISMATCH",
+    detail: `execution subject binding: ${detail}`,
+  });
+
+  if (!manifestId.startsWith(V3_SUBJECT_MANIFEST_PREFIX)) {
+    return unbound(`manifest ${manifestId} is not derived from a canonical V3 subject (a legacy execution of the general engine)`);
+  }
+  const manifestRead = await readPinnedArtifact<{ readonly execution_identity_ref?: unknown }>(repository, manifestRef, "execution_manifest");
+  if (manifestRead.found === false) {
+    return { code: "MANIFEST_ATTEMPT_MISMATCH", detail: `execution manifest ${manifestId} pinned by the attempt is not in CAS` };
+  }
+  const named = (typeof manifestRead.value === "object" && manifestRead.value !== null
+    ? manifestRead.value.execution_identity_ref
+    : undefined) as { readonly artifact_id?: unknown; readonly artifact_type?: unknown } | null | undefined;
+  if (typeof named?.artifact_id !== "string" || typeof named?.artifact_type !== "string") {
+    return mismatch(`manifest ${manifestId} names no execution identity`);
+  }
+  const identityRef: ArtifactReference = { artifact_id: named.artifact_id, artifact_type: named.artifact_type };
+
+  const identityRead = await readPinnedArtifact<Record<string, unknown>>(repository, identityRef, "execution_identity");
+  if (identityRead.found === false) {
+    return unbound(`execution identity ${identityRef.artifact_id} named by manifest ${manifestId} is not in CAS (admitted under bootstrap, never issued)`);
+  }
+  const identity = identityRead.value;
+  const subject = (typeof identity === "object" && identity !== null ? identity.subject_v3 : undefined) as
+    | ExecutionIdentitySubjectV3
+    | null
+    | undefined;
+  if (typeof subject !== "object" || subject === null || computeExecutionManifestIdV3(subject) !== manifestId) {
+    return mismatch(`execution identity ${identityRef.artifact_id} does not carry the V3 subject manifest ${manifestId} was derived from`);
+  }
+
+  const point = assessment.payload.localization_geometry_ref;
+  if (
+    !point ||
+    point.artifact_id !== subject.localization_geometry_ref?.artifact_id ||
+    point.artifact_type !== subject.localization_geometry_ref?.artifact_type
+  ) {
+    return mismatch(`the assessment's localization point is not the one execution ${manifestId} was run for`);
   }
   return null;
 }
