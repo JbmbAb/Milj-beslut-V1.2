@@ -29,7 +29,7 @@ vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermetic
 import { buildSpatialEvidenceContentHash, SPATIAL_STACK_V1, type AssessmentFinding } from '@miljobeslut/mps-lu';
 import { LURuleEngine } from '../../packages/mps-lu/src/rules/LURuleEngine';
 import { recomputeVerifiedDocumentFactContentHash } from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
-import { assertGovernedSpatialQueryOutcome } from '../../server/modules/localization/governedSpatialEvidenceForm';
+import { assertGovernedSpatialQueryOutcome, GovernedSpatialEvidenceFormError } from '../../server/modules/localization/governedSpatialEvidenceForm';
 import {
   governedOverallStatement,
   presentedGovernedLayerChecks,
@@ -361,6 +361,183 @@ describe('U20CDF2 invariant B: a provider outcome outside the normal form never 
       }
     }
     expect(rejected).toBe(3 * LAYERS.length * (INVALID.size + 1));
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// B2 (U20CDF3, U20CDF2 verification H7 / low 7): a BROAD set of invalid forms -- null, undefined,
+// NaN, negative, Infinity, fractional, strings, objects, arrays, extra/unknown fields, wrong types --
+// generated, not hand-picked: each is rejected by the gate (typed class) and, stored, never reads as a
+// checked layer. The admitted forms are enumerated too (positive control), so the rejection is not
+// vacuous. Admitted = the frozen contract (SpatialResultSemantics.ts): result is exactly
+// { exists: boolean, match_count_observed?: count, max_features_per_layer?: positive count } with
+// count > 0 === exists and count <= max; kind absent (older evidence) or exactly
+// EXISTENCE_WITHIN_DISTANCE; dataset exactly one requested layer.
+// ------------------------------------------------------------------------------------------------
+
+const KIND = 'EXISTENCE_WITHIN_DISTANCE';
+const ABSENT = Symbol('absent');
+type Maybe = unknown | typeof ABSENT;
+/** Every kind of non-value and wrong-typed value a JSON-ish field can hold. */
+const JUNK: readonly unknown[] = [null, undefined, Number.NaN, -1, 0, 1, -0.5, 1.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '', 'x', 'true', 'false', '0', '3', true, false, {}, { value: true }, [], [0], [true]];
+
+function rawEvidence(dataset: Maybe, semantics: Maybe, id = 'raw') {
+  return {
+    artifact_id: `evidence-raw-${id}`,
+    artifact_type: 'SPATIAL_EVIDENCE',
+    payload: {
+      source_metadata: dataset === ABSENT ? {} : { dataset },
+      ...(semantics === ABSENT ? {} : { result_semantics: semantics }),
+    },
+  };
+}
+const withResult = (result: Maybe, kind: Maybe = KIND) => ({ ...(kind === ABSENT ? {} : { kind }), ...(result === ABSENT ? {} : { result }) });
+const resultOfFields = (fields: Record<string, Maybe>) =>
+  Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== ABSENT)) as Record<string, unknown>;
+
+/** The generated invalid evidence forms for one layer, each with a label. */
+function invalidEvidenceForms(layer: Layer): Array<[string, unknown]> {
+  const forms: Array<[string, unknown]> = [];
+  // The evidence object itself and its payload.
+  for (const junk of [null, undefined, 'x', 42, true, []]) forms.push([`evidence=${String(JSON.stringify(junk))}`, junk]);
+  for (const junk of [null, 'x', 42, []]) forms.push([`payload=${JSON.stringify(junk)}`, { artifact_id: 'p', artifact_type: 'SPATIAL_EVIDENCE', payload: junk }]);
+  // The dataset: missing, wrong type, empty, not a requested layer, mis-cased, padded.
+  forms.push(['dataset absent', rawEvidence(ABSENT, withResult({ exists: false }))]);
+  for (const junk of [null, undefined, '', 0, 1, true, {}, [], [layer]]) forms.push([`dataset=${String(JSON.stringify(junk))}`, rawEvidence(junk, withResult({ exists: false }))]);
+  for (const name of [layer.toUpperCase(), ` ${layer}`, `${layer} `, `${layer}_x`, 'flood', 'document']) {
+    forms.push([`dataset=${JSON.stringify(name)}`, rawEvidence(name, withResult({ exists: false }))]);
+  }
+  // result_semantics and kind.
+  forms.push(['result_semantics absent', rawEvidence(layer, ABSENT)]);
+  for (const junk of [null, 'x', 0, true, []]) forms.push([`result_semantics=${JSON.stringify(junk)}`, rawEvidence(layer, junk)]);
+  for (const junk of [null, '', 'existence_within_distance', `${KIND} `, 'FEATURE_GEOMETRY', 'DISTANCE_WITNESS', 0, true, {}, []]) {
+    forms.push([`kind=${JSON.stringify(junk)}`, rawEvidence(layer, withResult({ exists: false, match_count_observed: 0 }, junk))]);
+  }
+  // result.
+  forms.push(['result absent', rawEvidence(layer, withResult(ABSENT))]);
+  for (const junk of [null, 'x', 0, true, [], [{ exists: false }]]) forms.push([`result=${JSON.stringify(junk)}`, rawEvidence(layer, withResult(junk))]);
+  // exists: anything but a boolean (also absent).
+  forms.push(['exists absent', rawEvidence(layer, withResult({ match_count_observed: 0 }))]);
+  for (const junk of JUNK.filter((v) => typeof v !== 'boolean')) {
+    forms.push([`exists=${String(JSON.stringify(junk) ?? junk)}`, rawEvidence(layer, withResult({ exists: junk }))]);
+  }
+  // match_count_observed: anything but a non-negative integer (null/undefined = absent, admitted).
+  for (const exists of [true, false]) {
+    for (const junk of JUNK.filter((v) => v !== null && v !== undefined && !(typeof v === 'number' && Number.isInteger(v) && v >= 0))) {
+      forms.push([`exists=${exists} count=${String(JSON.stringify(junk) ?? junk)}`, rawEvidence(layer, withResult({ exists, match_count_observed: junk }))]);
+    }
+  }
+  // A count that contradicts exists.
+  forms.push(['exists:true count 0', rawEvidence(layer, withResult({ exists: true, match_count_observed: 0 }))]);
+  forms.push(['exists:false count 1', rawEvidence(layer, withResult({ exists: false, match_count_observed: 1 }))]);
+  // max_features_per_layer: anything but a positive integer (null/undefined = absent); count above it.
+  for (const junk of JUNK.filter((v) => v !== null && v !== undefined && !(typeof v === 'number' && Number.isInteger(v) && v > 0))) {
+    forms.push([`max=${String(JSON.stringify(junk) ?? junk)}`, rawEvidence(layer, withResult({ exists: false, match_count_observed: 0, max_features_per_layer: junk }))]);
+  }
+  forms.push(['count above max', rawEvidence(layer, withResult({ exists: true, match_count_observed: 51, max_features_per_layer: 50 }))]);
+  // Extra / unknown fields in the result (outside the frozen contract).
+  for (const extra of ['foo', 'hit', 'matches', 'exists2', 'EXISTS', 'cap_reached', 'semantics_kind', '__proto__x']) {
+    forms.push([`extra result field ${extra}`, rawEvidence(layer, withResult({ exists: false, match_count_observed: 0, max_features_per_layer: 50, [extra]: true }))]);
+  }
+  return forms;
+}
+
+/** Every admitted result form (positive control). */
+function admittedResults(): Array<[string, Record<string, unknown>, boolean]> {
+  const out: Array<[string, Record<string, unknown>, boolean]> = [];
+  for (const exists of [true, false]) {
+    for (const count of [ABSENT, null, exists ? 1 : 0, exists ? 50 : 0]) {
+      for (const max of [ABSENT, null, 50]) {
+        out.push([`exists=${exists} count=${String(count === ABSENT ? 'absent' : count)} max=${String(max === ABSENT ? 'absent' : max)}`,
+          resultOfFields({ exists, match_count_observed: count, max_features_per_layer: max }), exists]);
+      }
+    }
+  }
+  return out;
+}
+
+describe('U20CDF3 invariant B2: a broad, generated set of invalid forms is rejected by the gate and never reads as a checked layer', () => {
+  it('every generated invalid evidence form on every layer, against three backgrounds -> GovernedSpatialEvidenceFormError', () => {
+    let rejected = 0;
+    for (const background of ['NO_HIT', 'HIT', 'UNAVAILABLE'] as const) {
+      for (const layer of LAYERS) {
+        const others = LAYERS.filter((l) => l !== layer);
+        const backgroundEvidence = background === 'UNAVAILABLE' ? [] : others.map((l) => evidence(l, background));
+        const backgroundUnavailable = background === 'UNAVAILABLE' ? others.map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' })) : [];
+        for (const [label, form] of invalidEvidenceForms(layer)) {
+          let thrown: unknown = null;
+          try {
+            assertGovernedSpatialQueryOutcome({ evidence: [...backgroundEvidence, form], unavailable_layers: backgroundUnavailable }, LAYERS);
+          } catch (error) {
+            thrown = error;
+          }
+          expect(thrown, `${background} ${layer} ${label}`).toBeInstanceOf(GovernedSpatialEvidenceFormError);
+          rejected += 1;
+        }
+      }
+    }
+    expect(rejected).toBeGreaterThan(3 * LAYERS.length * 100);
+  });
+
+  it('every generated invalid outcome-level form (unavailable entries, duplicates, silence, foreign layers) -> GovernedSpatialEvidenceFormError', () => {
+    const negatives = LAYERS.map((l) => evidence(l, 'NO_HIT'));
+    const cases: Array<[string, { evidence: unknown[]; unavailable_layers: unknown[] }]> = [];
+    for (const junk of [null, undefined, 'x', 42, true, [], {}, { reason: 'x' }, { dataset: null }, { dataset: 0 }, { dataset: '' }, { dataset: [] }, { dataset: 'WATER' }, { dataset: 'flood' }]) {
+      cases.push([`unavailable entry ${String(JSON.stringify(junk))}`, { evidence: negatives.slice(1), unavailable_layers: [{ dataset: 'water', reason: 'x' }, junk] }]);
+    }
+    for (const layer of LAYERS) {
+      cases.push([`silent ${layer}`, { evidence: negatives.filter((e) => e.payload.source_metadata.dataset !== layer), unavailable_layers: [] }]);
+      cases.push([`duplicate evidence ${layer}`, { evidence: [...negatives, evidence(layer, 'HIT')], unavailable_layers: [] }]);
+      cases.push([`duplicate unavailable ${layer}`, {
+        evidence: negatives.filter((e) => e.payload.source_metadata.dataset !== layer),
+        unavailable_layers: [{ dataset: layer, reason: 'x' }, { dataset: layer, reason: 'y' }],
+      }]);
+      cases.push([`evidence and unavailable ${layer}`, { evidence: negatives, unavailable_layers: [{ dataset: layer, reason: 'x' }] }]);
+    }
+    cases.push(['everything silent', { evidence: [], unavailable_layers: [] }]);
+    for (const [label, outcome] of cases) {
+      let thrown: unknown = null;
+      try {
+        assertGovernedSpatialQueryOutcome(outcome, LAYERS);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown, label).toBeInstanceOf(GovernedSpatialEvidenceFormError);
+    }
+  });
+
+  it('positive control: every admitted result form on every layer passes the gate and reads as checked', () => {
+    let admitted = 0;
+    for (const layer of LAYERS) {
+      for (const [label, result, exists] of admittedResults()) {
+        for (const kind of [ABSENT, KIND]) {
+          const form = rawEvidence(layer, withResult(result, kind), `${layer}-${admitted}`);
+          const others = LAYERS.filter((l) => l !== layer).map((l) => evidence(l, 'NO_HIT'));
+          expect(() => assertGovernedSpatialQueryOutcome({ evidence: [...others, form], unavailable_layers: [] }, LAYERS), `${layer} ${label}`).not.toThrow();
+          const rows = presentedGovernedLayerChecks({ spatialEvidence: [...others, form] as never, findings: [], pinnedEvidenceRefs: [] });
+          expect(rows.find((r) => r.layer === layer)?.status, `${layer} ${label}`).toBe(exists ? 'CHECKED_HIT' : 'CHECKED_NO_HIT');
+          admitted += 1;
+        }
+      }
+    }
+    expect(admitted).toBe(LAYERS.length * admittedResults().length * 2);
+  });
+
+  it('stored: every generated invalid form whose payload is an object never makes its layer a checked one, and never yields a count', () => {
+    for (const layer of LAYERS) {
+      const others = LAYERS.filter((l) => l !== layer).map((l) => evidence(l, 'NO_HIT'));
+      for (const [label, form] of invalidEvidenceForms(layer)) {
+        const payload = (form as { payload?: unknown } | null)?.payload;
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue; // never read back as SPATIAL_EVIDENCE
+        const rows = presentedGovernedLayerChecks({ spatialEvidence: [...others, form] as never, findings: [], pinnedEvidenceRefs: [] });
+        const row = rows.find((r) => r.layer === layer)!;
+        expect(['CHECKED_HIT', 'CHECKED_NO_HIT'].includes(row.status), `${layer} ${label}: ${JSON.stringify(row)}`).toBe(false);
+        expect(rows.map((r) => r.layer), `${layer} ${label}`).toEqual([...LAYERS, 'document']);
+        const statement = governedOverallStatement('LOW', rows, { findings: [] });
+        expect(statement.coverage, `${layer} ${label}`).toBeNull();
+        expect(statement.statement_sv, `${layer} ${label}`).not.toMatch(COUNT_PATTERN);
+      }
+    }
   });
 });
 

@@ -22,7 +22,12 @@
  *    field; never another declared kind);
  *  - `result_semantics.result.exists` is a boolean;
  *  - `result_semantics.result.match_count_observed`, when present (not undefined/null), is a
- *    non-negative integer and `count > 0` equals `exists`.
+ *    non-negative integer and `count > 0` equals `exists`;
+ *  - U20CDF3 (U20CDF2 verification H7 / low 7; the frozen contract SpatialResultSemantics.ts
+ *    ExistenceWithinDistanceResult): `result` is a plain object with no field outside
+ *    { exists, match_count_observed, max_features_per_layer }; `max_features_per_layer`, when present,
+ *    is a positive integer and the count does not exceed it (the provider fails a layer whose count
+ *    would).
  * Query outcome level (fresh run only): every unavailable entry names a dataset, and no dataset is
  * both evidenced and reported unavailable. U20CDF3 (low 2): every entry names exactly one of the
  * requested layers, and each requested layer is answered at most once. U20CDF3 (low 5): and each
@@ -42,7 +47,20 @@ export type SpatialEvidenceFormViolation =
   | 'RESULT_KIND_NOT_ADMITTED'
   | 'EXISTS_NOT_BOOLEAN'
   | 'MATCH_COUNT_NOT_A_COUNT'
-  | 'MATCH_COUNT_CONTRADICTS_EXISTS';
+  | 'MATCH_COUNT_CONTRADICTS_EXISTS'
+  /** U20CDF3 (low 7): a result field outside the frozen contract. */
+  | 'RESULT_FIELD_NOT_ADMITTED'
+  /** U20CDF3 (low 7): max_features_per_layer present but not a positive integer. */
+  | 'MAX_FEATURES_NOT_A_COUNT'
+  /** U20CDF3 (low 7): the observed count exceeds max_features_per_layer. */
+  | 'MATCH_COUNT_EXCEEDS_MAX_FEATURES';
+
+/** U20CDF3 (low 7): the fields of ExistenceWithinDistanceResult (SpatialResultSemantics.ts). */
+const ADMITTED_RESULT_FIELDS: ReadonlySet<string> = new Set(['exists', 'match_count_observed', 'max_features_per_layer']);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 export type SpatialEvidenceForm =
   | { readonly valid: true; readonly dataset: string; readonly exists: boolean; readonly match_count: number | null }
@@ -61,18 +79,23 @@ export function readSpatialEvidenceForm(evidence: unknown): SpatialEvidenceForm 
   if (!dataset) return invalid(null, 'DATASET_MISSING');
 
   const semantics = payload?.result_semantics as { kind?: unknown; result?: unknown } | undefined;
-  if (!semantics || typeof semantics !== 'object') return invalid(dataset, 'RESULT_MISSING');
+  if (!isPlainObject(semantics)) return invalid(dataset, 'RESULT_MISSING');
   if (semantics.kind !== undefined && semantics.kind !== ADMITTED_SPATIAL_RESULT_KIND) {
     return invalid(dataset, 'RESULT_KIND_NOT_ADMITTED');
   }
-  const result = semantics.result as { exists?: unknown; match_count_observed?: unknown } | undefined;
-  if (!result || typeof result !== 'object') return invalid(dataset, 'RESULT_MISSING');
+  const result = semantics.result as { exists?: unknown; match_count_observed?: unknown; max_features_per_layer?: unknown } | undefined;
+  if (!isPlainObject(result)) return invalid(dataset, 'RESULT_MISSING');
+  if (Object.keys(result).some((field) => !ADMITTED_RESULT_FIELDS.has(field))) return invalid(dataset, 'RESULT_FIELD_NOT_ADMITTED');
   if (typeof result.exists !== 'boolean') return invalid(dataset, 'EXISTS_NOT_BOOLEAN');
 
+  const max = result.max_features_per_layer;
+  const hasMax = max !== undefined && max !== null;
+  if (hasMax && !(typeof max === 'number' && Number.isInteger(max) && max > 0)) return invalid(dataset, 'MAX_FEATURES_NOT_A_COUNT');
   const count = result.match_count_observed;
   if (count === undefined || count === null) return { valid: true, dataset, exists: result.exists, match_count: null };
   if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return invalid(dataset, 'MATCH_COUNT_NOT_A_COUNT');
   if (count > 0 !== result.exists) return invalid(dataset, 'MATCH_COUNT_CONTRADICTS_EXISTS');
+  if (hasMax && count > (max as number)) return invalid(dataset, 'MATCH_COUNT_EXCEEDS_MAX_FEATURES');
   return { valid: true, dataset, exists: result.exists, match_count: count };
 }
 
@@ -96,6 +119,9 @@ export const SPATIAL_QUERY_OUTCOME_VIOLATION_SV: Readonly<Record<SpatialQueryOut
   EXISTS_NOT_BOOLEAN: 'träffuppgiften är inte ett sant/falskt-värde',
   MATCH_COUNT_NOT_A_COUNT: 'antalet träffar är inget giltigt antal',
   MATCH_COUNT_CONTRADICTS_EXISTS: 'antalet träffar motsäger träffuppgiften',
+  RESULT_FIELD_NOT_ADMITTED: 'resultatet innehåller fält utanför kontraktet',
+  MAX_FEATURES_NOT_A_COUNT: 'träfftaket är inget giltigt antal',
+  MATCH_COUNT_EXCEEDS_MAX_FEATURES: 'antalet träffar överstiger träfftaket',
   UNAVAILABLE_WITHOUT_DATASET: 'en uppgift om otillgängligt lager saknar lagernamn',
   EVIDENCE_AND_UNAVAILABLE: 'samma lager redovisas både med evidens och som otillgängligt',
   DATASET_NOT_REQUESTED: 'svaret gäller ett lager som inte efterfrågades',
