@@ -109,6 +109,7 @@ function Get-ProtectedClassificationSpec {
         DropOnKinds = [string[]]@($doc.sql.drop_on_object_kinds)
         CreateModifiers = [string[]]@($doc.sql.create_modifiers)
         StatementStartAfter = [string[]]@($doc.sql.statement_start_after)
+        DynamicStatementAfter = [string[]]@($doc.sql.dynamic_statement_after)
         TruncateNotAfter = [string[]]@($doc.sql.truncate_not_after)
         UpdateNotAfter = [string[]]@($doc.sql.update_not_after)
         ExecuteNotAfter = [string[]]@($doc.sql.execute_not_after)
@@ -368,7 +369,8 @@ function PrgTokenizeSql([string]$s) {
             $decoded = PrgDecodeUnicode $r[0]
             if ($c2 -ceq "'") { & $push 'STRING' $(if ($null -ne $decoded) { $decoded } else { $r[0] }) $i $r[1] $false }
             else {
-                $bad = ($null -eq $decoded) -or (PrgFollowedByUescape $s $r[1]) -or ($r[0].Length -eq 0)
+                $qv = $(if ($null -ne $decoded) { $decoded } else { $r[0] })
+                $bad = ($null -eq $decoded) -or (PrgFollowedByUescape $s $r[1]) -or ($r[0].Length -eq 0) -or $qv.Contains($o, [StringComparison]::Ordinal)
                 & $push 'QIDENT' $(if ($null -ne $decoded) { $decoded } else { $r[0] }) $i $r[1] $bad
             }
             $i = $r[1]; continue
@@ -391,7 +393,8 @@ function PrgTokenizeSql([string]$s) {
         if ($c -ceq '"') {
             $r = PrgReadQuoted $s $i '"' $false
             if ($null -eq $r) { return , @($toks, 'unterminated quoted identifier') }
-            & $push 'QIDENT' $r[0] $i $r[1] ($r[0].Length -eq 0); $i = $r[1]; continue
+            # U30F2 H1: "${schema}" in a shell command line is a name the text does not hold
+            & $push 'QIDENT' $r[0] $i $r[1] (($r[0].Length -eq 0) -or $r[0].Contains($o, [StringComparison]::Ordinal)); $i = $r[1]; continue
         }
         if ($c -ceq '$') {
             if (PrgIsDigit $c1) {
@@ -404,7 +407,8 @@ function PrgTokenizeSql([string]$s) {
                 $tag = PrgSlice $s $i ($j + 1)
                 $end = PrgIndexOf $s $tag ($j + 1)
                 if ($end -lt 0) { return , @($toks, 'unterminated dollar-quoted string') }
-                & $push 'STRING' (PrgSlice $s ($j + 1) $end) $i ($end + $tag.Length) $false
+                # `bad` on a STRING marks a dollar-quoted body (DO / function code), U30F2 H1
+                & $push 'STRING' (PrgSlice $s ($j + 1) $end) $i ($end + $tag.Length) $true
                 $i = $end + $tag.Length; continue
             }
             & $push 'OP' '$' $i ($i + 1) $false; $i += 1; continue
@@ -542,6 +546,11 @@ function PrgEmbeddedTexts($toks, [string]$dyn) {
     }
     $out = [System.Collections.Generic.List[string]]::new()
     foreach ($x in $texts) { if (PrgContainsTrigger $x) { $out.Add($x) } }
+    # U30F2 H1: a dollar-quoted body holding a dynamic value (`DO $$BEGIN $CMD; END$$`) is code the text does not hold
+    for ($k = 0; $k -lt $toks.Count; $k++) {
+        $t = $toks[$k]
+        if ($t.t -ceq 'STRING' -and $t.bad -and -not $consumed.Contains($k) -and -not (PrgContainsTrigger $t.v) -and (PrgContainsDynamic $t.v)) { $out.Add($t.v) }
+    }
     return , $out
 }
 
@@ -693,6 +702,11 @@ function PrgAnStatement($an, $toks) {
     for ($p = 0; $p -lt $toks.Count; $p++) {
         $t = $toks[$p]
         if ($t.t -ceq 'META') { $an.Acc.Unres('PSQL_META', "psql \$($t.v) runs SQL the text does not contain"); continue }
+        # U30F2 H1: `psql -c "$SQL"` / `BEGIN $CMD; END`: the statement's verb is not in the text
+        if ($t.t -ceq 'DYN') {
+            $pk = PrgPrevKey $toks $p
+            if ($p -eq 0 -or ($null -ne $pk -and $spec.DynamicStatementAfter -ccontains $pk)) { $an.Acc.Unres('DYNAMIC_SQL', 'a statement whose verb is a dynamic value'); continue }
+        }
         if ($t.t -cne 'WORD') { continue }
         $prev = PrgPrevKey $toks $p
         $v = $t.v
@@ -933,7 +947,8 @@ function PrgAnPostgis($an, $toks, [int]$p, [string]$op) {
         $argList.Add((PrgSlice2 $a 0 $n))
     }
     $bad = $argList.Count -eq 0
-    foreach ($a in $argList) { if ($a.Count -ne 1 -or ($a[0].t -cne 'STRING' -and $a[0].t -cne 'NUMBER')) { $bad = $true } }
+    $dynOpen = (Get-ProtectedClassificationSpec).Open
+    foreach ($a in $argList) { if ($a.Count -ne 1 -or ($a[0].t -cne 'STRING' -and $a[0].t -cne 'NUMBER') -or ([string]$a[0].v).Contains($dynOpen, [StringComparison]::Ordinal)) { $bad = $true } }
     if ($bad) { $an.Acc.Unres($op, "$($toks[$p].v)() without constant arguments: the relation it changes is not static"); return }
     $strings = [System.Collections.Generic.List[string]]::new()
     foreach ($a in $argList) { if ($a[0].t -ceq 'STRING') { $strings.Add($a[0].v) } }

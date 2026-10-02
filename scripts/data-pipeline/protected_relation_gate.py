@@ -386,7 +386,8 @@ def tokenize_sql(s, spec=None):
                 push('STRING', decoded if decoded is not None else r[0], i, r[1])
             else:
                 push('QIDENT', decoded if decoded is not None else r[0], i, r[1],
-                     decoded is None or _followed_by_uescape(s, r[1]) or len(r[0]) == 0)
+                     decoded is None or _followed_by_uescape(s, r[1]) or len(r[0]) == 0
+                     or o in (decoded if decoded is not None else r[0]))
             i = r[1]
             continue
         if c in 'eE' and _at(s, i + 1) == "'":
@@ -414,7 +415,8 @@ def tokenize_sql(s, spec=None):
             r = _read_quoted(s, i, '"', False)
             if r is None:
                 return toks, 'unterminated quoted identifier'
-            push('QIDENT', r[0], i, r[1], len(r[0]) == 0)
+            # U30F2 H1: "${schema}" in a shell command line is a name the text does not hold
+            push('QIDENT', r[0], i, r[1], len(r[0]) == 0 or o in r[0])
             i = r[1]
             continue
         if c == '$':
@@ -435,7 +437,8 @@ def tokenize_sql(s, spec=None):
                 end = s.find(tag, j + 1)
                 if end < 0:
                     return toks, 'unterminated dollar-quoted string'
-                push('STRING', s[j + 1:end], i, end + len(tag))
+                # `bad` on a STRING marks a dollar-quoted body (DO / function code), U30F2 H1
+                push('STRING', s[j + 1:end], i, end + len(tag), True)
                 i = end + len(tag)
                 continue
             push('OP', '$', i, i + 1)
@@ -610,10 +613,14 @@ def _embedded_texts(toks, dyn, spec):
                 piece_starts.add(p[0])
                 if is_string(p):
                     consumed.add(p[0])
+    code = []
     for k, t in enumerate(toks):
         if (_t(t) == 'STRING' and k not in consumed) or _t(t) == 'QIDENT':
             texts.append(_v(t))
-    return [x for x in texts if _contains_trigger_word(x, spec)]
+        # U30F2 H1: a dollar-quoted body holding a dynamic value (`DO $$BEGIN $CMD; END$$`) is code the text does not hold
+        if _t(t) == 'STRING' and t[3] and k not in consumed and not _contains_trigger_word(_v(t), spec) and _contains_dynamic(spec, _v(t)):
+            code.append(_v(t))
+    return [x for x in texts if _contains_trigger_word(x, spec)] + code
 
 
 def _split_statements(toks):
@@ -772,6 +779,10 @@ class _SqlAnalyzer:
         for p, t in enumerate(toks):
             if _t(t) == 'META':
                 self.unres('PSQL_META', f'psql \\{_v(t)} runs SQL the text does not contain')
+                continue
+            # U30F2 H1: `psql -c "$SQL"` / `BEGIN $CMD; END`: the statement's verb is not in the text
+            if _t(t) == 'DYN' and (p == 0 or (_prev_key(toks, p) or '') in sql['dynamic_statement_after']):
+                self.unres('DYNAMIC_SQL', 'a statement whose verb is a dynamic value')
                 continue
             if _t(t) != 'WORD':
                 continue
@@ -1088,7 +1099,8 @@ class _SqlAnalyzer:
             while n >= 2 and _t(a[n - 2]) == 'OP' and _v(a[n - 2]) == '::' and _t(a[n - 1]) == 'WORD':
                 n -= 2
             args.append(a[:n])
-        if len(args) == 0 or any(len(a) != 1 or _t(a[0]) not in ('STRING', 'NUMBER') for a in args):
+        dyn_open = self.spec['dynamic_placeholder_open']
+        if len(args) == 0 or any(len(a) != 1 or _t(a[0]) not in ('STRING', 'NUMBER') or dyn_open in _v(a[0]) for a in args):
             self.unres(op, f'{_v(toks[p])}() without constant arguments: the relation it changes is not static')
             return
         strings = [_v(a[0]) for a in args if _t(a[0]) == 'STRING']

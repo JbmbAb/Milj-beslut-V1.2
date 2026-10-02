@@ -275,7 +275,7 @@ export function tokenizeSql(s: string): Tokenized {
       if (!r) return { tokens, error: q === "'" ? "unterminated string" : "unterminated quoted identifier" };
       const decoded = decodeUnicodeEscapes(r[0]);
       if (q === "'") push("STRING", decoded ?? r[0], i, r[1]);
-      else push("QIDENT", decoded ?? r[0], i, r[1], decoded === null || followedByUescape(s, r[1]) || r[0].length === 0);
+      else push("QIDENT", decoded ?? r[0], i, r[1], decoded === null || followedByUescape(s, r[1]) || r[0].length === 0 || (decoded ?? r[0]).includes(open));
       i = r[1];
       continue;
     }
@@ -303,7 +303,8 @@ export function tokenizeSql(s: string): Tokenized {
     if (c === '"') {
       const r = readQuoted(s, i, '"', false);
       if (!r) return { tokens, error: "unterminated quoted identifier" };
-      push("QIDENT", r[0], i, r[1], r[0].length === 0);
+      // U30F2 H1: "${schema}" in a shell command line is a name the text does not hold
+      push("QIDENT", r[0], i, r[1], r[0].length === 0 || r[0].includes(open));
       i = r[1];
       continue;
     }
@@ -324,7 +325,8 @@ export function tokenizeSql(s: string): Tokenized {
         const tag = s.slice(i, j + 1);
         const end = s.indexOf(tag, j + 1);
         if (end < 0) return { tokens, error: "unterminated dollar-quoted string" };
-        push("STRING", s.slice(j + 1, end), i, end + tag.length);
+        // `bad` on a STRING marks a dollar-quoted body (DO / function code), U30F2 H1
+        push("STRING", s.slice(j + 1, end), i, end + tag.length, true);
         i = end + tag.length;
         continue;
       }
@@ -481,10 +483,13 @@ function embeddedTexts(toks: readonly Tok[], dyn: string): string[] {
       }
     }
   }
+  const code: string[] = [];
   toks.forEach((t, k) => {
     if ((t.t === "STRING" && !consumed.has(k)) || t.t === "QIDENT") texts.push(t.v);
+    // U30F2 H1: a dollar-quoted body holding a dynamic value (`DO $$BEGIN $CMD; END$$`) is code the text does not hold
+    if (t.t === "STRING" && t.bad && !consumed.has(k) && !containsTriggerWord(t.v) && containsDynamic(t.v)) code.push(t.v);
   });
-  return texts.filter(containsTriggerWord);
+  return [...texts.filter(containsTriggerWord), ...code];
 }
 
 function splitStatements(toks: readonly Tok[]): Tok[][] {
@@ -624,6 +629,11 @@ class SqlAnalyzer {
       const t = toks[p]!;
       if (t.t === "META") {
         this.unresolved("PSQL_META", `psql \\${t.v} runs SQL the text does not contain`);
+        continue;
+      }
+      // U30F2 H1: `psql -c "$SQL"` / `BEGIN $CMD; END`: the statement's verb is not in the text
+      if (t.t === "DYN" && (p === 0 || sql.dynamic_statement_after.includes(prevKey(toks, p) ?? ""))) {
+        this.unresolved("DYNAMIC_SQL", "a statement whose verb is a dynamic value");
         continue;
       }
       if (t.t !== "WORD") continue;
@@ -934,7 +944,7 @@ class SqlAnalyzer {
       while (n >= 2 && a[n - 2]!.t === "OP" && a[n - 2]!.v === "::" && a[n - 1]!.t === "WORD") n -= 2;
       return a.slice(0, n);
     });
-    if (args.length === 0 || args.some((a) => a.length !== 1 || (a[0]!.t !== "STRING" && a[0]!.t !== "NUMBER"))) {
+    if (args.length === 0 || args.some((a) => a.length !== 1 || (a[0]!.t !== "STRING" && a[0]!.t !== "NUMBER") || containsDynamic(a[0]!.v))) {
       this.unresolved(op, `${toks[p]!.v}() without constant arguments: the relation it changes is not static`);
       return;
     }

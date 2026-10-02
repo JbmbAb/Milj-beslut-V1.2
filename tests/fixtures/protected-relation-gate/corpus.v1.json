@@ -180,5 +180,15 @@
   { "id": "argv-windows-ogr2ogr", "kind": "argv", "args": ["C:\\Program Files\\GDAL\\ogr2ogr.exe", "-f", "PostgreSQL", "PG:x", "a.gpkg", "-nln", "lm_staging.x_12345678"], "expect": { "verdict": "PROTECTED" } },
   { "id": "proto-key-constructor-before-psql", "kind": "command", "text": "constructor psql -c \"DROP TABLE env.sgu_well\"", "expect": { "verdict": "PROTECTED", "protected": ["DROP env.sgu_well"] } },
   { "id": "proto-key-dunder-proto-before-psql", "kind": "argv", "args": ["__proto__", "psql", "-c", "TRUNCATE env.sgu_well"], "expect": { "verdict": "PROTECTED", "protected": ["TRUNCATE env.sgu_well"] } },
-  { "id": "proto-key-words-as-arguments", "kind": "command", "text": "echo constructor __proto__ hasOwnProperty", "expect": { "verdict": "ALLOWED" } }
+  { "id": "proto-key-words-as-arguments", "kind": "command", "text": "echo constructor __proto__ hasOwnProperty", "expect": { "verdict": "ALLOWED" } },
+  {"id": "dyn-verb-psql-c-variable", "kind": "command", "text": "psql -c \"$SQL\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "dyn-verb-psql-c-variable-verb", "kind": "command", "text": "psql -c \"$VERB env.sgu_well\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "dyn-verb-second-statement", "kind": "command", "text": "psql -c \"SELECT 1; $MORE\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "dyn-verb-ogrinfo-sql-variable", "kind": "command", "text": "ogrinfo PG:dbname=x -sql \"$Q\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "dyn-verb-after-begin", "kind": "sql", "text": "DO $$BEGIN ⟦DYN:cmd⟧; END$$", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "dyn-value-in-select-is-a-read", "kind": "command", "text": "psql -c \"SELECT * FROM t WHERE id IN ($IDS)\"", "expect": {"verdict": "ALLOWED"}},
+  {"id": "dyn-value-in-select-sql", "kind": "sql", "text": "SELECT ⟦DYN:c⟧ FROM env.sgu_well", "expect": {"verdict": "ALLOWED"}},
+  {"id": "dyn-quoted-identifier-psql", "kind": "command", "text": "psql -c \"TRUNCATE \\\"$SCHEMA\\\".\\\"$TABLE\\\"\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["TRUNCATE"]}},
+  {"id": "dyn-quoted-identifier-sql", "kind": "sql", "text": "DROP TABLE \"env\".\"⟦DYN:t⟧\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP"]}},
+  {"id": "dyn-postgis-function-argument", "kind": "command", "text": "psql -c \"SELECT DropGeometryTable('$S', 'sgu_well')\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP"]}}
 ]

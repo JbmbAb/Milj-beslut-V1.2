@@ -31,6 +31,7 @@
     "drop_on_object_kinds": ["trigger", "rule", "policy"],
     "create_modifiers": ["temp", "temporary", "unlogged", "global", "local", "recursive"],
     "statement_start_after": ["as", "instead", "also", "do", "then", "else", "loop", "begin", "explain", "analyze", "verbose", "(", ")", "DYN"],
+    "dynamic_statement_after": ["instead", "also", "do", "then", "else", "loop", "begin", "explain", "analyze", "verbose"],
     "truncate_not_after": ["grant", "revoke", ",", "before", "after", "or", "on", "of"],
     "update_not_after": ["for", "on", "of", "before", "after", "or", "key", "no", "grant", "revoke", ","],
     "execute_not_after": ["grant", "revoke", ",", "on"],

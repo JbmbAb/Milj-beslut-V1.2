@@ -43,6 +43,11 @@ export interface ProtectedRelationClassificationSpec {
     readonly create_modifiers: readonly string[];
     /** A keyword counts as a statement start at index 0 or after one of these ("(" ")" "DYN" name token kinds). */
     readonly statement_start_after: readonly string[];
+    /**
+     * U30F2 H1: a dynamic value at a statement's first token, or after one of these, is a statement whose
+     * verb the text does not hold (`psql -c "$SQL"`): DYNAMIC_SQL, unresolvable.
+     */
+    readonly dynamic_statement_after: readonly string[];
     readonly truncate_not_after: readonly string[];
     readonly update_not_after: readonly string[];
     readonly execute_not_after: readonly string[];
@@ -127,6 +132,7 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   if (!sql) throw invalid("sql");
   stringList(sql.trigger_words, "sql.trigger_words");
   stringList(sql.reserved_at_name_position, "sql.reserved_at_name_position");
+  stringList(sql.dynamic_statement_after, "sql.dynamic_statement_after");
   if (typeof sql.max_nesting !== "number" || sql.max_nesting < 1) throw invalid("sql.max_nesting");
   const ogr = doc.ogr2ogr as Record<string, unknown> | undefined;
   if (!ogr) throw invalid("ogr2ogr");
