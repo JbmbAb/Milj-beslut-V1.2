@@ -95,7 +95,10 @@ class MemoryRepository {
   }
   async resolve<T>(reference: { artifact_id: string }): Promise<T> {
     const value = this.values.get(reference.artifact_id);
-    if (!value) throw new Error(`not found: ${reference.artifact_id}`);
+    // The real repository contract for an absent object (CasArtifactResolver and
+    // InMemoryArtifactRepository). Since M1a-repair (F1) the provider excludes a candidate only on
+    // this exact verdict; any other read error is a technical failure and fails closed with 503.
+    if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
     return value as T;
   }
 }
