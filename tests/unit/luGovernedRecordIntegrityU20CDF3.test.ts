@@ -195,3 +195,63 @@ describe('U20CDF3 (U20CDF2 verification H5.1 / low 4): a NOT_CHECKED finding nex
     expect(details.governedLayerChecks[1]).toMatchObject({ layer: 'ebh', status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING', evidence_artifact_id: null });
   });
 });
+
+describe('U20CDF3 (U20CDF2 verification H4 / low 3): a stored finding with a severity outside HIGH/MEDIUM/LOW/NOT_CHECKED is never ignored', () => {
+  const unknown = (layerOrRule: string, level: unknown, id = `finding-unknown-${layerOrRule}`): AssessmentFinding =>
+    ({ finding_id: id, rule_id: RULE[layerOrRule] ?? layerOrRule, rule_version: '2.0', risk_level: level, explanation: 'x', evidence_refs: [] }) as never;
+
+  it.each<[string, unknown]>([
+    ['lower case "high"', 'high'],
+    ['a padded " HIGH"', ' HIGH'],
+    ['an unknown level "CRITICAL"', 'CRITICAL'],
+    ['an empty string', ''],
+    ['null', null],
+    ['a number', 3],
+  ])('%s on a layer with negative evidence -> RECORD_INTEGRITY_ERROR, the finding named, the row never "ingen träff"', async (_label, level) => {
+    const { details, statement } = await readBack(NEGATIVES, [unknown('natura2000', level)]);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['UNKNOWN_SEVERITY:finding-unknown-natura2000']);
+    expect(statement.coverage).toBeNull();
+    expect(statement.statement_sv).toBe(
+      `${INTEGRITY_SV} Täckningsgrad och samlad risknivå kan därför inte fastställas. ` +
+        'Bedömningens lagrade fynd redovisas var för sig: okänd allvarlighetsgrad – Natura 2000.',
+    );
+    const row = details.governedLayerChecks.find((check) => check.layer === 'natura2000')!;
+    expect(row).toMatchObject({ status: 'NOT_CHECKED', reason: 'FINDING_WITH_UNKNOWN_SEVERITY', coverage_state: 'TECHNICAL_ERROR' });
+    expect(row.message_sv).toBe(
+      'Integritetsfel: bedömningen innehåller ett fynd för Natura 2000 med en allvarlighetsgrad utanför det styrda formatet. Ingen slutsats om lagret.',
+    );
+    expect(row.message_sv).not.toMatch(/Ingen registrerad träff/);
+  });
+
+  it('next to a known HIGH on another layer: both are named, highest first, the unknown one last', async () => {
+    const hit = spatialEvidence('ebh', true);
+    const evidence = [...NEGATIVES.filter((e) => e.payload.source_metadata.dataset !== 'ebh'), hit];
+    const findings: AssessmentFinding[] = [
+      { finding_id: 'finding-ebh-high', rule_id: RULE.ebh!, rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: [ref(hit)] },
+      unknown('natura2000', 'CRITICAL'),
+    ];
+    const { details, statement } = await readBack(evidence, findings);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.statement_sv).toContain(
+      'Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Potentiellt förorenade områden (EBH); okänd allvarlighetsgrad – Natura 2000.',
+    );
+    expect(details.governedLayerChecks[1]).toMatchObject({ layer: 'ebh', status: 'CHECKED_HIT', reason: null });
+  });
+
+  it('on a rule outside the M checks: named by its rule id', async () => {
+    const { statement } = await readBack(NEGATIVES, [unknown('LU-GOVERNED-001', 'high', 'finding-other')]);
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['UNKNOWN_SEVERITY:finding-other']);
+    expect(statement.statement_sv).toContain('okänd allvarlighetsgrad – LU-GOVERNED-001.');
+  });
+
+  it('the four governed values are not "unknown" (control)', async () => {
+    const hit = spatialEvidence('water', true);
+    const evidence = [hit, ...NEGATIVES.filter((e) => e.payload.source_metadata.dataset !== 'water')];
+    const { statement } = await readBack(evidence, [
+      { finding_id: 'f-water', rule_id: RULE.water!, rule_version: '2.0', risk_level: 'LOW', explanation: 'x', evidence_refs: [ref(hit)] },
+    ]);
+    expect(statement.coverage_state).toBe('DETERMINED');
+  });
+});

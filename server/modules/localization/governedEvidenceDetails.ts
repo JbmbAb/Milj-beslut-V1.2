@@ -193,6 +193,8 @@ const COVERAGE_STATE_BY_REASON: Readonly<Record<string, GovernedCoverageState>> 
   NOT_CHECKED_FINDING: 'SOURCE_UNAVAILABLE',
   // U20CDF3 (low 4): an invalid combination in the record -- an integrity error, not a source outage.
   NOT_CHECKED_FINDING_WITH_EVIDENCE: 'TECHNICAL_ERROR',
+  // U20CDF3 (low 3): a stored finding whose severity is outside the governed values.
+  FINDING_WITH_UNKNOWN_SEVERITY: 'TECHNICAL_ERROR',
   NO_EVIDENCE: 'NOT_CHECKED',
   UNRECOGNIZED_RESULT: 'INCOMPLETE_EVIDENCE',
   PINNED_EVIDENCE_UNREADABLE: 'TECHNICAL_ERROR',
@@ -246,6 +248,12 @@ function spatialCheckMessageSv(
   storedRiskLevel: string | null = null,
 ): string {
   const source = sourceLabelSv(check.layer, view);
+  if (check.reason === 'FINDING_WITH_UNKNOWN_SEVERITY') {
+    return (
+      `Integritetsfel: bedömningen innehåller ett fynd för ${governedLayerLabelSv(check.layer)} med en allvarlighetsgrad ` +
+      'utanför det styrda formatet. Ingen slutsats om lagret.'
+    );
+  }
   if (check.reason === 'NOT_CHECKED_FINDING_WITH_EVIDENCE') {
     // U20CDF3 (low 4): the record says both "not checked" and holds evidence for the layer.
     return (

@@ -38,6 +38,7 @@ import {
   GOVERNED_DOCUMENT_CHECK_RULE_ID,
   governedLayerOfRule,
   isGovernedRiskFinding,
+  isUnknownSeverityFinding,
   type GovernedLayerCheck,
 } from './governedLayerChecks';
 
@@ -263,6 +264,15 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
       (check.status === 'CHECKED_HIT' && check.rule_id !== null && notCheckedRules.has(check.rule_id) && check.evidence_artifact_id !== null);
     if (contradicted) integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${check.layer}`);
   }
+  // U20CDF3 (U20CDF2 verification H4 / low 3): a stored finding with a severity outside the governed
+  // values ('high', 'CRITICAL', ...) used to be silently ignored (machine level LOW, nothing in the
+  // text). It is an integrity error, and storedRiskFindingsSv names it.
+  findings.forEach((finding, index) => {
+    if (!isUnknownSeverityFinding(finding)) return;
+    const id = (finding as { finding_id?: unknown })?.finding_id;
+    const ruleId = (finding as { rule_id?: unknown })?.rule_id;
+    integrity.push(`UNKNOWN_SEVERITY:${typeof id === 'string' && id ? id : typeof ruleId === 'string' && ruleId ? ruleId : `#${index}`}`);
+  });
   if (integrity.length > 0) return { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: integrity, coverage: null };
   const riskRules = new Set(findings.filter(isGovernedRiskFinding).map((finding) => finding.rule_id));
   const basis: string[] = [];
@@ -293,7 +303,8 @@ const STORED_FINDING_LABEL_ORDER = ['water', 'ebh', 'protected_area', 'natura200
 /**
  * The stored HIGH/MEDIUM/LOW findings in words, highest level first, each with the checks (or, for a
  * rule outside them, the rule id) it comes from: "risknivå hög – Natura 2000; risknivå måttlig –
- * Brunnar". null when there is none.
+ * Brunnar"; U20CDF3 (low 3): findings of unknown severity last ("okänd allvarlighetsgrad – ...").
+ * null when there is none.
  */
 export function storedRiskFindingsSv(findings: readonly { readonly rule_id: string; readonly risk_level: string }[]): string | null {
   const parts: string[] = [];
@@ -301,19 +312,23 @@ export function storedRiskFindingsSv(findings: readonly { readonly rule_id: stri
     const index = STORED_FINDING_LABEL_ORDER.indexOf(key);
     return index >= 0 ? `0${index}` : `1${key}`;
   };
-  for (const level of RISK_LEVEL_ORDER) {
+  const labelsOf = (selected: readonly { readonly rule_id: string }[]) => {
     const keys = new Set<string>();
-    for (const finding of findings) {
-      if (finding?.risk_level !== level) continue;
+    for (const finding of selected) {
       const layer = finding.rule_id === GOVERNED_DOCUMENT_CHECK_RULE_ID ? GOVERNED_DOCUMENT_CHECK_LAYER : governedLayerOfRule(finding.rule_id);
       keys.add(layer ?? `rule:${finding.rule_id}`);
     }
-    if (keys.size === 0) continue;
-    const labels = [...keys]
+    return [...keys]
       .sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0))
       .map((key) => (key.startsWith('rule:') ? key.slice('rule:'.length) : governedLayerLabelSv(key)));
-    parts.push(`${riskLevelPhraseSv(level)} – ${labels.join(', ')}`);
+  };
+  for (const level of RISK_LEVEL_ORDER) {
+    const labels = labelsOf(findings.filter((finding) => finding?.risk_level === level));
+    if (labels.length > 0) parts.push(`${riskLevelPhraseSv(level)} – ${labels.join(', ')}`);
   }
+  // U20CDF3 (low 3): a finding of unknown severity is never dropped; its raw value is not echoed.
+  const unknown = labelsOf(findings.filter((finding) => Boolean(finding) && isUnknownSeverityFinding(finding)));
+  if (unknown.length > 0) parts.push(`okänd allvarlighetsgrad – ${unknown.join(', ')}`);
   return parts.length > 0 ? parts.join('; ') : null;
 }
 

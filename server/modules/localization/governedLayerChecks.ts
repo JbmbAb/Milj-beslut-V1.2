@@ -30,7 +30,8 @@ export interface GovernedLayerCheck {
    * For NOT_CHECKED: the provider's reason, 'NOT_CHECKED_FINDING', 'NO_EVIDENCE',
    * 'UNRECOGNIZED_RESULT' or 'PINNED_EVIDENCE_UNREADABLE'; U20CDF3 (low 4):
    * 'NOT_CHECKED_FINDING_WITH_EVIDENCE' when the record also holds evidence for the layer (an invalid
-   * combination; evidence_artifact_id then names that evidence).
+   * combination; evidence_artifact_id then names that evidence); U20CDF3 (low 3):
+   * 'FINDING_WITH_UNKNOWN_SEVERITY' for a stored finding of the layer's rule with an unknown severity.
    * U20CDF2: on a CHECKED_HIT only 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' (a stored risk finding whose
    * record lacks the consistent evidence a current run pins); null on every consistent check.
    */
@@ -211,6 +212,17 @@ export function isGovernedRiskFinding(finding: { readonly risk_level?: unknown }
   return typeof finding?.risk_level === 'string' && GOVERNED_RISK_LEVELS.includes(finding.risk_level);
 }
 
+/**
+ * U20CDF3 (U20CDF2 verification H4 / low 3): every value a governed finding may carry -- the three
+ * severities and the non-severity state NOT_CHECKED. Anything else ('high', ' HIGH', 'CRITICAL', '',
+ * null, a number...) is an unknown severity: never silently ignored (an integrity error, named).
+ */
+export const GOVERNED_FINDING_LEVELS: readonly string[] = [...GOVERNED_RISK_LEVELS, 'NOT_CHECKED'];
+
+export function isUnknownSeverityFinding(finding: { readonly risk_level?: unknown } | null | undefined): boolean {
+  return !(typeof finding?.risk_level === 'string' && GOVERNED_FINDING_LEVELS.includes(finding.risk_level));
+}
+
 /** The governed rule of an LU v1 spatial layer (null for a layer without one). */
 export function governedLayerRuleId(layer: string): string | null {
   return LAYER_RULE_IDS[layer] ?? null;
@@ -296,6 +308,11 @@ export function computeGovernedLayerChecks(input: {
         evidence_artifact_id: hitIndex >= 0 ? layerEvidence[hitIndex]!.artifact_id : (layerEvidence[0]?.artifact_id ?? null),
         reason: consistent ? null : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
       };
+    }
+    // U20CDF3 (low 3): a finding of the layer's rule with a severity outside the governed values cannot
+    // be read as a risk or as "not checked" -- an integrity error for the row (never "ingen träff").
+    if (ruleFindings.some(isUnknownSeverityFinding)) {
+      return notChecked('FINDING_WITH_UNKNOWN_SEVERITY', layerEvidence[0]?.artifact_id ?? null);
     }
     if (hasNotCheckedFinding) {
       return layerEvidence.length > 0
