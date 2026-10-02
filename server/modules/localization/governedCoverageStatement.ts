@@ -260,7 +260,16 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   for (const entry of checks) {
     if (!entry || typeof entry !== 'object') continue;
     const check = entry as GovernedLayerCheck;
-    if (check.layer === GOVERNED_DOCUMENT_CHECK_LAYER) continue;
+    if (check.layer === GOVERNED_DOCUMENT_CHECK_LAYER) {
+      // U20CDF4 (U20CDF3 verification L6.1): the document check was exempt here, so a NOT_CHECKED finding
+      // of LU-DOC-BESLUT-001 next to the pinned DE + VF it would rest on (the row CHECKED_HIT, derived
+      // from the refs, OD-K0-3) read "6 av 6". The rule engine writes NOT_CHECKED only for an unavailable
+      // spatial layer, so no producer writes this: the same contradiction as for a layer.
+      if (check.status === 'CHECKED_HIT' && notCheckedRules.has(GOVERNED_DOCUMENT_CHECK_RULE_ID)) {
+        integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${GOVERNED_DOCUMENT_CHECK_LAYER}`);
+      }
+      continue;
+    }
     const contradicted =
       check.reason === 'NOT_CHECKED_FINDING_WITH_EVIDENCE' ||
       (check.status === 'CHECKED_HIT' && check.rule_id !== null && notCheckedRules.has(check.rule_id) && check.evidence_artifact_id !== null);

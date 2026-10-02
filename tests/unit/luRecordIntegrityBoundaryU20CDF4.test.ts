@@ -13,6 +13,7 @@ vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermetic
 import { buildSpatialEvidenceContentHash, SPATIAL_STACK_V1, type AssessmentFinding } from '@miljobeslut/mps-lu';
 import {
   governedOverallStatement,
+  presentedGovernedLayerChecks,
   resolveGovernedAssessmentDetails,
 } from '../../server/modules/localization/governedEvidenceDetails';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
@@ -278,5 +279,31 @@ describe('U20CDF4 (coordinator clarification 3): evidence from BEFORE the result
       artifactRepository: repository as never,
     });
     expect(tampered.integrity).toEqual({ ok: false, failureClass: 'EVIDENCE_TAMPERED', artifactId: older.artifact_id });
+  });
+});
+
+describe('U20CDF4 (U20CDF3 verification L6.1): a NOT_CHECKED finding of the document rule next to the pinned DE + VF it would rest on contradicts the record', () => {
+  const DE_REF = { artifact_id: 'document-evidence-u20cdf4', artifact_type: 'DOCUMENT_EVIDENCE' };
+  const VF_REF = { artifact_id: 'verified-document-fact-u20cdf4', artifact_type: 'VERIFIED_DOCUMENT_FACT' };
+  const ncDocument = { finding_id: 'finding-notchecked-document', rule_id: 'LU-DOC-BESLUT-001', rule_version: '2.0', risk_level: 'NOT_CHECKED', explanation: 'x', evidence_refs: [] };
+
+  it('the verifier probe E1 (all layers negative, DE + VF pinned, a NOT_CHECKED document finding) -> RECORD_INTEGRITY_ERROR, never "6 av 6"', () => {
+    const findings = [ncDocument] as never[];
+    const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings, pinnedEvidenceRefs: [...NEGATIVES.map(ref), DE_REF, VF_REF] });
+    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_HIT' });
+    const statement = governedOverallStatement('LOW', checks, { findings });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['NOT_CHECKED_FINDING_WITH_EVIDENCE:document']);
+    expect(statement.coverage).toBeNull();
+    expect(statement.statement_sv).toBe(INTEGRITY_SV);
+    expect(statement.statement_sv).not.toMatch(/6 av 6|Låg risk/);
+  });
+
+  it('a NOT_CHECKED document finding WITHOUT pinned document evidence agrees with the row (not checked) -> DETERMINED, 5 av 6 (control)', () => {
+    const findings = [ncDocument] as never[];
+    const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings, pinnedEvidenceRefs: NEGATIVES.map(ref) });
+    const statement = governedOverallStatement('LOW', checks, { findings });
+    expect(statement.coverage_state).toBe('DETERMINED');
+    expect(statement.coverage?.checks_completed).toBe(5);
   });
 });
