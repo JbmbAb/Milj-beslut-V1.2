@@ -40,7 +40,9 @@ class MemoryRepository {
   }
   async resolve<T>(reference: ArtifactReference): Promise<T> {
     const value = this.values.get(reference.artifact_id);
-    if (!value) throw new Error(`not found: ${reference.artifact_id}`);
+    // W-APR: the production repository's own "never stored" answer (ArtifactResolver,
+    // InMemoryArtifactRepository). The projection now tells it apart from a read fault.
+    if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
     return value as T;
   }
 }
@@ -514,7 +516,7 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     ).rejects.toThrow('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
   });
 
-  it('a tie only against a candidate that fails CAS re-verification is NOT ambiguous -- the surviving verified candidate still wins', async () => {
+  it('a candidate that fails CAS re-verification beside a verified one is NOT ambiguous and NOT skipped -- the whole resolution fails closed; the verified one is never selected in its place (W-APR, OD-R1/OD-R2)', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const real = await s.buildAndPersistAssessment(contextNew);
@@ -527,7 +529,9 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     });
     // A row pointing at an artifact_id that was never actually persisted to CAS -- same shape as
     // "missing CAS artifact -> fail closed" elsewhere in this file, but here it competes for the
-    // tie instead of being the only candidate.
+    // tie instead of being the only candidate. W-APR: with no ordering between candidates, that row
+    // may be the current assessment; it cannot be verified, so neither candidate is current. (It
+    // still cannot manufacture a false AMBIGUOUS: the answer is the typed fault, not a conflict.)
     await index.register({
       projectId: PROJECT_ID,
       assessmentArtifactId: 'assessment-never-persisted',
@@ -540,13 +544,19 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     const tiedAt = new Date('2026-08-22T12:00:00.000Z');
     for (const row of rows) (row as { createdAt: Date }).createdAt = tiedAt;
 
-    const result = await resolveCurrentAssessmentProjection({
+    const outcome = await resolveCurrentAssessmentProjection({
       projectId: PROJECT_ID,
       artifactRepository: s.repository,
       currentBindingProvider: s.currentBindingProvider(),
       index,
+    }).then((result) => ({ resolved: result.assessmentArtifactId }), (error: unknown) => ({ error }));
+    expect(outcome, 'the verified candidate was selected beside an unverifiable one').not.toEqual({ resolved: real.artifact_id });
+    expect((outcome as { error: Error }).error.message).not.toMatch(/^REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT/);
+    expect((outcome as { error: unknown }).error).toMatchObject({
+      code: 'ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE',
+      retryable: false,
+      faults: [{ assessmentArtifactId: 'assessment-never-persisted', reason: 'MISSING_FROM_CAS', retryable: false }],
     });
-    expect(result.assessmentArtifactId).toBe(real.artifact_id);
   });
 
   it('binding superseded -> old assessment no longer current', async () => {
@@ -602,7 +612,7 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     expect(result.assessmentArtifactId).toBe(newAssessment.artifact_id);
   });
 
-  it('missing CAS artifact -> fail closed (falls through to no valid candidate)', async () => {
+  it('missing CAS artifact -> fail closed as a lasting integrity fault, never "no assessment" (W-APR, OD-R2)', async () => {
     const s = await setup();
     const index = new FakeAssessmentProjectionIndex();
     const assessment = await s.buildAndPersistAssessment(contextNew);
@@ -615,16 +625,20 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     });
     s.repository.values.delete(assessment.artifact_id); // simulate CAS entry disappearing
 
-    await expect(
-      resolveCurrentAssessmentProjection({
-        projectId: PROJECT_ID,
-        artifactRepository: s.repository,
-        currentBindingProvider: s.currentBindingProvider(),
-        index,
-      }),
-    ).rejects.toThrow(
-      'REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification',
-    );
+    const error = await resolveCurrentAssessmentProjection({
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index,
+    }).then(() => null, (e: unknown) => e as Error);
+    // A registered row is written only after its assessment was persisted: the CAS no longer holding
+    // it is a storage integrity fault (not retryable), not the REJECT_* absence that reads as 404.
+    expect(error?.message).not.toMatch(/^REJECT_/);
+    expect(error).toMatchObject({
+      code: 'ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE',
+      retryable: false,
+      faults: [{ assessmentArtifactId: assessment.artifact_id, reason: 'MISSING_FROM_CAS', retryable: false }],
+    });
   });
 
   it('tampered CAS artifact -> fail closed', async () => {
@@ -644,16 +658,19 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     };
     s.repository.values.set(assessment.artifact_id, tampered);
 
-    await expect(
-      resolveCurrentAssessmentProjection({
-        projectId: PROJECT_ID,
-        artifactRepository: s.repository,
-        currentBindingProvider: s.currentBindingProvider(),
-        index,
-      }),
-    ).rejects.toThrow(
-      'REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no candidate for the current binding survived CAS re-verification',
-    );
+    const error = await resolveCurrentAssessmentProjection({
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index,
+    }).then(() => null, (e: unknown) => e as Error);
+    // W-APR: still fail closed -- now as a typed, lasting integrity fault instead of REJECT_* (404).
+    expect(error?.message).not.toMatch(/^REJECT_/);
+    expect(error).toMatchObject({
+      code: 'ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE',
+      retryable: false,
+      faults: [{ assessmentArtifactId: assessment.artifact_id, reason: 'TAMPERED', retryable: false }],
+    });
   });
 
   it('wrong project -> deny (row scoping prevents cross-project leakage)', async () => {

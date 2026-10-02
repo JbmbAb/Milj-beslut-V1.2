@@ -336,13 +336,28 @@ describe('LU-REPORT-EXPORT-UI-V1: exportCurrentLuAssessmentPdf', () => {
 
     const tampered = { ...assessment, payload: { ...assessment.payload, findings: [{ ...waterFinding, risk_level: 'HIGH' as const }] } };
     s.repository.values.set(assessment.artifact_id, tampered);
+    const pdfCallsBefore = pdfBufferMock.mock.calls.length;
 
     const result = await exportCurrentLuAssessmentPdf({
       authUser: AUTH_USER, projectId: PROJECT_ID,
       artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex,
     });
-    expect(result).toMatchObject({ ok: false, status: 404 });
+    // W-APR (OD-R1/OD-R2): the tampered candidate may be the current assessment -> a typed, lasting
+    // integrity fault (503, not retryable), never the 404 "no current assessment"; no PDF rendered.
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      code: 'ASSESSMENT_READ_ERROR',
+      failureClass: 'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+      reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
+      retryable: false,
+      error:
+        'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
+        'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+        'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör.',
+    });
+    expect(pdfBufferMock.mock.calls.length).toBe(pdfCallsBefore);
   });
 });
 

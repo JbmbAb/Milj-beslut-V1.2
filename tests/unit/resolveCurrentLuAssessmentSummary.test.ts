@@ -291,9 +291,21 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     });
     // resolveCurrentAssessmentProjection (called internally) already re-verifies every candidate's
     // hash and rejects a tampered one during selection -- it never becomes "current" in the first
-    // place, so no candidate survives and this module's own redundant tamper check never even runs.
-    // The observable outcome is the same fail-closed result as "no current assessment": 404, not a
-    // distinct 424 -- the projection layer's own verification is what actually caught this.
-    expect(result).toMatchObject({ ok: false, status: 404 });
+    // place, so this module's own redundant tamper check never even runs. W-APR (OD-R1/OD-R2): the
+    // tampered candidate may be the current assessment, so the selection fails closed as a typed,
+    // lasting integrity fault (503, not retryable) -- no longer the 404 "no current assessment".
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      code: 'ASSESSMENT_READ_ERROR',
+      failureClass: 'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+      reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
+      retryable: false,
+      error:
+        'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
+        'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+        'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör.',
+    });
+    expect(JSON.stringify(result)).not.toContain(assessment.artifact_id);
   });
 });
