@@ -150,7 +150,12 @@ import { isBootstrapExecutionReplayAllowed } from "./LuReExecutionBootstrapAllow
  *  - an execution that cannot be bound at all -- a legacy site/V2-scoped manifest, or a V3-subject manifest
  *    whose identity was never issued (bootstrap admission) -- is EXECUTION_SUBJECT_UNBOUND, unless the
  *    verifying process is an explicit dev/test bootstrap (isBootstrapExecutionReplayAllowed).
- * A V1 outcome (before 2026-08-24) carries no lineage and is left exactly as before (R-1). A V3 relabel of a
+ * The same holds one level down (the outcome-level downgrade): the pinned outcome must be the outcome the
+ * execution recorded -- the one category A replays (`outcome-v2-<attempt>` when it exists, else the legacy
+ * V1 locator). A V1 outcome pinned for an execution that recorded a v2 outcome is CONTRACT_DOWNGRADE_REFUSED;
+ * any other outcome than the replayed one is MANIFEST_ATTEMPT_MISMATCH. Without this a minted V1 outcome
+ * (no lineage) would skip the output and subject bindings, for V4 as well.
+ * A genuine V1 outcome (before 2026-08-24) carries no lineage and is otherwise left as before (R-1). A V3 relabel of a
  * V4 over its OWN execution and point cannot be told from a V3 made while V3 was canonical (2026-08-24 ..
  * 2026-09-16): nothing in the execution chain records that the run required authority (U30R4-REPORT).
  */
@@ -424,8 +429,10 @@ export async function reExecuteLocalizationAssessment(args: {
   // read it swallows on purpose (an absent locator means a historical V1 execution) and the REPLAY
   // record it writes. A genuine absence still reaches the engine as the repository's own not-found.
   const replayView = classifyingReplayRepository(args.artifactRepository);
+  let replayedOutcomeRef: ArtifactReference;
   try {
-    await new DefaultReplayEngine(replayView.repository).replayFromManifestId(manifestIdFromAttemptRef);
+    replayedOutcomeRef = (await new DefaultReplayEngine(replayView.repository).replayFromManifestId(manifestIdFromAttemptRef))
+      .replayed_outcome_ref;
   } catch (error) {
     if (replayView.faults.length > 0) throw replayView.faults[0];
     return {
@@ -441,6 +448,20 @@ export async function reExecuteLocalizationAssessment(args: {
     };
   }
   if (replayView.faults.length > 0) throw replayView.faults[0];
+  // U30-R4 (outcome-level downgrade): the pinned outcome must be the outcome this execution recorded, i.e.
+  // the one category A just replayed (the v2 outcome when the attempt has one, else the legacy V1 locator).
+  // A V1 outcome carries no lineage, so one minted for a lineage-era attempt would otherwise skip the
+  // output and subject bindings entirely -- for V4 too.
+  const pinnedOutcomeRef = assessment.payload.execution_outcome_ref;
+  if (replayedOutcomeRef.artifact_id !== pinnedOutcomeRef.artifact_id) {
+    const v1PinnedOverV2 = !("capability_execution_ref" in outcome) && replayedOutcomeRef.artifact_id.startsWith("outcome-v2-");
+    return denied({
+      code: v1PinnedOverV2 ? "CONTRACT_DOWNGRADE_REFUSED" : "MANIFEST_ATTEMPT_MISMATCH",
+      detail: v1PinnedOverV2
+        ? `assessment pins the V1 outcome ${pinnedOutcomeRef.artifact_id}, but its execution recorded the v2 outcome ${replayedOutcomeRef.artifact_id}`
+        : `assessment pins the outcome ${pinnedOutcomeRef.artifact_id}, but its execution's outcome is ${replayedOutcomeRef.artifact_id}`,
+    });
+  }
   const attemptRead = await readPinnedArtifact<{ manifest_ref: ArtifactReference }>(
     args.artifactRepository,
     outcome.attempt_ref,
