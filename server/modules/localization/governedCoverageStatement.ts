@@ -14,6 +14,8 @@
  *   complete   -> "Låg risk i de kontroller som utfördes; 6 av 6 kontroller genomförda."
  *   unknown    -> "Låg risk i de kontroller som utfördes; uppgift om antalet genomförda
  *                  kontroller saknas i underlaget."
+ *   none done  -> "Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras."
+ *                  (U20CDF: no risk level is named when no check completed)
  *
  * Presentation only. The machine-readable risk level, permitProbability, findings,
  * unresolvedChecks and the checks themselves are untouched; this text is derived from them and
@@ -83,6 +85,12 @@ export function governedOverallStatementSv(riskLevel: string, checks: unknown): 
   const coverage = summarizeGovernedCheckCoverage(checks);
   if (!coverage) {
     return `${risk} i de kontroller som utfördes; uppgift om antalet genomförda kontroller saknas i underlaget.`;
+  }
+  if (coverage.checks_completed === 0) {
+    // U20CDF (U20CD verification F2; DIRECTIVE-72H section 11): with no completed check there is
+    // nothing a risk level could be about -- "Låg risk ... 0 av 6" would be the collapse to LOW the
+    // directive forbids. No level is named; the machine value is untouched.
+    return `Inga kontroller genomfördes (0 av ${coverage.checks_total}): ingen riskbedömning kan göras.`;
   }
   if (coverage.checks_not_completed > 0) {
     // Owner-approved form (OD-K0-1, 2026-10-02): N = completed checks, M = all checks.

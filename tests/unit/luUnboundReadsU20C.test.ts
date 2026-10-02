@@ -301,6 +301,48 @@ describe('U20-C: unbound reads never steer the governed generate-report request'
   });
 });
 
+describe('U20CDF (U20CD verification F2): no check completed -> no risk level in any text', () => {
+  // 0 of 6: the provider returned no evidence for any layer and the document check is NOT_CHECKED.
+  // The machine verdict is unchanged (no findings -> LOW / 0.95), but no text may say "Låg risk".
+  const NONE_COMPLETED = 'Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras.';
+  beforeEach(() => {
+    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: [] });
+  });
+
+  it('generate-report: summary, reasoning and the audit description state that no assessment can be made', async () => {
+    const res = await post('/api/localization/generate-report');
+    expect(res.status).toBe(200);
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor.governed_layer_checks.map((c: { status: string }) => c.status)).toEqual(
+      Array(6).fill('NOT_CHECKED'),
+    );
+    const description = String(vi.mocked(auditTrail.logAction).mock.calls[0]![5]);
+    for (const text of [site.complianceAnalysis.summary, res.body.summary.reasoning, description]) {
+      expect(text).toContain(NONE_COMPLETED);
+      expect(text).not.toMatch(/Låg risk|Måttlig risk|Hög risk|i de kontroller som utfördes/);
+    }
+    // Presentation only: the machine-readable values are exactly as before.
+    expect(site.complianceAnalysis.overallRisk).toBe('LOW');
+    expect(site.complianceAnalysis.permitProbability).toBe(0.95);
+    const details = (vi.mocked(auditTrail.logAction).mock.calls[0]![6] as { details: Record<string, unknown> }).details;
+    expect(details.overallRisk).toBe('LOW');
+    expect(details.bestCheckCoverage).toEqual({
+      checks_total: 6, checks_completed: 0, checks_not_completed: 6,
+      not_completed_layers: [...LAYERS, 'document'],
+    });
+  });
+
+  it('generate-pdf-data: overall_statement_sv and the reasoning say the same, never "Låg risk"', async () => {
+    const res = await post('/api/localization/generate-pdf-data');
+    expect(res.status).toBe(200);
+    const site = res.body.pdfData.sites[0];
+    expect(site.overall_statement_sv).toBe(NONE_COMPLETED);
+    expect(res.body.pdfData.summary.reasoning).toContain(NONE_COMPLETED);
+    expect(JSON.stringify([site.overall_statement_sv, res.body.pdfData.summary.reasoning])).not.toMatch(/Låg risk/);
+    expect(site.overallRisk).toBe('LOW');
+  });
+});
+
 describe('U20-C: the older generate-pdf-data route -- legacy only in a labelled, ungoverned block', () => {
   it('strict mode with the same outage -> HTTP 200; no gating, no raw errors, governed document check present', async () => {
     const res = await post('/api/localization/generate-pdf-data');

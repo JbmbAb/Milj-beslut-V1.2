@@ -707,13 +707,22 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     for (const check of summary.governedLayerChecks.slice(0, 5)) {
       expect(check.message_sv).toMatch(/^Inte kontrollerat: bedömningen innehåller ingen evidens för /);
     }
-    expect(summary.overallStatement.statement_sv).toBe('Låg risk i de kontroller som utfördes; underlaget är ofullständigt: 0 av 6 kontroller genomförda.');
+    // U20CDF (U20CD verification F2): with no completed check the text names no risk level at all
+    // (the machine value risk_level stays what governedVerdictFromFindings derives).
+    expect(summary.overallStatement.statement_sv).toBe('Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras.');
+    expect(summary.overallStatement.risk_level).toBe('LOW');
+    expect(summary.overall_summary.statement_sv).toBe(summary.overallStatement.statement_sv);
     expect(summary.localizationGeometry).toMatchObject({
       artifact_id: null, bound_geometry_status: 'NOT_RECORDED', coordinates_wgs84: null, coordinates_sweref99tm: null, srid: null,
     });
 
     await exportCurrentLuAssessmentPdf(s.deps());
     const data = capturedPdfData as PdfData;
+    expect(data.helhetsbedomning).toMatchObject({
+      kontroller_genomforda: 0,
+      text: 'Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras.',
+    });
+    expect(JSON.stringify(data.helhetsbedomning)).not.toMatch(/Låg risk/);
     expect(data.evidensdetaljer).toEqual([]);
     expect(data.fastighetsrot).toMatchObject({ status: 'NOT_RECORDED', kalla: 'Saknas i underlaget', nyckel: 'Saknas i underlaget' });
     expect(String((data.fastighetsrot as { beskrivning: string }).beskrivning)).toMatch(/Rotens datasetbindning saknas/);
