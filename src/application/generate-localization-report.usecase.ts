@@ -68,8 +68,10 @@ import {
   assessGovernedCoverage,
   governedLayerLabelSv,
   governedOverallStatementSv,
+  RECORD_INTEGRITY_ERROR_SV,
   type GovernedRecordCoverageState,
 } from '../../server/modules/localization/governedCoverageStatement';
+import { recordIntegrityDiagnostic, type RecordIntegrityDiagnostic } from '../../server/modules/localization/recordIntegrityDiagnostic';
 
 export interface SiteAlternative {
   id: string;
@@ -191,6 +193,14 @@ export interface ExecutionMotorMeta {
   property_root?: PropertyRootDetails;
   /** U20-D: integrity of the content read for the details (the read-back fails closed on `ok: false`). */
   evidence_integrity?: GovernedAssessmentDetails['integrity'];
+  /**
+   * W-U20CDF5 (U20CDF4 verification L1; owner decision 2026-10-02 point 2): present iff assessment_status is
+   * RECORD_INTEGRITY_ERROR. The record's stored findings ONLY as the non-authoritative, whitelisted diagnostic
+   * of the 424 (recordIntegrityDiagnostic.ts) -- such a site carries `findings: []`, `finding_ids: []`, no
+   * governed_layer_checks / evidence_details / property_root / evidence_integrity, and its
+   * governed_coverage_basis as bare codes: never anything in the form of a valid assessment.
+   */
+  record_integrity?: RecordIntegrityDiagnostic;
 }
 
 /**
@@ -1043,6 +1053,9 @@ async function analyzeSite(
   // the generic failure branch below can still report it -- e.g. a centroid derived in THIS request
   // when the release, provider or kernel fails afterwards. Undefined iff the step was not reached.
   let geometryProvenance: LocalizationGeometryProvenanceRecord | undefined;
+  // W-U20CDF5 (L1): the statement of a RECORD_INTEGRITY_ERROR site, taken before its findings are withheld from
+  // executionMotor -- it names every stored finding (a known risk never disappears).
+  let recordIntegritySummarySv: string | null = null;
   try {
     spatialRuntime = await createSpatialRuntime();
     const repo = spatialRuntime.artifactRepository;
@@ -1323,6 +1336,21 @@ async function analyzeSite(
     // U20CDF4 (owner decisions 2026-10-03 (4) points 1 and 3): an artifact whose record is not
     // established carries no verdict and is never ranked -- its own status, never ASSESSED.
     const recordIntegrityError = freshCoverage?.governed_coverage_state === 'RECORD_INTEGRITY_ERROR';
+    // W-U20CDF5 (U20CDF4 verification L1; owner decision 2026-10-02 point 2): such a record is never serialised
+    // in the form of a valid assessment -- its stored findings travel only as the 424's non-authoritative,
+    // whitelisted diagnostic (record_integrity); no findings / finding ids / layer rows / evidence details /
+    // root / id-bearing basis entries below.
+    const recordIntegrity: RecordIntegrityDiagnostic | null =
+      recordIntegrityError && assessment_artifact_id
+        ? recordIntegrityDiagnostic(assessment_artifact_id, freshCoverage?.governed_coverage_basis ?? [], mpsFindings)
+        : null;
+    if (recordIntegrity) {
+      recordIntegritySummarySv = governedOverallStatementSv(
+        governedVerdictFromFindings(mpsFindings).overallRisk,
+        freshCoverage?.governed_layer_checks,
+        { findings: mpsFindings, freshRun: true },
+      );
+    }
     if (recordIntegrityError) {
       warnings.push(
         `Integritetsfel: den styrda bedömning som körningen sparade (${assessment_artifact_id}) har ett lagrat underlag som är ` +
@@ -1337,7 +1365,7 @@ async function analyzeSite(
       outcome_id: kernelResult.outcome_id,
       manifest_id: kernelResult.manifest_id,
       ticket_id,
-      finding_ids: [...kernelResult.finding_ids],
+      finding_ids: recordIntegrity ? [] : [...kernelResult.finding_ids],
       assessment_artifact_id,
       assessment_projection_registered,
       property_context_id: propRef.artifact_id,
@@ -1350,15 +1378,22 @@ async function analyzeSite(
             ? 'RECORD_INTEGRITY_ERROR'
             : 'ASSESSED'
           : 'NOT_ASSESSED',
-      findings: [...mpsFindings],
+      findings: recordIntegrity ? [] : [...mpsFindings],
       localization_geometry: geometryProvenance,
-      ...(freshCoverage ?? {}),
+      ...(recordIntegrity
+        ? {
+            governed_coverage_state: 'RECORD_INTEGRITY_ERROR' as const,
+            governed_coverage_basis: recordIntegrity.basis_codes,
+            record_integrity: recordIntegrity,
+          }
+        : (freshCoverage ?? {})),
     };
 
     // U20-D: evidence and property-root details of the persisted assessment, read back from CAS by
     // the same module as the read-back/PDF. Presentation only: whatever happens here can never
     // change the status, the verdict or the assessment, and a failure is reported, not thrown.
-    if (kernelResult.admitted && assessment_artifact_id && kernelResult.assessment) {
+    // W-U20CDF5 (L1): not for a RECORD_INTEGRITY_ERROR site -- its evidence is not presented as valid details.
+    if (kernelResult.admitted && assessment_artifact_id && kernelResult.assessment && !recordIntegrity) {
       try {
         const details = await resolveGovernedAssessmentDetails({
           assessment: kernelResult.assessment,
@@ -1494,16 +1529,9 @@ async function analyzeSite(
     // U20CDF4 (owner decision (4) point 1): not returned as an assessment -- no overallRisk, no
     // permitProbability (withoutVerdict, under the record's own status, never ASSESSED). The summary is
     // the integrity statement, which names every stored finding: a known risk never disappears.
+    // W-U20CDF5 (L1): taken before the findings were withheld from executionMotor.
     complianceAnalysis = withoutVerdict(
-      {
-        restrictions: [],
-        rules: [],
-        summary: governedOverallStatementSv(
-          governedVerdictFromFindings(executionMotor.findings).overallRisk,
-          executionMotor.governed_layer_checks,
-          { findings: executionMotor.findings, freshRun: true },
-        ),
-      },
+      { restrictions: [], rules: [], summary: recordIntegritySummarySv ?? RECORD_INTEGRITY_ERROR_SV },
       'RECORD_INTEGRITY_ERROR',
     );
   } else {

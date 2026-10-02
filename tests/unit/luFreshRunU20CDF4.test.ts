@@ -350,7 +350,8 @@ describe('U20CDF4 (owner decisions (4) points 1 and 3; coordinator clarification
     const site = res.body.siteAnalyses[0];
     expect(site.executionMotor).toMatchObject({
       admitted: true, assessment_status: 'RECORD_INTEGRITY_ERROR', assessment_artifact_id: 'assessment-integrity',
-      governed_coverage_state: 'RECORD_INTEGRITY_ERROR', governed_coverage_basis: ['UNKNOWN_SEVERITY:finding-water-critical'],
+      // W-U20CDF5 (L1): an integrity site's basis travels as bare codes (no record ids), like the 424's.
+      governed_coverage_state: 'RECORD_INTEGRITY_ERROR', governed_coverage_basis: ['UNKNOWN_SEVERITY'],
     });
     const summary = `${INTEGRITY_SV} Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Potentiellt förorenade områden (EBH); okänd allvarlighetsgrad – Brunnar.`;
     expect(site.complianceAnalysis).toEqual({ restrictions: [], rules: [], summary, assessment_status: 'RECORD_INTEGRITY_ERROR' });
@@ -405,7 +406,8 @@ describe('U20CDF4 (owner decisions (4) points 1 and 3; coordinator clarification
     const res = await post('/api/localization/generate-report');
     const site = res.body.siteAnalyses[0];
     expect(site.executionMotor).toMatchObject({
-      assessment_status: 'RECORD_INTEGRITY_ERROR', governed_coverage_state: 'RECORD_INTEGRITY_ERROR', governed_coverage_basis: ['HIT_WITHOUT_FINDING:ebh'],
+      // W-U20CDF5 (L1): bare codes, as in the 424's diagnostic.
+      assessment_status: 'RECORD_INTEGRITY_ERROR', governed_coverage_state: 'RECORD_INTEGRITY_ERROR', governed_coverage_basis: ['HIT_WITHOUT_FINDING'],
     });
     expect(site.complianceAnalysis.summary).toBe(INTEGRITY_SV);
     expect(res.body.summary.bestAlternativeId).toBeUndefined();

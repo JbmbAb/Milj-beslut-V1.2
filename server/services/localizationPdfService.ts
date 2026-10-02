@@ -13,6 +13,7 @@ import {
   type LuComparisonStatus,
 } from '../../src/application/generate-localization-report.usecase';
 import type { GovernedLayerCheck } from '../modules/localization/governedLayerChecks';
+import { recordIntegrityDiagnosticWire, type RecordIntegrityDiagnostic } from '../modules/localization/recordIntegrityDiagnostic';
 
 /**
  * U20-C: this projection (POST /api/localization/generate-pdf-data) is the older report path. It
@@ -133,8 +134,18 @@ export interface LocalizationPdfData {
      * statement and the run's coverage state are.
      */
     overall_coverage_state?: string;
-    /** U20-C (K0 verification finding 1): the governed layer checks, document check included; null without a governed run. */
+    /**
+     * U20-C (K0 verification finding 1): the governed layer checks, document check included; null without a
+     * governed run, and (W-U20CDF5, L1) null for a RECORD_INTEGRITY_ERROR site -- its rows are never printed
+     * in the form of a valid assessment.
+     */
     governed_layer_checks: readonly GovernedLayerCheck[] | null;
+    /**
+     * W-U20CDF5 (U20CDF4 verification L1; owner decision 2026-10-02 point 2): present iff the site's record is
+     * a RECORD_INTEGRITY_ERROR -- its stored findings only as the 424's non-authoritative diagnostic, rebuilt
+     * through the same wire whitelist (recordIntegrityDiagnosticWire).
+     */
+    record_integrity?: RecordIntegrityDiagnostic;
     /** Why a site carries no verdict, so the PDF can state it rather than leave a blank. */
     assessment_status: LuAssessmentStatus;
     assessment_artifact_id: string | null;
@@ -311,6 +322,13 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
             }
           : {}),
         governed_layer_checks: analysis.executionMotor?.governed_layer_checks ?? null,
+        // W-U20CDF5 (L1): an integrity site's stored findings only through the 424's wire whitelist.
+        ...(analysis.executionMotor?.assessment_status === 'RECORD_INTEGRITY_ERROR'
+          ? (() => {
+              const wire = recordIntegrityDiagnosticWire(analysis.executionMotor?.record_integrity);
+              return wire ? { record_integrity: wire } : {};
+            })()
+          : {}),
         assessment_status: analysis.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
         assessment_artifact_id: analysis.executionMotor?.assessment_artifact_id ?? null,
         restrictions: [...legacy.restrictions],
