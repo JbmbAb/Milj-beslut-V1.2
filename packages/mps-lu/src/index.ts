@@ -69,5 +69,6 @@ export * from "./execution/LuCanonicalServiceIdentity";
 // LU Runtime v1 Freeze (ADR-30)
 export * from "./runtime/LuRuntimeFreeze";
 
-// API
-export * from "./api/LUBackendOrchestrator";
+// K0-FIX-1 (b): the former "API" section (LUBackendOrchestrator and its `orchestrator` singleton:
+// generateDocumentEvidence, generateKnowledgeFinding) was dead, ungoverned document packaging and is
+// removed. Re-exporting it also made every import of this package load server/db/prisma.

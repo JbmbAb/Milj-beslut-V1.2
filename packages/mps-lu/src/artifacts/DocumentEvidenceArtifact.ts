@@ -96,8 +96,8 @@ export interface DocumentEvidencePayload {
    * `references`. Declared here because it is the edge that keeps the chain back to the
    * preserved original traversable.
    *
-   * Optional because provider-fetched evidence (`DocumentEvidenceService`) has no quarantined
-   * raw source.
+   * Optional because provider-fetched evidence (the former `DocumentEvidenceService`, removed in
+   * K0-FIX-1 b; artifacts of that legacy shape may still exist) has no quarantined raw source.
    */
   readonly raw_source_ref?: ArtifactReference;
   readonly source_metadata: {

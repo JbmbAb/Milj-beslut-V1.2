@@ -50,7 +50,6 @@ import {
   deriveLuExecutionSeed,
   GovernedAssessmentPersistence,
   localizationAssessmentCanonicalBody,
-  orchestrator,
   type ISpatialProvider,
 } from "../src/index";
 import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
@@ -92,7 +91,6 @@ describe("HM1-C — governed assessment persistence", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
   });
 
   afterEach(() => {

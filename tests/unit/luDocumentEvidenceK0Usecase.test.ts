@@ -8,8 +8,9 @@
  *
  * Hermetic: server/db/prisma is replaced by a FAKE database that has two DocumentRecords for the
  * resolved municipality (so the old sweep has something to find) and that throws/records on every
- * other access. Nothing here can reach a real Postgres. The real `orchestrator` from
- * @miljobeslut/mps-lu is deliberately NOT mocked: it is the object the old fallback called.
+ * other access. Nothing here can reach a real Postgres. The `orchestrator` the old fallback called
+ * (LUBackendOrchestrator.generateDocumentEvidence) no longer exists (K0-FIX-1 b); the cases below
+ * still set LU_DOC_PROVIDER to every former value to show none of them brings document evidence back.
  *
  * Mock layout follows tests/unit/luGeometryCurrentnessD9aUsecase.test.ts.
  */
@@ -123,7 +124,6 @@ vi.mock('../../server/modules/localization/localizationGeometryService', () => (
   resolveOrDeriveCurrentLocalizationGeometry: (...args: unknown[]) => resolveOrDeriveMock(...args),
 }));
 
-import { orchestrator } from '@miljobeslut/mps-lu';
 import { resolvedGeometryProvenanceRecord } from '../../server/modules/localization/localizationGeometryCurrentness';
 import { GenerateLocalizationReportUseCase } from '../../src/application/generate-localization-report.usecase';
 
@@ -156,9 +156,6 @@ const ORIGINAL_LU_DOC_PROVIDER = process.env.LU_DOC_PROVIDER;
 beforeEach(() => {
   vi.clearAllMocks();
   fakeDb.calls.length = 0;
-  // The orchestrator singleton caches the provider it selected on first use; reset it so every
-  // case below selects afresh from LU_DOC_PROVIDER (only relevant while the old fallback exists).
-  (orchestrator as unknown as { documentEvidenceService: unknown }).documentEvidenceService = null;
   releaseMock.mockResolvedValue({
     artifact_id: 'product-release-1', artifact_type: 'product_release_manifest', release_hash: { value: 'a'.repeat(64) },
   });

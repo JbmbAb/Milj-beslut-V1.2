@@ -134,7 +134,6 @@ import {
   createProjectContextBindingIssuerArtifact,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
-  orchestrator,
   type SpatialEvidenceArtifact,
 } from "../src/index";
 import { SpatialProviderPostGIS } from "../../spatial-provider-postgis/src/SpatialProviderPostGIS";
@@ -165,7 +164,6 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
   });
 
   afterEach(() => {

@@ -39,7 +39,7 @@ import type {
   VerifiedDocumentFactArtifact,
 } from "../../mps-data-governance/src/DocumentFactArtifact";
 import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
-import { orchestrator, type DocumentEvidenceArtifact, type ISpatialProvider } from "../src/index";
+import type { DocumentEvidenceArtifact, ISpatialProvider } from "../src/index";
 import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
 import { buildVerifiedPriorDecisionFact, withFactRef } from "./fixtures/verifiedDocumentFact";
@@ -127,7 +127,6 @@ describe("HM1-B — real governed document/fact chain", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -173,7 +172,6 @@ describe("HM1-B — real governed document/fact chain", () => {
     });
     const motor = report.siteAnalyses[0].executionMotor!;
     expect(motor.admitted).toBe(true);
-    expect(orchestrator.generateDocumentEvidence).not.toHaveBeenCalled();
     expect(report.siteAnalyses[0].documentEvidence?.map((item) => item.artifact_id)).toEqual([
       evidence.artifact_id,
     ]);
@@ -230,7 +228,6 @@ describe("HM1-B — real governed document/fact chain", () => {
       }],
     });
     const motor = report.siteAnalyses[0].executionMotor!;
-    expect(orchestrator.generateDocumentEvidence).not.toHaveBeenCalled();
     const assessment = await repository.resolve<{ payload: { findings: readonly { rule_id: string }[] } }>({
       artifact_id: motor.assessment_artifact_id!,
       artifact_type: "LOCALIZATION_ASSESSMENT",

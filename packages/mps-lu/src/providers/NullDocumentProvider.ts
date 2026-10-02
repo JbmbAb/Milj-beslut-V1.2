@@ -4,8 +4,9 @@ import type { CanonicalGeometry } from "../domain/CanonicalGeometry.js";
 
 /**
  * Production-oriented provider: returns empty set when no upstream configured.
- * Prefer injecting a real VISS/LM adapter via LUBackendOrchestrator constructor.
  * The default selection (LU_DOC_PROVIDER unset) -- see resolveDocumentProviderFromEnv below.
+ * (K0-FIX-1 b: LUBackendOrchestrator, which used to construct providers from this selection, is
+ * removed; governed DocumentEvidence comes only from explicit refs resolved from CAS.)
  */
 export class NullDocumentProvider implements DocumentProviderContract {
   getProviderName(): string {
@@ -46,14 +47,16 @@ function mockRefusalReason(env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * Selects the document provider for LUBackendOrchestrator.generateDocumentEvidence from env,
- * without importing Mock by default.
+ * The single reading of LU_DOC_PROVIDER: which document provider env asks for. It constructs
+ * nothing and imports no provider; no product path selects a provider from env any more (K0-FIX-1 b
+ * removed LUBackendOrchestrator.generateDocumentEvidence, its only consumer).
  *
- * K0 (DOC-EVIDENCE-CENSUS 2026-10-02):
+ * K0 (DOC-EVIDENCE-CENSUS 2026-10-02) + K0-FIX-1:
  *  - unset / "" / "null" -> "null" (the default). The default used to be "postgis", which swept
- *    every DocumentRecord of the resolved municipality; the LU product path no longer calls this
- *    orchestrator at all (governed DocumentEvidence comes only from explicit refs).
- *  - "postgis" -> explicit opt-in only.
+ *    every DocumentRecord of the resolved municipality; governed DocumentEvidence comes only from
+ *    explicit refs.
+ *  - "postgis" -> no longer a provider (K0-FIX-1 b): the opt-in to the municipality sweep is
+ *    removed and fails closed like any unrecognised value.
  *  - "mock" -> ONLY in explicit test mode (NODE_ENV exactly "test" AND APP_ENV exactly "test" or
  *    "ci", see MOCK_ALLOWED_APP_ENVS); in any other mode it fails closed
  *    (LU_DOC_PROVIDER_MOCK_FORBIDDEN) and never silently becomes a provider.
@@ -62,10 +65,9 @@ function mockRefusalReason(env: NodeJS.ProcessEnv): string | null {
  */
 export function resolveDocumentProviderFromEnv(
   env: NodeJS.ProcessEnv = process.env,
-): "null" | "mock" | "postgis" {
+): "null" | "mock" {
   const v = String(env.LU_DOC_PROVIDER ?? "").trim().toLowerCase();
   if (v === "" || v === "null") return "null";
-  if (v === "postgis") return "postgis";
   if (v === "mock") {
     const refusal = mockRefusalReason(env);
     if (refusal !== null) {
@@ -79,6 +81,6 @@ export function resolveDocumentProviderFromEnv(
     return "mock";
   }
   throw new Error(
-    `LU_DOC_PROVIDER_UNRECOGNIZED: '${v}' is not a document provider (expected null, postgis or mock).`,
+    `LU_DOC_PROVIDER_UNRECOGNIZED: '${v}' is not a document provider (expected null or mock).`,
   );
 }
