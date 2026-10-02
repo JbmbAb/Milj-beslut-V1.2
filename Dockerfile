@@ -19,6 +19,9 @@ WORKDIR /app
 FROM base AS builder
 COPY package*.json ./
 COPY tsconfig.json ./
+# package.json beror på 21 file:packages/*-paket och låsfilen länkar 29;
+# npm ci kan bara länka dem om packages/ redan finns i bygget.
+COPY packages ./packages
 # Installera alla beroenden
 RUN npm ci --legacy-peer-deps
 
