@@ -199,15 +199,28 @@ describe('W-CATCH2 #11: normal flows unchanged', () => {
 });
 
 describe('W-CATCH2 #11: a damaged or unreadable EXISTING issuer is never "not minted yet"', () => {
-  const cases: Array<[string, () => void, Expected]> = [
+  const cases: Array<[string, () => void | Promise<void>, Expected]> = [
     ['issuer bytes corrupted', () => writeFileSync(objectPath(issuerId), Buffer.from('{"x":1}')), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false }],
     ['issuer object gone behind its index entry', () => unlinkSync(objectPath(issuerId)), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false }],
     ['issuer index entry unreadable (EISDIR)', () => { unlinkSync(indexEntryPath(issuerId)); mkdirSync(indexEntryPath(issuerId)); }, { failureCode: 'EXISTING_ARTIFACT_READ_ERROR', retryable: true }],
+    // Mutation C03 analogue: a valid CAS object whose content was edited while its id, content_hash field and key id stay.
+    [
+      'issuer content edited after persistence (valid CAS object, id/content_hash/key id untouched)',
+      async () => {
+        const envelope = JSON.parse(readFileSync(objectPath(issuerId), 'utf8')) as { body: { payload: Record<string, unknown> } };
+        envelope.body.payload = { ...envelope.body.payload, owner_authority_ref: { artifact_id: 'owner-authority-edited', artifact_type: 'owner_authority_attestation' } };
+        const cas = new FileCASRepository(h.casDir, { durabilityMode: 'none' });
+        await cas.initialize();
+        const { hash } = await cas.putBytes(Buffer.from(JSON.stringify(envelope), 'utf8'));
+        writeFileSync(indexEntryPath(issuerId), JSON.stringify({ artifact_id: issuerId, hash }));
+      },
+      { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false },
+    ],
   ];
   for (const [name, sabotage, expected] of cases) {
     it(`${name} -> ${expected.failureCode}, nothing written`, async () => {
       await transitionedOnce();
-      sabotage();
+      await sabotage();
       expectTypedNoWrite(await request(B, C, '2026-10-02T11:00:00.000Z'), expected);
     });
   }

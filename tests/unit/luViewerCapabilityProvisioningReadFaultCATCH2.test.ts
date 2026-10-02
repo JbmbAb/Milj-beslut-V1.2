@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   bindingListError: null as Error | null,
   accessError: null as Error | null,
   viewerIdentityError: null as Error | null,
+  releaseError: null as Error | null,
   viewerIdentityId: '',
   spawns: 0,
 }));
@@ -61,7 +62,10 @@ vi.mock('../../server/security/projectAccess', () => ({
   }),
 }));
 vi.mock('../../server/modules/release/productReleaseRuntime', () => ({
-  resolveCanonicalProductRelease: vi.fn(async () => ({ artifact_id: 'product-release-catch2', artifact_type: 'product_release_manifest', release_hash: { algorithm: 'sha256', value: 'a'.repeat(64) } })),
+  resolveCanonicalProductRelease: vi.fn(async () => {
+    if (h.releaseError) throw h.releaseError;
+    return { artifact_id: 'product-release-catch2', artifact_type: 'product_release_manifest', release_hash: { algorithm: 'sha256', value: 'a'.repeat(64) } };
+  }),
 }));
 vi.mock('../../src/application/resolveCurrentViewerIdentity', () => ({
   resolveCurrentViewerIdentity: vi.fn(async () => {
@@ -164,6 +168,7 @@ beforeEach(async () => {
   h.bindingListError = null;
   h.accessError = null;
   h.viewerIdentityError = null;
+  h.releaseError = null;
   h.spawns = 0;
   process.env.VIEWER_CAPABILITY_ISSUER_KEY_ID = capabilityKey.keyId;
   process.env.VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM = capabilityKey.privateKeyPem;
@@ -246,16 +251,29 @@ const expectTypedNoWrite = (outcome: unknown, expected: Expected) => {
 };
 
 describe('W-CATCH2 #10: a damaged or unreadable EXISTING issuer is never "not minted yet"', () => {
-  const cases: Array<[string, () => void, Expected]> = [
+  const cases: Array<[string, () => void | Promise<void>, Expected]> = [
     ['issuer bytes corrupted', () => writeFileSync(objectPath(issuerId), Buffer.from('{"x":1}')), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false }],
     ['issuer object gone behind its index entry', () => unlinkSync(objectPath(issuerId)), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false }],
     ['issuer index entry torn', () => writeFileSync(indexEntryPath(issuerId), '{"artifact_id":"'), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false }],
     ['issuer index entry unreadable (EISDIR)', () => { unlinkSync(indexEntryPath(issuerId)); mkdirSync(indexEntryPath(issuerId)); }, { failureCode: 'EXISTING_ARTIFACT_READ_ERROR', retryable: true }],
+    // Mutation C03: a valid CAS object whose content was edited while its id, content_hash field and key id stay -- not the issuer its id names.
+    [
+      'issuer content edited after persistence (valid CAS object, id/content_hash/key id untouched)',
+      async () => {
+        const envelope = JSON.parse(readFileSync(objectPath(issuerId), 'utf8')) as { body: { payload: Record<string, unknown> } };
+        envelope.body.payload = { ...envelope.body.payload, owner_authority_ref: { artifact_id: 'owner-authority-edited', artifact_type: 'owner_authority_attestation' } };
+        const cas = new FileCASRepository(h.casDir, { durabilityMode: 'none' });
+        await cas.initialize();
+        const { hash } = await cas.putBytes(Buffer.from(JSON.stringify(envelope), 'utf8'));
+        writeFileSync(indexEntryPath(issuerId), JSON.stringify({ artifact_id: issuerId, hash }));
+      },
+      { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false },
+    ],
   ];
   for (const [name, sabotage, expected] of cases) {
     it(`${name} -> ${expected.failureCode}, nothing written`, async () => {
       await mintedOnce();
-      sabotage();
+      await sabotage();
       expectTypedNoWrite(await executeViewerCapabilityProvisioning(input('2026-03-01T00:00:00.000Z', '2027-03-01T00:00:00.000Z')), expected);
     });
   }
@@ -316,6 +334,13 @@ describe('W-CATCH2 #10: the same surface -- the current binding, the access chec
   it('a typed denial -> REQUESTER_NOT_AUTHORIZED (unchanged)', async () => {
     h.accessError = Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED' });
     expect(await executeViewerCapabilityProvisioning(input())).toMatchObject({ ok: false, failureCode: 'REQUESTER_NOT_AUTHORIZED' });
+  });
+  it('any other raw failure (the release cannot be resolved) -> PROVISIONING_EXECUTION_ERROR with a neutral text, the raw text never stored (mutation C10)', async () => {
+    h.releaseError = Object.assign(new Error("EIO: i/o error, open 'D:\mimer-demo\cas\release.idx'"), { code: 'EIO' });
+    const outcome = (await executeViewerCapabilityProvisioning(input())) as { failureCode?: string; failureDetail?: string; diagnostic?: string };
+    expect(outcome.failureCode).toBe('PROVISIONING_EXECUTION_ERROR');
+    expect(outcome.failureDetail).toBe('Provisioneringen kunde inte slutföras. Ett underlag som behövs kunde inte läsas (tekniskt fel). Ett nytt försök kan lyckas. Inget utfärdades.');
+    expect(outcome.diagnostic).toMatch(/mimer-demo/);
   });
   it('the viewer identity cannot be resolved -> the same code, a neutral text without the raw cause', async () => {
     h.viewerIdentityError = Object.assign(new Error("EIO: i/o error, read 'D:\\mimer-demo\\cas\\x.idx'"), { code: 'EIO' });

@@ -110,6 +110,13 @@ describe('W-CATCH2 (A): classifyReadFault -- by stable code / class / REJECT_* t
       retryable: false,
       refusalCode: 'REJECT_VIEWER_CAPABILITY_SIGNATURE',
     });
+    // A database that cannot answer DURING a verification is a read fault, recognised by its Prisma
+    // class name (mutation A06), never a failed verification of the object.
+    expect(classifyReadFault(Object.assign(new Error("Can't reach database server"), { name: 'PrismaClientInitializationError' }), 'verify')).toEqual({
+      faultClass: 'READ_ERROR',
+      retryable: true,
+      refusalCode: null,
+    });
     // 'read' (the default): the same unrecognised error has unknown persistence.
     expect(classifyReadFault(new TypeError('x'))).toEqual({ faultClass: 'READ_ERROR', retryable: true, refusalCode: null });
   });
