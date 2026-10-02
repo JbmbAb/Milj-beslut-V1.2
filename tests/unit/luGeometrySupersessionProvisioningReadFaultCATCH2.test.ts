@@ -319,7 +319,7 @@ describe('W-CATCH3 #11: an object under a deterministic id must BE that object',
 // ------------------------------------------------------------------------------------------------
 
 const NOTHING_ISSUED = 'Inget utfärdades.';
-const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats i arkivet innan felet uppstod, men begäran slutfördes inte.';
+const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats innan felet uppstod, men begäran slutfördes inte.';
 const garble = (signature: unknown) => String(signature ?? '').split('').reverse().join('');
 
 async function rewriteObject(id: string, edit: (body: Record<string, unknown>) => void): Promise<void> {
@@ -397,5 +397,19 @@ describe('W-CATCH3 #11: the stored text tells the truth about writes (finding 3,
     const outcome = (await request(A, B)) as { failureDetail?: string };
     expect(h.puts).toEqual([]);
     expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
+  });
+  it('a retry that reuses the existing relation but cannot register its edge (the geometry row may have been written; no CAS write) never claims a read or "Inget utfärdades."', async () => {
+    await transitionedOnce();
+    h.edgeRows.length = 0;
+    h.geometryRows.splice(h.geometryRows.findIndex((r) => r.geometryArtifactId === B.artifact_id), 1);
+    h.edgeRegisterError = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' });
+    const outcome = (await request(A, B)) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(h.puts, 'the reuse path writes nothing to the CAS').toEqual([]);
+    expect(h.geometryRows.some((r) => r.geometryArtifactId === B.artifact_id), 'the geometry row was written before the edge failed').toBe(true);
+    expect(outcome.failureCode).toBe('PROVISIONING_EXECUTION_ERROR');
+    expect(outcome.failureDetail).not.toContain('Inget utfärdades');
+    expect(outcome.failureDetail).not.toContain('kunde inte läsas');
+    expect(outcome.failureDetail?.endsWith(MAY_HAVE_WRITTEN)).toBe(true);
   });
 });

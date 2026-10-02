@@ -400,7 +400,7 @@ describe('W-CATCH3 #10: an object under a deterministic id must BE that object',
 // ------------------------------------------------------------------------------------------------
 
 const NOTHING_ISSUED = 'Inget utfärdades.';
-const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats i arkivet innan felet uppstod, men begäran slutfördes inte.';
+const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats innan felet uppstod, men begäran slutfördes inte.';
 
 async function rewriteObject(id: string, edit: (body: Record<string, unknown>) => void): Promise<void> {
   const envelope = JSON.parse(readFileSync(objectPath(id), 'utf8')) as { body: Record<string, unknown> };

@@ -279,7 +279,7 @@ describe('W-CATCH2 #12: the same surface keeps the cause without raw text', () =
 });
 
 describe('W-CATCH3 (CATCH2 verifier finding 3): the stored text tells the truth about writes (shared provisioningFailure.ts)', () => {
-  const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats i arkivet innan felet uppstod, men begäran slutfördes inte.';
+  const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats innan felet uppstod, men begäran slutfördes inte.';
   it('a failure AFTER the identity and its attestation were written (the temporal status cannot be written) never says "Inget utfärdades." or "kunde inte läsas"', async () => {
     h.failPutOfIdPrefix = 'lu-source-authority-status-';
     const outcome = (await run()) as { ok: boolean; failureCode?: string; failureDetail?: string };
