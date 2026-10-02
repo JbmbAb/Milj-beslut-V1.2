@@ -51,6 +51,7 @@ import {
   type LocalizationGeometryProvenanceRecord,
 } from '../../server/modules/localization/localizationGeometryCurrentness';
 import type { GovernedLayerCheck } from '../../server/modules/localization/governedLayerChecks';
+import { assertGovernedSpatialQueryOutcome } from '../../server/modules/localization/governedSpatialEvidenceForm';
 import {
   LU_V1_GOVERNED_SPATIAL_LAYERS,
   presentedGovernedLayerChecks,
@@ -1054,6 +1055,12 @@ async function analyzeSite(
         diagnostic: redactInternalDiagnostic(unavailable.diagnostic),
       });
     }
+    // U20CDF2 (U20CDF verification G3; owner's locked specification): the provider's outcome must be
+    // in the common normal form BEFORE the rule engine reads it -- the same form the layer checks
+    // read stored evidence through. An evidence with a non-boolean `exists`, a match count that
+    // contradicts it or another declared kind, or a layer both evidenced and unavailable, fails the
+    // run closed (REJECT_SPATIAL_EVIDENCE_FORM -> EXECUTION_FAILED, no assessment, no verdict).
+    assertGovernedSpatialQueryOutcome({ evidence: mpsEvidence, unavailable_layers: providerUnavailableLayers });
     const mpsUnavailableLayers = providerUnavailableLayers.map(({ dataset, reason }) => ({ dataset, reason }));
     const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
       site.documentEvidenceRefs,

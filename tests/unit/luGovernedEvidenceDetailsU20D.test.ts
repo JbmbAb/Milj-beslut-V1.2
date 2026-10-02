@@ -283,7 +283,14 @@ function evidenceFor(layer: string, matchCount: number, propertyRef: ArtifactRef
 /** water: 3 hits, ebh/protected_area: none, natura2000: the 50-feature cap, wpa: as given. */
 const MATCH_COUNTS: Record<string, number> = { water: 3, ebh: 0, protected_area: 0, natura2000: 50, water_protection_area: 0 };
 
-async function setup(options: { readonly unavailable?: readonly string[]; readonly legacyContext?: boolean } = {}) {
+async function setup(options: {
+  readonly unavailable?: readonly string[];
+  readonly legacyContext?: boolean;
+  /** U20CDF2 (G3): replace the provider's result object for these layers (after the evidence was hashed). */
+  readonly evidenceResult?: Readonly<Record<string, Record<string, unknown>>>;
+  /** U20CDF2 (G3): also report these layers as unavailable, while still returning their evidence. */
+  readonly alsoUnavailable?: readonly string[];
+} = {}) {
   const repository = new MemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
   const projectionIndex = new FakeAssessmentProjectionIndex();
@@ -409,8 +416,11 @@ async function setup(options: { readonly unavailable?: readonly string[]; readon
             continue;
           }
           const ev = evidenceFor(layer, MATCH_COUNTS[layer]!, propertyContextRef, locationRef);
+          const replaced = options.evidenceResult?.[layer];
+          if (replaced) (ev.payload.result_semantics as { result: unknown }).result = replaced;
           await repository.put({ artifact_id: ev.artifact_id, body: ev });
           evidence.push(ev);
+          if (options.alsoUnavailable?.includes(layer)) unavailable_layers.push({ dataset: layer, reason: 'SOURCE_UNAVAILABLE' });
         }
         return { evidence, unavailable_layers };
       },
@@ -969,6 +979,33 @@ describe('U20-D: computeGovernedLayerChecks decides the contradictory cases (M2b
     expect(computeGovernedLayerChecks({ requestedLayers: ['water'], evidence: [ev(semantics)], unavailableLayers: [], findings: [] })).toEqual([
       { layer: 'water', rule_id: 'LU-WATER-001', status: 'NOT_CHECKED', evidence_artifact_id: 'evidence-water-x', reason: 'UNRECOGNIZED_RESULT' },
     ]);
+  });
+});
+
+describe('U20CDF2 (G3): an evidence outside the common normal form fails the fresh run closed before the rule engine', () => {
+  it.each<[string, Parameters<typeof setup>[0]]>([
+    ['exists:true with match count 0 (verifier probe F1)', { evidenceResult: { water: { exists: true, match_count_observed: 0, max_features_per_layer: 50 } } }],
+    ['exists:false with a positive match count', { evidenceResult: { ebh: { exists: false, match_count_observed: 4, max_features_per_layer: 50 } } }],
+    ['exists not a boolean', { evidenceResult: { protected_area: { exists: 'true', match_count_observed: 1, max_features_per_layer: 50 } } }],
+    ['evidence and an unavailable entry for the same layer', { alsoUnavailable: ['natura2000'] }],
+  ])('%s -> EXECUTION_FAILED with REJECT_SPATIAL_EVIDENCE_FORM, no assessment, no verdict', async (_label, options) => {
+    const s = await setup(options);
+    const fresh = await s.runFresh();
+    expect(fresh.executionMotor).toMatchObject({ admitted: false, assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null, findings: [] });
+    expect(fresh.warnings).toEqual(['ExecutionKernel error: REJECT_SPATIAL_EVIDENCE_FORM']);
+    const verdict = fresh.complianceAnalysis as { overallRisk?: unknown; permitProbability?: unknown };
+    expect(verdict.overallRisk ?? null).toBeNull();
+    expect(verdict.permitProbability ?? null).toBeNull();
+    // The rule engine was never reached: nothing was assessed or persisted as an assessment.
+    const stored = [...s.repository.values.values()] as Array<{ artifact_type?: string }>;
+    expect(stored.some((artifact) => artifact.artifact_type === 'LOCALIZATION_ASSESSMENT')).toBe(false);
+  });
+
+  it('the same provider outcome in the normal form is assessed as before (control)', async () => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    expect(fresh.executionMotor?.assessment_status).toBe('ASSESSED');
+    expect(fresh.warnings).toEqual([]);
   });
 });
 

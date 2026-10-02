@@ -1,0 +1,175 @@
+/**
+ * U20CDF2 (U20CDF verification G3; owner's locked specification 2026-10-02 night).
+ *
+ * The rule engine and the layer check used to read the same spatial evidence differently: the rule
+ * engine fires on `result.exists` alone (LURuleEngine.ts), while the layer check also required the
+ * admitted result kind and a match count consistent with `exists`. Evidence `{ exists: true,
+ * match_count_observed: 0 }` therefore gave a MEDIUM finding next to "0 av 6".
+ *
+ * Owner: one common, validated normal form applied BEFORE both consumers; an invalid combination is
+ * fail-closed, not a second interpretation; and a layer with a stored HIGH/MEDIUM/LOW finding was
+ * processed and counts as completed. This file pins
+ *  - the normal form itself (readSpatialEvidenceForm) and the fresh-run gate built on it
+ *    (assertGovernedSpatialQueryOutcome: REJECT_SPATIAL_EVIDENCE_FORM, never reaching the rules),
+ *  - that the layer check reads evidence through the same normal form, and
+ *  - that a stored risk finding makes its layer CHECKED_HIT, also when its evidence is not the
+ *    consistent evidence the current producer pins (reason FINDING_WITHOUT_CONSISTENT_EVIDENCE).
+ * Pure functions plus the REAL LURuleEngine (deep import, as the kernel uses it); no DB, no CAS.
+ */
+import { describe, expect, it } from 'vitest';
+import { LURuleEngine } from '../../packages/mps-lu/src/rules/LURuleEngine';
+import {
+  assertGovernedSpatialQueryOutcome,
+  readSpatialEvidenceForm,
+} from '../../server/modules/localization/governedSpatialEvidenceForm';
+import { computeGovernedLayerChecks } from '../../server/modules/localization/governedLayerChecks';
+
+function ev(layer: string, result: Record<string, unknown> | undefined, kind: unknown = 'EXISTENCE_WITHIN_DISTANCE') {
+  return {
+    artifact_id: `evidence-${layer}-u20cdf2`,
+    artifact_type: 'SPATIAL_EVIDENCE' as const,
+    payload: {
+      source_metadata: { dataset: layer },
+      result_semantics: { ...(kind === undefined ? {} : { kind }), ...(result === undefined ? {} : { result }) },
+    },
+  };
+}
+
+describe('U20CDF2 (G3): the one normal form of a governed spatial evidence result', () => {
+  it.each<[string, Record<string, unknown> | undefined, unknown, { valid: boolean; exists?: boolean; violation?: string }]>([
+    ['negative, count 0', { exists: false, match_count_observed: 0 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: true, exists: false }],
+    ['positive, count 3', { exists: true, match_count_observed: 3 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: true, exists: true }],
+    ['negative, count absent', { exists: false }, 'EXISTENCE_WITHIN_DISTANCE', { valid: true, exists: false }],
+    ['positive, count null (absent)', { exists: true, match_count_observed: null }, 'EXISTENCE_WITHIN_DISTANCE', { valid: true, exists: true }],
+    ['kind absent (older evidence), positive', { exists: true }, undefined, { valid: true, exists: true }],
+    ['exists:true with count 0 (G3)', { exists: true, match_count_observed: 0 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'MATCH_COUNT_CONTRADICTS_EXISTS' }],
+    ['exists:false with count 3', { exists: false, match_count_observed: 3 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'MATCH_COUNT_CONTRADICTS_EXISTS' }],
+    ['exists missing', { match_count_observed: 3 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'EXISTS_NOT_BOOLEAN' }],
+    ['exists null', { exists: null }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'EXISTS_NOT_BOOLEAN' }],
+    ['exists "true" (string; truthy for the rule engine)', { exists: 'true' }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'EXISTS_NOT_BOOLEAN' }],
+    ['exists "false" (string; truthy for the rule engine)', { exists: 'false', match_count_observed: 0 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'EXISTS_NOT_BOOLEAN' }],
+    ['count negative', { exists: false, match_count_observed: -1 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'MATCH_COUNT_NOT_A_COUNT' }],
+    ['count fractional', { exists: true, match_count_observed: 1.5 }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'MATCH_COUNT_NOT_A_COUNT' }],
+    ['count a string', { exists: true, match_count_observed: '3' }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'MATCH_COUNT_NOT_A_COUNT' }],
+    ['count NaN', { exists: true, match_count_observed: Number.NaN }, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'MATCH_COUNT_NOT_A_COUNT' }],
+    ['unadmitted kind', { exists: true, match_count_observed: 1 }, 'FEATURE_GEOMETRY', { valid: false, violation: 'RESULT_KIND_NOT_ADMITTED' }],
+    ['result missing', undefined, 'EXISTENCE_WITHIN_DISTANCE', { valid: false, violation: 'RESULT_MISSING' }],
+  ])('%s', (_label, result, kind, expected) => {
+    expect(readSpatialEvidenceForm(ev('water', result, kind))).toMatchObject({ ...expected, ...(expected.valid ? { dataset: 'water' } : {}) });
+  });
+
+  it('evidence without a dataset name is not in the normal form', () => {
+    const noDataset = { artifact_id: 'x', payload: { source_metadata: {}, result_semantics: { result: { exists: true } } } };
+    expect(readSpatialEvidenceForm(noDataset)).toMatchObject({ valid: false, violation: 'DATASET_MISSING' });
+    expect(readSpatialEvidenceForm(null)).toMatchObject({ valid: false, violation: 'DATASET_MISSING' });
+  });
+});
+
+describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine', () => {
+  const valid = { evidence: [ev('water', { exists: true, match_count_observed: 3 }), ev('ebh', { exists: false, match_count_observed: 0 })], unavailable_layers: [{ dataset: 'natura2000', reason: 'SOURCE_UNAVAILABLE' }] };
+
+  it('a provider outcome in the normal form passes', () => {
+    expect(() => assertGovernedSpatialQueryOutcome(valid)).not.toThrow();
+    // Silence about a layer is not a form violation here (see the coverage classification).
+    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [] })).not.toThrow();
+  });
+
+  it.each<[string, Record<string, unknown> | undefined, unknown]>([
+    ['exists:true with count 0', { exists: true, match_count_observed: 0 }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['exists:false with count 3', { exists: false, match_count_observed: 3 }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['exists not a boolean', { exists: 'yes' }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['unadmitted kind', { exists: true, match_count_observed: 1 }, 'FEATURE_GEOMETRY'],
+    ['count not a count', { exists: true, match_count_observed: -2 }, 'EXISTENCE_WITHIN_DISTANCE'],
+  ])('%s -> REJECT_SPATIAL_EVIDENCE_FORM (fail-closed, no second interpretation)', (_label, result, kind) => {
+    const outcome = { ...valid, evidence: [...valid.evidence, ev('protected_area', result, kind)] };
+    expect(() => assertGovernedSpatialQueryOutcome(outcome)).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: /);
+  });
+
+  it('evidence AND an unavailable entry for the same layer -> REJECT_SPATIAL_EVIDENCE_FORM', () => {
+    const outcome = { ...valid, unavailable_layers: [...valid.unavailable_layers, { dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }] };
+    expect(() => assertGovernedSpatialQueryOutcome(outcome)).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: water EVIDENCE_AND_UNAVAILABLE$/);
+  });
+
+  it('an unavailable entry without a dataset name -> REJECT_SPATIAL_EVIDENCE_FORM', () => {
+    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [{ dataset: '', reason: 'x' }] })).toThrow(
+      /^REJECT_SPATIAL_EVIDENCE_FORM: /,
+    );
+  });
+
+  it('for every outcome the gate admits, the rule engine and the layer check agree layer by layer', () => {
+    const engine = new LURuleEngine();
+    const states: Array<Record<string, unknown> | 'UNAVAILABLE'> = [
+      { exists: false, match_count_observed: 0 },
+      { exists: false },
+      { exists: true, match_count_observed: 2 },
+      { exists: true },
+      'UNAVAILABLE',
+    ];
+    const layers = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'];
+    for (const state of states) {
+      for (const layer of layers) {
+        const outcome = state === 'UNAVAILABLE'
+          ? { evidence: [], unavailable_layers: [{ dataset: layer, reason: 'SOURCE_UNAVAILABLE' }] }
+          : { evidence: [ev(layer, state)], unavailable_layers: [] };
+        assertGovernedSpatialQueryOutcome(outcome);
+        const findings = engine.evaluate({
+          spatial_evidence: outcome.evidence as never,
+          document_evidence: [],
+          unavailable_layers: outcome.unavailable_layers as never,
+        });
+        const [check] = computeGovernedLayerChecks({ requestedLayers: [layer], evidence: outcome.evidence, unavailableLayers: [], findings });
+        const risk = findings.some((f) => f.risk_level === 'HIGH' || f.risk_level === 'MEDIUM' || f.risk_level === 'LOW');
+        expect(check!.status === 'CHECKED_HIT', `${layer} ${JSON.stringify(state)}`).toBe(risk);
+        expect(check!.reason === null || check!.status === 'NOT_CHECKED', `${layer} ${JSON.stringify(state)}`).toBe(true);
+        if (state === 'UNAVAILABLE') expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING' });
+      }
+    }
+  });
+});
+
+describe('U20CDF2 (G3 / owner invariant): a layer with a stored risk finding was processed and counts as completed', () => {
+  it('the verifier probe F1: exists:true + count 0 gives a MEDIUM finding from the real rule engine -> the layer is CHECKED_HIT, never NOT_CHECKED', () => {
+    const water = ev('water', { exists: true, match_count_observed: 0, max_features_per_layer: 50 });
+    const unavailable = ['ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' }));
+    // The fresh run never gets here (the gate rejects this evidence); a stored record can still hold it.
+    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [water], unavailable_layers: unavailable })).toThrow(/REJECT_SPATIAL_EVIDENCE_FORM/);
+    const findings = new LURuleEngine().evaluate({ spatial_evidence: [water] as never, document_evidence: [], unavailable_layers: unavailable as never });
+    expect(findings.find((f) => f.rule_id === 'LU-WATER-001')?.risk_level).toBe('MEDIUM');
+
+    const checks = computeGovernedLayerChecks({
+      requestedLayers: ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'],
+      evidence: [water],
+      unavailableLayers: [],
+      findings,
+    });
+    expect(checks[0]).toEqual({
+      layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: water.artifact_id,
+      // Counted as completed, and says that its evidence is not the consistent evidence a current run pins.
+      reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
+    });
+    expect(checks.slice(1).map((c) => [c.status, c.reason])).toEqual(Array(4).fill(['NOT_CHECKED', 'NOT_CHECKED_FINDING']));
+  });
+
+  it.each<[string, readonly ReturnType<typeof ev>[], readonly { rule_id: string; risk_level: string }[]]>([
+    ['a risk finding without any evidence for the layer', [], [{ rule_id: 'LU-EBH-001', risk_level: 'HIGH' }]],
+    ['a risk finding next to negative evidence', [ev('ebh', { exists: false, match_count_observed: 0 })], [{ rule_id: 'LU-EBH-001', risk_level: 'HIGH' }]],
+    ['a risk finding next to an uninterpretable result', [ev('ebh', { exists: 'yes' })], [{ rule_id: 'LU-EBH-001', risk_level: 'LOW' }]],
+    ['a risk finding AND a NOT_CHECKED finding', [ev('ebh', { exists: true, match_count_observed: 1 })], [
+      { rule_id: 'LU-EBH-001', risk_level: 'MEDIUM' }, { rule_id: 'LU-EBH-001', risk_level: 'NOT_CHECKED' },
+    ]],
+  ])('%s -> CHECKED_HIT / FINDING_WITHOUT_CONSISTENT_EVIDENCE', (_label, evidence, findings) => {
+    const [check] = computeGovernedLayerChecks({ requestedLayers: ['ebh'], evidence, unavailableLayers: [], findings });
+    expect(check).toMatchObject({ layer: 'ebh', status: 'CHECKED_HIT', reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' });
+  });
+
+  it('the consistent case keeps reason null; a NOT_CHECKED finding still wins over evidence when no risk finding exists', () => {
+    const hit = ev('ebh', { exists: true, match_count_observed: 2 });
+    expect(computeGovernedLayerChecks({ requestedLayers: ['ebh'], evidence: [hit], unavailableLayers: [], findings: [{ rule_id: 'LU-EBH-001', risk_level: 'HIGH' }] })).toEqual([
+      { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_HIT', evidence_artifact_id: hit.artifact_id, reason: null },
+    ]);
+    const negative = ev('ebh', { exists: false, match_count_observed: 0 });
+    expect(computeGovernedLayerChecks({ requestedLayers: ['ebh'], evidence: [negative], unavailableLayers: [], findings: [{ rule_id: 'LU-EBH-001', risk_level: 'NOT_CHECKED' }] })).toEqual([
+      { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NOT_CHECKED_FINDING' },
+    ]);
+  });
+});

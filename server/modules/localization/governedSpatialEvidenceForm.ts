@@ -1,0 +1,101 @@
+/**
+ * U20CDF2 (U20CDF verification G3; owner's locked specification 2026-10-02 night) -- THE normal
+ * form of one governed spatial evidence result, shared by both readers of that evidence:
+ *
+ *  - before the rule engine: the fresh run passes the provider's outcome through
+ *    assertGovernedSpatialQueryOutcome before anything reaches the kernel; an outcome outside the
+ *    normal form is fail-closed (REJECT_SPATIAL_EVIDENCE_FORM -> EXECUTION_FAILED, no assessment);
+ *  - in the coverage read model: computeGovernedLayerChecks (and the evidence details) read every
+ *    stored evidence through readSpatialEvidenceForm, so an evidence is "checked, hit" / "checked,
+ *    no hit" under exactly the rule the gate admitted.
+ *
+ * Before this, LURuleEngine fired on a truthy `result.exists` alone while the layer check also
+ * demanded the admitted kind and a consistent match count -- `{ exists: true, match_count_observed:
+ * 0 }` gave a MEDIUM finding next to "0 av 6". Now there is one acceptance rule and no second
+ * interpretation. The rule engine itself (packages/mps-lu) is unchanged: on the product path it
+ * only ever sees outcomes this gate admitted, and for those its reading of `exists` and this one
+ * coincide (exists is a boolean; the count, when present, agrees with it).
+ *
+ * The normal form (the ADMIT v1 EXISTENCE_WITHIN_DISTANCE contract the provider produces):
+ *  - `payload.source_metadata.dataset` is a non-empty string;
+ *  - `result_semantics.kind` is EXISTENCE_WITHIN_DISTANCE, or absent (older evidence predating the
+ *    field; never another declared kind);
+ *  - `result_semantics.result.exists` is a boolean;
+ *  - `result_semantics.result.match_count_observed`, when present (not undefined/null), is a
+ *    non-negative integer and `count > 0` equals `exists`.
+ * Query outcome level (fresh run only): every unavailable entry names a dataset, and no dataset is
+ * both evidenced and reported unavailable. Silence about a requested layer is not a form violation
+ * here; the coverage classification (governedLayerChecks.ts) treats such a record honestly.
+ */
+
+export const ADMITTED_SPATIAL_RESULT_KIND = 'EXISTENCE_WITHIN_DISTANCE';
+
+/** The machine code of the fail-closed gate (the governed error vocabulary: REJECT_*). */
+export const SPATIAL_EVIDENCE_FORM_REJECT_CODE = 'REJECT_SPATIAL_EVIDENCE_FORM';
+
+export type SpatialEvidenceFormViolation =
+  | 'DATASET_MISSING'
+  | 'RESULT_MISSING'
+  | 'RESULT_KIND_NOT_ADMITTED'
+  | 'EXISTS_NOT_BOOLEAN'
+  | 'MATCH_COUNT_NOT_A_COUNT'
+  | 'MATCH_COUNT_CONTRADICTS_EXISTS';
+
+export type SpatialEvidenceForm =
+  | { readonly valid: true; readonly dataset: string; readonly exists: boolean; readonly match_count: number | null }
+  | { readonly valid: false; readonly dataset: string | null; readonly violation: SpatialEvidenceFormViolation };
+
+function invalid(dataset: string | null, violation: SpatialEvidenceFormViolation): SpatialEvidenceForm {
+  return { valid: false, dataset, violation };
+}
+
+export function readSpatialEvidenceForm(evidence: unknown): SpatialEvidenceForm {
+  const payload = (evidence && typeof evidence === 'object' ? (evidence as { payload?: unknown }).payload : undefined) as
+    | { source_metadata?: { dataset?: unknown }; result_semantics?: unknown }
+    | undefined;
+  const rawDataset = payload?.source_metadata?.dataset;
+  const dataset = typeof rawDataset === 'string' && rawDataset.length > 0 ? rawDataset : null;
+  if (!dataset) return invalid(null, 'DATASET_MISSING');
+
+  const semantics = payload?.result_semantics as { kind?: unknown; result?: unknown } | undefined;
+  if (!semantics || typeof semantics !== 'object') return invalid(dataset, 'RESULT_MISSING');
+  if (semantics.kind !== undefined && semantics.kind !== ADMITTED_SPATIAL_RESULT_KIND) {
+    return invalid(dataset, 'RESULT_KIND_NOT_ADMITTED');
+  }
+  const result = semantics.result as { exists?: unknown; match_count_observed?: unknown } | undefined;
+  if (!result || typeof result !== 'object') return invalid(dataset, 'RESULT_MISSING');
+  if (typeof result.exists !== 'boolean') return invalid(dataset, 'EXISTS_NOT_BOOLEAN');
+
+  const count = result.match_count_observed;
+  if (count === undefined || count === null) return { valid: true, dataset, exists: result.exists, match_count: null };
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return invalid(dataset, 'MATCH_COUNT_NOT_A_COUNT');
+  if (count > 0 !== result.exists) return invalid(dataset, 'MATCH_COUNT_CONTRADICTS_EXISTS');
+  return { valid: true, dataset, exists: result.exists, match_count: count };
+}
+
+/**
+ * The fresh-run gate: throws `REJECT_SPATIAL_EVIDENCE_FORM: <dataset> <violation>` for the first
+ * entry outside the normal form. The message names only a dataset and a fixed code (no provider
+ * text); the governed error sanitizer passes on the code alone.
+ */
+export function assertGovernedSpatialQueryOutcome(outcome: {
+  readonly evidence: readonly unknown[];
+  readonly unavailable_layers: readonly unknown[];
+}): void {
+  const evidenced = new Set<string>();
+  for (const evidence of outcome.evidence) {
+    const form = readSpatialEvidenceForm(evidence);
+    if (form.valid === false) {
+      const rejected = form as Extract<SpatialEvidenceForm, { valid: false }>;
+      throw new Error(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: ${rejected.dataset ?? 'okänt-lager'} ${rejected.violation}`);
+    }
+    evidenced.add(form.dataset);
+  }
+  for (const unavailable of outcome.unavailable_layers) {
+    const dataset = unavailable && typeof unavailable === 'object' ? (unavailable as { dataset?: unknown }).dataset : undefined;
+    if (typeof dataset !== 'string' || dataset.length === 0) {
+      throw new Error(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: okänt-lager UNAVAILABLE_WITHOUT_DATASET`);
+    }
+    if (evidenced.has(dataset)) throw new Error(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: ${dataset} EVIDENCE_AND_UNAVAILABLE`);
+  }
+}

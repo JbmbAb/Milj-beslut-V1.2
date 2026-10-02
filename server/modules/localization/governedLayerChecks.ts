@@ -17,6 +17,8 @@
  * the fresh run, the read-back and the PDF alike, over the PERSISTED inputs (stored evidence +
  * stored findings); a layer whose query failed is seen through its NOT_CHECKED finding there.
  */
+import { readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
+
 export type GovernedLayerCheckStatus = 'CHECKED_NO_HIT' | 'CHECKED_HIT' | 'NOT_CHECKED';
 
 export interface GovernedLayerCheck {
@@ -24,7 +26,12 @@ export interface GovernedLayerCheck {
   readonly rule_id: string | null;
   readonly status: GovernedLayerCheckStatus;
   readonly evidence_artifact_id: string | null;
-  /** Only for NOT_CHECKED: the provider's reason, 'NOT_CHECKED_FINDING', 'NO_EVIDENCE' or 'UNRECOGNIZED_RESULT'. */
+  /**
+   * For NOT_CHECKED: the provider's reason, 'NOT_CHECKED_FINDING', 'NO_EVIDENCE',
+   * 'UNRECOGNIZED_RESULT' or 'PINNED_EVIDENCE_UNREADABLE'.
+   * U20CDF2: on a CHECKED_HIT only 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' (a stored risk finding whose
+   * record lacks the consistent evidence a current run pins); null on every consistent check.
+   */
   readonly reason: string | null;
 }
 
@@ -41,7 +48,7 @@ interface LayerEvidenceLike {
   readonly artifact_id: string;
   readonly payload: {
     readonly source_metadata: { readonly dataset: string };
-    readonly result_semantics: { readonly result: unknown };
+    readonly result_semantics: { readonly result?: unknown };
   };
 }
 
@@ -195,12 +202,60 @@ export function computeGovernedDocumentCheck(
   return make('CHECKED_HIT', null, documentEvidenceIds[0]!);
 }
 
+/** The governed severities. NOT_CHECKED is a non-severity state (SEM-1) and is not among them. */
+export const GOVERNED_RISK_LEVELS: readonly string[] = ['HIGH', 'MEDIUM', 'LOW'];
+
+export function isGovernedRiskFinding(finding: { readonly risk_level?: unknown } | null | undefined): boolean {
+  return typeof finding?.risk_level === 'string' && GOVERNED_RISK_LEVELS.includes(finding.risk_level);
+}
+
+/** The governed rule of an LU v1 spatial layer (null for a layer without one). */
+export function governedLayerRuleId(layer: string): string | null {
+  return LAYER_RULE_IDS[layer] ?? null;
+}
+
+/** The LU v1 spatial layer a governed rule belongs to (null for any other rule). */
+export function governedLayerOfRule(ruleId: string): string | null {
+  return Object.keys(LAYER_RULE_IDS).find((layer) => LAYER_RULE_IDS[layer] === ruleId) ?? null;
+}
+
+export interface LayerCheckFindingLike {
+  readonly rule_id: string;
+  readonly risk_level: string;
+  readonly evidence_refs?: readonly { readonly artifact_id: string }[];
+}
+
+/**
+ * U20CDF2 (U20CDF verification G1-G3; owner's locked specification 2026-10-02 night): the ONE
+ * derivation of a spatial layer's check from the assessment's stored record -- its findings (the
+ * rule engine's outcome) and its evidence, read through the common normal form
+ * (governedSpatialEvidenceForm.ts) that also gates the fresh run before the rule engine.
+ *
+ * Order, per layer:
+ *  1. a live provider `unavailable` entry (only callers that pass one) -> NOT_CHECKED (its reason);
+ *  2. a stored HIGH/MEDIUM/LOW finding of the layer's rule: the layer WAS processed by the rule
+ *     engine and counts as completed (owner invariant) -> CHECKED_HIT, unless the read-back could not
+ *     read the evidence that finding cites (PINNED_EVIDENCE_UNREADABLE: an integrity/technical error,
+ *     never a new coverage computation). When the record does not hold the consistent evidence the
+ *     current producer pins with every such finding (one valid evidence with exists:true, all of the
+ *     layer's evidence in the normal form, no NOT_CHECKED finding beside it) the row says so:
+ *     reason FINDING_WITHOUT_CONSISTENT_EVIDENCE -- still completed, never hidden;
+ *  3. a stored NOT_CHECKED finding -> NOT_CHECKED (NOT_CHECKED_FINDING), also beside evidence (a
+ *     combination the fresh-run gate rejects, so only an older record can hold it);
+ *  4. no evidence -> NOT_CHECKED (NO_EVIDENCE: silence is never "checked");
+ *  5. evidence outside the normal form -> NOT_CHECKED (UNRECOGNIZED_RESULT);
+ *  6. otherwise CHECKED_HIT / CHECKED_NO_HIT from `exists`, exactly as the rule engine reads it.
+ *
+ * @param unreadableArtifactIds ids of pinned refs the read-back could not read from CAS.
+ */
 export function computeGovernedLayerChecks(input: {
   readonly requestedLayers: readonly string[];
   readonly evidence: readonly LayerEvidenceLike[];
   readonly unavailableLayers: readonly { readonly dataset: string; readonly reason: string }[];
-  readonly findings: readonly { readonly rule_id: string; readonly risk_level: string }[];
+  readonly findings: readonly LayerCheckFindingLike[];
+  readonly unreadableArtifactIds?: readonly string[];
 }): GovernedLayerCheck[] {
+  const unreadable = new Set(input.unreadableArtifactIds ?? []);
   return input.requestedLayers.map((layer): GovernedLayerCheck => {
     const ruleId = LAYER_RULE_IDS[layer] ?? null;
     const notChecked = (reason: string, evidenceId: string | null = null): GovernedLayerCheck => ({
@@ -213,32 +268,46 @@ export function computeGovernedLayerChecks(input: {
 
     const unavailable = input.unavailableLayers.find((u) => u.dataset === layer);
     if (unavailable) return notChecked(unavailable.reason);
-    if (ruleId && input.findings.some((f) => f.rule_id === ruleId && f.risk_level === 'NOT_CHECKED')) {
-      return notChecked('NOT_CHECKED_FINDING');
-    }
 
     const layerEvidence = input.evidence.filter((e) => e.payload?.source_metadata?.dataset === layer);
+    // U20CDF2 (G3): the same normal form the fresh-run gate applies before the rule engine.
+    const forms = layerEvidence.map((e) => readSpatialEvidenceForm(e));
+    const ruleFindings = ruleId ? input.findings.filter((f) => f.rule_id === ruleId) : [];
+    const riskFindings = ruleFindings.filter(isGovernedRiskFinding);
+    const hasNotCheckedFinding = ruleFindings.some((f) => f.risk_level === 'NOT_CHECKED');
+
+    if (riskFindings.length > 0) {
+      const unreadableCited = riskFindings
+        .flatMap((f) => f.evidence_refs ?? [])
+        .map((ref) => ref?.artifact_id)
+        .filter((id): id is string => typeof id === 'string' && unreadable.has(id))
+        .sort();
+      if (unreadableCited.length > 0) return notChecked('PINNED_EVIDENCE_UNREADABLE', unreadableCited[0]!);
+      const hitIndex = forms.findIndex((form) => form.valid && form.exists);
+      const consistent = hitIndex >= 0 && forms.every((form) => form.valid) && !hasNotCheckedFinding;
+      return {
+        layer,
+        rule_id: ruleId,
+        status: 'CHECKED_HIT',
+        evidence_artifact_id: hitIndex >= 0 ? layerEvidence[hitIndex]!.artifact_id : (layerEvidence[0]?.artifact_id ?? null),
+        reason: consistent ? null : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
+      };
+    }
+    if (hasNotCheckedFinding) return notChecked('NOT_CHECKED_FINDING');
     if (layerEvidence.length === 0) return notChecked('NO_EVIDENCE');
 
-    const existsValues = layerEvidence.map((e) => (e.payload.result_semantics?.result as { exists?: unknown } | undefined)?.exists);
-    if (existsValues.some((v) => typeof v !== 'boolean')) return notChecked('UNRECOGNIZED_RESULT', layerEvidence[0]!.artifact_id);
-    // U20-D (M2b findings 8 and 9): the server decides these, so no client has to. An evidence that
-    // declares a result semantics other than the one admitted kind, or whose observed match count
-    // contradicts its own `exists`, cannot be read as checked -- with or without a hit.
-    const unreadable = layerEvidence.find((e) => {
-      const semantics = e.payload.result_semantics as { kind?: unknown; result?: { exists?: unknown; match_count_observed?: unknown } } | undefined;
-      if (semantics?.kind !== undefined && semantics.kind !== 'EXISTENCE_WITHIN_DISTANCE') return true;
-      const count = semantics?.result?.match_count_observed;
-      return typeof count === 'number' && (count > 0) !== semantics?.result?.exists;
-    });
-    if (unreadable) return notChecked('UNRECOGNIZED_RESULT', unreadable.artifact_id);
+    // U20-D (M2b findings 8 and 9), now through the one normal form: an evidence that declares
+    // another result kind, a non-boolean `exists`, or a match count contradicting it cannot be read
+    // as checked -- with or without a hit.
+    const invalidIndex = forms.findIndex((form) => !form.valid);
+    if (invalidIndex >= 0) return notChecked('UNRECOGNIZED_RESULT', layerEvidence[invalidIndex]!.artifact_id);
 
-    const hit = layerEvidence.find((_, i) => existsValues[i] === true);
+    const hitIndex = forms.findIndex((form) => form.valid && form.exists);
     return {
       layer,
       rule_id: ruleId,
-      status: hit ? 'CHECKED_HIT' : 'CHECKED_NO_HIT',
-      evidence_artifact_id: (hit ?? layerEvidence[0]!).artifact_id,
+      status: hitIndex >= 0 ? 'CHECKED_HIT' : 'CHECKED_NO_HIT',
+      evidence_artifact_id: layerEvidence[hitIndex >= 0 ? hitIndex : 0]!.artifact_id,
       reason: null,
     };
   });

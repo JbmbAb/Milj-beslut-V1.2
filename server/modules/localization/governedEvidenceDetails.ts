@@ -58,9 +58,12 @@ import {
 import {
   governedLayerLabelSv,
   governedOverallStatementSv,
+  highestGovernedRiskLevel,
+  riskLevelPhraseSv,
   summarizeGovernedCheckCoverage,
   type GovernedCheckCoverage,
 } from './governedCoverageStatement';
+import { readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
 import { knownCoverageGapsFor, knownCoverageLimitationSv, type KnownCoverageGap } from './knownCoverageGaps';
 
 /** The governed spatial layers of LU v1, in check order. The product query requests exactly these. */
@@ -226,8 +229,23 @@ function radiusSv(view: SpatialEvidenceView): string {
   return view.distanceMeters !== null ? `inom ${view.distanceMeters} m` : 'inom sökradien (radien saknas i underlaget)';
 }
 
-function spatialCheckMessageSv(check: GovernedLayerCheck, state: GovernedCoverageState, view: SpatialEvidenceView): string {
+function spatialCheckMessageSv(
+  check: GovernedLayerCheck,
+  state: GovernedCoverageState,
+  view: SpatialEvidenceView,
+  storedRiskLevel: string | null = null,
+): string {
   const source = sourceLabelSv(check.layer, view);
+  if (check.status === 'CHECKED_HIT' && check.reason === 'FINDING_WITHOUT_CONSISTENT_EVIDENCE') {
+    // U20CDF2 (owner invariant): the stored finding shows the layer was processed -- completed, and
+    // shown in full -- but the record does not hold the consistent evidence that would back it.
+    return (
+      `Träff enligt bedömningens lagrade fynd för ${source}` +
+      (storedRiskLevel ? ` (${riskLevelPhraseSv(storedRiskLevel)})` : '') +
+      '. Bedömningen innehåller ingen konsistent evidens för lagret som belägger träffen (evidensen saknas, ' +
+      'är negativ, kan inte tolkas eller står bredvid ett fynd om att lagret inte kunde kontrolleras).'
+    );
+  }
   switch (state) {
     case 'CHECKED_NO_HIT':
       // SI-2 (owner wording): a register check, never "oförorenad", "inga risker" or "inga avvikelser".
@@ -253,7 +271,16 @@ function spatialCheckMessageSv(check: GovernedLayerCheck, state: GovernedCoverag
   }
 }
 
-function presentCheck(check: GovernedLayerCheck, evidenceById: ReadonlyMap<string, SpatialEvidenceArtifact>): PresentedGovernedLayerCheck {
+/** A stored finding as the layer checks read it: its rule, its level and (when recorded) what it cites. */
+type StoredFindingLike = Pick<AssessmentFinding, 'rule_id' | 'risk_level'> & {
+  readonly evidence_refs?: AssessmentFinding['evidence_refs'];
+};
+
+function presentCheck(
+  check: GovernedLayerCheck,
+  evidenceById: ReadonlyMap<string, SpatialEvidenceArtifact>,
+  findings: readonly StoredFindingLike[],
+): PresentedGovernedLayerCheck {
   const state = coverageStateOf(check);
   const existing = (check as { message_sv?: unknown }).message_sv;
   if (typeof existing === 'string') {
@@ -268,10 +295,11 @@ function presentCheck(check: GovernedLayerCheck, evidenceById: ReadonlyMap<strin
   }
   const evidence = check.evidence_artifact_id ? evidenceById.get(check.evidence_artifact_id) : undefined;
   const view = spatialEvidenceView(evidence);
+  const storedRiskLevel = highestGovernedRiskLevel(findings.filter((f) => check.rule_id !== null && f.rule_id === check.rule_id));
   return {
     ...check,
     coverage_state: state,
-    message_sv: spatialCheckMessageSv(check, state, view),
+    message_sv: spatialCheckMessageSv(check, state, view, storedRiskLevel),
     coverage_limitation_sv: admitV1ContractFacts(view.versionHash)?.coverage_limitation_sv ?? MISSING_IN_BASIS_SV,
     known_coverage_gaps: knownCoverageGapsFor(view.versionHash),
   };
@@ -288,10 +316,13 @@ function presentCheck(check: GovernedLayerCheck, evidenceById: ReadonlyMap<strin
  */
 export function presentedGovernedLayerChecks(input: {
   readonly spatialEvidence: readonly SpatialEvidenceArtifact[];
-  readonly findings: readonly Pick<AssessmentFinding, 'rule_id' | 'risk_level'>[];
+  readonly findings: readonly StoredFindingLike[];
   readonly pinnedEvidenceRefs: unknown;
   readonly spatialEvidenceUnreadable?: boolean;
-  /** U20CDF: pinned refs that could not be read from CAS (read-back); a pinned document among them is a technical error. */
+  /**
+   * U20CDF: pinned refs that could not be read from CAS (read-back); a pinned document among them is
+   * a technical error. U20CDF2 (G2): so is the layer of a stored risk finding that cites one of them.
+   */
   readonly unreadableArtifactIds?: readonly string[];
 }): PresentedGovernedLayerCheck[] {
   const requestedLayers: string[] = [...LU_V1_GOVERNED_SPATIAL_LAYERS];
@@ -306,6 +337,7 @@ export function presentedGovernedLayerChecks(input: {
     // assessment; the provider's live failure list is not (and its raw error text never reaches here).
     unavailableLayers: [],
     findings: input.findings,
+    unreadableArtifactIds: input.unreadableArtifactIds,
   }).map((check) =>
     input.spatialEvidenceUnreadable && check.reason === 'NO_EVIDENCE'
       ? { ...check, reason: 'PINNED_EVIDENCE_UNREADABLE' }
@@ -315,7 +347,7 @@ export function presentedGovernedLayerChecks(input: {
   const documentCheck = computeGovernedDocumentCheck(input.pinnedEvidenceRefs, {
     unreadableArtifactIds: input.unreadableArtifactIds,
   });
-  return [...spatial, documentCheck].map((check) => presentCheck(check, evidenceById));
+  return [...spatial, documentCheck].map((check) => presentCheck(check, evidenceById, input.findings));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -505,12 +537,15 @@ function spatialDetail(
     : contract.legacy_adopted
       ? 'HASH_BOUND_LEGACY_ADOPTED'
       : 'HASH_BOUND_LEDGER_METADATA';
+  // U20CDF2 (G3): the evidence's own result is read through the same normal form as the fresh-run
+  // gate and the layer checks -- e.g. exists:true with match count 0 is not shown as a hit.
+  const form = readSpatialEvidenceForm(artifact);
   const pseudoCheck: GovernedLayerCheck = {
     layer: layer ?? 'okänt lager',
     rule_id: null,
-    status: exists === null ? 'NOT_CHECKED' : exists ? 'CHECKED_HIT' : 'CHECKED_NO_HIT',
+    status: !form.valid ? 'NOT_CHECKED' : form.exists ? 'CHECKED_HIT' : 'CHECKED_NO_HIT',
     evidence_artifact_id: ref.artifact_id,
-    reason: exists === null ? 'UNRECOGNIZED_RESULT' : null,
+    reason: form.valid ? null : 'UNRECOGNIZED_RESULT',
   };
   return {
     evidence_artifact_id: ref.artifact_id,

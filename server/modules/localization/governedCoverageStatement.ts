@@ -96,6 +96,22 @@ const RISK_LEVEL_SV: Readonly<Record<string, string>> = {
   HIGH: 'Hög risk',
 };
 
+const RISK_LEVEL_WORD_SV: Readonly<Record<string, string>> = { HIGH: 'hög', MEDIUM: 'måttlig', LOW: 'låg' };
+const RISK_LEVEL_ORDER: readonly string[] = ['HIGH', 'MEDIUM', 'LOW'];
+
+/**
+ * U20CDF2: a stored finding's level in running text -- "risknivå hög" -- for the places that name
+ * stored findings without stating an overall risk level (it never forms the phrase "låg risk").
+ */
+export function riskLevelPhraseSv(level: string): string {
+  return `risknivå ${RISK_LEVEL_WORD_SV[level] ?? level}`;
+}
+
+/** The highest HIGH/MEDIUM/LOW level among the findings; null when none carries one. */
+export function highestGovernedRiskLevel(findings: readonly { readonly risk_level?: unknown }[]): string | null {
+  return RISK_LEVEL_ORDER.find((level) => findings.some((f) => f?.risk_level === level)) ?? null;
+}
+
 /**
  * @param riskLevel the governed overallRisk (unchanged machine value).
  * @param checks    the governed layer checks of the same assessment (spatial + document).
