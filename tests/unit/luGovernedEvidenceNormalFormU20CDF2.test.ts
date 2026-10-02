@@ -59,6 +59,16 @@ describe('U20CDF2 (G3): the one normal form of a governed spatial evidence resul
     expect(readSpatialEvidenceForm(ev('water', result, kind))).toMatchObject({ ...expected, ...(expected.valid ? { dataset: 'water' } : {}) });
   });
 
+  // U20CDF3 (low 7a; mutation M30 survived without this): an array is not the plain result object of
+  // the contract, also when it carries the contract's field names as own properties.
+  it('an array-shaped result or result_semantics is not in the normal form, whatever properties it carries', () => {
+    const arrayResult = Object.assign([], { exists: false, match_count_observed: 0 });
+    expect(readSpatialEvidenceForm(ev('water', arrayResult as never))).toMatchObject({ valid: false, violation: 'RESULT_MISSING' });
+    const arraySemantics = Object.assign([], { kind: 'EXISTENCE_WITHIN_DISTANCE', result: { exists: false } });
+    const evidence = { artifact_id: 'a', payload: { source_metadata: { dataset: 'water' }, result_semantics: arraySemantics } };
+    expect(readSpatialEvidenceForm(evidence)).toMatchObject({ valid: false, violation: 'RESULT_MISSING' });
+  });
+
   it('evidence without a dataset name is not in the normal form', () => {
     const noDataset = { artifact_id: 'x', payload: { source_metadata: {}, result_semantics: { result: { exists: true } } } };
     expect(readSpatialEvidenceForm(noDataset)).toMatchObject({ valid: false, violation: 'DATASET_MISSING' });
