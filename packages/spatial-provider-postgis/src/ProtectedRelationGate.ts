@@ -565,7 +565,7 @@ export const RETIRED_DESTRUCTIVE_SCRIPTS: readonly RetiredDestructiveScript[] = 
   },
 ]);
 
-function validateRetiredList(list: readonly RetiredDestructiveScript[]): void {
+export function validateRetiredDestructiveScripts(list: readonly RetiredDestructiveScript[]): void {
   const seen = new Set<string>();
   for (const e of list) {
     if (!/^[A-Za-z0-9_./-]+$/.test(e.script) || e.script.startsWith("/") || e.script.includes("\\")) {
@@ -580,7 +580,7 @@ function validateRetiredList(list: readonly RetiredDestructiveScript[]): void {
     }
   }
 }
-validateRetiredList(RETIRED_DESTRUCTIVE_SCRIPTS);
+validateRetiredDestructiveScripts(RETIRED_DESTRUCTIVE_SCRIPTS);
 
 /** Refuse a retired script before it connects to anything. Always throws. */
 export function refuseRetiredDestructiveScript(script: string): never {
