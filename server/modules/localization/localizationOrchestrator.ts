@@ -899,6 +899,22 @@ function isCurrentBindingUnresolvable(error: unknown): error is { reason: string
   );
 }
 
+/**
+ * W-APR / W-U20CDF5 (B3): the stored assessment follows no accepted contract -- one answer for the selection and
+ * for the point of use: 424 ASSESSMENT_CONTRACT_REFUSED, the REJECT_* token as reasonCode, a neutral text.
+ */
+function assessmentContractRefusal(refusal: string): AssessmentSelectionRefusal {
+  return selectionRefusal(
+    424,
+    'ASSESSMENT_CONTRACT_REFUSED',
+    'ASSESSMENT_CONTRACT_INVALID',
+    refusal,
+    'Projektets aktuella bedömning kan inte visas: den följer inget godkänt bedömningskontrakt (okänd eller ogiltig ' +
+      'kontraktsversion). En äldre bedömning visas aldrig i stället. ' +
+      `${retrySentenceSv(false)} Kontakta systemets administratör.`,
+  );
+}
+
 function selectionRefusal(
   status: 409 | 424,
   code: AssessmentSelectionRefusal['code'],
@@ -981,15 +997,7 @@ function assessmentResolutionFailure(error: unknown): { ok: false; status: numbe
       );
     }
     if (refusal.startsWith('REJECT_LOCALIZATION_ASSESSMENT')) {
-      return selectionRefusal(
-        424,
-        'ASSESSMENT_CONTRACT_REFUSED',
-        'ASSESSMENT_CONTRACT_INVALID',
-        refusal,
-        'Projektets aktuella bedömning kan inte visas: den följer inget godkänt bedömningskontrakt (okänd eller ogiltig ' +
-          'kontraktsversion). En äldre bedömning visas aldrig i stället. ' +
-          `${retrySentenceSv(false)} Kontakta systemets administratör.`,
-      );
+      return assessmentContractRefusal(refusal);
     }
     return selectionRefusal(
       409,
@@ -1163,11 +1171,10 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
   try {
     validateLocalizationAssessmentContractVersion(assessment.payload);
   } catch (error) {
-    return {
-      ok: false,
-      status: 424,
-      error: error instanceof Error ? error.message : 'Unsupported assessment contract version.',
-    };
+    // W-U20CDF5 (B3; W-APR): the same typed refusal as the selection's, never the raw message. The validator only
+    // inspects content already read (no read in the try), so its failure is a refusal; the REJECT_* token from the
+    // shared classification is the reasonCode.
+    return assessmentContractRefusal(classifyReadFault(error, 'verify').refusalCode ?? 'REJECT_LOCALIZATION_ASSESSMENT');
   }
 
   // W-U20CDF5 (B4; APR F7, W-CATCH2 #7/#14 class): "not bound" (424) only for a binding REFUSAL. A failed read of

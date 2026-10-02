@@ -79,7 +79,8 @@ export const READ_FAULT_CATCH_REVIEWED: readonly ReviewedCatch[] = [
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '451e8918e6743c45', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure: exact not-found 404, read error 503 retryable, lasting storage fault 503' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '76c1f80445ebfa62', count: 1, kind: 'OWN_CLASSIFICATION', note: 'W-APR/U20CDF2 assessmentResolutionFailure (see above)' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'b9fde1fe58ff150c', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure (see above)' },
-  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '4eac7eeebe7aa444', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (#4 class, W-U20CDF4 lane; reported by W-APR): a contract-version refusal is 424 with the RAW error message' },
+  // W-U20CDF5 (B3): the contract-version catch (former OPEN_NOT_FIXED 4eac7eeebe7aa444) answers the selection's
+  // typed ASSESSMENT_CONTRACT_REFUSED via classifyReadFault -- accepted by the scanner, no longer listed here.
   // W-U20CDF5 (B4): the authorizeAssessmentPresentation catch (former OPEN_NOT_FIXED 78beea267442af8c) now
   // classifies (projectAccessFailure for the access re-check, classifyReadFault for the binding); its inner
   // access-check catch propagates the failure -- both accepted by the scanner, no longer listed here.
