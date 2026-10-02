@@ -300,3 +300,49 @@ describe('W-CATCH3 (CATCH2 verifier finding 3): the stored text tells the truth 
     expect(outcome.failureDetail?.endsWith('Inget utfärdades.')).toBe(true);
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (owner decision 2026-10-03: capability, issuer AND provisioning are bound to exactly the
+// requested id and content; CATCH2 verifier finding 2 for the identity worker): an index entry of the
+// deterministic identity or temporal-status id pointing at ANOTHER valid object was caught only
+// indirectly (its attestation did not match -> EXISTING_ARTIFACT_REFUSED). The object under the id must
+// BE that object: a misdirected entry is a lasting integrity fault, never reused, nothing written.
+// ------------------------------------------------------------------------------------------------
+describe('W-CATCH3 #12: an object under a deterministic id must BE that object', () => {
+  const pointIndexAt = (fromId: string, toId: string) => {
+    const { hash } = JSON.parse(readFileSync(indexEntryPath(toId), 'utf8')) as { hash: string };
+    writeFileSync(indexEntryPath(fromId), JSON.stringify({ artifact_id: fromId, hash }));
+  };
+  /** Provisions a SECOND point of the same project (same property context) and returns its ids. */
+  async function otherPointProvisioned() {
+    const original = geometryId;
+    const other = createLocalizationGeometryArtifact({
+      project_id: PROJECT_ID,
+      property_context_ref: { artifact_id: 'lu_property_context-catch2', artifact_type: 'LU_PROPERTY_CONTEXT' },
+      wgs84LngLat: [18.09, 59.35],
+      sweref99NorthingEasting: [6581000, 675000],
+      provenance: 'user_defined',
+      label: 'Other point',
+      created_by: 'requester-1',
+    });
+    await put(other);
+    geometryId = other.artifact_id;
+    const ids = await provisionedOnce();
+    geometryId = original;
+    return ids;
+  }
+  it('the identity index entry points at ANOTHER valid identity (another point) -> EXISTING_ARTIFACT_INTEGRITY_FAULT, never reused, nothing written', async () => {
+    const mine = await provisionedOnce();
+    const other = await otherPointProvisioned();
+    expect(other.identityId).not.toBe(mine.identityId);
+    pointIndexAt(mine.identityId, other.identityId);
+    expectTypedNoWrite(await run(), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+  });
+  it('the temporal-status index entry points at ANOTHER valid status (another point) -> EXISTING_ARTIFACT_INTEGRITY_FAULT, nothing written', async () => {
+    const mine = await provisionedOnce();
+    const other = await otherPointProvisioned();
+    expect(other.temporalId).not.toBe(mine.temporalId);
+    pointIndexAt(mine.temporalId, other.temporalId);
+    expectTypedNoWrite(await run(), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+  });
+});
