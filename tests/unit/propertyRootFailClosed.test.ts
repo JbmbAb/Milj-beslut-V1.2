@@ -44,7 +44,8 @@ vi.mock('../../server/security/projectAccess', () => ({
   assertPermission: mocks.assertPermission,
 }));
 vi.mock('@miljobeslut/mps-runtime', () => ({ MimersIntegration: { create: mocks.mimersCreate } }));
-vi.mock('../../server/modules/localization/projectContextBindingRuntime', () => ({
+vi.mock('../../server/modules/localization/projectContextBindingRuntime', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   ProjectContextBindingProvider: class {
     resolveCurrent(...args: unknown[]) {
       return mocks.resolveCurrent(...args);
@@ -55,12 +56,19 @@ vi.mock('../../server/security/projectContextBindingIssuerKey', () => ({
   getProjectContextBindingIssuerSigner: mocks.getSigner,
   getProjectContextBindingIssuerVerifier: mocks.getVerifier,
 }));
+// W-BOOT: the bootstrap also asks the index whether a supersession relation is registered before it
+// treats an empty binding graph as "no binding"; this project has none.
 vi.mock('../../server/repositories/projectContextBindingRepository', () => ({
-  PrismaProjectContextBindingIndex: vi.fn(),
+  PrismaProjectContextBindingIndex: class {
+    async listSupersessionRefs() {
+      return [];
+    }
+  },
 }));
 
 import { lookupPropertyByDesignationFromPostgis } from '../../server/services/propertyUnitService';
 import { executeProjectContextBootstrap } from '../../server/modules/localization/luProjectContextBootstrap';
+import { ProjectContextBindingCurrentUnavailableError } from '../../server/modules/localization/projectContextBindingRuntime';
 import { toSafeErrorResponse } from '../../server/security/secureErrors';
 import type { AuthUser } from '../../server/security/types';
 
@@ -187,7 +195,11 @@ describe('U20-A: the LU bootstrap maps an ambiguous root to a fail-closed outcom
       user: { id: 'user-1', organisationId: 'org-1', bankidId: 'bankid-1', role: 'CONSULTANT', identityEnvironment: 'TEST' },
     });
     mocks.mimersCreate.mockResolvedValue({ artifactRepository: {} });
-    mocks.resolveCurrent.mockRejectedValue(new Error('no binding yet'));
+    // Genuine absence, exactly as the real provider reports it (W-APR contract): no binding
+    // registered, empty binding graph. W-BOOT: any other failure would never reach the lookup.
+    mocks.resolveCurrent.mockRejectedValue(
+      new ProjectContextBindingCurrentUnavailableError(true, new Error('REJECT_PROJECT_CONTEXT_BINDING_HEAD: bindings')),
+    );
   });
 
   it('ambiguous exact root -> { ok:false, failureCode: PROPERTY_LOOKUP_AMBIGUOUS }; nothing is signed or minted', async () => {
