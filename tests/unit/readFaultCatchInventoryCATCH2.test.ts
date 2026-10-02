@@ -181,6 +181,27 @@ export async function canaryRead(repo: { resolve(r: unknown): Promise<unknown> }
     expect(problems).toEqual([expect.stringMatching(/marker kind WHATEVER is not a reviewed kind/)]);
   });
 
+  it('W-U20CDF5: re-introducing one of the orchestrator patterns that were OPEN_NOT_FIXED (an unclassified catch answering 403) -> FAILS and is named', () => {
+    const target = 'server/modules/localization/localizationOrchestrator.ts';
+    const relapse = `
+export async function canaryAccess(check: () => Promise<void>) {
+  try {
+    await check();
+  } catch {
+    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  }
+  return null;
+}
+`;
+    const problems = withCopy((copy) => writeFileSync(path.join(copy, target), readFileSync(path.join(copy, target), 'utf8') + relapse));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/localizationOrchestrator\.ts:\d+: a catch that neither classifies/);
+  });
+
+  it('W-U20CDF5 (group B): no OPEN_NOT_FIXED entry is left for the orchestrator -- the five are fixed, not re-listed', () => {
+    expect(READ_FAULT_CATCH_REVIEWED.filter((r) => r.file.endsWith('localizationOrchestrator.ts') && r.kind === 'OPEN_NOT_FIXED')).toEqual([]);
+  });
+
   it('the scanner is not fooled by braces, quotes or the word catch inside strings and comments', () => {
     const tricky = [
       "const s = '} catch { return null }';",
