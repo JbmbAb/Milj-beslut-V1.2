@@ -21,8 +21,15 @@
  *   DATABASE_URL=postgresql://... MIMERS_ROOT=D:/mimer-demo/cas \
  *     npx tsx scripts/ops/retain-spatial-dataset-versions.ts [--target env.sgu_well ...] [--execute]
  *
+ *   DATABASE_URL=postgresql://... npx tsx scripts/ops/retain-spatial-dataset-versions.ts --measure-digest \
+ *     --target env.registerenhetsomradesytor
+ *       (F4 measurement: read-only, owner-approved, likely > 5 minutes for the property layer)
+ *
  * One JSON line per version on stdout; exit 1 if any version is DIGEST_MISMATCH,
- * LEDGER_ROW_COUNT_MISMATCH or FAILED.
+ * LEDGER_ROW_COUNT_MISMATCH, PRECONDITION_UNMET or FAILED.
+ *
+ * F4 (U30F): a target listed in retention-digest-preconditions.v1.json (the property layer) is
+ * PRECONDITION_UNMET -- nothing digested -- until an owner-approved measurement is committed there.
  *
  * F3 (U30F): only the CURRENT version of a target can be recorded, on the gate's basis (retained
  * digest = live digest, ledger row count agrees); the record states that basis. A superseded
@@ -34,6 +41,7 @@ import { Pool } from 'pg';
 import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
 import {
   backfillSpatialDatasetRetention,
+  measureRetentionDigestTimes,
   parseQualifiedTable,
   type BackfillVersionResult,
   type QualifiedTable,
@@ -46,12 +54,14 @@ export const DEFAULT_RETENTION_TARGETS: readonly string[] = Object.freeze([
   'env.registerenhetsomradesytor',
 ]);
 
-export function parseRetentionCliArgs(argv: readonly string[]): { targets: QualifiedTable[]; execute: boolean } {
+export function parseRetentionCliArgs(argv: readonly string[]): { targets: QualifiedTable[]; execute: boolean; measureDigest: boolean } {
   const targets: string[] = [];
   let execute = false;
+  let measureDigest = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--execute') execute = true;
+    else if (arg === '--measure-digest') measureDigest = true;
     else if (arg === '--target') {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) throw new Error('RETENTION_CLI_REJECTED: --target needs schema.table');
@@ -61,13 +71,18 @@ export function parseRetentionCliArgs(argv: readonly string[]): { targets: Quali
       throw new Error(`RETENTION_CLI_REJECTED: unknown argument "${arg}"`);
     }
   }
+  if (measureDigest && execute) throw new Error('RETENTION_CLI_REJECTED: --measure-digest writes nothing and cannot be combined with --execute');
   const chosen = targets.length > 0 ? targets : [...DEFAULT_RETENTION_TARGETS];
-  return { targets: chosen.map((t) => parseQualifiedTable(t)), execute };
+  return { targets: chosen.map((t) => parseQualifiedTable(t)), execute, measureDigest };
 }
 
 /** Exit code: 1 when any version failed its basis or the run failed; UNVERIFIED_BASIS is an honest result, not a failure. */
 export function retentionCliExitCode(results: readonly Pick<BackfillVersionResult, 'status'>[]): 0 | 1 {
-  return results.some((r) => r.status === 'DIGEST_MISMATCH' || r.status === 'LEDGER_ROW_COUNT_MISMATCH' || r.status === 'FAILED') ? 1 : 0;
+  return results.some(
+    (r) => r.status === 'DIGEST_MISMATCH' || r.status === 'LEDGER_ROW_COUNT_MISMATCH' || r.status === 'PRECONDITION_UNMET' || r.status === 'FAILED',
+  )
+    ? 1
+    : 0;
 }
 
 /** Query-only SQL port: any statement through `execute` is refused (the backfill never issues one). */
@@ -84,7 +99,7 @@ export function createReadOnlySqlPort(pool: Pick<Pool, 'query'>): SqlPort {
 }
 
 async function main(): Promise<void> {
-  const { targets, execute } = parseRetentionCliArgs(process.argv.slice(2));
+  const { targets, execute, measureDigest } = parseRetentionCliArgs(process.argv.slice(2));
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) throw new Error('RETENTION_CLI_REJECTED: DATABASE_URL must be set explicitly (no env file is loaded)');
 
@@ -101,6 +116,21 @@ async function main(): Promise<void> {
     options: '-c default_transaction_read_only=on -c statement_timeout=0 -c TimeZone=UTC',
   });
   try {
+    if (measureDigest) {
+      // F4: read-only timing of the digests a replace would run under the lock. Writes nothing and
+      // marks nothing as met: an owner commits the result into retention-digest-preconditions.v1.json.
+      await measureRetentionDigestTimes({
+        db: createReadOnlySqlPort(pool),
+        targets,
+        now: () => performance.now(),
+        onResult: (result) => console.log(JSON.stringify(result)),
+      });
+      console.error(
+        'retain-spatial-dataset-versions: MEASURE done -- nothing recorded; commit a MEASURED entry (with this output as evidence) ' +
+          'to packages/spatial-provider-postgis/src/retention-digest-preconditions.v1.json',
+      );
+      return;
+    }
     const results: BackfillVersionResult[] = await backfillSpatialDatasetRetention({
       db: createReadOnlySqlPort(pool),
       repo,

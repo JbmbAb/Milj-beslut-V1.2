@@ -12,6 +12,7 @@ import {
   buildMaterializedDigestSql,
   digestColumns,
   isRetainedRelationProtected,
+  measureRetentionDigestTimes,
   parseQualifiedTable,
   recordRetentionAtPromote,
   resolveRetentionRecord,
@@ -588,6 +589,59 @@ describe("F3 (U30F): a retention record is verified only on a comparison basis",
       established_by: "BACKFILL_CURRENT",
       version_batch_id: "batch-v2",
     });
+  });
+});
+
+describe("F4 (U30F): the property layer's digest time is a hard precondition", () => {
+  const PROPERTY = { schema: "env", table: "registerenhetsomradesytor" } as const;
+  const HASH_P = "7aff5455" + "0".repeat(56);
+
+  function propertyScenario(): FakeDb {
+    const db = new FakeDb();
+    db.successBatches = [batch("batch-p", HASH_P)];
+    db.tables.set("env.registerenhetsomradesytor", { columns: LIVE_COLUMNS, digest: D_V1 });
+    db.tables.set("lm_staging.registerenhetsomradesytor_7aff5455", { columns: STAGING_COLUMNS, digest: D_V1 });
+    return db;
+  }
+
+  it("a replace promote of env.registerenhetsomradesytor is refused before any statement while its digest time is unmeasured", async () => {
+    const db = propertyScenario();
+    const error = await rejection(
+      retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: PROPERTY, insertSql: "INSERT INTO env.registerenhetsomradesytor SELECT 1" }),
+    );
+    expect(error.code).toBe(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED);
+    expect(error.reason).toBe("DIGEST_TIME_PRECONDITION_UNMET");
+    expect(error.message).toContain("REJECT_RETENTION_DIGEST_TIME_UNMEASURED");
+    expect(db.log).toEqual([]);
+  });
+
+  it("the backfill reports PRECONDITION_UNMET for every version of the property layer and digests nothing", async () => {
+    const db = propertyScenario();
+    const results = await backfillSpatialDatasetRetention({ db, repo: null, targets: [PROPERTY], execute: false });
+    expect(results.map((r) => [r.content_bundle_sha256, r.status])).toEqual([[HASH_P, "PRECONDITION_UNMET"]]);
+    expect(db.log.filter((e) => e.startsWith("digest:"))).toEqual([]);
+  });
+
+  it("the measurement times live and the current version's retained relation, read-only, and records nothing", async () => {
+    const db = propertyScenario();
+    let clock = 0;
+    const steps = [0, 400_000, 400_000, 650_000];
+    const results = await measureRetentionDigestTimes({ db, targets: [PROPERTY], now: () => (clock = steps.shift() ?? clock) });
+    expect(results).toEqual([
+      {
+        target: "env.registerenhetsomradesytor",
+        current_batch_id: "batch-p",
+        live: { rows: D_V1.row_count, seconds: 400 },
+        retained: { relation: "lm_staging.registerenhetsomradesytor_7aff5455", rows: D_V1.row_count, seconds: 250 },
+        measured_digest_seconds: 400,
+      },
+    ]);
+    expect(db.log.filter((e) => /^(BEGIN|lock|ctas|create|TRUNCATE|INSERT|cas:)/.test(e))).toEqual([]);
+  });
+
+  it("a target that is not named in the preconditions is unaffected", async () => {
+    const status = await retainOutgoingThenReplace({ db: retainedScenario(), repo: new InMemoryArtifactRepository(), target: TARGET, insertSql: INSERT_SQL });
+    expect(status.kind).toBe("RETAINED");
   });
 });
 

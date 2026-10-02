@@ -34,6 +34,7 @@ describe('retain-spatial-dataset-versions CLI (U30-B3)', () => {
     expect(parseRetentionCliArgs(['--target', 'env.sgu_well'])).toEqual({
       targets: [{ schema: 'env', table: 'sgu_well' }],
       execute: false,
+      measureDigest: false,
     });
     expect(parseRetentionCliArgs(['--target', 'env.sgu_well', '--target', 'env.protected_area', '--execute'])).toEqual({
       targets: [
@@ -41,6 +42,12 @@ describe('retain-spatial-dataset-versions CLI (U30-B3)', () => {
         { schema: 'env', table: 'protected_area' },
       ],
       execute: true,
+      measureDigest: false,
+    });
+    expect(parseRetentionCliArgs(['--measure-digest', '--target', 'env.registerenhetsomradesytor'])).toEqual({
+      targets: [{ schema: 'env', table: 'registerenhetsomradesytor' }],
+      execute: false,
+      measureDigest: true,
     });
   });
 
@@ -50,6 +57,7 @@ describe('retain-spatial-dataset-versions CLI (U30-B3)', () => {
     [['--target', 'sgu_well']],
     [['--target', 'env.x;drop']],
     [['--force']],
+    [['--measure-digest', '--execute']],
   ])('rejects %j', (argv) => {
     expect(() => parseRetentionCliArgs(argv as string[])).toThrow();
   });

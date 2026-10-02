@@ -268,6 +268,33 @@ describe('import-librarian-manifest promote: retain before replace (U30-B2, PRES
     expect(h.state.updates.map((u) => u.status)).toEqual(['PROMOTE_STARTED', 'FAILED']);
   });
 
+  it('F4: a replace promote of the property layer is refused before PROMOTE_STARTED while its digest time is unmeasured', async () => {
+    const HASH_P = '7aff5455' + '0'.repeat(56);
+    mkdirSync(path.join(workDir, 'LM'), { recursive: true });
+    const propertyManifest = path.join(workDir, 'LM', 'manifest.json');
+    writeFileSync(
+      propertyManifest,
+      JSON.stringify({
+        schema_version: '2.0',
+        provider: 'Lantmateriet',
+        dataset: 'Fastighetsindelning_Nationell/Registerenhetsomradesytor',
+        version: '2026-06-28',
+        provenance: 'hermetic test fixture',
+        content_bundle_sha256: HASH_P,
+        total_bytes: 1,
+        files: ['fastighet.gpkg'],
+        qa_status: 'staging_ok',
+      }),
+      'utf8',
+    );
+    h.state.batches.push({ id: 'batch-p', content_bundle_sha256: HASH_P, dataset_version: '2026-06-28', status: 'STAGING_IMPORTED', target_schema: 'env', target_table: 'registerenhetsomradesytor' });
+    const { processManifest } = await loadScript();
+
+    await expect(processManifest(propertyManifest)).rejects.toThrow(/REJECT_RETENTION_DIGEST_TIME_UNMEASURED/);
+    expect(h.state.updates).toEqual([]);
+    expect(h.state.log).toEqual([]);
+  });
+
   it('--retry-failed never deletes SUCCESS ledger rows', async () => {
     seed();
     const { processManifest } = await loadScript(['--retry-failed']);

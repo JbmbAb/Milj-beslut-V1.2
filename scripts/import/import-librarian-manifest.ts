@@ -49,6 +49,10 @@ import {
   type TransactionalSqlPort,
 } from '../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
 import {
+  RETENTION_TRANSACTION_TIMEOUT_MS,
+  committedRetentionDigestPrecondition,
+} from '../../packages/spatial-provider-postgis/src/RetentionDigestPrecondition';
+import {
   CLEANUP_SKIPPED_RETAINED_RELATION,
   planStagingCleanup,
   quoteStagingRelation,
@@ -73,8 +77,9 @@ function prismaSqlPort(client: PrismaSqlClient): SqlPort {
 function prismaTransactionalSqlPort(): TransactionalSqlPort {
   return {
     ...prismaSqlPort(prisma),
-    // Same transaction timeout as the TRUNCATE + INSERT promote always had.
-    transaction: (work) => prisma.$transaction((tx) => work(prismaSqlPort(tx)), { timeout: 600000 }),
+    // Same transaction timeout as the TRUNCATE + INSERT promote always had (600 s, unchanged); read from
+    // retention-digest-preconditions.v1.json so the F4 lock-budget check and the real timeout cannot drift.
+    transaction: (work) => prisma.$transaction((tx) => work(prismaSqlPort(tx)), { timeout: RETENTION_TRANSACTION_TIMEOUT_MS }),
   };
 }
 
@@ -499,6 +504,14 @@ async function processManifest(manifestPath: string) {
 
       const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
       const retentionTarget = { schema: target_schema, table: target_table };
+      // F4 (U30F): hard precondition for the listed large layers (the property layer), checked before
+      // the ledger or the table is touched; retainOutgoingThenReplace checks it again. No override.
+      if (promoteStrategy === 'replace') {
+        const precondition = committedRetentionDigestPrecondition(retentionTarget);
+        if (precondition.kind === 'UNMET') {
+          throw new SpatialDatasetRetentionError(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED, 'DIGEST_TIME_PRECONDITION_UNMET', precondition.detail);
+        }
+      }
       // PRES-05 (U30-B): a `replace` promote needs the durable CAS for its retention records --
       // opened (fail-closed) before anything is written to the ledger or the table.
       const retentionRepo = promoteStrategy === 'replace' ? await openRetentionCas() : null;

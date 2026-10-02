@@ -1,0 +1,13 @@
+{
+  "contract": "spatial-retention-digest-preconditions-v1",
+  "purpose": "U30F F4: a replace promote computes two full-table digests under ACCESS EXCLUSIVE inside one interactive transaction of transaction_timeout_ms. For a target listed here, the promote and the retention backfill are refused until a measured digest time is recorded (status MEASURED, reviewed commit) and digests_under_lock x measured_digest_seconds fits within lock_budget_fraction of the timeout. The timeout is also the promote transaction's timeout (import-librarian-manifest reads it from here). There is no runtime override.",
+  "transaction_timeout_ms": 600000,
+  "lock_budget_fraction": 0.5,
+  "digests_under_lock": 2,
+  "targets": {
+    "env.registerenhetsomradesytor": {
+      "status": "UNMEASURED",
+      "reason": "Property layer, about 4.4 M rows (U20-U30-SPEC). The verifier's estimate (PGlite 124 us/row, native 2-4x faster, larger EWKB) puts one digest at 2-9 minutes, so two digests under the exclusive lock likely exceed the 600 s transaction and block every read of the table while they run. Not measured. Record an owner-approved read-only measurement (retain-spatial-dataset-versions --measure-digest) here, or replace the digest-under-lock design, before the first real promote or backfill of this layer."
+    }
+  }
+}

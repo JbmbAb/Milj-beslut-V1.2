@@ -6,6 +6,7 @@ import {
   SPATIAL_STACK_V1,
   type SpatialEngineFingerprint,
 } from "../../mps-lu/src/artifacts/SpatialEngineFingerprint";
+import { committedRetentionDigestPrecondition } from "./RetentionDigestPrecondition";
 
 /**
  * SPATIAL-DATASET-RETENTION-V1 -- U30-B, PRES-05 "retain before replace" (R1).
@@ -73,6 +74,8 @@ export type SpatialDatasetRetentionFailureReason =
   | "NO_SUCCESS_BATCH_FOR_LIVE_DATA"
   /** F3: the SUCCESS batch's recorded row count differs from the rows compared. */
   | "LEDGER_ROW_COUNT_MISMATCH"
+  /** F4: the target is a digest-time precondition target that is unmeasured or over the lock budget. */
+  | "DIGEST_TIME_PRECONDITION_UNMET"
   | "RETAINED_RELATION_MISSING"
   | "NO_COMMON_COLUMNS"
   | "DIGEST_MISMATCH"
@@ -720,6 +723,10 @@ export async function retainOutgoingThenReplace(input: {
   const reject = (reason: SpatialDatasetRetentionFailureReason, message: string, cause?: unknown) =>
     new SpatialDatasetRetentionError(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED, reason, message, { cause });
 
+  // F4: hard precondition, before any statement (the committed preconditions file; no override).
+  const precondition = committedRetentionDigestPrecondition(target);
+  if (precondition.kind === "UNMET") throw reject("DIGEST_TIME_PRECONDITION_UNMET", precondition.detail);
+
   // Phase A
   let targetSql: string;
   let outgoing: ImportBatchRow | null;
@@ -864,6 +871,8 @@ export type BackfillStatus =
    * retained relation cannot be compared with anything: never recorded (no record, no "upgrade").
    */
   | "UNVERIFIED_BASIS"
+  /** F4: the target's digest time is an unmet hard precondition; nothing was digested. */
+  | "PRECONDITION_UNMET"
   | "FAILED";
 
 export interface BackfillVersionResult {
@@ -907,6 +916,22 @@ export async function backfillSpatialDatasetRetention(input: {
   };
   for (const target of targets) {
     const versions = await listSuccessBatchVersions(db, target);
+    const precondition = committedRetentionDigestPrecondition(target);
+    if (precondition.kind === "UNMET") {
+      for (const batch of versions) {
+        emit({
+          target: formatQualifiedTable(target),
+          content_bundle_sha256: batch.content_bundle_sha256,
+          import_batch_id: batch.id,
+          current: batch === versions[0],
+          retained_relation: formatQualifiedTable(retainedRelationFor(target, batch.content_bundle_sha256)),
+          record_id: retentionRecordId(target, batch.content_bundle_sha256),
+          status: "PRECONDITION_UNMET",
+          detail: precondition.detail,
+        });
+      }
+      continue;
+    }
     const liveColumns = await listRelationColumns(db, target);
     let liveDigestCache: { key: string; digest: MaterializedDigest } | null = null;
     for (const [index, batch] of versions.entries()) {
@@ -972,6 +997,59 @@ export async function backfillSpatialDatasetRetention(input: {
         emit({ ...base, status: "FAILED", detail: describe(error) });
       }
     }
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------------------------
+// F4 measurement (ops CLI --measure-digest, owner-approved run only): read DB, write nothing
+// ---------------------------------------------------------------------------------------------
+
+export interface DigestTimeMeasurement {
+  readonly target: string;
+  readonly current_batch_id: string | null;
+  readonly live: { readonly rows: number; readonly seconds: number };
+  readonly retained: { readonly relation: string; readonly rows: number; readonly seconds: number } | null;
+  /** The larger of the two: what ONE digest under the lock takes (the precondition's measured_digest_seconds). */
+  readonly measured_digest_seconds: number;
+}
+
+/**
+ * Time the digests a replace promote would compute under the lock: the live table and the current
+ * version's retained relation (when present), over the same column set. Read-only; no CAS, no
+ * record. The result is evidence for an owner to commit into retention-digest-preconditions.v1.json;
+ * nothing here marks the precondition met.
+ */
+export async function measureRetentionDigestTimes(input: {
+  readonly db: SqlPort;
+  readonly targets: readonly QualifiedTable[];
+  /** Monotonic clock in milliseconds. */
+  readonly now: () => number;
+  readonly onResult?: (result: DigestTimeMeasurement) => void;
+}): Promise<DigestTimeMeasurement[]> {
+  const results: DigestTimeMeasurement[] = [];
+  for (const target of input.targets) {
+    const current = await findCurrentSuccessBatch(input.db, target);
+    const liveColumns = await listRelationColumns(input.db, target);
+    const retained = current ? retainedRelationFor(target, current.content_bundle_sha256) : null;
+    const retainedPresent = retained ? await relationExists(input.db, retained) : false;
+    const columns = digestColumns(liveColumns, retainedPresent && retained ? await listRelationColumns(input.db, retained) : liveColumns);
+    const timed = async (relation: QualifiedTable) => {
+      const started = input.now();
+      const digest = await computeMaterializedDigest(input.db, relation, columns);
+      return { rows: digest.row_count, seconds: (input.now() - started) / 1000 };
+    };
+    const live = await timed(target);
+    const retainedTime = retainedPresent && retained ? { relation: formatQualifiedTable(retained), ...(await timed(retained)) } : null;
+    const result: DigestTimeMeasurement = {
+      target: formatQualifiedTable(target),
+      current_batch_id: current?.id ?? null,
+      live,
+      retained: retainedTime,
+      measured_digest_seconds: Math.max(live.seconds, retainedTime?.seconds ?? 0),
+    };
+    results.push(result);
+    input.onResult?.(result);
   }
   return results;
 }
