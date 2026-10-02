@@ -612,6 +612,25 @@ describe('TDG-5: the forms Windows resolves to the same file (findings 8 and 10)
     expect(fs.readFileSync(path.join(tree, 'storage', 'keep', 'live.txt'), 'utf8')).toBe('live');
   });
 
+  it('through a DANGLING junction (or symlink) whose target would be created inside a root: the link is followed', async () => {
+    const outside = path.join(area, 'outside-dangling');
+    fs.mkdirSync(outside, { recursive: true });
+    const dangling = path.join(outside, 'into-not-yet');
+    linkPathsToRemove.push(dangling);
+    // the target does not exist (yet): realpath fails on the link itself, so the guard reads the link
+    fs.symlinkSync(path.join(tree, 'storage', 'keep', 'not-yet'), dangling, isWin ? 'junction' : 'dir');
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    const decide = (target: string, resolveLinks = true) =>
+      testDataRootWriteRefusal('fs.writeFileSync', 'write', target, {
+        trees: [tree],
+        testFile: null,
+        resolveLinks,
+      });
+    expect(decide(path.join(dangling, 'x.txt'), false)).toBeNull(); // as written: outside every root
+    expect(decide(path.join(dangling, 'x.txt'))?.protectedRoot).toBe(path.join(tree, 'storage'));
+    expect(decide(path.join(dangling, 'deeper', 'x.txt'))?.protectedRoot).toBe(path.join(tree, 'storage'));
+  });
+
   it.runIf(isWin)('through an 8.3 short name of the tree: refused via the real path', async (ctx) => {
     const query = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${tree}") do @echo %~sI`], {
       encoding: 'utf8',
@@ -789,4 +808,23 @@ describe("TDG-5: the workstation's actual live roots (finding 4)", () => {
       }
     },
   );
+
+  it("finding 11: the tree's own root files (.env, .env.local, .env.test, package.json, package-lock.json) are refused, a namesake beside them is not", async () => {
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    const decide = (rel: string) =>
+      Boolean(
+        testDataRootWriteRefusal('fs.writeFileSync', 'write', path.join(fakeTree, rel), {
+          trees: [fakeTree],
+          testFile: null,
+        }),
+      );
+    const files = ['.env', '.env.local', '.env.test', 'package.json', 'package-lock.json'];
+    expect(Object.fromEntries(files.map((rel) => [rel, decide(rel)]))).toEqual(
+      Object.fromEntries(files.map((rel) => [rel, true])),
+    );
+    expect({ example: decide('.env.example'), nested: decide('server/package.json') }).toEqual({
+      example: false,
+      nested: false,
+    });
+  });
 });

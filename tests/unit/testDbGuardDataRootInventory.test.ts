@@ -279,10 +279,9 @@ describe('the reviewed lists are locked (a new entry fails here until the lock i
     for (const e of TEST_ENV_KEYS_NOT_DATA_ROOTS) expect(e.why.length).toBeGreaterThan(10);
   });
 
-  it('relative roots that are not live: exactly these 16', () => {
+  it('relative roots that are not live: exactly these 15', () => {
     expect(TEST_RELATIVE_ROOTS_NOT_LIVE.map((e) => e.root)).toEqual([
       '.dockerignore',
-      '.env.test',
       '.prettierrc.json',
       'app',
       'components',
@@ -426,6 +425,9 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
       'export const j = process.env.WTDG5_PIPE_ROOT ? path.resolve(process.env.WTDG5_PIPE_ROOT) : path.resolve(cwd, "..", "wtdg5-sibling");', // 10
       "export const k = path.join(cwd, 'wtdg5-cwdvar-root');", // 11
       "export const m = 'C:\\\\Users\\\\someone\\\\.wtdg5-profile\\\\keys';",
+      // TDG-5 mutation round: a file-relative join and an absolute literal completed by join's literal tail
+      "export const n = path.join(__dirname, '..', '..', 'wtdg5-dirname-root');",
+      "export const o = path.join('F:\\\\', 'wtdg5-joined-archive');",
       '',
     ].join('\n');
     fs.writeFileSync(path.join(copy, 'server/services/wtdg5CanaryEvade.ts'), evade);
@@ -464,6 +466,7 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
         'wtdg5-concat-root',
         'wtdg5-cwdvar-root',
         'wtdg5-destructured-root',
+        'wtdg5-dirname-root',
         'wtdg5-sink',
         'wtdg5-template-root',
         'wtdg5-url-root',
@@ -472,6 +475,7 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
       absolutePathsNotHandled: [
         'D:\\wtdg4-canary\\live-archive',
         'E:\\wtdg5\\hard-coded-archive',
+        'F:\\wtdg5-joined-archive',
         '~/.wtdg5-home/secrets',
         '~/.wtdg5-profile/keys',
       ],
@@ -501,7 +505,12 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
         ...LISTS.protectedRelative,
         ...unhandled(inv, LISTS).relativeRootsOnNoList.map((root) => ({ root })),
       ],
-      protectedAbsolute: [...LISTS.protectedAbsolute, { root: 'D:\\wtdg4-canary' }, { root: 'E:\\wtdg5' }],
+      protectedAbsolute: [
+        ...LISTS.protectedAbsolute,
+        { root: 'D:\\wtdg4-canary' },
+        { root: 'E:\\wtdg5' },
+        { root: 'F:\\wtdg5-joined-archive' },
+      ],
       protectedHome: [...LISTS.protectedHome, { root: '.wtdg5-home' }, { root: '.wtdg5-profile' }],
     };
     const left = unhandled(inv, handled);

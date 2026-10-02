@@ -104,6 +104,15 @@ export const TEST_PROTECTED_RELATIVE_ROOTS: readonly ProtectedDataRoot[] = Objec
     root: 'reference-vectors',
     why: 'the generated reference vectors (packages/mps-canonical/scripts/generate-reference-vectors.ts)',
   },
+  // TDG-5 (TDG4-VERIFICATION finding 11): the tree's own root files -- live configuration and secrets
+  { root: '.env', why: "the tree's environment file (live settings)" },
+  { root: '.env.local', why: "the tree's local environment file (live settings and secrets)" },
+  {
+    root: '.env.test',
+    why: 'the env file provisioning/benchmark scripts read (a test never takes DB or data-root keys from it, nor writes it)',
+  },
+  { root: 'package.json', why: "the tree's package manifest" },
+  { root: 'package-lock.json', why: "the tree's dependency lock file" },
 ]);
 
 /**
@@ -113,10 +122,6 @@ export const TEST_PROTECTED_RELATIVE_ROOTS: readonly ProtectedDataRoot[] = Objec
  */
 export const TEST_RELATIVE_ROOTS_NOT_LIVE: readonly ProtectedDataRoot[] = Object.freeze([
   { root: '.dockerignore', why: 'read by the pattern-proof Docker executor (mps-pattern-proof)' },
-  {
-    root: '.env.test',
-    why: 'an env file read by provisioning/benchmark scripts (the test runtime never takes DB or data-root keys from it)',
-  },
   {
     root: '.prettierrc.json',
     why: 'formatter configuration, only read (packages/mps-pattern-proof/scripts/gen-workflow-adapter.ts)',
