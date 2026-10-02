@@ -1,12 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { runCanonicalLuProductAssessment, runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
-import { reExecuteLocalizationAssessment } from "../src/execution/LuDeterministicReExecution";
+import { reExecuteLocalizationAssessment, resolveEvidence } from "../src/execution/LuDeterministicReExecution";
 import type { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 import { buildSpatialEvidenceContentHash } from "../src/artifacts/SpatialEvidenceIdentity";
 import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
 import { sha256ContentHash, type ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
+import { CasArtifactResolver } from "../../mps-runtime/src/mimers/ArtifactResolver";
+import {
+  createFrozenExecutionOutcomeIdentityV2,
+  type FrozenExecutionOutcomeIdentityV2,
+} from "../../mps-runtime/src/contracts/freeze/FrozenIdentities";
+import {
+  MimersArtifactIndexReadError,
+  MimersArtifactObjectMissingError,
+} from "../../mps-runtime/src/repository/MimersByteStorageBackend";
 import type { LocalizationAssessmentArtifact, LocalizationAssessmentDraft } from "../src/artifacts/LocalizationAssessmentArtifact";
+import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
+import {
+  LU_CANONICAL_AUTHORITY_ENV,
+  createLuCanonicalAuthority,
+  provisionLuCanonicalSubject,
+  runLuCanonicalSubject,
+} from "./fixtures/luCanonicalAuthorityChain";
 
 /** Rebuilds artifact_id/content_hash for a hand-tampered payload using the exact same formula
  *  createGovernedLocalizationAssessment uses -- makes the tampered artifact internally
@@ -229,6 +245,113 @@ async function runAssessment(repo: ArtifactRepositoryPort, siteId: string, evide
     artifact_repository: repo,
     assessment_draft: { ...draft(), site_id: siteId, evidence_refs: evidence.map((e) => ({ artifact_id: e.artifact_id, artifact_type: e.artifact_type })) },
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// U30-R3 helpers.
+// ---------------------------------------------------------------------------------------------
+
+type Ref = { readonly artifact_id: string; readonly artifact_type: string };
+
+/**
+ * A repository that raises the given storage fault for chosen reads/writes and is otherwise the
+ * inner repository. `resolve`/`put` return the fault to raise, or null to pass through; `nth`
+ * counts calls per artifact id so a test can fault one specific read of an id.
+ */
+function faultingRepository(
+  inner: ArtifactRepositoryPort,
+  faults: {
+    readonly resolve?: (ref: Ref, nth: number) => unknown;
+    readonly put?: (artifact: { artifact_id: string; body: unknown }) => unknown;
+  },
+): ArtifactRepositoryPort {
+  const reads = new Map<string, number>();
+  return {
+    put: async (artifact) => {
+      const fault = faults.put?.(artifact) ?? null;
+      if (fault) throw fault;
+      return inner.put(artifact);
+    },
+    resolve: async <T,>(ref: Ref): Promise<T> => {
+      const nth = (reads.get(ref.artifact_id) ?? 0) + 1;
+      reads.set(ref.artifact_id, nth);
+      const fault = faults.resolve?.(ref, nth) ?? null;
+      if (fault) throw fault;
+      return inner.resolve<T>(ref as never);
+    },
+  };
+}
+
+/**
+ * The product resolver (CasArtifactResolver) over an in-memory byte store that mirrors `inner`:
+ * an id that was never stored reads as null (-> its exact "Artifact not found: <id>" signal), and
+ * `corruptIds` read back as bytes that are not a JSON envelope (a corrupt CAS object).
+ */
+function casResolverRepository(inner: InMemoryArtifactRepository, corruptIds: ReadonlySet<string> = new Set()): ArtifactRepositoryPort {
+  const store = (inner as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store;
+  const resolver = new CasArtifactResolver({
+    get: async (id: string) => {
+      if (corruptIds.has(id)) return Uint8Array.from([0x7b, 0x22]);
+      const hit = store.get(id);
+      return hit ? new TextEncoder().encode(JSON.stringify({ artifact_id: id, content_hash: hit.content_hash, body: hit.body })) : null;
+    },
+  });
+  return { put: (artifact) => inner.put(artifact), resolve: (ref) => resolver.resolve(ref) };
+}
+
+async function settle<T>(promise: Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+  return promise.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+}
+
+/** OD-R2 (U30-R3 K1): a storage fault is the typed technical error, carrying the stage and the original fault. */
+function expectStorageFault(settled: { ok: boolean; value?: unknown; error?: unknown }, stage: string, fault: unknown) {
+  expect(settled.ok, `expected a technical error, got ${JSON.stringify((settled as { value?: unknown }).value ?? null)}`).toBe(false);
+  const error = (settled as { error: Error & { code?: unknown; stage?: unknown; cause?: unknown } }).error;
+  expect(error.name).toBe("LuReExecutionStorageError");
+  expect(error.code).toBe("LU_REEXECUTION_STORAGE_FAULT");
+  expect(error.stage).toBe(stage);
+  expect(error.cause).toBe(fault);
+}
+
+/** A rewritten assessment stored under its own NEW content-addressed id, as a forger without WORM bypass must. */
+async function storeUnderNewId(repo: ArtifactRepositoryPort, base: LocalizationAssessmentArtifact, payload: LocalizationAssessmentArtifact["payload"]) {
+  const references = Array.from(
+    new Map(
+      [
+        payload.project_context_ref,
+        payload.property_ref,
+        ...payload.evidence_refs,
+        payload.execution_outcome_ref,
+        payload.outcome_attestation_ref,
+        ...(payload.localization_geometry_ref ? [payload.localization_geometry_ref] : []),
+        ...(payload.authority_evidence_ref ? [payload.authority_evidence_ref] : []),
+      ].map((ref) => [`${ref.artifact_type}:${ref.artifact_id}`, ref] as const),
+    ).values(),
+  );
+  const content_hash = sha256ContentHash({ artifact_type: base.artifact_type, references, payload });
+  const rewritten: LocalizationAssessmentArtifact = { ...base, artifact_id: `assessment-${content_hash.value}`, references, payload, content_hash };
+  await repo.put({ artifact_id: rewritten.artifact_id, content_hash, body: rewritten });
+  return rewritten;
+}
+
+function withFindings(payload: LocalizationAssessmentArtifact["payload"], findings: readonly Finding[]) {
+  const ordered = canonicalFindingOrder(findings);
+  return { ...payload, findings: ordered, rule_refs: canonicalRuleRefsFrom(ordered) };
+}
+
+/**
+ * Exactly the provider's historical cause text (`describeQueryFailure`, SpatialProviderPostGIS.ts,
+ * d27d240a .. c3d06557^, unchanged in that window), written out here as the oracle for what a
+ * genuine pre-U30-R2 NOT_CHECKED explanation can contain.
+ */
+function historicalProviderCause(error: unknown): string {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  const message = error instanceof Error ? error.message : String(error);
+  const shortMessage = message.length > 200 ? `${message.slice(0, 200)}...` : message;
+  return `${name}: ${shortMessage}`;
 }
 
 describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
@@ -509,32 +632,9 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     expect(r.fresh_findings.find((f) => f.finding_id === "finding-notchecked-ebh")?.explanation).toBe(standardNotCheckedExplanation("ebh"));
   });
 
-  it("19b: the same historical case on a V4-declared assessment -> PASS with NOT_CHECKED_CAUSE_NOT_PINNED", async () => {
-    const repo = new InMemoryArtifactRepository();
-    const { run } = await runWithUnavailable(repo, "reexec-nc-historical-v4");
-    const legacyFindings = canonicalFindingOrder(
-      run.assessment!.payload.findings.map((f) =>
-        f.risk_level === "NOT_CHECKED" ? { ...f, explanation: legacyNotCheckedExplanation("ebh", "QueryFailedError: simulated") } : f,
-      ),
-    );
-    const v4 = reselfHash({
-      ...run.assessment!,
-      payload: {
-        ...run.assessment!.payload,
-        findings: legacyFindings,
-        rule_refs: canonicalRuleRefsFrom(legacyFindings),
-        assessment_contract_version: "localization-assessment-v4",
-        canonicalizer_id: "rfc8785-sha256-v1",
-        authority_evidence_ref: { artifact_id: "authority-evidence-historical", artifact_type: "authority_evidence" },
-      },
-    });
-    storeTampered(repo, v4);
-
-    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: v4.artifact_id, artifactRepository: repo });
-    expect(r.mismatches).toEqual([]);
-    expect(r.outcome).toBe("PASS");
-    expect(r.notices.map((n) => n.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]);
-  });
+  // 19b (the historical case on a V4 assessment) moved to the U30-R3 V4 block below: it now runs on a
+  // real canonical V4 chain, because a V3 assessment relabelled "v4" with an authority_evidence_ref
+  // that is in no CAS is exactly the unbound V4 assessment U30-R3 K2 refuses.
 
   it("19c: a NOT_CHECKED explanation that is neither today's nor the historical template -> DENY, FINDINGS_MISMATCH, no notice", async () => {
     const repo = new InMemoryArtifactRepository();
@@ -587,21 +687,12 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     const repo = new InMemoryArtifactRepository();
     const { run } = await runWithUnavailable(repo, "reexec-nc-lineage-fault");
     const { execution } = await attestedLineage(repo, run.assessment!);
-    const faulty: ArtifactRepositoryPort = {
-      put: (artifact) => repo.put(artifact),
-      resolve: async <T,>(ref: { artifact_id: string; artifact_type: string }): Promise<T> => {
-        if (ref.artifact_id === execution.artifact_id) {
-          const fault = new Error(`MIMERS_ARTIFACT_OBJECT_MISSING: ${ref.artifact_id} is indexed but its CAS object is gone (get)`);
-          fault.name = "MimersArtifactObjectMissingError";
-          throw fault;
-        }
-        return repo.resolve<T>(ref);
-      },
-    };
+    const fault = new MimersArtifactObjectMissingError(execution.artifact_id, "f".repeat(64), "get");
+    const faulty = faultingRepository(repo, { resolve: (ref) => (ref.artifact_id === execution.artifact_id ? fault : null) });
 
-    await expect(
-      reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: faulty }),
-    ).rejects.toThrow(/MIMERS_ARTIFACT_OBJECT_MISSING/);
+    const settled = await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: faulty }));
+    expectStorageFault(settled, "capability_execution", fault);
+    expect(String((settled as { error: Error }).error.message)).toMatch(/MIMERS_ARTIFACT_OBJECT_MISSING/);
   });
 
   it("21: SPATIAL_LAYER_UNAVAILABLE (aba4305c, not adopted) is not an evidence family -> DENY, EVIDENCE_SET_MISMATCH", async () => {
@@ -667,5 +758,442 @@ describe("U30-R2: canonical product boundary keeps the existing NOT_CHECKED cont
     // does not refuse the existing machine-readable NOT_CHECKED input.
     expect("error" in settled ? (settled.error as { code?: string }).code : null).not.toBe("LU_CANONICAL_UNAVAILABLE_LAYER_CAUSE_NOT_PINNED");
     expect(settled.ok).toBe(true);
+  });
+});
+
+// =================================================================================================
+// U30-R3 (verifier findings K1/F2 and K2/F1, F4-F6 in U30R2-VERIFICATION.md).
+// =================================================================================================
+
+describe("U30-R3 K1: a CAS storage fault on any read of the replay chain is a typed technical error, never a DENY (OD-R2)", () => {
+  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
+  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+
+  const STAGES = [
+    ["assessment", "LOCALIZATION_ASSESSMENT"],
+    ["execution_outcome", "execution_outcome"],
+    ["execution_attempt", "execution_attempt"],
+    ["execution_manifest", "execution_manifest"],
+    ["pinned_evidence", "SPATIAL_EVIDENCE"],
+    ["capability_execution", "CAPABILITY_EXECUTION"],
+    ["capability_definition", "CAPABILITY_DEFINITION"],
+  ] as const;
+  const FAULTS = [
+    ["MimersArtifactObjectMissingError", (id: string) => new MimersArtifactObjectMissingError(id, "e".repeat(64), "get")],
+    ["MimersArtifactIndexReadError", (id: string) => new MimersArtifactIndexReadError(id, `index/${id}.json`, "IO", "EIO: i/o error")],
+  ] as const;
+
+  for (const [stage, artifactType] of STAGES) {
+    for (const [faultName, makeFault] of FAULTS) {
+      it(`23 ${stage} / ${faultName}: rejects with LuReExecutionStorageError(stage ${stage}), the original fault as cause`, async () => {
+        const repo = new InMemoryArtifactRepository();
+        const { run } = await runWithUnavailable(repo, `reexec-k1-${stage}-${faultName}`);
+        let fault: unknown = null;
+        const faulty = faultingRepository(repo, {
+          resolve: (ref) => (ref.artifact_type === artifactType ? (fault ??= makeFault(ref.artifact_id)) : null),
+        });
+
+        const settled = await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: faulty }));
+        expect(fault).not.toBeNull(); // precondition: the stage was really read
+        expectStorageFault(settled, stage, fault);
+      });
+    }
+  }
+
+  it("23g: a fault on the v2-outcome locator read inside the category-A replay (swallowed there today) is a typed technical error, not a silent fallback", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailable(repo, "reexec-k1-locator");
+    const outcomeId = run.assessment!.payload.execution_outcome_ref.artifact_id;
+    const fault = new MimersArtifactObjectMissingError(outcomeId, "e".repeat(64), "get");
+    const faulty = faultingRepository(repo, { resolve: (ref, nth) => (ref.artifact_id === outcomeId && nth === 2 ? fault : null) });
+
+    expectStorageFault(await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: faulty })), "execution_outcome", fault);
+  });
+
+  it("23h: a storage fault writing the REPLAY record is a typed technical error, not MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailable(repo, "reexec-k1-replay-write");
+    const fault = new MimersArtifactObjectMissingError("replay-record", "e".repeat(64), "put");
+    const faulty = faultingRepository(repo, {
+      put: (artifact) => ((artifact.body as { artifact_type?: string } | null)?.artifact_type === "REPLAY" ? fault : null),
+    });
+
+    expectStorageFault(await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: faulty })), "replay_record", fault);
+  });
+
+  it("23i: a corrupt CAS object behind the product resolver (bytes are not a JSON envelope) is a typed technical error, not MISSING_PINNED_EVIDENCE", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailable(repo, "reexec-k1-corrupt");
+    const evidenceId = run.assessment!.payload.evidence_refs[0]!.artifact_id;
+
+    const settled = await settle(reExecuteLocalizationAssessment({
+      assessmentArtifactId: run.assessment!.artifact_id,
+      artifactRepository: casResolverRepository(repo, new Set([evidenceId])),
+    }));
+    expect(settled.ok).toBe(false);
+    const error = (settled as { error: Error & { code?: unknown; stage?: unknown; cause?: unknown } }).error;
+    expect(error.name).toBe("LuReExecutionStorageError");
+    expect(error.code).toBe("LU_REEXECUTION_STORAGE_FAULT");
+    expect(error.stage).toBe("pinned_evidence");
+    expect(error.cause).toBeInstanceOf(SyntaxError);
+  });
+
+  it("23j: resolveEvidence (exported for cold-replay proofs) rejects a storage fault as the typed technical error instead of reporting MISSING_PINNED_EVIDENCE", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const ev = spatialEvidence("k1-resolve", "water");
+    await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
+    const fault = new MimersArtifactIndexReadError(ev.artifact_id, "index/x.json", "MALFORMED", "entry is not valid JSON");
+    const faulty = faultingRepository(repo, { resolve: () => fault });
+
+    expectStorageFault(
+      await settle(resolveEvidence({ evidenceRefs: [{ artifact_id: ev.artifact_id, artifact_type: "SPATIAL_EVIDENCE" }], artifactRepository: faulty })),
+      "pinned_evidence",
+      fault,
+    );
+  });
+
+  it("24a: the execution outcome a stored assessment pins is genuinely absent from CAS -> DENY MANIFEST_ATTEMPT_MISMATCH (an integrity/binding failure), not a thrown error", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailable(repo, "reexec-k1-outcome-missing");
+    const outcomeId = run.assessment!.payload.execution_outcome_ref.artifact_id;
+    (repo as unknown as { store: Map<string, unknown> }).store.delete(outcomeId);
+
+    const settled = await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo }));
+    expect(settled.ok).toBe(true);
+    const r = (settled as { value: Awaited<ReturnType<typeof reExecuteLocalizationAssessment>> }).value;
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+    expect(r.mismatches[0]!.detail).toContain(outcomeId);
+  });
+
+  it("24b: through the product resolver, an honest assessment still PASSes, and a pinned evidence that was never stored is DENY MISSING_PINNED_EVIDENCE", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run, waterEvidence } = await runWithUnavailable(repo, "reexec-k1-resolver");
+    const viaResolver = casResolverRepository(repo);
+    expect((await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: viaResolver })).outcome).toBe("PASS");
+
+    (repo as unknown as { store: Map<string, unknown> }).store.delete(waterEvidence.artifact_id);
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: viaResolver });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MISSING_PINNED_EVIDENCE"]);
+  });
+
+  it("24c: an assessment id that was never stored rejects with the repository's own not-found signal -- distinct from a storage fault", async () => {
+    const settled = await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: "assessment-never-stored", artifactRepository: new InMemoryArtifactRepository() }));
+    expect(settled.ok).toBe(false);
+    const error = (settled as { error: Error }).error;
+    expect(error.message).toBe("Artifact not found: assessment-never-stored");
+    expect(error.name).not.toBe("LuReExecutionStorageError");
+  });
+});
+
+describe("U30-R3 K2: the attested execution's output_refs bind EXACTLY to the findings re-executed from the assessment's pinned evidence", () => {
+  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
+  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+
+  it("25a (verifier X3, the K2 attack): HIGH suppressed by pointing the assessment at ANOTHER assessment's outcome where the layer was unavailable -> DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const water = spatialEvidence("k2-a", "water");
+    const ebh = spatialEvidence("k2-a", "ebh");
+    const a = (await runAssessment(repo, "reexec-k2-a", [water, ebh])).assessment!;
+    const b = (await runWithUnavailable(repo, "reexec-k2-b")).run.assessment!;
+    expect(a.payload.findings.some((f) => f.rule_id === "LU-EBH-001" && f.risk_level === "HIGH")).toBe(true); // precondition
+    expect((await reExecuteLocalizationAssessment({ assessmentArtifactId: a.artifact_id, artifactRepository: repo })).outcome).toBe("PASS");
+    expect((await reExecuteLocalizationAssessment({ assessmentArtifactId: b.artifact_id, artifactRepository: repo })).outcome).toBe("PASS");
+
+    const notCheckedEbh = b.payload.findings.find((f) => f.finding_id === "finding-notchecked-ebh")!;
+    const forged = await storeUnderNewId(repo, a, withFindings(
+      {
+        ...a.payload,
+        execution_outcome_ref: b.payload.execution_outcome_ref,
+        outcome_attestation_ref: b.payload.outcome_attestation_ref,
+        evidence_refs: a.payload.evidence_refs.filter((ref) => ref.artifact_id !== ebh.artifact_id),
+      },
+      [...a.payload.findings.filter((f) => f.rule_id !== "LU-EBH-001"), notCheckedEbh],
+    ));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toContain("MANIFEST_ATTEMPT_MISMATCH");
+    expect(r.notices).toEqual([]);
+  });
+
+  it("25c (F6): a HIGH evidence and its finding removed from a rewritten assessment (new id, same outcome) -> DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const water = spatialEvidence("k2-remove", "water");
+    const ebh = spatialEvidence("k2-remove", "ebh");
+    const a = (await runAssessment(repo, "reexec-k2-remove", [water, ebh])).assessment!;
+    const forged = await storeUnderNewId(repo, a, withFindings(
+      { ...a.payload, evidence_refs: a.payload.evidence_refs.filter((ref) => ref.artifact_id !== ebh.artifact_id) },
+      a.payload.findings.filter((f) => f.rule_id !== "LU-EBH-001"),
+    ));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  it("25d (F6): a fabricated, self-consistent HIGH evidence and finding added to a rewritten assessment -> DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const a = (await runAssessment(repo, "reexec-k2-add", [spatialEvidence("k2-add", "water")])).assessment!;
+    const fabricated = spatialEvidence("k2-add-fabricated", "ebh");
+    await repo.put({ artifact_id: fabricated.artifact_id, content_hash: fabricated.content_hash, body: fabricated });
+    const fabricatedFinding = {
+      finding_id: `finding-ebh-${fabricated.artifact_id}`,
+      rule_id: "LU-EBH-001",
+      rule_version: "2.0",
+      risk_level: "HIGH",
+      evidence_refs: [{ artifact_id: fabricated.artifact_id, artifact_type: "SPATIAL_EVIDENCE" }],
+      explanation: "Potentiellt förorenat område inom sökradie",
+    } as Finding;
+    const forged = await storeUnderNewId(repo, a, withFindings(
+      {
+        ...a.payload,
+        evidence_refs: [...a.payload.evidence_refs, { artifact_id: fabricated.artifact_id, artifact_type: "SPATIAL_EVIDENCE" }].sort((x, y) =>
+          `${x.artifact_type}:${x.artifact_id}` < `${y.artifact_type}:${y.artifact_id}` ? -1 : 1,
+        ),
+      },
+      [...a.payload.findings, fabricatedFinding],
+    ));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  it("25e (F5): an execution record with an extra junk output (outcome re-pointed in place, i.e. WORM bypass) -> DENY: no output beyond the re-executed findings is accepted", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailable(repo, "reexec-k2-junk");
+    const { execution, capability } = await attestedLineage(repo, run.assessment!);
+    const outputs = [...execution.output_refs, { artifact_id: "finding-junk-nonce-0001", artifact_type: execution.output_refs[0]!.artifact_type }];
+    const hash = sha256ContentHash({
+      capability: capability.artifact_id,
+      implementation: capability.implementation_ref.artifact_id,
+      outputs: outputs.map((o) => o.artifact_id),
+    });
+    const junkExecution = { ...execution, artifact_id: `exec-${capability.artifact_id}-${hash.value.slice(0, 12)}`, output_refs: outputs, content_hash: hash };
+    await repo.put({ artifact_id: junkExecution.artifact_id, content_hash: hash, body: junkExecution });
+    const original = await repo.resolve<FrozenExecutionOutcomeIdentityV2>(run.assessment!.payload.execution_outcome_ref);
+    const repointed = createFrozenExecutionOutcomeIdentityV2({
+      attempt_ref: original.attempt_ref,
+      result: original.result,
+      capability_execution_ref: { artifact_id: junkExecution.artifact_id, artifact_type: "CAPABILITY_EXECUTION" },
+    });
+    (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(repointed.outcome_id, { content_hash: repointed.content_hash, body: repointed });
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+    expect(r.mismatches[0]!.detail).toContain("finding-junk-nonce-0001");
+  });
+});
+
+describe("U30-R3 K2 on the canonical V4 chain: the assessment's authority subject must name the execution its outcome pins", () => {
+  const saved = new Map<string, string | undefined>();
+  beforeEach(() => { for (const name of LU_CANONICAL_AUTHORITY_ENV) saved.set(name, process.env[name]); });
+  afterEach(() => {
+    for (const name of LU_CANONICAL_AUTHORITY_ENV) {
+      const value = saved.get(name);
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    __resetLuExecutionAuthorityVerifierForTests(null);
+  });
+
+  /** A: one ebh HIGH and nothing else. B: no hit at all, ebh unavailable. Both genuine canonical V4 runs. */
+  async function twoCanonicalSubjects() {
+    const repo = new InMemoryArtifactRepository();
+    const authority = await createLuCanonicalAuthority(repo);
+    const subjectA = await provisionLuCanonicalSubject(authority, "u30r3-a");
+    const subjectB = await provisionLuCanonicalSubject(authority, "u30r3-b");
+    const ebhA = spatialEvidence("u30r3-a", "ebh");
+    const runA = await runLuCanonicalSubject(authority, subjectA, { evidence: [ebhA] });
+    const runB = await runLuCanonicalSubject(authority, subjectB, { evidence: [], unavailable_layers: [{ dataset: "ebh", reason: "SOURCE_UNAVAILABLE" }] });
+    expect(runA.assessment?.payload.assessment_contract_version).toBe("localization-assessment-v4"); // precondition
+    expect(runB.assessment?.payload.assessment_contract_version).toBe("localization-assessment-v4");
+    return { repo, subjectA, subjectB, A: runA.assessment!, B: runB.assessment! };
+  }
+
+  /** B's outcome and attestation under A's subject, with exactly the findings B's execution produced. */
+  function redirectedToB(A: LocalizationAssessmentArtifact, B: LocalizationAssessmentArtifact, overrides: Partial<LocalizationAssessmentArtifact["payload"]> = {}) {
+    return withFindings(
+      {
+        ...A.payload,
+        execution_outcome_ref: B.payload.execution_outcome_ref,
+        outcome_attestation_ref: B.payload.outcome_attestation_ref,
+        evidence_refs: [],
+        ...overrides,
+      },
+      B.payload.findings,
+    );
+  }
+
+  it("25h: genuine V4 assessments (a hit; a NOT_CHECKED layer) re-execute to PASS -- the binding refuses nothing honest", async () => {
+    const { repo, A, B } = await twoCanonicalSubjects();
+    for (const assessment of [A, B]) {
+      const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: assessment.artifact_id, artifactRepository: repo });
+      expect(r.mismatches).toEqual([]);
+      expect(r.outcome).toBe("PASS");
+    }
+  });
+
+  it("25f (K2, the no-hit variant exact output binding alone cannot see): A's HIGH suppressed by pointing A at B's outcome, A's own authority evidence kept -> DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const { repo, A, B } = await twoCanonicalSubjects();
+    const forged = await storeUnderNewId(repo, A, redirectedToB(A, B));
+    expect(forged.payload.findings.map((f) => f.finding_id)).toEqual(["finding-notchecked-ebh"]); // B's execution produced exactly this
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  it("25g: the same redirect with B's authority evidence too (A's localization point kept) -> DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const { repo, A, B } = await twoCanonicalSubjects();
+    const forged = await storeUnderNewId(repo, A, redirectedToB(A, B, { authority_evidence_ref: B.payload.authority_evidence_ref }));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  it("25i: the authority evidence a V4 assessment pins is not in CAS -> DENY MANIFEST_ATTEMPT_MISMATCH (an unbound V4 assessment)", async () => {
+    const { repo, A } = await twoCanonicalSubjects();
+    (repo as unknown as { store: Map<string, unknown> }).store.delete(A.payload.authority_evidence_ref!.artifact_id);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: A.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  it("25j: A's authority evidence rewritten in place to name B's identity (hash recomputed, id kept: WORM bypass) and A pointed at B's outcome -> DENY", async () => {
+    const { repo, A, B } = await twoCanonicalSubjects();
+    const evidenceA = await repo.resolve<Record<string, unknown> & { authority_path: { role: string }[] }>(A.payload.authority_evidence_ref!);
+    const evidenceB = await repo.resolve<{ authority_path: { role: string }[] }>(B.payload.authority_evidence_ref!);
+    const { content_hash: _ignored, ...bodyA } = evidenceA;
+    const rewrittenBody = {
+      ...bodyA,
+      authority_path: evidenceA.authority_path.map((entry) => (entry.role === "subject" ? evidenceB.authority_path.find((e) => e.role === "subject")! : entry)),
+    };
+    (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(A.payload.authority_evidence_ref!.artifact_id, {
+      content_hash: sha256ContentHash(rewrittenBody),
+      body: { ...rewrittenBody, content_hash: sha256ContentHash(rewrittenBody) },
+    });
+    const forged = await storeUnderNewId(repo, A, redirectedToB(A, B));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  for (const [stage, pick] of [
+    ["authority_evidence", (A: LocalizationAssessmentArtifact, _identityId: string) => A.payload.authority_evidence_ref!.artifact_id],
+    ["execution_identity", (_A: LocalizationAssessmentArtifact, identityId: string) => identityId],
+  ] as const) {
+    it(`25k ${stage}: a storage fault reading the ${stage} is the typed technical error (OD-R2)`, async () => {
+      const { repo, subjectA, A } = await twoCanonicalSubjects();
+      const targetId = pick(A, subjectA.identity.artifact_id);
+      const fault = new MimersArtifactObjectMissingError(targetId, "e".repeat(64), "get");
+      const faulty = faultingRepository(repo, { resolve: (ref) => (ref.artifact_id === targetId ? fault : null) });
+
+      expectStorageFault(await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: A.artifact_id, artifactRepository: faulty })), stage, fault);
+    });
+  }
+
+  it("19b: historical NOT_CHECKED wording on a genuine V4 assessment -> PASS with NOT_CHECKED_CAUSE_NOT_PINNED", async () => {
+    const { repo, B } = await twoCanonicalSubjects();
+    const cause = historicalProviderCause(Object.assign(new Error('relation "env.ebh" does not exist'), { name: "error" }));
+    const historical = storeAsHistorical(repo, B, () => legacyNotCheckedExplanation("ebh", cause));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: historical.artifact_id, artifactRepository: repo });
+    expect(r.mismatches).toEqual([]);
+    expect(r.outcome).toBe("PASS");
+    expect(r.notices.map((n) => n.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]);
+  });
+});
+
+describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in the exact form the provider produced", () => {
+  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
+  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+
+  const GENUINE: ReadonlyArray<readonly [string, unknown]> = [
+    ["pg DatabaseError (name 'error')", Object.assign(new Error('relation "env.ebh_potentiellt_fororenade_omraden" does not exist'), { name: "error" })],
+    ["connection refused", new Error("connect ECONNREFUSED 127.0.0.1:5432")],
+    ["AggregateError with an empty message", new AggregateError([], "")],
+    ["TypeError", new TypeError("Cannot read properties of undefined (reading 'rowCount')")],
+    ["a message over 200 characters (truncated + '...')", new Error(`canceling statement due to statement timeout ${"x".repeat(240)}`)],
+    ["a non-Error throw", "Query read timeout"],
+  ];
+  for (const [label, thrown] of GENUINE) {
+    it(`19g genuine (${label}) -> PASS + NOT_CHECKED_CAUSE_NOT_PINNED`, async () => {
+      const repo = new InMemoryArtifactRepository();
+      const { run } = await runWithUnavailable(repo, `reexec-a-genuine-${label.length}`);
+      const historical = storeAsHistorical(repo, run.assessment!, () => legacyNotCheckedExplanation("ebh", historicalProviderCause(thrown)));
+
+      const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: historical.artifact_id, artifactRepository: repo });
+      expect(r.mismatches).toEqual([]);
+      expect(r.outcome).toBe("PASS");
+      expect(r.notices.map((n) => n.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]);
+    });
+  }
+
+  const NOT_THE_PRODUCER: ReadonlyArray<readonly [string, string]> = [
+    ["free text without an error name (verifier X7)", "men inga förorenade områden finns inom 500 m"],
+    ["a name that is not an error-class identifier", "Inga förorenade områden: kontrollerat"],
+    ["an over-long message that was never truncated", `Error: ${"a".repeat(201)}`],
+    ["a truncation marker on a message of the wrong length", `Error: ${"a".repeat(201)}...`],
+    ["a line break inside the message", "Error: första raden\nandra raden"],
+    ["no separator after the name", "QueryFailedError"],
+  ];
+  for (const [label, cause] of NOT_THE_PRODUCER) {
+    it(`19d not the producer's form (${label}) -> DENY FINDINGS_MISMATCH, no notice`, async () => {
+      const repo = new InMemoryArtifactRepository();
+      const { run } = await runWithUnavailable(repo, `reexec-a-forged-${label.length}`);
+      const rewritten = storeAsHistorical(repo, run.assessment!, () => legacyNotCheckedExplanation("ebh", cause));
+
+      const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: rewritten.artifact_id, artifactRepository: repo });
+      expect(r.outcome).toBe("DENY");
+      expect(r.mismatches.map((m) => m.code)).toContain("FINDINGS_MISMATCH");
+      expect(r.notices).toEqual([]);
+    });
+  }
+});
+
+describe("U30-R3 (owner 2026-10-02): a provider diagnostic never reaches an artifact, the kernel result or the replay identity", () => {
+  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
+  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+
+  const DIAGNOSTIC =
+    'error: relation "env.ebh_diag_u30r3" does not exist (SELECT 1 AS hit FROM env.ebh_diag_u30r3 WHERE ST_DWithin(geom, $1, $2) LIMIT $4) at 10.9.8.7:5432';
+
+  async function runWithDiagnostic(diagnostic: string | undefined) {
+    const repo = new InMemoryArtifactRepository();
+    const ev = spatialEvidence("diag-u30r3", "water");
+    await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
+    const run = await runLuAssessmentViaKernel({
+      site_id: "reexec-diag-u30r3",
+      deterministic_seed: "seed:reexec-diag-u30r3",
+      evidence: [ev],
+      unavailable_layers: [{ dataset: "ebh", reason: "SOURCE_UNAVAILABLE", ...(diagnostic === undefined ? {} : { diagnostic }) }],
+      artifact_repository: repo,
+      assessment_draft: { ...draft(), site_id: "reexec-diag-u30r3", evidence_refs: [{ artifact_id: ev.artifact_id, artifact_type: ev.artifact_type }] },
+    });
+    return { repo, run };
+  }
+
+  it("26: with and without a diagnostic the assessment is byte-identical; no CAS object, kernel result or re-execution result carries any part of it", async () => {
+    const withDiag = await runWithDiagnostic(DIAGNOSTIC);
+    const without = await runWithDiagnostic(undefined);
+    expect(withDiag.run.assessment!.artifact_id).toBe(without.run.assessment!.artifact_id);
+    expect(withDiag.run.assessment!.content_hash).toEqual(without.run.assessment!.content_hash);
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: withDiag.run.assessment!.artifact_id, artifactRepository: withDiag.repo });
+    expect(r.outcome).toBe("PASS");
+
+    const stored = JSON.stringify([...(withDiag.repo as unknown as { store: Map<string, unknown> }).store.entries()]);
+    const kernelResult = JSON.stringify(withDiag.run);
+    for (const surface of [stored, kernelResult, JSON.stringify(r)]) {
+      for (const fragment of ["ebh_diag_u30r3", "10.9.8.7", "SELECT 1", "does not exist", DIAGNOSTIC]) {
+        expect(surface).not.toContain(fragment);
+      }
+    }
   });
 });
