@@ -221,9 +221,14 @@ export async function executeProjectContextBootstrap(input: {
       const existing = await currentBindingProvider.resolveCurrent(project!.id);
       return { ok: true, contextBindingArtifactId: existing.artifact_id, reused: true };
     } catch (resolveCurrentError) {
-      // W-BOOT (OD-R1/OD-R2): proceed to issue a binding ONLY when the project provably has none.
-      // A binding that exists but cannot be read or verified is a typed fail-closed error, never
-      // "no binding yet" -- minting then could give the project a second property root.
+      // W-BOOT (OD-R1/OD-R2): proceed to issue a binding ONLY when no index trace shows one -- the
+      // binding index lists neither a binding nor a relation, and none of the gate's traces (projection,
+      // geometry, completed bootstrap rows) shows that a binding existed. W-CATCH3 (CATCH2 verifier
+      // finding 7, BOOT finding 1): that is what the gate proves, not that the project "provably has
+      // none" -- correlated loss of ALL that metadata is the documented
+      // PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION (projectContextBootstrapBindingGate.ts), not approved
+      // behaviour. A binding that exists but cannot be read or verified is a typed fail-closed error,
+      // never "no binding yet" -- minting then could give the project a second property root.
       await assertNoProjectContextBindingRegistered({
         resolveCurrentError,
         projectId: project!.id,

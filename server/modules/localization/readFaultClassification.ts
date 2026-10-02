@@ -11,6 +11,17 @@
  *    exact id the caller asked for (isProvenArtifactAbsence), or W-APR/W-BOOT's strict
  *    "no binding registered" (isProvenBindingAbsence). Nothing here turns a failure into absence.
  *
+ * KNOWN LIMIT (W-CATCH3, CATCH2 verifier finding 5; storage layer, unchanged): "never stored" is the
+ * storage's ENOENT on the INDEX ENTRY (packages/mps-runtime MimersByteStorageBackend isEnoent) -- also
+ * when the whole index directory (the entry's parent) is gone. It proves that no entry is readable
+ * under that id, not that nothing was ever stored. Where something says the artifact must exist (a
+ * completed row, a reference, a projection row) that absence is MISSING_FROM_CAS and fails closed; but a
+ * deterministic id that is minted on absence (the provisioning workers' issuers, capabilities, relations,
+ * temporal statuses) is minted again after the loss of its single index entry -- byte-identical where
+ * the content is fully deterministic, with a new decision_time for the temporal status (CATCH2 probe
+ * I1). The class of BOOT's single-file-loss note; it needs its own owner decision (KNOWN_LIMITATION or
+ * an index-root marker), not a change here.
+ *
  * Reuses, never re-derives:
  *  - M1a-F1/U20CDF2's value-based lasting-storage rule (storageFaultClassification.ts
  *    isPersistentStorageFault: MIMERS_ARTIFACT_OBJECT_MISSING, a torn index entry, CASIntegrityError);
@@ -105,6 +116,9 @@ function isReadFaultMarker(node: unknown): boolean {
   if (typeof code === 'string' && /^E[A-Z0-9]{2,}$/.test(code)) return true; // a Node system error: EIO, EBUSY, ECONNREFUSED, ...
   if (typeof code === 'string' && /^P1\d{3}$/.test(code)) return true; // a Prisma connection/engine error (P1xxx)
   if (typeof name === 'string' && name.startsWith('PrismaClient')) return true; // any Prisma client error: the database could not answer
+  // W-CATCH3 (CATCH2 verifier finding 13): a timeout or an abort (DOMException / AbortSignal names) has
+  // unknown persistence in either phase -- never "refused at verification".
+  if (name === 'TimeoutError' || name === 'AbortError') return true;
   return false;
 }
 

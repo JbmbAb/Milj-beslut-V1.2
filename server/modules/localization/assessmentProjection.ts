@@ -31,7 +31,6 @@ import {
   type ProjectAssessmentProjectionIndex,
 } from "../../repositories/projectAssessmentProjectionRepository.js";
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
-import { isPersistentStorageFault } from "./storageFaultClassification.js";
 import { classifyReadFault, readExistingOrProvenAbsent } from "./readFaultClassification.js";
 
 function sameHash(
@@ -214,15 +213,19 @@ function currentBindingFault(error: unknown): AssessmentProjectionBindingUnresol
   return new AssessmentProjectionBindingUnresolvableError(fault.faultClass, fault.refusalCode, error);
 }
 
-/** Classifies a failed CAS read of a candidate (OD-R2: only a read of unknown persistence is retryable). */
+/**
+ * Classifies a failed CAS read of a candidate (OD-R2: only a read of unknown persistence is retryable).
+ * W-CATCH3 (CATCH2 verifier finding 6): by the shared classification (readFaultClassification.ts), no
+ * second copy -- "Artifact not found" of any id (the row says the candidate exists) is MISSING_FROM_CAS,
+ * and every other lasting class (a storage fault, a WORM violation, an index inconsistency, a refusal
+ * met while reading) is STORAGE_INTEGRITY_FAULT in this candidate vocabulary; `retryable` is the shared
+ * class's (READ_ERROR only).
+ */
 function candidateReadFault(error: unknown, assessmentArtifactId: string): AssessmentCandidateFault {
-  if (error instanceof Error && error.message === `Artifact not found: ${assessmentArtifactId}`) {
-    return { assessmentArtifactId, reason: "MISSING_FROM_CAS", retryable: false };
-  }
-  if (isPersistentStorageFault(error)) {
-    return { assessmentArtifactId, reason: "STORAGE_INTEGRITY_FAULT", retryable: false };
-  }
-  return { assessmentArtifactId, reason: "READ_ERROR", retryable: true };
+  const fault = classifyReadFault(error, "read");
+  const reason: AssessmentCandidateFaultReason =
+    fault.faultClass === "READ_ERROR" || fault.faultClass === "MISSING_FROM_CAS" ? fault.faultClass : "STORAGE_INTEGRITY_FAULT";
+  return { assessmentArtifactId, reason, retryable: fault.retryable };
 }
 
 /** The candidate read is exactly the requested assessment, and its content hashes to its own identity. */
