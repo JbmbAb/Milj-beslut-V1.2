@@ -538,7 +538,13 @@ describe('W-APR add-on 2: the current binding cannot be resolved -> a typed faul
     expect(error.message.startsWith(`${BINDING_CODE}:`)).toBe(true);
   });
 
-  it('a project with NO binding registered is genuine absence: REJECT_ASSESSMENT_PROJECTION_NOT_FOUND, unchanged', async () => {
+  // W-BOOT (APR verifier F2): this case used to be pinned as "genuine absence" (404). It is not: the
+  // project HAS a projection row, and a projection row is only ever written under a registered
+  // binding (binding_artifact_id is NOT NULL and the index is append-only). A row with no binding
+  // registered for its project therefore proves lost binding-index rows -- a lasting integrity fault
+  // (503, not retryable), never "no assessment", and never a reason for the bootstrap to mint.
+  // Genuine absence (no row at all) is still 404: see luAssessmentProjectionBindingIndexLossBOOT.
+  it('projection rows but NO binding registered for the project -> BINDING_INDEX_INCONSISTENT (lost binding rows), never 404 absence', async () => {
     const s = await setup();
     const orphan = await s.assessment('no-binding-project');
     await s.index.register({
@@ -546,7 +552,11 @@ describe('W-APR add-on 2: the current binding cannot be resolved -> a typed faul
       projectContextRef: contextNew, bindingArtifactId: s.newBindingRef.artifact_id, releaseArtifactId: RELEASE_REF.artifact_id,
     });
     const outcome = await outcomeOf(s.resolve(undefined, 'project-without-binding-apr'));
-    expect((outcome as { error: Error }).error.message).toBe('REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable');
+    const error = (outcome as { error: Error & Record<string, unknown> }).error;
+    expect(error.message).not.toMatch(/^REJECT_/);
+    expect({ code: error.code, reason: error.reason, retryable: error.retryable, refusalCode: error.refusalCode }).toEqual({
+      code: BINDING_CODE, reason: 'BINDING_INDEX_INCONSISTENT', retryable: false, refusalCode: null,
+    });
     expect(s.repository.reads).not.toContain(orphan.artifact_id);
   });
 });

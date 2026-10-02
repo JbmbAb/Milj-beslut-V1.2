@@ -27,9 +27,17 @@ const h = vi.hoisted(() => ({
   owner: null as unknown,
   resolveCurrent: (() => undefined) as (projectId: string) => unknown,
   listSupersessionRefs: (() => undefined) as (projectId: string) => unknown,
+  /** W-BOOT / APR F2: other index traces of the project (rows that only exist once a binding did). */
+  assessmentRows: (() => []) as (projectId: string) => unknown,
+  geometryRows: (() => []) as (projectId: string) => unknown,
+  bootstrapRequests: [] as Array<{ projectId: string; status: string; contextBindingArtifactId: string | null }>,
+  bootstrapRequestsError: null as Error | null,
   calls: {
     resolveCurrent: 0,
     listSupersessionRefs: 0,
+    assessmentRows: 0,
+    geometryRows: 0,
+    bootstrapRequests: 0,
     lookup: 0,
     signer: 0,
     attest: 0,
@@ -45,11 +53,22 @@ vi.mock('../../server/db/prisma', async () => {
     prisma: Record<string | symbol, unknown>;
     Prisma: object;
   };
-  // Only the two reads the bootstrap itself makes are served; every other property access is the
+  // Only the reads the bootstrap itself makes are served; every other property access is the
   // hermetic guard (recorded, throws).
   const served: Record<string, unknown> = {
     project: { findUnique: async () => h.project },
     projectMember: { findFirst: async () => h.owner },
+    // W-BOOT / APR F2: the bootstrap queue's own record of a completed bootstrap (with its binding).
+    projectContextBootstrapRequest: {
+      count: async (args: { where: { projectId: string; status: string; contextBindingArtifactId: { not: null } } }) => {
+        h.calls.bootstrapRequests += 1;
+        if (h.bootstrapRequestsError) throw h.bootstrapRequestsError;
+        const w = args.where;
+        return h.bootstrapRequests.filter(
+          (r) => r.projectId === w.projectId && r.status === w.status && (w.contextBindingArtifactId?.not === null ? r.contextBindingArtifactId !== null : true),
+        ).length;
+      },
+    },
   };
   return {
     Prisma: guarded.Prisma,
@@ -96,6 +115,28 @@ vi.mock('../../server/repositories/projectContextBindingRepository', () => ({
     }
     async findProjectContextRef() {
       throw new Error('W-BOOT mock port: findProjectContextRef is not part of the bootstrap');
+    }
+  },
+}));
+vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () => ({
+  PrismaProjectAssessmentProjectionIndex: class {
+    async listForProject(projectId: string) {
+      h.calls.assessmentRows += 1;
+      return h.assessmentRows(projectId);
+    }
+    async register() {
+      throw new Error('W-BOOT mock port: the bootstrap never registers an assessment');
+    }
+  },
+}));
+vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
+  PrismaLocalizationGeometryProjectionIndex: class {
+    async listForProject(projectId: string) {
+      h.calls.geometryRows += 1;
+      return h.geometryRows(projectId);
+    }
+    async register() {
+      throw new Error('W-BOOT mock port: the bootstrap never registers a geometry');
     }
   },
 }));
@@ -192,7 +233,7 @@ const TEXT: Record<Expected['reason'], string> = {
   STORAGE_INTEGRITY_FAULT: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
   MISSING_FROM_CAS: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
   REFUSED: `Projektkontexten kunde inte etableras: projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja). ${NO_NEW_BINDING} ${LASTING}`,
-  BINDING_INDEX_INCONSISTENT: `Projektkontexten kunde inte etableras: bindningsindexet har registrerade ersättningsrelationer men ingen bindning för projektet (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
+  BINDING_INDEX_INCONSISTENT: `Projektkontexten kunde inte etableras: projektets bindning saknas i bindningsindexet, men indexen visar att en bindning har funnits (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
 };
 
 function nothingMinted(): void {
@@ -226,6 +267,10 @@ beforeEach(() => {
     user: { id: 'user-w-boot', organisationId: 'org-w-boot', bankidId: 'bankid:w-boot', role: 'CONSULTANT', identityEnvironment: 'TEST' },
   };
   h.listSupersessionRefs = () => [];
+  h.assessmentRows = () => [];
+  h.geometryRows = () => [];
+  h.bootstrapRequests.length = 0;
+  h.bootstrapRequestsError = null;
   for (const key of Object.keys(h.calls) as Array<keyof typeof h.calls>) h.calls[key] = 0;
   h.casWrites.length = 0;
   h.indexRegistrations.length = 0;
@@ -318,6 +363,65 @@ describe('W-BOOT: a binding that exists but cannot be resolved is never replaced
     expect(h.calls.listSupersessionRefs).toBe(1);
   });
 
+  // W-BOOT / APR verifier F2: "no binding registered" only when NOTHING in the indexes shows that the
+  // project ever had one. Each of these rows exists only once a binding did (append-only indexes;
+  // assessment rows carry a NOT NULL binding id; a geometry is saved under the canonical context;
+  // a COMPLETED bootstrap request records its binding).
+  it('the binding provider reports supersession rows without any binding row (typed cause) -> integrity fault, nothing minted', async () => {
+    h.resolveCurrent = () => {
+      throw unavailable(false, Object.assign(new Error('PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT: supersession relations without any binding'), {
+        code: 'PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT',
+      }));
+    };
+    await expectTypedNoMint(INCONSISTENT);
+  });
+
+  const TRACES: ReadonlyArray<readonly [string, () => void]> = [
+    ['an assessment projection row (it names a binding)', () => {
+      h.assessmentRows = () => [{ projectId: PROJECT_ID, assessmentArtifactId: 'assessment-abc', bindingArtifactId: 'project-context-binding-lost' }];
+    }],
+    ['a localization geometry row (saved under the canonical context)', () => {
+      h.geometryRows = () => [{ projectId: PROJECT_ID, geometryArtifactId: 'localization-geometry-abc' }];
+    }],
+    ['an earlier COMPLETED bootstrap request with its binding', () => {
+      h.bootstrapRequests.push({ projectId: PROJECT_ID, status: 'COMPLETED', contextBindingArtifactId: 'project-context-binding-lost' });
+    }],
+  ];
+  for (const [trace, arrange] of TRACES) {
+    it(`empty binding graph, no supersession row, but ${trace} remains -> integrity fault (lost binding rows), nothing minted`, async () => {
+      h.resolveCurrent = () => {
+        throw unavailable(true, emptyGraph());
+      };
+      arrange();
+      await expectTypedNoMint(INCONSISTENT);
+    });
+  }
+
+  const TRACE_READ_ERRORS: ReadonlyArray<readonly [string, () => void]> = [
+    ['the assessment projection index', () => {
+      h.assessmentRows = () => {
+        throw fsError('ECONNRESET');
+      };
+    }],
+    ['the localization geometry index', () => {
+      h.geometryRows = () => {
+        throw fsError('ECONNRESET');
+      };
+    }],
+    ['the bootstrap request queue', () => {
+      h.bootstrapRequestsError = fsError('ECONNRESET');
+    }],
+  ];
+  for (const [what, arrange] of TRACE_READ_ERRORS) {
+    it(`empty binding graph but ${what} cannot be read -> read error (retryable), nothing minted`, async () => {
+      h.resolveCurrent = () => {
+        throw unavailable(true, emptyGraph());
+      };
+      arrange();
+      await expectTypedNoMint(READ);
+    });
+  }
+
   it('the Swedish text names no artifact id, path, storage code or REJECT_* token', async () => {
     h.resolveCurrent = () => {
       throw unavailable(false, objectMissing());
@@ -341,6 +445,25 @@ describe('W-BOOT: genuine absence and an existing binding behave exactly as befo
     expect(h.calls.spawn).toBe(1);
     expect(h.indexRegistrations).toEqual([outcome.ok ? outcome.contextBindingArtifactId : '']);
     expect(hermeticPrismaTouches).toEqual([]);
+  });
+
+  it('genuine absence consults every index trace once; a FAILED or still-running earlier request is not a trace', async () => {
+    h.resolveCurrent = () => {
+      throw unavailable(true, emptyGraph());
+    };
+    h.bootstrapRequests.push(
+      { projectId: PROJECT_ID, status: 'FAILED', contextBindingArtifactId: null },
+      { projectId: PROJECT_ID, status: 'LEASED', contextBindingArtifactId: null },
+      { projectId: 'another-project', status: 'COMPLETED', contextBindingArtifactId: 'project-context-binding-other' },
+    );
+    const outcome = await executeProjectContextBootstrap(INPUT);
+    expect(outcome).toMatchObject({ ok: true, reused: false });
+    expect({
+      supersessions: h.calls.listSupersessionRefs,
+      assessmentRows: h.calls.assessmentRows,
+      geometryRows: h.calls.geometryRows,
+      bootstrapRequests: h.calls.bootstrapRequests,
+    }).toEqual({ supersessions: 1, assessmentRows: 1, geometryRows: 1, bootstrapRequests: 1 });
   });
 
   it('a verified current binding -> reused, nothing minted', async () => {

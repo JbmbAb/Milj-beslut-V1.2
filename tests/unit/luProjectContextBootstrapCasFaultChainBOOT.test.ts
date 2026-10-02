@@ -48,6 +48,10 @@ const state = vi.hoisted(() => ({
   bindingSupersessions: [] as Array<{ projectId: string; artifactId: string }>,
   /** When set, listing the project's binding rows fails with this error. */
   listError: null as Error | null,
+  /** W-BOOT / APR F2: other index traces of the project. */
+  assessmentRows: [] as Array<{ projectId: string; assessmentArtifactId: string; bindingArtifactId: string }>,
+  geometryRows: [] as Array<{ projectId: string; geometryArtifactId: string }>,
+  bootstrapRequests: [] as Array<{ projectId: string; status: string; contextBindingArtifactId: string | null }>,
 }));
 
 vi.mock('../../server/db/prisma', async () => {
@@ -58,6 +62,13 @@ vi.mock('../../server/db/prisma', async () => {
   const served: Record<string, unknown> = {
     project: { findUnique: async () => state.project },
     projectMember: { findFirst: async () => state.owner },
+    // The bootstrap queue (same where-contract as projectContextBootstrapRequestQueue.ts).
+    projectContextBootstrapRequest: {
+      count: async (args: { where: { projectId: string; status: string; contextBindingArtifactId: { not: null } } }) =>
+        state.bootstrapRequests.filter(
+          (r) => r.projectId === args.where.projectId && r.status === args.where.status && r.contextBindingArtifactId !== null,
+        ).length,
+    },
   };
   return {
     Prisma: guarded.Prisma,
@@ -100,6 +111,20 @@ vi.mock('../../server/repositories/projectContextBindingRepository', () => ({
       const rows = state.bindingRows.filter((r) => r.projectId === projectId);
       if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
       return { artifact_id: rows[0]!.contextId, artifact_type: rows[0]!.contextType };
+    }
+  },
+}));
+vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () => ({
+  PrismaProjectAssessmentProjectionIndex: class {
+    async listForProject(projectId: string) {
+      return state.assessmentRows.filter((r) => r.projectId === projectId);
+    }
+  },
+}));
+vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
+  PrismaLocalizationGeometryProjectionIndex: class {
+    async listForProject(projectId: string) {
+      return state.geometryRows.filter((r) => r.projectId === projectId);
     }
   },
 }));
@@ -288,7 +313,7 @@ const LASTING = 'Felet är bestående och löses inte av ett nytt försök. Kont
 const TEXT_READ = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas (tekniskt fel). ${NO_NEW_BINDING} Ett nytt försök kan lyckas.`;
 const TEXT_STORAGE = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
 const TEXT_REFUSED = `Projektkontexten kunde inte etableras: projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja). ${NO_NEW_BINDING} ${LASTING}`;
-const TEXT_INCONSISTENT = `Projektkontexten kunde inte etableras: bindningsindexet har registrerade ersättningsrelationer men ingen bindning för projektet (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
+const TEXT_INCONSISTENT = `Projektkontexten kunde inte etableras: projektets bindning saknas i bindningsindexet, men indexen visar att en bindning har funnits (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
 
 const READ = { failureCode: 'CURRENT_BINDING_READ_ERROR', reason: 'READ_ERROR', retryable: true, refusalCode: null, failureDetail: TEXT_READ } as const;
 const STORAGE = { failureCode: 'CURRENT_BINDING_INTEGRITY_FAULT', reason: 'STORAGE_INTEGRITY_FAULT', retryable: false, refusalCode: null, failureDetail: TEXT_STORAGE } as const;
@@ -354,6 +379,9 @@ beforeEach(async () => {
   state.bindingRows.length = 0;
   state.bindingSupersessions.length = 0;
   state.listError = null;
+  state.assessmentRows.length = 0;
+  state.geometryRows.length = 0;
+  state.bootstrapRequests.length = 0;
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.keyId;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = issuerKey.publicKeyPem;
@@ -425,6 +453,31 @@ describe('W-BOOT: the existing binding cannot be resolved -> typed fail-closed o
       state.puts.length = 0;
       state.lookupVersion = 'v2'; // the property layer was re-imported since the first bootstrap
       await expectNoMint(expected, before);
+    });
+  }
+
+  // W-BOOT / APR verifier F2: the binding row is lost but other index traces show the project had one.
+  const TRACES: ReadonlyArray<readonly [string, (bindingId: string) => void]> = [
+    ['the worker\'s own COMPLETED bootstrap request (a bootstrapped project not yet assessed)', (b) => {
+      state.bootstrapRequests.push({ projectId: PROJECT_ID, status: 'COMPLETED', contextBindingArtifactId: b });
+    }],
+    ['an assessment projection row naming the binding', (b) => {
+      state.assessmentRows.push({ projectId: PROJECT_ID, assessmentArtifactId: 'assessment-under-the-lost-binding', bindingArtifactId: b });
+    }],
+    ['a localization geometry row of the project', () => {
+      state.geometryRows.push({ projectId: PROJECT_ID, geometryArtifactId: 'localization-geometry-of-the-project' });
+    }],
+  ];
+  for (const [trace, arrange] of TRACES) {
+    it(`the binding row lost, ${trace} remains -> CURRENT_BINDING_INTEGRITY_FAULT (index inconsistent); no new binding is minted`, async () => {
+      const bindingId = await bootstrapOnce();
+      arrange(bindingId);
+      state.bindingRows.length = 0; // e.g. a partial restore of the binding projection
+      const before = snapshot();
+      state.lookups = 0;
+      state.puts.length = 0;
+      state.lookupVersion = 'v2';
+      await expectNoMint(INCONSISTENT, before);
     });
   }
 
