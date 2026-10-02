@@ -249,6 +249,74 @@ describe('DEMO M2b presentLuError', () => {
     }
   });
 
+  // -----------------------------------------------------------------------------------------------
+  // W-M2e item 1 (M2d verification finding 1, W-APR add-on 3): the selection's refusals have their
+  // own Swedish text per class -- a binding that failed its check is not "motstridigt underlag", and a
+  // contract-version refusal is not "stämmer inte med sin lagrade identitet". Never retried.
+  // -----------------------------------------------------------------------------------------------
+  const selection = (status: number, code: string, failureClass: string, reasonCode: string) =>
+    httpError(status, 'Projektets aktuella bedömning kan inte fastställas: ... en äldre bedömning visas aldrig i stället.', {
+      code,
+      failureClass,
+      reasonCode,
+      retryable: false,
+    });
+
+  it.each([
+    // [error, kind, required text, forbidden text]
+    [
+      selection(409, 'ASSESSMENT_CURRENT_UNRESOLVED', 'CURRENT_BINDING_REFUSED', 'REJECT_PROJECT_CONTEXT_BINDING_V2'),
+      'INTEGRITY',
+      'projektets aktuella bindning till fastigheten underkändes vid kontrollen',
+      /motstridig|lagrade identitet/,
+    ],
+    [
+      selection(409, 'ASSESSMENT_CURRENT_UNRESOLVED', 'ASSESSMENT_CURRENT_AMBIGUOUS', 'REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT'),
+      'REFUSED',
+      'det finns flera giltiga bedömningar för den aktuella kontrollpunkten, och ingen av dem är utpekad som den aktuella',
+      /motstridig|lagrade identitet/,
+    ],
+    [
+      selection(409, 'ASSESSMENT_CURRENT_UNRESOLVED', 'ASSESSMENT_SELECTION_REFUSED', 'REJECT_SOMETHING_NEW'),
+      'REFUSED',
+      'valet av aktuell bedömning nekades',
+      /motstridig|lagrade identitet/,
+    ],
+    [
+      selection(424, 'ASSESSMENT_CONTRACT_REFUSED', 'ASSESSMENT_CONTRACT_INVALID', 'REJECT_LOCALIZATION_ASSESSMENT_V4'),
+      'INTEGRITY',
+      'den följer inget godkänt bedömningskontrakt (okänd eller ogiltig kontraktsversion)',
+      /motstridig|lagrade identitet/,
+    ],
+  ] as const)('W-M2e item 1: %s -> %s with its own text', (err, kind, text, forbidden) => {
+    for (const context of ['current-assessment', 'export', 'verify', 'viewer-evidence'] as const) {
+      const p = presentLuError(err, context);
+      expect(p.kind).toBe(kind);
+      expect(p.retryable).toBe(false);
+      expect(p.messageSv).toContain(text);
+      expect(p.messageSv).not.toMatch(forbidden);
+      // Never stronger than the KNOWN_LIMITATION, no authenticity language, no raw code or server text.
+      expect(p.messageSv).not.toMatch(/aldrig|alltid|garanter|signatur|äkthet|attest|[A-Z]{3,}_[A-Z_]{3,}/i);
+      expect(p.messageSv).not.toContain(err.message);
+      expect(p.technical).toContainEqual({ label: 'Felkod', value: (err as unknown as { code: string }).code });
+      expect(p.technical).toContainEqual({ label: 'Orsakskod', value: (err as unknown as { reasonCode: string }).reasonCode });
+    }
+  });
+
+  it('W-M2e item 1: a class of the two codes this UI does not know still gets the code\'s own text, never the status text', () => {
+    const unresolved = presentLuError(selection(409, 'ASSESSMENT_CURRENT_UNRESOLVED', 'SOME_NEW_CLASS', 'REJECT_X'), 'current-assessment');
+    expect(unresolved.kind).toBe('REFUSED');
+    expect(unresolved.retryable).toBe(false);
+    expect(unresolved.messageSv).toBe(
+      'Projektets aktuella bedömning kan inte fastställas. Ingen bedömning visas, och en äldre bedömning visas inte i stället. Ett nytt försök ändrar inte detta.',
+    );
+    const contract = presentLuError(selection(424, 'ASSESSMENT_CONTRACT_REFUSED', 'SOME_NEW_CLASS', 'REJECT_X'), 'export');
+    expect(contract.kind).toBe('INTEGRITY');
+    expect(contract.retryable).toBe(false);
+    expect(contract.messageSv).toContain('bedömningskontrakt');
+    expect(contract.messageSv).not.toMatch(/lagrade identitet/);
+  });
+
   it('a client-side Swedish error is shown as written', () => {
     expect(presentLuError(new LuClientError('Slå upp en fastighet först.'), 'run').messageSv).toBe('Slå upp en fastighet först.');
   });

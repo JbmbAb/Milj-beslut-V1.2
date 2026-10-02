@@ -287,6 +287,59 @@ const ASSESSMENT_READ_TEXT: Readonly<Record<string, CodeText>> = {
   },
 };
 
+/**
+ * W-M2e item 1 (M2d verification finding 1; W-APR add-on 3, localizationOrchestrator.ts
+ * assessmentResolutionFailure): the selection of the current assessment was REFUSED -- 409
+ * ASSESSMENT_CURRENT_UNRESOLVED per failure class. None is a contradiction in the data ("motstridigt
+ * underlag"), and none is retryable (the server sends retryable:false). The server's own texts say
+ * "aldrig"; this UI says only what holds for the fault (M1a/APR KNOWN_LIMITATION), and adds no
+ * authenticity language -- the binding "failed its check", nothing more.
+ */
+const SELECTION_REFUSAL_TEXT: Readonly<Record<string, CodeText>> = {
+  CURRENT_BINDING_REFUSED: {
+    // The stored binding of the project failed verification: stored material, like a tamper case.
+    kind: 'INTEGRITY',
+    messageSv:
+      'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning till fastigheten underkändes vid kontrollen. ' +
+      'Ingen bedömning visas, och en äldre bedömning visas inte i stället. Felet försvinner inte vid ett nytt försök – kontakta systemets administratör.',
+    retryable: false,
+  },
+  ASSESSMENT_CURRENT_AMBIGUOUS: {
+    kind: 'REFUSED',
+    messageSv:
+      'Projektets aktuella bedömning kan inte fastställas: det finns flera giltiga bedömningar för den aktuella kontrollpunkten, och ingen av dem ' +
+      'är utpekad som den aktuella. Ingen av dem visas som aktuell. Ett nytt försök ändrar inte detta.',
+    retryable: false,
+  },
+  ASSESSMENT_SELECTION_REFUSED: {
+    kind: 'REFUSED',
+    messageSv:
+      'Projektets aktuella bedömning kan inte fastställas: valet av aktuell bedömning nekades. Ingen bedömning visas, och en äldre bedömning ' +
+      'visas inte i stället. Ett nytt försök ändrar inte detta.',
+    retryable: false,
+  },
+};
+
+/** W-M2e item 1: ASSESSMENT_CURRENT_UNRESOLVED with a class this UI does not know (still a refusal). */
+const SELECTION_REFUSAL_DEFAULT: CodeText = {
+  kind: 'REFUSED',
+  messageSv:
+    'Projektets aktuella bedömning kan inte fastställas. Ingen bedömning visas, och en äldre bedömning visas inte i stället. Ett nytt försök ändrar inte detta.',
+  retryable: false,
+};
+
+/**
+ * W-M2e item 1: 424 ASSESSMENT_CONTRACT_REFUSED -- the stored assessment follows no accepted assessment
+ * contract (unknown or invalid contract VERSION). Not an identity/tamper fault; not retryable.
+ */
+const CONTRACT_REFUSAL_TEXT: CodeText = {
+  kind: 'INTEGRITY',
+  messageSv:
+    'Projektets aktuella bedömning kan inte visas: den följer inget godkänt bedömningskontrakt (okänd eller ogiltig kontraktsversion). ' +
+    'En äldre bedömning visas inte i stället. Felet försvinner inte vid ett nytt försök – kontakta systemets administratör.',
+  retryable: false,
+};
+
 /** U20-D: content read for the evidence/root details failed its own identity (GOVERNED_EVIDENCE_INTEGRITY_FAILED). */
 const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, string>> = {
   EVIDENCE_TAMPERED: 'Bedömningens underlag klarade inte integritetskontrollen: en evidens stämmer inte med sin egen identitet. Bedömningen visas därför inte.',
@@ -349,6 +402,14 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
     return entry
       ? fromTable(entry)
       : make('TECHNICAL', `${lead} Projektets aktuella bedömning kunde inte fastställas på grund av ett tekniskt fel. En äldre bedömning visas inte i stället.`, true);
+  }
+  if (f.code === 'ASSESSMENT_CURRENT_UNRESOLVED') {
+    // W-M2e item 1 (W-APR add-on 3): the selection was refused -- per class, never "motstridigt".
+    return fromTable((f.failureClass && SELECTION_REFUSAL_TEXT[f.failureClass]) || SELECTION_REFUSAL_DEFAULT);
+  }
+  if (f.code === 'ASSESSMENT_CONTRACT_REFUSED') {
+    // W-M2e item 1 (W-APR add-on 3): a contract-VERSION refusal, never "stämmer inte med sin lagrade identitet".
+    return fromTable(CONTRACT_REFUSAL_TEXT);
   }
   if (f.code === 'LU_REEXECUTION_STORAGE_FAULT') {
     // U20CDF2 add-on 1: a storage fault during re-execution is no verification verdict.
