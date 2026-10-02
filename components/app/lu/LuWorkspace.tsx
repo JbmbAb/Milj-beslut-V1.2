@@ -1,21 +1,31 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
-import EvidenceDetailsPanel from '../../cesium/EvidenceDetailsPanel';
 import type { CesiumEvidenceMode } from '../../CesiumMapView';
-import { presentLuFinding } from './luFindingPresentation';
-import { presentLuCoverageStatus, presentLuGovernedLayerCheck } from './luCoverageStatusPresentation';
+import { presentLuFinding, presentLuFindingSummary } from './luFindingPresentation';
+import {
+  checkDefinitionForLayer,
+  checkDefinitionForRule,
+  deriveLuControlChecks,
+  parseViewerEvidence,
+  LU_V1_CHECKS,
+  type LuAssessmentPresence,
+  type LuCheckKey,
+  type LuEvidenceLoad,
+} from './luControlChecks';
+import { LuControlPanel } from './LuControlPanel';
+import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
 
 const CesiumMapView = lazy(() => import('../../CesiumMapView'));
 
 /**
  * P3-LU-CANONICAL-CHAIN-01 — how an absent LU verdict is shown.
  *
- * Never a dash or a blank: in a field labelled "Risk", both read as a low-risk finding. The
- * caseworker must be able to tell "not assessed" from "assessed as low risk".
+ * Never a dash or a blank: both read as a low-risk finding. The caseworker must be able to tell
+ * "not assessed" from "assessed".
  */
-const NOT_ASSESSED_LABEL: Record<string, string> = {
+const ASSESSMENT_STATUS_LABEL: Record<string, string> = {
   ASSESSED: 'Bedömd',
   NOT_ASSESSED: 'Ej bedömd',
   GOVERNANCE_DENIED: 'Ej bedömd – nekad av styrning',
@@ -25,6 +35,7 @@ const NOT_ASSESSED_LABEL: Record<string, string> = {
 type SiteInput = {
   id: string;
   name: string;
+  designation: string;
   lat: number;
   lng: number;
   geometry?: unknown;
@@ -43,56 +54,71 @@ type LocalizationGeometryView = {
 type LuFindingView = {
   finding_id: string;
   rule_id: string;
-  risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  rule_version?: string;
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'NOT_CHECKED';
   explanation: string;
-  /**
-   * LU-FINDING-MAP-DRILLDOWN-V1. Was already present on the wire from the server on both the
-   * fresh-run and Unit 5B restore paths (the real AssessmentFinding shape) -- this type just
-   * hadn't declared it yet.
-   */
   evidence_refs?: Array<{ artifact_id: string; artifact_type: string }>;
 };
 
+/** The subset of generate-report's executionMotor this view reads (governed fields only). */
 type ExecutionMotorMeta = {
   admitted?: boolean;
-  reason_codes?: string[];
-  attempt_id?: string | null;
-  outcome_id?: string | null;
-  manifest_id?: string | null;
-  ticket_id?: string | null;
-  finding_ids?: string[];
   assessment_artifact_id?: string | null;
-  property_context_id?: string | null;
   assessment_status?: string;
   findings?: LuFindingView[];
-  /** DEMO M1a / U12: governed per-layer check states (server governedLayerChecks.ts). */
-  governed_layer_checks?: Array<{ layer: string; status: string; rule_id?: string | null }>;
-};
-
-type SiteAnalysis = {
-  siteId?: string;
-  siteName?: string;
-  complianceAnalysis?: {
-    overallRisk?: string;
-    permitProbability?: number;
-    requiredActions?: string[];
-    notes?: string[];
-  };
-  dataSources?: Array<{ source: string; status: string; detail?: string }>;
-  warnings?: string[];
-  executionMotor?: ExecutionMotorMeta;
+  localization_geometry?: { status?: string; message_sv?: string | null } | null;
 };
 
 type LocalizationReport = {
   ok?: boolean;
-  projectId?: string;
-  siteAnalyses?: SiteAnalysis[];
-  humanInTheLoop?: string;
-  error?: string;
+  siteAnalyses?: Array<{ executionMotor?: ExecutionMotorMeta }>;
 };
 
 /**
- * Clean LU product surface — no LocalizationStudyUI / hub / OperationsCenter.
+ * DEMO M2a item 2 -- the ONE governed result this view renders, whether it comes from a fresh run
+ * (generate-report's executionMotor) or from a reopen (GET current-assessment). Only fields both
+ * paths carry are kept, so fresh and reopened views render the same content. Legacy observations
+ * (complianceAnalysis.overallRisk, dataSources, warnings, spatialAudit) are deliberately NOT part of
+ * it: they are not the governed assessment.
+ */
+type GovernedResult = {
+  assessmentStatus: string;
+  assessmentArtifactId: string | null;
+  findings: LuFindingView[];
+  statusMessage: string | null;
+};
+
+const RISK_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NOT_CHECKED: 3 };
+
+/** Deterministic order so a fresh run and a reopen list the same findings in the same order. */
+function sortFindings(findings: readonly LuFindingView[]): LuFindingView[] {
+  return [...findings].sort(
+    (a, b) => (RISK_ORDER[a.risk_level] ?? 9) - (RISK_ORDER[b.risk_level] ?? 9) || a.finding_id.localeCompare(b.finding_id),
+  );
+}
+
+function governedFromRun(report: LocalizationReport): GovernedResult {
+  const motor = report.siteAnalyses?.[0]?.executionMotor ?? {};
+  return {
+    assessmentStatus: motor.assessment_status ?? (motor.assessment_artifact_id ? 'ASSESSED' : 'NOT_ASSESSED'),
+    assessmentArtifactId: motor.assessment_artifact_id ?? null,
+    findings: sortFindings(motor.findings ?? []),
+    statusMessage: motor.localization_geometry?.message_sv ?? null,
+  };
+}
+
+function fileSlug(value: string): string {
+  const slug = value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  return slug || 'fastighet';
+}
+
+/**
+ * The LU workspace: property, control point, the six checks, the governed assessment, the map.
  */
 export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initialDesignation = '' }) => {
   const colors = designTokens.colors;
@@ -103,23 +129,21 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [lookingUp, setLookingUp] = useState(false);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState('');
-  const [report, setReport] = useState<LocalizationReport | null>(null);
+  const [governed, setGoverned] = useState<GovernedResult | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState('');
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
   const [verifyError, setVerifyError] = useState('');
   const [verifyResult, setVerifyResult] = useState<{ outcome: 'PASS' | 'DENY'; mismatches: readonly { code: string; detail: string }[] } | null>(null);
-  const [focusEvidenceArtifactId, setFocusEvidenceArtifactId] = useState<string | null>(null);
-  const [focusEvidenceNonce, setFocusEvidenceNonce] = useState(0);
-  const [focusEvidenceMissing, setFocusEvidenceMissing] = useState(false);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
   const [persistedAssessmentError, setPersistedAssessmentError] = useState('');
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
-  // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: the active product path defaults to live,
-  // governed evidence. 'fixture' remains available as an explicit user toggle inside
-  // CesiumMapView (dev/comparison use), but must never be this workspace's silent default.
-  const [cesiumEvidenceMode, setCesiumEvidenceMode] = useState<CesiumEvidenceMode>('live');
-  const [selectedEvidence, setSelectedEvidence] = useState<any | null>(null);
+  // The product LU view only ever shows live, governed evidence; there is no fixture mode here.
+  const cesiumEvidenceMode: CesiumEvidenceMode = 'live';
+  const [selectedCheck, setSelectedCheck] = useState<LuCheckKey | null>(null);
+  const [evidenceLoad, setEvidenceLoad] = useState<LuEvidenceLoad>({ status: 'idle' });
+  const [evidenceNonce, setEvidenceNonce] = useState(0);
+  const evidenceRequestRef = useRef(0);
 
   // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01.
   const [localizationGeometry, setLocalizationGeometry] = useState<LocalizationGeometryView | null>(null);
@@ -139,37 +163,43 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     borderRadius: 0,
   };
 
+  const clearResultState = () => {
+    setGoverned(null);
+    setVerifyResult(null);
+    setVerifyError('');
+    setSelectedCheck(null);
+  };
+
   const lookupProperty = async () => {
     setLookupError('');
     setLookingUp(true);
-    setReport(null);
+    clearResultState();
     try {
       const info = await fetchPropertyInfo(designation.trim(), getActiveProjectId() || undefined);
       const lat = Number(info.centroid?.lat);
       const lng = Number(info.centroid?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        throw new Error('Fastighetsuppslag saknar koordinater.');
+        throw new Error('Fastighetsuppslaget saknar koordinater.');
       }
       const name = info.designation || designation.trim();
       setSite({
         id: `site-${designation.trim().replace(/\s+/g, '-').toLowerCase()}`,
         name: siteName.trim() || name,
+        designation: name,
         lat,
         lng,
         geometry: info.geometry,
       });
     } catch (err) {
       setSite(null);
-      setLookupError(err instanceof Error ? err.message : 'Uppslag misslyckades.');
+      setLookupError(err instanceof Error ? err.message : 'Uppslaget misslyckades.');
     } finally {
       setLookingUp(false);
     }
   };
 
-  // PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B: when opened via the property-first entry
-  // (PropertyFirstLuEntry), the property was already searched/selected there -- auto-run the same
-  // lookup here once so the user never has to search for it a second time. Only fires once, on
-  // mount, and only when the caller actually supplied a designation.
+  // PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B: auto-run the lookup once when opened from the
+  // property-first entry, so the user never searches twice.
   useEffect(() => {
     if (initialDesignation.trim()) {
       void lookupProperty();
@@ -177,11 +207,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01: load the project's current LocalizationGeometry
-  // (an explicit user_defined point, or the transitional derived_from_property_boundary one) as
-  // soon as a real site + active project are available -- this is what makes "refresh -> point
-  // still visible" and "fresh login -> point still displayed" true: the browser never invents
-  // this state locally, it always re-reads it from the server.
+  // The current LocalizationGeometry is always re-read from the server, never invented locally.
   const loadCurrentGeometry = async () => {
     const projectId = getActiveProjectId();
     if (!projectId) return;
@@ -194,7 +220,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       );
       setLocalizationGeometry(result.geometry);
     } catch (err) {
-      setGeometryError(err instanceof Error ? err.message : 'Kunde inte hämta lokalisering.');
+      setGeometryError(err instanceof Error ? err.message : 'Kunde inte hämta lokaliseringspunkten.');
     } finally {
       setGeometryLoading(false);
     }
@@ -207,28 +233,18 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.id]);
 
-  // LU-ASSESSMENT-PERSISTENCE-READ-V1B: read-only -- never runs the kernel, never mints a new
-  // assessment. Server-side resolveCurrentLuAssessmentSummary already scopes "current" to the
-  // current ProjectContextBinding AND current localization geometry, so a stale assessment for a
-  // since-superseded point can never be returned here. This is the exact string
-  // resolveCurrentLuAssessmentSummary uses for "no current assessment" (all 3 of its 404 branches
-  // share it) -- distinguishing that expected, common case from a genuine server error.
+  // LU-ASSESSMENT-PERSISTENCE-READ-V1B: read-only -- never runs the kernel. This is the exact string
+  // resolveCurrentLuAssessmentSummary uses for "no current assessment".
   const NO_CURRENT_ASSESSMENT_MESSAGE = 'No current governed LU assessment is available for this project.';
 
   const loadCurrentAssessment = async () => {
     const projectId = getActiveProjectId();
     if (!projectId || !site) return;
-    // Clear any previously-rendered report FIRST, synchronously before the fetch -- otherwise a
-    // prior localization's/geometry's assessment could remain visible while this request is still
-    // in flight or resolves to "not found" for the new one.
-    setReport(null);
+    // Clear FIRST, so a previous localization's assessment can never stay visible.
+    clearResultState();
     setPersistedAssessmentError('');
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentLoading(true);
-    setVerifyResult(null);
-    setVerifyError('');
-    setFocusEvidenceArtifactId(null);
-    setFocusEvidenceMissing(false);
     try {
       const result = await callApi<{
         ok: true;
@@ -236,21 +252,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         findings: LuFindingView[];
         systemSummary: string;
       }>(`/api/localization/${encodeURIComponent(projectId)}/current-assessment`, { method: 'GET' });
-      setReport({
-        ok: true,
-        projectId,
-        siteAnalyses: [
-          {
-            complianceAnalysis: {},
-            executionMotor: {
-              admitted: true,
-              assessment_status: 'ASSESSED',
-              assessment_artifact_id: result.assessmentArtifactId,
-              finding_ids: result.findings.map((f) => f.finding_id),
-              findings: result.findings,
-            },
-          },
-        ],
+      setGoverned({
+        assessmentStatus: 'ASSESSED',
+        assessmentArtifactId: result.assessmentArtifactId,
+        findings: sortFindings(result.findings ?? []),
+        statusMessage: null,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Kunde inte hämta sparad bedömning.';
@@ -264,10 +270,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     }
   };
 
-  // Re-runs whenever the current localization geometry changes (including from none to a real
-  // point, or from one point to another after a move) -- this is what prevents assessment A from
-  // ever being shown as if it belonged to localization B: the effect re-fetches (and clears first)
-  // on exactly the same signal the server uses to decide "current".
   useEffect(() => {
     if (site) {
       void loadCurrentAssessment();
@@ -275,10 +277,33 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.id, localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
 
-  // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: while the just-saved point's V3 identity is
-  // being minted by the separate worker (PENDING/LEASED), re-poll the same GET the user would get
-  // from a manual refresh, until it settles at COMPLETED or FAILED. The user never needs to know
-  // "ExecutionIdentity V3" exists -- this is surfaced only as "Förbereder LU…" / "Klar att bedöma".
+  // DEMO M2a item 3: the per-layer check results come from the governed viewer evidence of the
+  // CURRENT assessment -- fetched only when an assessment exists, re-fetched after every run.
+  const assessmentArtifactId = governed?.assessmentArtifactId ?? null;
+  useEffect(() => {
+    const projectId = getActiveProjectId();
+    const requestId = ++evidenceRequestRef.current;
+    if (!projectId || !assessmentArtifactId) {
+      setEvidenceLoad({ status: 'idle' });
+      return;
+    }
+    setEvidenceLoad({ status: 'loading' });
+    void (async () => {
+      try {
+        const payload = await callApi<unknown>(`/api/localization/${encodeURIComponent(projectId)}/viewer/evidence`, {
+          method: 'GET',
+        });
+        const features = parseViewerEvidence(payload);
+        if (evidenceRequestRef.current === requestId) setEvidenceLoad({ status: 'loaded', features });
+      } catch (err) {
+        if (evidenceRequestRef.current === requestId) {
+          setEvidenceLoad({ status: 'error', message: err instanceof Error ? err.message : 'Okänt fel.' });
+        }
+      }
+    })();
+  }, [assessmentArtifactId, evidenceNonce]);
+
+  // While the point's execution identity is being prepared by the worker, re-poll the same GET.
   useEffect(() => {
     const status = localizationGeometry?.provisioningStatus;
     if (status !== 'PENDING' && status !== 'LEASED') return;
@@ -340,7 +365,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       setPickingLocation(false);
       setDraftPoint(null);
     } catch (err) {
-      setSaveLocationError(err instanceof Error ? err.message : 'Kunde inte spara lokalisering.');
+      setSaveLocationError(err instanceof Error ? err.message : 'Kunde inte spara lokaliseringspunkten.');
     } finally {
       setSavingLocation(false);
     }
@@ -354,20 +379,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setRunError('');
     const projectId = getActiveProjectId();
     if (!projectId) {
-      // PRODUCT-LU-CONTEXT-AND-EVIDENCE-BINDING-V1: no synthetic 'lu-workspace' project id.
-      // Without a real authenticated active project there is no verified ProjectContextBinding
-      // to assess against, so this fails closed rather than running under a fake project.
+      // No synthetic project id: without a real active project there is nothing governed to assess.
       setRunError('Inget aktivt projekt valt. Välj ett projekt innan bedömning körs.');
       return;
     }
     setRunning(true);
-    setReport(null);
+    clearResultState();
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentError('');
-    setVerifyResult(null);
-    setVerifyError('');
-    setFocusEvidenceArtifactId(null);
-    setFocusEvidenceMissing(false);
     try {
       const result = await callApi<LocalizationReport>('/api/localization/generate-report', {
         method: 'POST',
@@ -383,18 +402,18 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           ],
         },
       });
-      setReport(result);
+      // Item 2: only the governed fields are kept -- the same shape a reopen renders.
+      setGoverned(governedFromRun(result));
+      setEvidenceNonce((n) => n + 1);
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : 'Kunde inte köra bedömning.');
+      setRunError(err instanceof Error ? err.message : 'Kunde inte köra bedömningen.');
     } finally {
       setRunning(false);
     }
   };
 
-  // LU-REPORT-EXPORT-UI-V1: exports the already-viewed governed assessment, resolved server-side
-  // (GET /api/localization/:projectId/export-assessment-pdf). Only projectId is sent -- the
-  // client never supplies findings/coordinates/risk as report authority, matching the invariant
-  // proven server-side (see exportCurrentLuAssessmentPdf).
+  // LU-REPORT-EXPORT-UI-V1: exports the governed assessment resolved server-side; only projectId
+  // is sent.
   const exportPdf = async () => {
     if (exportingPdf) return; // duplicate-click guard
     const projectId = getActiveProjectId();
@@ -412,20 +431,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `lokaliseringsbedomning-${projectId}.pdf`;
+      anchor.download = `lokaliseringsbedomning-${fileSlug(site?.designation ?? designation)}.pdf`;
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setExportPdfError(err instanceof Error ? err.message : 'Export misslyckades.');
+      setExportPdfError(err instanceof Error ? err.message : 'Exporten misslyckades.');
     } finally {
       setExportingPdf(false);
     }
   };
 
-  // LU-REEXECUTION-VERIFY-UI-V1: H15's deterministic re-execution, already PROVEN, exposed as a
-  // normal-user action. Only projectId is sent -- the server resolves which assessment is current
-  // and re-executes it from its own frozen governed inputs; the client supplies nothing that could
-  // influence the comparison.
+  // LU-REEXECUTION-VERIFY-UI-V1: deterministic re-execution; only projectId is sent.
   const verifyAssessment = async () => {
     if (verifyingAssessment) return; // duplicate-click guard
     const projectId = getActiveProjectId();
@@ -445,29 +461,92 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, { method: 'POST' });
       setVerifyResult({ outcome: result.outcome, mismatches: result.mismatches });
     } catch (err) {
-      setVerifyError(err instanceof Error ? err.message : 'Verifiering misslyckades.');
+      setVerifyError(err instanceof Error ? err.message : 'Verifieringen misslyckades.');
     } finally {
       setVerifyingAssessment(false);
     }
   };
 
-  // LU-FINDING-MAP-DRILLDOWN-V1: never queries anything new -- only tells the already-rendered
-  // map (loaded via the governed /viewer/evidence path) which already-loaded entity to focus.
-  const showFindingOnMap = (finding: LuFindingView) => {
-    const spatialRef = finding.evidence_refs?.find((r) => r.artifact_type === 'SPATIAL_EVIDENCE');
-    if (!spatialRef) return; // button is gated on this existing, so this is defensive only
-    setFocusEvidenceMissing(false);
-    setFocusEvidenceArtifactId(spatialRef.artifact_id);
-    setFocusEvidenceNonce((n) => n + 1);
+  /** "Visa underlag" on a finding: a pure client-side selection -- never a new query. */
+  const showFindingEvidence = (finding: LuFindingView) => {
+    const def = checkDefinitionForRule(finding.rule_id);
+    if (def) setSelectedCheck(def.key);
   };
 
-  const analysis = report?.siteAnalyses?.[0];
-  const compliance = analysis?.complianceAnalysis;
-  const motor = analysis?.executionMotor;
-  // PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01: "Kör bedömning" must not be reachable until
-  // the current point's ExecutionIdentity V3 is COMPLETED -- running earlier would just be denied
-  // by the kernel, and this way the user never sees that as a surprise error.
   const isExecutionReady = localizationGeometry?.provisioningStatus === 'COMPLETED';
+  const assessmentPresence: LuAssessmentPresence = persistedAssessmentLoading
+    ? 'loading'
+    : governed?.assessmentStatus === 'ASSESSED' && governed.assessmentArtifactId
+      ? 'present'
+      : persistedAssessmentError
+        ? 'error'
+        : 'none';
+
+  const checks = useMemo(
+    () =>
+      deriveLuControlChecks({
+        property: {
+          lookedUp: Boolean(site),
+          lookupError: lookupError || undefined,
+          geometryLoading,
+          geometryError: geometryError || undefined,
+          geometry: localizationGeometry,
+        },
+        assessment: assessmentPresence,
+        evidence: evidenceLoad,
+        findings: governed?.findings ?? [],
+      }),
+    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, evidenceLoad, governed],
+  );
+
+  // DEMO M2a item 7: progress derived only from real, polled state -- no timers, no fake bars.
+  const provisioning = localizationGeometry?.provisioningStatus ?? null;
+  const progressSteps: LuProgressStep[] = [
+    { key: 'property', label: 'Fastigheten uppslagen', state: site ? 'done' : lookingUp ? 'active' : 'pending' },
+    {
+      key: 'point',
+      label:
+        localizationGeometry?.provenance === 'derived_from_property_boundary'
+          ? 'Kontrollpunkt beräknad från fastigheten'
+          : 'Kontrollpunkt sparad',
+      state: geometryError ? 'failed' : localizationGeometry ? 'done' : site ? 'active' : 'pending',
+    },
+    {
+      key: 'prepare',
+      label: provisioning === 'FAILED' ? 'Analysen kunde inte förberedas' : 'Analysen förberedd',
+      state:
+        provisioning === 'COMPLETED'
+          ? 'done'
+          : provisioning === 'FAILED'
+            ? 'failed'
+            : provisioning === 'PENDING' || provisioning === 'LEASED'
+              ? 'active'
+              : 'pending',
+    },
+    {
+      key: 'run',
+      label: running
+        ? `Bedömningen körs – ${LU_V1_CHECKS.length - 1} kartlager kontrolleras`
+        : governed && governed.assessmentStatus !== 'ASSESSED'
+          ? 'Ingen bedömning gjordes'
+          : 'Bedömning sparad',
+      state: running ? 'active' : governed ? (governed.assessmentStatus === 'ASSESSED' ? 'done' : 'failed') : 'pending',
+    },
+    {
+      key: 'evidence',
+      label: evidenceLoad.status === 'error' ? 'Kontrollresultaten kunde inte hämtas' : 'Kontrollresultat hämtade',
+      state:
+        evidenceLoad.status === 'loaded'
+          ? 'done'
+          : evidenceLoad.status === 'loading'
+            ? 'active'
+            : evidenceLoad.status === 'error'
+              ? 'failed'
+              : 'pending',
+    },
+  ];
+  const showProgress =
+    Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidenceLoad.status === 'loading');
 
   return (
     <div
@@ -476,9 +555,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       style={{ color: colors.coreTurquoise.hex, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
     >
       <h1 className="text-3xl font-bold tracking-tight mb-2">Lokaliseringsutredning</h1>
-      <p className="text-sm opacity-70 mb-8 leading-relaxed">
-        MPS LU-yta — fastighet, bedömning, findings. Ingen legacy-hub eller LocalizationStudyUI.
-      </p>
+      <p className="text-sm opacity-70 mb-8 leading-relaxed">Fastighet, kontroller och bedömningsunderlag.</p>
 
       <section className="space-y-4 mb-10">
         <label className="block text-xs uppercase tracking-widest opacity-70">
@@ -522,7 +599,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             type="button"
             data-testid="lu-run"
             disabled={!site || running || !isExecutionReady}
-            title={!isExecutionReady && site ? 'Lokaliseringen förbereds fortfarande.' : undefined}
+            title={!isExecutionReady && site ? 'Analysen förbereds fortfarande.' : undefined}
             onClick={() => void runAssessment()}
             className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
             style={{
@@ -530,7 +607,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               color: colors.flowLightCyan.hex,
             }}
           >
-            {running ? 'Kör bedömning…' : 'Kör bedömning'}
+            {running ? 'Bedömningen körs…' : 'Kör bedömning'}
           </button>
         </div>
 
@@ -547,28 +624,25 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
         {site ? (
           <p data-testid="lu-site-ready" className="text-sm opacity-80">
-            Plats: {site.name} ({site.lat.toFixed(5)}, {site.lng.toFixed(5)})
+            Fastighet: {site.designation}
+            {site.name !== site.designation ? ` · ${site.name}` : ''}
           </p>
         ) : null}
       </section>
 
       {site ? (
         <section data-testid="lu-localization-geometry" className="space-y-3 mb-8">
-          <h2 className="text-xs uppercase tracking-widest opacity-70">Lokalisering</h2>
+          <h2 className="text-xs uppercase tracking-widest opacity-70">Kontrollpunkt</h2>
 
-          {geometryLoading ? (
-            <p className="text-sm opacity-60">Hämtar lokalisering…</p>
+          {geometryLoading && !localizationGeometry ? (
+            <p className="text-sm opacity-60">Hämtar kontrollpunkt…</p>
           ) : localizationGeometry ? (
             <div data-testid="lu-geometry-current" className="text-sm space-y-1">
               <p>
                 {localizationGeometry.provenance === 'user_defined' ? (
-                  <>
-                    Lokalisering: <strong>Användardefinierad</strong>
-                  </>
+                  <strong>Angiven av användaren</strong>
                 ) : (
-                  <>
-                    Lokalisering: <strong>Beräknad från fastigheten</strong>
-                  </>
+                  <strong>Beräknad mittpunkt av fastigheten (ej inmätt)</strong>
                 )}
               </p>
               <p className="opacity-70 font-mono text-xs">
@@ -576,13 +650,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </p>
               <p data-testid="lu-geometry-readiness" className="text-xs opacity-80">
                 {localizationGeometry.provisioningStatus === 'PENDING' || localizationGeometry.provisioningStatus === 'LEASED' ? (
-                  'Förbereder LU…'
+                  'Förbereder analysen…'
                 ) : localizationGeometry.provisioningStatus === 'COMPLETED' ? (
                   <span style={{ color: '#34D399' }}>Klar att bedöma</span>
                 ) : localizationGeometry.provisioningStatus === 'FAILED' ? (
-                  <span style={{ color: '#F87171' }}>
-                    Lokaliseringen är sparad men LU kunde inte förberedas.
-                  </span>
+                  <span style={{ color: '#F87171' }}>Kontrollpunkten är sparad men analysen kunde inte förberedas.</span>
                 ) : null}
               </p>
               {localizationGeometry.provisioningStatus === 'FAILED' ? (
@@ -614,7 +686,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               className="px-4 py-2 text-sm font-semibold border"
               style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
             >
-              {localizationGeometry?.provenance === 'user_defined' ? 'Ändra lokalisering' : 'Ange lokalisering'}
+              {localizationGeometry?.provenance === 'user_defined' ? 'Ändra kontrollpunkt' : 'Ange kontrollpunkt'}
             </button>
           ) : (
             <div data-testid="lu-picking-location-panel" className="space-y-2 border p-4" style={{ borderColor: colors.coreGraphite.hex }}>
@@ -638,7 +710,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                       className="px-4 py-2 text-sm font-semibold disabled:opacity-40"
                       style={{ background: colors.coreTurquoise.hex, color: colors.surfaceDarkStone.hex }}
                     >
-                      {savingLocation ? 'Sparar lokalisering…' : 'Spara lokalisering'}
+                      {savingLocation ? 'Sparar kontrollpunkt…' : 'Spara kontrollpunkt'}
                     </button>
                     <button
                       type="button"
@@ -668,60 +740,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         </section>
       ) : null}
 
+      {showProgress ? <LuProgressSteps steps={progressSteps} /> : null}
+
       {site ? (
-        <section
-          data-testid="lu-cesium-front"
-          className="relative mb-10 min-h-[620px] overflow-hidden border"
-          style={{ borderColor: colors.coreGraphite.hex }}
-        >
-          <Suspense
-            fallback={
-              <div className="absolute inset-0 flex min-h-[620px] items-center justify-center bg-slate-950 text-sm font-semibold text-cyan-100">
-                Laddar Cesium 3D...
-              </div>
-            }
-          >
-            <CesiumMapView
-              propertyGeometry={site.geometry}
-              propertyCoordinates={[site.lat, site.lng]}
-              evidenceMode={cesiumEvidenceMode}
-              onEvidenceModeChange={(next) => {
-                setCesiumEvidenceMode(next);
-                setSelectedEvidence(null);
-              }}
-              onEvidenceClick={(props) => {
-                setSelectedEvidence(props);
-                setFocusEvidenceMissing(false);
-              }}
-              projectId={getActiveProjectId() || undefined}
-              pickingLocation={pickingLocation}
-              onLocationPick={(lat, lng) => setDraftPoint({ lat, lng })}
-              draftLocationPoint={draftPoint}
-              currentLocationPoint={
-                localizationGeometry
-                  ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] }
-                  : null
-              }
-              focusEvidenceArtifactId={focusEvidenceArtifactId}
-              focusEvidenceNonce={focusEvidenceNonce}
-              onFocusEvidenceMissing={() => setFocusEvidenceMissing(true)}
-            />
-          </Suspense>
-
-          {focusEvidenceMissing ? (
-            <p data-testid="lu-finding-map-not-found" className="text-sm mt-2" style={{ color: '#F87171' }}>
-              Kunde inte hitta beviset på kartan. Underlaget kan fortfarande laddas -- prova igen om en stund.
-            </p>
-          ) : null}
-
-          {selectedEvidence ? (
-            <EvidenceDetailsPanel
-              evidence={selectedEvidence}
-              evidenceMode={cesiumEvidenceMode}
-              onClose={() => setSelectedEvidence(null)}
-            />
-          ) : null}
-        </section>
+        <LuControlPanel
+          checks={checks}
+          findings={governed?.findings ?? []}
+          selectedKey={selectedCheck}
+          onSelect={setSelectedCheck}
+          ruleIdFor={(key) => LU_V1_CHECKS.find((c) => c.key === key)?.ruleId ?? null}
+        />
       ) : null}
 
       {persistedAssessmentLoading ? (
@@ -734,22 +762,22 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           {persistedAssessmentError}
         </p>
       ) : null}
-      {!persistedAssessmentLoading && persistedAssessmentNotFound && !report ? (
+      {!persistedAssessmentLoading && persistedAssessmentNotFound && !governed ? (
         <p data-testid="lu-persisted-assessment-not-found" className="text-sm opacity-70 mb-4">
-          Ingen sparad bedömning finns ännu för denna lokalisering. Kör en bedömning för att skapa en.
+          Ingen sparad bedömning finns ännu för denna kontrollpunkt. Kör en bedömning för att skapa en.
         </p>
       ) : null}
 
-      {compliance ? (
+      {governed ? (
         <section
           data-testid="lu-results"
-          className="border p-6 space-y-4"
+          className="border p-6 space-y-4 mb-10"
           style={{ borderColor: colors.coreGraphite.hex }}
         >
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold">Resultat</h2>
+            <h2 className="text-xl font-bold">Bedömning</h2>
             <div className="flex gap-2">
-              {motor?.assessment_artifact_id ? (
+              {governed.assessmentArtifactId ? (
                 <button
                   type="button"
                   data-testid="lu-verify-assessment"
@@ -761,7 +789,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                   {verifyingAssessment ? 'Verifierar…' : 'Verifiera bedömningen'}
                 </button>
               ) : null}
-              {motor?.assessment_artifact_id ? (
+              {governed.assessmentArtifactId ? (
                 <button
                   type="button"
                   data-testid="lu-export-pdf"
@@ -801,98 +829,27 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </div>
             )
           ) : null}
-          {motor ? (
-            <div data-testid="lu-motor-meta" className="text-xs opacity-70 space-y-1">
-              <p>
-                ExecutionKernel:{' '}
-                {motor.admitted ? 'admitted' : 'denied'}
-                {motor.attempt_id ? ` · attempt ${motor.attempt_id}` : ''}
-                {motor.outcome_id ? ` · outcome ${motor.outcome_id}` : ''}
-                {motor.manifest_id ? ` · manifest ${motor.manifest_id}` : ''}
-              </p>
-              {motor.assessment_artifact_id ? (
-                <p data-testid="lu-assessment-id">
-                  Assessment: {motor.assessment_artifact_id}
-                </p>
-              ) : null}
-              {motor.property_context_id ? (
-                <p data-testid="lu-property-context-id">
-                  Property context: {motor.property_context_id}
-                </p>
-              ) : null}
-              {(motor.finding_ids?.length ?? 0) > 0 ? (
-                <p data-testid="lu-finding-ids">
-                  Findings: {motor.finding_ids!.join(', ')}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
+
           <p className="text-sm">
-            Risk:{' '}
-            <span data-testid="lu-risk" className="font-semibold">
-              {/* P3-LU-CANONICAL-CHAIN-01: a dash in a field labelled "Risk" reads as "no
-                  risk". An unassessed site must say so explicitly. */}
-              {compliance.overallRisk ?? NOT_ASSESSED_LABEL[motor?.assessment_status ?? 'NOT_ASSESSED']}
+            Status:{' '}
+            <span data-testid="lu-assessment-status" className="font-semibold">
+              {ASSESSMENT_STATUS_LABEL[governed.assessmentStatus] ?? 'Okänd status'}
             </span>
           </p>
-
-          {(motor?.governed_layer_checks?.length ?? 0) > 0 ? (
-            <div data-testid="lu-governed-layer-checks">
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Underlag – styrda kontroller</h3>
-              <ul className="space-y-2 text-sm">
-                {motor!.governed_layer_checks!.map((check) => {
-                  const presentation = presentLuGovernedLayerCheck(check);
-                  return (
-                    <li key={check.layer} data-testid={`lu-governed-check-${check.layer}`}>
-                      <span className="font-semibold">{presentation.name}</span>
-                      {': '}
-                      <span>{presentation.label}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+          {governed.statusMessage ? (
+            <p data-testid="lu-assessment-status-message" className="text-sm" style={{ color: '#FDBA74' }}>
+              {governed.statusMessage}
+            </p>
           ) : null}
 
-          {(analysis?.dataSources?.length ?? 0) > 0 ? (
-            <div data-testid="lu-data-sources">
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">
-                Underlag – äldre observationer (ingår inte i den styrda bedömningen)
-              </h3>
-              <ul className="space-y-2 text-sm">
-                {analysis!.dataSources!.map((ds) => {
-                  const coverage = presentLuCoverageStatus(ds.status);
-                  return (
-                    <li key={ds.source} data-testid={`lu-data-source-${ds.source}`}>
-                      <span className="font-semibold">{ds.source}</span>
-                      {': '}
-                      <span>{coverage.label}</span>
-                      {ds.detail ? <span className="opacity-60"> ({ds.detail})</span> : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ) : null}
-
-          {(analysis?.warnings?.length ?? 0) > 0 ? (
-            <div data-testid="lu-warnings">
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Övrigt att notera</h3>
-              <ul className="space-y-1 text-sm opacity-80 list-disc pl-5">
-                {analysis!.warnings!.map((w) => (
-                  <li key={w}>{w}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {(motor?.findings?.length ?? 0) > 0 ? (
+          {governed.findings.length > 0 ? (
             <div data-testid="lu-findings">
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Findings</h3>
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Fynd</h3>
               <ul className="space-y-2 text-sm">
-                {motor!.findings!.map((f) => {
+                {governed.findings.map((f) => {
                   const presentation = presentLuFinding(f);
                   const spatialRef = f.evidence_refs?.find((r) => r.artifact_type === 'SPATIAL_EVIDENCE');
+                  const hasCheck = Boolean(checkDefinitionForRule(f.rule_id));
                   return (
                     <li
                       key={f.finding_id}
@@ -903,17 +860,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                       <p className="text-xs uppercase tracking-widest opacity-70">
                         {presentation.categoryLabel} · {presentation.attentionLabel}
                       </p>
-                      <p>{f.explanation}</p>
-                      <p className="text-xs opacity-50 mt-1">{f.rule_id}</p>
-                      {spatialRef ? (
+                      <p>{presentLuFindingSummary(f)}</p>
+                      {spatialRef && hasCheck ? (
                         <button
                           type="button"
-                          data-testid={`lu-finding-show-on-map-${f.finding_id}`}
-                          onClick={() => showFindingOnMap(f)}
+                          data-testid={`lu-finding-show-evidence-${f.finding_id}`}
+                          onClick={() => showFindingEvidence(f)}
                           className="mt-2 text-xs font-semibold underline"
                           style={{ color: colors.coreTurquoise.hex }}
                         >
-                          Visa på karta
+                          Visa underlag
                         </button>
                       ) : null}
                     </li>
@@ -921,33 +877,68 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 })}
               </ul>
             </div>
+          ) : governed.assessmentStatus === 'ASSESSED' ? (
+            <p data-testid="lu-no-findings" className="text-sm opacity-80">
+              Bedömningen gav inga fynd. Se kontrollerna ovan för vad som faktiskt kontrollerades.
+            </p>
           ) : null}
 
-          {(compliance.requiredActions?.length ?? 0) > 0 ? (
-            <div>
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Åtgärder</h3>
-              <ul className="space-y-2 text-sm list-disc pl-5">
-                {compliance.requiredActions!.map((a) => (
-                  <li key={a}>{a}</li>
-                ))}
-              </ul>
+          <p className="text-xs opacity-60 pt-2">
+            Bedömningen är ett underlag för handläggning. Den ersätter inte en prövning av handläggare.
+          </p>
+
+          <details data-testid="lu-technical-info" className="text-xs opacity-80">
+            <summary className="cursor-pointer">Teknisk information</summary>
+            <div className="mt-2 space-y-1 font-mono break-all">
+              {governed.assessmentArtifactId ? (
+                <p data-testid="lu-assessment-id">Bedömnings-id: {governed.assessmentArtifactId}</p>
+              ) : null}
+              {governed.findings.length > 0 ? (
+                <p data-testid="lu-finding-ids">Fynd-id: {governed.findings.map((f) => f.finding_id).join(', ')}</p>
+              ) : null}
+              {governed.findings.map((f) => (
+                <p key={`tech-${f.finding_id}`} data-testid={`lu-finding-technical-${f.finding_id}`}>
+                  {f.rule_id}
+                  {f.rule_version ? ` v${f.rule_version}` : ''} · nivå {f.risk_level} · regelns originaltext: {f.explanation}
+                </p>
+              ))}
             </div>
-          ) : null}
+          </details>
+        </section>
+      ) : null}
 
-          {(compliance.notes?.length ?? 0) > 0 ? (
-            <div>
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Noteringar</h3>
-              <ul className="space-y-2 text-sm list-disc pl-5 opacity-90">
-                {compliance.notes!.map((n) => (
-                  <li key={n}>{n}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {report?.humanInTheLoop ? (
-            <p className="text-xs opacity-60 pt-2">{report.humanInTheLoop}</p>
-          ) : null}
+      {site ? (
+        <section
+          data-testid="lu-cesium-front"
+          className="relative mb-10 min-h-[620px] overflow-hidden border"
+          style={{ borderColor: colors.coreGraphite.hex }}
+        >
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex min-h-[620px] items-center justify-center bg-slate-950 text-sm font-semibold text-cyan-100">
+                Laddar kartan…
+              </div>
+            }
+          >
+            <CesiumMapView
+              propertyGeometry={site.geometry}
+              propertyCoordinates={[site.lat, site.lng]}
+              evidenceMode={cesiumEvidenceMode}
+              onEvidenceClick={(props) => {
+                const def = checkDefinitionForLayer(props?.layer_id);
+                if (def) setSelectedCheck(def.key);
+              }}
+              projectId={getActiveProjectId() || undefined}
+              pickingLocation={pickingLocation}
+              onLocationPick={(lat, lng) => setDraftPoint({ lat, lng })}
+              draftLocationPoint={draftPoint}
+              currentLocationPoint={
+                localizationGeometry
+                  ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] }
+                  : null
+              }
+            />
+          </Suspense>
         </section>
       ) : null}
     </div>

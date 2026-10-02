@@ -222,7 +222,7 @@ function layerCheck(
 
   if (assessment === 'loading') return make('LOADING', 'Hämtar sparad bedömning…');
   if (assessment === 'error') return make('UNCERTAIN', 'Den sparade bedömningen kunde inte läsas.', [notCheckedResult]);
-  if (assessment === 'none') return make('NOT_CHECKED', 'Ingen bedömning har körts ännu.', [notCheckedResult]);
+  if (assessment === 'none') return make('NOT_CHECKED', 'Det finns ingen bedömning för kontrollpunkten ännu.', [notCheckedResult]);
 
   const notCheckedFinding = def.ruleId
     ? findings.find((f) => f.rule_id === def.ruleId && f.risk_level === 'NOT_CHECKED')

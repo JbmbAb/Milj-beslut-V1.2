@@ -13,6 +13,8 @@
  * this only gives each value a human label, it does not re-grade anything.
  */
 
+import { checkDefinitionForRule } from "./luControlChecks";
+
 export type LuFindingCategory =
   | "WATER"
   | "EBH"
@@ -30,22 +32,25 @@ export interface LuFindingPresentation {
 
 interface LuFindingPresentationInput {
   readonly rule_id: string;
-  readonly risk_level: "LOW" | "MEDIUM" | "HIGH";
+  /** DEMO M2a: NOT_CHECKED is a real governed risk_level (LURuleEngine evaluateUnavailableLayers). */
+  readonly risk_level: "LOW" | "MEDIUM" | "HIGH" | "NOT_CHECKED" | string;
 }
 
 const CATEGORY_BY_RULE_ID: Readonly<Record<string, { category: LuFindingCategory; categoryLabel: string }>> = {
-  "LU-WATER-001": { category: "WATER", categoryLabel: "Vatten" },
-  "LU-EBH-001": { category: "EBH", categoryLabel: "Förorenad mark" },
-  "LU-PROTECTED-001": { category: "PROTECTED_AREA", categoryLabel: "Skydd" },
+  // DEMO M2a: the governed `water` layer is the WELLS layer (lu.water_wells), so the label is "Brunnar".
+  "LU-WATER-001": { category: "WATER", categoryLabel: "Brunnar" },
+  "LU-EBH-001": { category: "EBH", categoryLabel: "Potentiellt förorenat område (EBH)" },
+  "LU-PROTECTED-001": { category: "PROTECTED_AREA", categoryLabel: "Skyddad natur" },
   "LU-NATURA2000-001": { category: "NATURA2000", categoryLabel: "Natura 2000" },
   "LU-WATERPROTECTION-001": { category: "WATER_PROTECTION_AREA", categoryLabel: "Vattenskyddsområde" },
   "LU-DOC-BESLUT-001": { category: "DOCUMENT_DECISION", categoryLabel: "Tidigare beslut" },
 };
 
-const ATTENTION_LABEL_BY_RISK_LEVEL: Readonly<Record<"LOW" | "MEDIUM" | "HIGH", string>> = {
+const ATTENTION_LABEL_BY_RISK_LEVEL: Readonly<Record<string, string>> = {
   HIGH: "Kräver uppmärksamhet",
   MEDIUM: "Bör utredas vidare",
   LOW: "Låg risk",
+  NOT_CHECKED: "Ej kontrollerad",
 };
 
 /**
@@ -58,6 +63,26 @@ export function presentLuFinding(finding: LuFindingPresentationInput): LuFinding
   return {
     category: known?.category ?? "UNKNOWN",
     categoryLabel: known?.categoryLabel ?? "Övrigt",
-    attentionLabel: ATTENTION_LABEL_BY_RISK_LEVEL[finding.risk_level],
+    attentionLabel: ATTENTION_LABEL_BY_RISK_LEVEL[finding.risk_level] ?? "Okänd nivå",
   };
+}
+
+/**
+ * DEMO M2a: the plain-Swedish statement of what a layer finding means, taken from the RULE
+ * DEFINITION (each layer rule fires on existence within the search radius), not from the engine
+ * explanation string (e.g. "Närhet till vatten kräver analys" for the wells layer, which misnames
+ * it). The engine text stays available in the collapsed technical section. Unknown or document
+ * rules fall back to the governed explanation verbatim -- nothing is invented.
+ */
+export function presentLuFindingSummary(finding: {
+  readonly rule_id: string;
+  readonly risk_level: string;
+  readonly explanation?: string;
+}): string {
+  const definition = checkDefinitionForRule(finding.rule_id);
+  if (definition && finding.risk_level === "NOT_CHECKED") {
+    return `${definition.label}: kontrollen kunde inte göras – källan var otillgänglig.`;
+  }
+  if (definition?.hitMeaning) return definition.hitMeaning;
+  return finding.explanation ?? "Fyndet saknar beskrivning i underlaget.";
 }
