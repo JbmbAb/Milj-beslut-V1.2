@@ -1,4 +1,7 @@
-FROM node:22-alpine AS base
+# Basimagen är pinnad på sitt multi-arch-index (node:22-alpine, Alpine 3.24,
+# publicerad 2026-09-23). Två byggen av samma commit får då samma bas.
+# Byt medvetet: docker buildx imagetools inspect node:22-alpine
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
 
 # Uppdatera och installera curl och openssl för Prisma, plus chromium för ERD-generatorn
 RUN apk update && apk add --no-cache openssl curl chromium
