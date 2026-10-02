@@ -26,11 +26,12 @@ import {
   getCurrentLocalizationGeometryForProject,
   retryLocalizationIdentityProvisioning,
   ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap,
+  ASSESSMENT_RECORD_INTEGRITY_CODE,
+  recordIntegrityDiagnosticWire,
   type SiteAlternative,
 } from '../modules/localization/public';
 import { logger } from '../logger';
 import { isPersistentStorageFault, retrySentenceSv } from '../modules/localization/storageFaultClassification';
-import { LuReadFaultError, readFaultHttpStatus, readFaultSentenceSv } from '../modules/localization/readFaultClassification';
 
 const router = express.Router();
 
@@ -42,12 +43,18 @@ const router = express.Router();
  * technical but not retryable).
  */
 function failureBody(result: { readonly error: string }): Record<string, unknown> {
-  const structured = result as { code?: string; failureClass?: string; reasonCode?: string; retryable?: unknown };
+  const structured = result as { code?: string; failureClass?: string; reasonCode?: string; retryable?: unknown; record_integrity?: unknown };
+  // U20CDF4 (owner decision 2026-10-03 (4) point 1): the 424 for a record integrity error keeps the
+  // stored findings in view -- only as the whitelisted, non-authoritative diagnostic, rebuilt field by
+  // field (recordIntegrityDiagnosticWire), never the stored record or any of its free text.
+  const recordIntegrity =
+    structured.code === ASSESSMENT_RECORD_INTEGRITY_CODE ? recordIntegrityDiagnosticWire(structured.record_integrity) : null;
   return {
     ok: false,
     error: result.error,
     ...(structured.code ? { code: structured.code, failureClass: structured.failureClass, reasonCode: structured.reasonCode } : {}),
     ...(structured.code && typeof structured.retryable === 'boolean' ? { retryable: structured.retryable } : {}),
+    ...(recordIntegrity ? { record_integrity: recordIntegrity } : {}),
   };
 }
 
@@ -109,32 +116,6 @@ function handleOrchestratorError(error: unknown, res: express.Response): boolean
     return true;
   }
   return false;
-}
-
-/** W-CATCH2 #13: the governed viewer's capability (or the binding it needs) could not be read or verified. */
-const VIEWER_CAPABILITY_UNRESOLVED = 'VIEWER_CAPABILITY_UNRESOLVED';
-
-const VIEWER_READ_FAULT_SUBJECT_SV: Readonly<Record<string, string>> = {
-  'viewer-capability': 'Kartvisningens behörighet (kapabilitet)',
-  'current-binding': 'Projektets koppling till fastigheten',
-};
-
-/**
- * W-CATCH2 #13 (OD-R1/OD-R2): a capability that could not be read or verified -- or the current binding
- * it is bound to -- is never "not configured" (404) and never a generic 500: 503 (retryable only for a
- * read error) or 409 for a refusal, with the shared class and a Swedish text. The fault stays
- * server-side; the reasonCode is the refusal token or the subject, never free text.
- */
-function viewerCapabilityReadFaultBody(error: LuReadFaultError): Record<string, unknown> {
-  const subjectSv = VIEWER_READ_FAULT_SUBJECT_SV[error.subject] ?? 'Kartvisningens underlag';
-  return {
-    ok: false,
-    error: `${readFaultSentenceSv(error, subjectSv)} Kartan kan inte visa kontrollresultaten. Ingen annan behörighet används i dess ställe.`,
-    code: VIEWER_CAPABILITY_UNRESOLVED,
-    failureClass: error.faultClass,
-    reasonCode: error.refusalCode ?? error.subject.toUpperCase().replace(/-/g, '_'),
-    retryable: error.retryable,
-  };
 }
 
 /**
@@ -421,10 +402,6 @@ router.get(
       }
       res.status(200).json(result.geojson);
     } catch (error) {
-      if (error instanceof LuReadFaultError) {
-        res.status(readFaultHttpStatus(error)).json(viewerCapabilityReadFaultBody(error));
-        return;
-      }
       if (handleOrchestratorError(error, res)) return;
       next(error);
     }

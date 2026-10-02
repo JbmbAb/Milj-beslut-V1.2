@@ -10,6 +10,8 @@ export {
   resolveCurrentLuAssessmentSummary,
   exportCurrentLuAssessmentPdf,
   verifyCurrentLuAssessment,
+  ASSESSMENT_RECORD_INTEGRITY_CODE,
+  recordIntegrityDiagnosticWire,
 } from './localizationOrchestrator';
 export { generateLocalizationReportLegacy } from '../../services/localizationReportService';
 export type { SiteAlternative } from '../../services/localizationReportService';

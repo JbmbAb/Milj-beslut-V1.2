@@ -44,17 +44,25 @@ import {
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
-import type { GovernedDocumentCheck } from './governedLayerChecks';
+import {
+  GOVERNED_DOCUMENT_CHECK_LAYER,
+  GOVERNED_DOCUMENT_CHECK_RULE_ID,
+  governedLayerOfRule,
+  isFindingObject,
+  isMalformedFinding,
+  type GovernedDocumentCheck,
+} from './governedLayerChecks';
 import {
   governedOverallStatement,
   MISSING_IN_BASIS_SV,
   resolveGovernedAssessmentDetails,
+  type GovernedAssessmentDetails,
   type GovernedEvidenceDetail,
   type GovernedOverallStatement,
   type PresentedGovernedLayerCheck,
   type PropertyRootDetails,
 } from './governedEvidenceDetails';
-import { governedLayerLabelSv } from './governedCoverageStatement';
+import { governedLayerLabelSv, highestGovernedRiskLevel, storedRiskFindingsSv } from './governedCoverageStatement';
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
@@ -394,6 +402,8 @@ export async function resolveLuViewerPresentation(input: {
 }): Promise<
   | { ok: true; geojson: unknown; assessmentArtifactId: string; capabilityArtifactId: string }
   | { ok: false; status: number; error: string }
+  | GovernedRecordIntegrityFailure
+  | GovernedEvidenceIntegrityFailure
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
@@ -457,8 +467,9 @@ export async function resolveLuViewerPresentation(input: {
     return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
   }
 
+  let presentation: Awaited<ReturnType<typeof resolveGovernedLocalizationPresentation>>;
   try {
-    const result = await resolveGovernedLocalizationPresentation({
+    presentation = await resolveGovernedLocalizationPresentation({
       authUser: input.authUser,
       projectId,
       assessmentArtifactId,
@@ -466,12 +477,6 @@ export async function resolveLuViewerPresentation(input: {
       config,
       currentBindingProvider,
     });
-    return {
-      ok: true,
-      geojson: result.geojson,
-      assessmentArtifactId: result.assessmentArtifactId,
-      capabilityArtifactId: result.capabilityArtifactId,
-    };
   } catch (error) {
     // Covers: missing/superseded/tampered capability, missing/tampered CAS evidence, wrong
     // release/viewer-identity. Fail closed, never a stale or synthetic fallback.
@@ -481,6 +486,34 @@ export async function resolveLuViewerPresentation(input: {
       error: error instanceof Error ? error.message : 'Governed viewer presentation is unavailable.',
     };
   }
+
+  // U20CDF4 (owner decision 2026-10-03 (4) point 1; coordinator clarification 2): the map presents the
+  // same current assessment as the read-back, so it never treats one the read-back refuses as a valid
+  // current assessment -- the same 424 for a record integrity error, and for a pinned artifact that
+  // fails its own identity (the presentation itself re-verifies only the spatial evidence). The
+  // assessment the presentation verified is read again and its identity re-checked before it is used.
+  let assessment: LocalizationAssessmentArtifact;
+  try {
+    assessment = await artifactRepository.resolve<LocalizationAssessmentArtifact>({
+      artifact_id: presentation.assessmentArtifactId,
+      artifact_type: 'LOCALIZATION_ASSESSMENT',
+    });
+  } catch (error) {
+    return assessmentArtifactReadFailure(error, presentation.assessmentArtifactId);
+  }
+  const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
+  if (assessment.artifact_id !== presentation.assessmentArtifactId || assessment.artifact_id !== `assessment-${recomputed.value}`) {
+    return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.' };
+  }
+  const recordRefusal = await currentRecordIntegrityRefusal(assessment, artifactRepository, 'refuse');
+  if (recordRefusal) return recordRefusal;
+
+  return {
+    ok: true,
+    geojson: presentation.geojson,
+    assessmentArtifactId: presentation.assessmentArtifactId,
+    capabilityArtifactId: presentation.capabilityArtifactId,
+  };
 }
 
 /**
@@ -505,6 +538,251 @@ export interface GovernedEvidenceIntegrityFailure {
   readonly code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED';
   readonly failureClass: 'EVIDENCE_TAMPERED' | 'EVIDENCE_CORRUPTED' | 'ROOT_PROVENANCE_TAMPERED';
   readonly reasonCode: string;
+}
+
+function governedEvidenceIntegrityFailure(
+  integrity: Extract<GovernedAssessmentDetails['integrity'], { ok: false }>,
+): GovernedEvidenceIntegrityFailure {
+  return {
+    ok: false,
+    status: 424,
+    error:
+      `Bedömningens underlag klarade inte integritetskontrollen (${integrity.failureClass}: ` +
+      `${integrity.artifactId}). Bedömningen visas inte.`,
+    code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
+    failureClass: integrity.failureClass,
+    reasonCode: integrity.failureClass,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// U20CDF4 -- RECORD_INTEGRITY_ERROR fails closed (owner decision 2026-10-03 night (4) point 1, and the
+// coordinator's binding clarifications 1-2)
+// ---------------------------------------------------------------------------------------------
+
+/** The machine code of the fail-closed answer (PRES-24; failureClass RECORD_INTEGRITY_ERROR). */
+export const ASSESSMENT_RECORD_INTEGRITY_CODE = 'ASSESSMENT_RECORD_INTEGRITY_ERROR';
+
+/** A stored finding's level as the diagnostic reports it -- the raw value of an unknown one is never echoed. */
+export type StoredFindingLevelUnverified = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_CHECKED' | 'UNKNOWN';
+
+/**
+ * U20CDF4: the stored findings of a record that failed its integrity check, as NON-AUTHORITATIVE
+ * diagnostic data in an envelope of its own -- deliberately NOT the shape of a LocalizationAssessment
+ * or of the read-back (no `findings`, `risk_level`, `overallStatement`, `governedLayerChecks`,
+ * `evidenceDetails`, no explanation text, no evidence refs). Every value is a count, a fixed level, a
+ * governed check name or a plain identifier; nothing of the record's free text travels.
+ */
+export interface RecordIntegrityDiagnostic {
+  readonly authoritative: false;
+  readonly verified: false;
+  readonly note_sv: string;
+  readonly assessment_artifact_id: string;
+  /** The machine codes (without their ids) of what breaks the record, in order. */
+  readonly basis_codes: readonly string[];
+  readonly stored_findings_unverified: {
+    readonly total: number;
+    /** The highest HIGH/MEDIUM/LOW level stored -- unverified; null when none is stored. */
+    readonly highest_level: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+    readonly counts: {
+      readonly high: number;
+      readonly medium: number;
+      readonly low: number;
+      readonly not_checked: number;
+      readonly unknown_level: number;
+      /** Entries that break the finding contract (MALFORMED_RECORD_ENTRY). */
+      readonly malformed: number;
+    };
+    readonly entries: readonly {
+      /** The governed check the stored rule belongs to (a spatial layer or 'document'); null otherwise. */
+      readonly check: string | null;
+      /** The stored rule id when it is a plain identifier; null otherwise. */
+      readonly rule: string | null;
+      readonly stored_level: StoredFindingLevelUnverified;
+      readonly well_formed: boolean;
+    }[];
+  };
+}
+
+/**
+ * U20CDF4 (owner decision (4) point 1): a CURRENT governed assessment whose stored record is
+ * structurally inconsistent (coverage_state RECORD_INTEGRITY_ERROR) is not presented as an assessment
+ * -- not by the read-back, the PDF, verify or the map. 424, not retryable. The stored findings do not
+ * disappear from view: they are named in the Swedish text and travel in `record_integrity`, marked
+ * unverified and non-authoritative. (HISTORICAL_COVERAGE_UNKNOWN and PINNED_EVIDENCE_UNREADABLE are
+ * other states and keep their own answers.)
+ */
+export interface GovernedRecordIntegrityFailure {
+  readonly ok: false;
+  readonly status: 424;
+  readonly error: string;
+  readonly code: typeof ASSESSMENT_RECORD_INTEGRITY_CODE;
+  readonly failureClass: 'RECORD_INTEGRITY_ERROR';
+  /** The first basis code, e.g. UNKNOWN_SEVERITY (stable, without the id). */
+  readonly reasonCode: string;
+  readonly retryable: false;
+  readonly record_integrity: RecordIntegrityDiagnostic;
+}
+
+const RECORD_INTEGRITY_NOTE_SV =
+  'Diagnostisk uppgift ur den lagrade posten: inte verifierad, inte auktoritativ och ingen bedömning. ' +
+  'Fynden får inte läsas som bedömningens resultat.';
+const BASIS_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const STORED_LEVELS: readonly StoredFindingLevelUnverified[] = ['HIGH', 'MEDIUM', 'LOW', 'NOT_CHECKED'];
+const GOVERNED_CHECKS: readonly string[] = [
+  'water',
+  'ebh',
+  'protected_area',
+  'natura2000',
+  'water_protection_area',
+  GOVERNED_DOCUMENT_CHECK_LAYER,
+];
+const RISK_WORD_SV: Readonly<Record<string, string>> = { HIGH: 'hög', MEDIUM: 'måttlig', LOW: 'låg' };
+
+function storedFindingsUnverified(rawFindings: unknown): RecordIntegrityDiagnostic['stored_findings_unverified'] {
+  const list: readonly unknown[] = Array.isArray(rawFindings) ? rawFindings : [];
+  const entries = list.map((finding) => {
+    const object = isFindingObject(finding) ? finding : null;
+    const ruleId = object && typeof object.rule_id === 'string' && PLAIN_ID.test(object.rule_id) ? object.rule_id : null;
+    const level = object?.risk_level;
+    return {
+      check: ruleId === null ? null : ruleId === GOVERNED_DOCUMENT_CHECK_RULE_ID ? GOVERNED_DOCUMENT_CHECK_LAYER : governedLayerOfRule(ruleId),
+      rule: ruleId,
+      stored_level: (typeof level === 'string' && (STORED_LEVELS as readonly string[]).includes(level) ? level : 'UNKNOWN') as StoredFindingLevelUnverified,
+      well_formed: !isMalformedFinding(finding),
+    };
+  });
+  const count = (level: StoredFindingLevelUnverified) => entries.filter((entry) => entry.stored_level === level).length;
+  const highest = highestGovernedRiskLevel(entries.map((entry) => ({ risk_level: entry.stored_level })));
+  return {
+    total: entries.length,
+    highest_level: highest === 'HIGH' || highest === 'MEDIUM' || highest === 'LOW' ? highest : null,
+    counts: {
+      high: count('HIGH'),
+      medium: count('MEDIUM'),
+      low: count('LOW'),
+      not_checked: count('NOT_CHECKED'),
+      unknown_level: count('UNKNOWN'),
+      malformed: entries.filter((entry) => !entry.well_formed).length,
+    },
+    entries,
+  };
+}
+
+function recordIntegrityFailure(
+  assessmentArtifactId: string,
+  statement: GovernedOverallStatement,
+  rawFindings: unknown,
+): GovernedRecordIntegrityFailure {
+  const basisCodes = [
+    ...new Set(statement.coverage_basis.map((entry) => entry.split(':')[0]!).filter((code) => BASIS_CODE.test(code))),
+  ];
+  const stored = storedFindingsUnverified(rawFindings);
+  const named = storedRiskFindingsSv(Array.isArray(rawFindings) ? rawFindings : []);
+  const storedSv =
+    stored.total === 0
+      ? 'Den lagrade posten innehåller inga fynd.'
+      : `Den lagrade posten innehåller ${stored.total} fynd som inte kan verifieras` +
+        (stored.highest_level ? ` (högsta lagrade risknivå, overifierad: ${RISK_WORD_SV[stored.highest_level]})` : '') +
+        (named ? `: ${named}.` : '.') +
+        (stored.counts.malformed > 0 ? ` ${stored.counts.malformed} av dem är felformade.` : '');
+  return {
+    ok: false,
+    status: 424,
+    error:
+      'Bedömningen kan inte visas: dess lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet ' +
+      `(RECORD_INTEGRITY_ERROR: ${basisCodes.join(', ')}). Täckningsgrad och samlad risknivå kan därför inte fastställas, ` +
+      `och bedömningen redovisas inte som en giltig bedömning. ${storedSv} ` +
+      'Felet löses inte av ett nytt försök. Kontakta systemets administratör.',
+    code: ASSESSMENT_RECORD_INTEGRITY_CODE,
+    failureClass: 'RECORD_INTEGRITY_ERROR',
+    reasonCode: basisCodes[0] ?? 'RECORD_INTEGRITY_ERROR',
+    retryable: false,
+    record_integrity: {
+      authoritative: false,
+      verified: false,
+      note_sv: RECORD_INTEGRITY_NOTE_SV,
+      assessment_artifact_id: assessmentArtifactId,
+      basis_codes: basisCodes,
+      stored_findings_unverified: stored,
+    },
+  };
+}
+
+/**
+ * U20CDF4: the 424's `record_integrity` as it may leave the server -- rebuilt field by field from a
+ * whitelist (counts, fixed levels, governed check names, plain identifiers, the fixed note), so no
+ * other field and no free text of the stored record can travel even if the object were extended.
+ * Returns null for anything that is not such a diagnostic.
+ */
+export function recordIntegrityDiagnosticWire(raw: unknown): RecordIntegrityDiagnostic | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const source = raw as Partial<RecordIntegrityDiagnostic> & { stored_findings_unverified?: Partial<RecordIntegrityDiagnostic['stored_findings_unverified']> };
+  const id = typeof source.assessment_artifact_id === 'string' && PLAIN_ID.test(source.assessment_artifact_id) ? source.assessment_artifact_id : null;
+  const stored = source.stored_findings_unverified;
+  if (id === null || !stored || typeof stored !== 'object') return null;
+  const n = (value: unknown) => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0);
+  const counts = (stored.counts ?? {}) as Partial<RecordIntegrityDiagnostic['stored_findings_unverified']['counts']>;
+  const highest = stored.highest_level === 'HIGH' || stored.highest_level === 'MEDIUM' || stored.highest_level === 'LOW' ? stored.highest_level : null;
+  const entries = Array.isArray(stored.entries) ? stored.entries : [];
+  return {
+    authoritative: false,
+    verified: false,
+    note_sv: RECORD_INTEGRITY_NOTE_SV,
+    assessment_artifact_id: id,
+    basis_codes: (Array.isArray(source.basis_codes) ? source.basis_codes : []).filter(
+      (code): code is string => typeof code === 'string' && BASIS_CODE.test(code),
+    ),
+    stored_findings_unverified: {
+      total: n(stored.total),
+      highest_level: highest,
+      counts: {
+        high: n(counts.high),
+        medium: n(counts.medium),
+        low: n(counts.low),
+        not_checked: n(counts.not_checked),
+        unknown_level: n(counts.unknown_level),
+        malformed: n(counts.malformed),
+      },
+      entries: entries.map((entry) => {
+        const e = (entry && typeof entry === 'object' ? entry : {}) as Partial<RecordIntegrityDiagnostic['stored_findings_unverified']['entries'][number]>;
+        return {
+          check: typeof e.check === 'string' && GOVERNED_CHECKS.includes(e.check) ? e.check : null,
+          rule: typeof e.rule === 'string' && PLAIN_ID.test(e.rule) ? e.rule : null,
+          stored_level: (typeof e.stored_level === 'string' && (STORED_LEVELS as readonly string[]).includes(e.stored_level)
+            ? e.stored_level
+            : 'UNKNOWN') as StoredFindingLevelUnverified,
+          well_formed: e.well_formed === true,
+        };
+      }),
+    },
+  };
+}
+
+/**
+ * U20CDF4: the record-integrity check of an already identity-verified current assessment, for the
+ * paths that do not build the read-back themselves (verify, the map). `onEvidenceIntegrityFailure`:
+ * 'refuse' answers a tampered/corrupted pinned artifact with the read-back's own 424; 'pass' leaves it
+ * to the caller (verify keeps its PASS/DENY semantics: H15 reports a tampered evidence as DENY).
+ */
+async function currentRecordIntegrityRefusal(
+  assessment: LocalizationAssessmentArtifact,
+  artifactRepository: ArtifactRepositoryPort,
+  onEvidenceIntegrityFailure: 'refuse' | 'pass',
+): Promise<GovernedRecordIntegrityFailure | GovernedEvidenceIntegrityFailure | null> {
+  const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
+  if (details.integrity.ok === false) {
+    return onEvidenceIntegrityFailure === 'refuse' ? governedEvidenceIntegrityFailure(details.integrity) : null;
+  }
+  const statement = governedOverallStatement(
+    governedVerdictFromFindings(assessment.payload.findings).overallRisk,
+    details.governedLayerChecks,
+    { findings: assessment.payload.findings, pinnedEvidence: details.pinnedEvidence },
+  );
+  return statement.coverage_state === 'RECORD_INTEGRITY_ERROR'
+    ? recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings)
+    : null;
 }
 
 type CurrentAssessmentInput = {
@@ -933,24 +1211,14 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
   | CurrentAssessmentFailure
   | GovernedEvidenceIntegrityFailure
   | AssessmentGeometryFailure
+  | GovernedRecordIntegrityFailure
 > {
   const core = await resolveCurrentLuAssessmentCore(input);
   if (core.ok === false) return core;
   const { assessment, artifactRepository, currentGeometry } = core;
 
   const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
-  if (details.integrity.ok === false) {
-    return {
-      ok: false,
-      status: 424,
-      error:
-        `Bedömningens underlag klarade inte integritetskontrollen (${details.integrity.failureClass}: ` +
-        `${details.integrity.artifactId}). Bedömningen visas inte.`,
-      code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
-      failureClass: details.integrity.failureClass,
-      reasonCode: details.integrity.failureClass,
-    };
-  }
+  if (details.integrity.ok === false) return governedEvidenceIntegrityFailure(details.integrity);
   const boundGeometry = await resolveBoundLocalizationGeometry(assessment, artifactRepository, String(input.projectId || '').trim());
   if (boundGeometry.ok === false) return boundGeometry;
   const verdict = governedVerdictFromFindings(assessment.payload.findings);
@@ -960,6 +1228,12 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
     findings: assessment.payload.findings,
     pinnedEvidence: details.pinnedEvidence,
   });
+  // U20CDF4 (owner decision 2026-10-03 (4) point 1): a structurally inconsistent current record is not
+  // returned as a 200 assessment (and so not as a PDF either, which is built from this answer). Its
+  // stored findings stay in view only as non-authoritative diagnostic data (GovernedRecordIntegrityFailure).
+  if (overallStatement.coverage_state === 'RECORD_INTEGRITY_ERROR') {
+    return recordIntegrityFailure(assessment.artifact_id, overallStatement, assessment.payload.findings);
+  }
 
   return {
     ok: true,
@@ -1277,6 +1551,7 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
       outcome_sv: string;
     }
   | { ok: false; status: number; error: string }
+  | GovernedRecordIntegrityFailure
 > {
   // U20-D: identity resolution only (plus the optional explicit-id binding) -- not the evidence
   // details, so a tampered evidence still reaches H15 and comes back as DENY/TAMPERED_EVIDENCE.
@@ -1284,6 +1559,13 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
   if (core.ok === false) {
     return core;
   }
+
+  // U20CDF4 (owner decision 2026-10-03 (4) point 1; coordinator clarification 2: verify must never give
+  // PASS for such a record): a current record that fails its integrity check is the same 424 as the
+  // read-back -- never replayed and never "Reproducerbarhet verifierad" next to an integrity error. A
+  // tampered/corrupted pinned evidence is left to H15 as before (DENY/TAMPERED_EVIDENCE).
+  const recordRefusal = await currentRecordIntegrityRefusal(core.assessment, core.artifactRepository, 'pass');
+  if (recordRefusal) return recordRefusal;
 
   const result = await reExecuteLocalizationAssessment({
     assessmentArtifactId: core.assessment.artifact_id,
