@@ -405,6 +405,60 @@ describe("U30F2 M1: the verifier's runtime probes", () => {
   });
 });
 
+describe("U30F3 M-1: a protected relation is never emptied in two steps through the gate", () => {
+  // U30F2-VERIFICATION M-1 (reproduced in PGlite): every step of these sequences was ALLOWED and env.sgu_well
+  // ended empty. The step that creates the write path is now refused, so the second step never has one.
+  it("partition path: ATTACH PARTITION of a protected table under an unprotected parent is refused (then TRUNCATE/DROP of the parent never reaches it)", () => {
+    expect(gatedSql(CALLER, "CREATE TABLE public.p (id int, brunnsid varchar(32)) PARTITION BY RANGE (id)")).toContain("PARTITION BY");
+    const attach = refusal(() => assertSqlWriteAllowed({ caller: CALLER, sql: "ALTER TABLE public.p ATTACH PARTITION env.sgu_well DEFAULT" }));
+    expect(attach.code).toBe(REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION);
+    expect([attach.operation, attach.relation]).toEqual(["ALTER", "env.sgu_well"]);
+    for (const sql of [
+      'alter table only public.p attach partition "env"."sgu_well" for values from (1) to (10)',
+      "ALTER TABLE public.p DETACH PARTITION core.property_unit",
+      "ALTER TABLE public.c INHERIT env.sgu_well",
+      "ALTER TABLE public.c NO INHERIT env.sgu_well",
+    ]) {
+      expect(refusal(() => assertSqlWriteAllowed({ caller: CALLER, sql })).code, sql).toBe(REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION);
+    }
+    expect(refusal(() => assertSqlWriteAllowed({ caller: CALLER, sql: "ALTER TABLE public.p ATTACH PARTITION ⟦DYN:child⟧ DEFAULT" })).code).toBe(
+      REJECT_DESTRUCTIVE_WRITE_TARGET_UNRESOLVABLE,
+    );
+  });
+
+  it("view path: a view (or an ON SELECT rule) over a protected relation is a write path to it and is refused", () => {
+    const view = refusal(() => assertSqlWriteAllowed({ caller: CALLER, sql: "CREATE VIEW public.v AS SELECT * FROM env.sgu_well" }));
+    expect(view.code).toBe(REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION);
+    expect([view.operation, view.relation]).toEqual(["WRITE_PATH", "env.sgu_well"]);
+    for (const sql of [
+      "CREATE OR REPLACE VIEW public.v AS SELECT a.id FROM public.a a JOIN core.property_unit b ON b.id = a.id",
+      "create temp view v as select * from public.a, lm_staging.flood_risk_area_994bf11c",
+      "CREATE VIEW public.v AS SELECT * FROM (SELECT * FROM env.natura2000_area) s",
+      'CREATE RULE "_RETURN" AS ON SELECT TO public.t DO INSTEAD SELECT * FROM env.sgu_well',
+      "CREATE VIEW public.v AS SELECT * FROM env.sgu_well; WITH d AS (DELETE FROM public.v RETURNING 1) SELECT count(*) FROM d",
+    ]) {
+      expect(refusal(() => assertSqlWriteAllowed({ caller: CALLER, sql })).code, sql).toBe(REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION);
+    }
+  });
+
+  it("controls: a materialized view (a copy), a view over unprotected tables and an unprotected partition pass", () => {
+    for (const sql of [
+      "CREATE MATERIALIZED VIEW public.mv AS SELECT * FROM env.sgu_well",
+      "CREATE VIEW public.v AS SELECT j.id, st_area(j.geom) AS sgu_well FROM public.jobs j",
+      "ALTER TABLE public.p ATTACH PARTITION public.p_2026 FOR VALUES FROM (1) TO (2)",
+      "CREATE RULE r AS ON INSERT TO public.x DO ALSO INSERT INTO public.log SELECT * FROM env.sgu_well",
+    ]) {
+      expect(gatedSql(CALLER, sql), sql).toBe(sql);
+    }
+  });
+
+  it("KNOWN LIMIT (pinned): a write to a view or parent created OUTSIDE the gate cannot be seen from its text -- the database-level protection (owner decision 8) is the layer that holds there", () => {
+    // public.v / public.p are only names here; whether they reach env.sgu_well is catalog state the gate never reads
+    expect(gatedSql(CALLER, "DELETE FROM public.v")).toBe("DELETE FROM public.v");
+    expect(gatedSql(CALLER, "TRUNCATE public.p")).toBe("TRUNCATE public.p");
+  });
+});
+
 describe("no override", () => {
   it("no extra flag and no environment variable lets a protected write through", () => {
     const saved = { ...process.env };
