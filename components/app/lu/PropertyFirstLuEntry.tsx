@@ -11,6 +11,8 @@ import {
 import { setActiveProjectId } from '../../../services/coreApiClient';
 import { LuWorkspace } from './LuWorkspace';
 import { LuProgressSteps } from './LuProgressSteps';
+import { LuErrorNotice } from './LuErrorNotice';
+import { LuClientError, presentLuError, type LuErrorPresentation } from './luErrorPresentation';
 
 /**
  * DEMO M2a items 6+7: plain-Swedish bootstrap status. Every step state comes from the durable
@@ -68,7 +70,8 @@ export const PropertyFirstLuEntry: React.FC = () => {
   const colors = designTokens.colors;
   const [designation, setDesignation] = useState('');
   const [localizationName, setLocalizationName] = useState('');
-  const [searchError, setSearchError] = useState('');
+  // DEMO M2b item 3: plain Swedish; the server's own text only under "Teknisk information".
+  const [searchError, setSearchError] = useState<LuErrorPresentation | null>(null);
   const [searching, setSearching] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'search' });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -143,16 +146,16 @@ export const PropertyFirstLuEntry: React.FC = () => {
   }, []);
 
   const searchProperty = async () => {
-    setSearchError('');
+    setSearchError(null);
     setSearching(true);
     try {
       const normalized = designation.trim().toUpperCase();
-      if (!normalized) throw new Error('Ange en fastighetsbeteckning.');
+      if (!normalized) throw new LuClientError('Ange en fastighetsbeteckning.');
       const projects = await listPropertyProjects(normalized);
       setPhase({ kind: 'propertyFound', propertyDesignation: normalized, projects });
     } catch (err) {
       setPhase({ kind: 'search' });
-      setSearchError(err instanceof Error ? err.message : 'Fastighetssökning misslyckades.');
+      setSearchError(presentLuError(err, 'property-search'));
     } finally {
       setSearching(false);
     }
@@ -172,7 +175,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
     } catch (err) {
       const projects = await listPropertyProjects(propertyDesignation).catch(() => []);
       setPhase({ kind: 'propertyFound', propertyDesignation, projects });
-      setSearchError(err instanceof Error ? err.message : 'Kunde inte skapa lokalisering.');
+      setSearchError(presentLuError(err, 'project-create'));
     }
   };
 
@@ -181,7 +184,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
       await retryLocalizationBootstrap(project.id);
       beginPolling(propertyDesignation, project);
     } catch (err) {
-      setSearchError(err instanceof Error ? err.message : 'Kunde inte försöka igen.');
+      setSearchError(presentLuError(err, 'bootstrap-retry'));
     }
   };
 
@@ -223,11 +226,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
           >
             {searching ? 'Söker…' : 'Sök fastighet'}
           </button>
-          {searchError ? (
-            <p data-testid="pf-search-error" className="text-sm" style={{ color: '#F87171' }}>
-              {searchError}
-            </p>
-          ) : null}
+          {searchError ? <LuErrorNotice testId="pf-search-error" error={searchError} className="" /> : null}
         </section>
       )}
 
@@ -334,6 +333,8 @@ export const PropertyFirstLuEntry: React.FC = () => {
               {phase.failureDetail || 'Ingen detalj.'}
             </p>
           </details>
+          {/* M2b: a failed retry was set but never shown in this phase. */}
+          {searchError ? <LuErrorNotice testId="pf-retry-error" error={searchError} className="" /> : null}
           <button
             type="button"
             data-testid="pf-retry"

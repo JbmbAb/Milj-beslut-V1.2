@@ -42,4 +42,11 @@ describe('LU-RESULT-PRESENTATION-MODEL-V1', () => {
       'Tidigare beslut föreligger',
     );
   });
+
+  it('DEMO M2b: an unknown risk level for a known layer rule is never presented as a hit', () => {
+    const summary = presentLuFindingSummary({ rule_id: 'LU-WATER-001', risk_level: 'SOMETHING_NEW', explanation: 'x' });
+    expect(summary).toBe('Fyndets nivå kunde inte tolkas – se teknisk information.');
+    expect(summary).not.toMatch(/finns inom sökradien/);
+    expect(presentLuFinding({ rule_id: 'LU-WATER-001', risk_level: 'SOMETHING_NEW' }).attentionLabel).toBe('Okänd nivå');
+  });
 });

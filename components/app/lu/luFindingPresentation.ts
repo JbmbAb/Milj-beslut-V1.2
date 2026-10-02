@@ -83,6 +83,11 @@ export function presentLuFindingSummary(finding: {
   if (definition && finding.risk_level === "NOT_CHECKED") {
     return `${definition.label}: kontrollen kunde inte göras – källan var otillgänglig.`;
   }
-  if (definition?.hitMeaning) return definition.hitMeaning;
+  if (definition?.hitMeaning) {
+    // DEMO M2b: the rule's hit meaning is only stated for a level the engine actually produces;
+    // an unknown level is never presented as a hit.
+    if (ATTENTION_LABEL_BY_RISK_LEVEL[finding.risk_level]) return definition.hitMeaning;
+    return "Fyndets nivå kunde inte tolkas – se teknisk information.";
+  }
   return finding.explanation ?? "Fyndet saknar beskrivning i underlaget.";
 }

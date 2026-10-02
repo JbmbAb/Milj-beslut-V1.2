@@ -1,0 +1,214 @@
+/**
+ * DEMO M2b (LU product demonstrator) -- plain-Swedish presentation of a failed API call.
+ *
+ * Presentation only: nothing here changes what the server decided. The main text the user sees is
+ * always Swedish and written here; the server's own text, HTTP status and machine codes (code /
+ * failureClass / reasonCode) are kept as rows for a collapsed "Teknisk information" section.
+ *
+ * What the classification reads, in this order:
+ *   1. the structured fields `services/coreApiClient.ts` attaches to a thrown Error (status, code,
+ *      failureClass, reasonCode), read by duck typing so a mocked client still works;
+ *   2. a small set of exact server messages that carry no code yet (listed below -- these are the
+ *      real strings of server/modules/localization/localizationOrchestrator.ts and
+ *      resolveGovernedLocalizationPresentation.ts; a server-side code would be the better contract);
+ *   3. the HTTP status class.
+ *
+ * Exception: a LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED body carries the server's own Swedish
+ * user message by contract (localizationGeometryCurrentness.ts FAILURE_POLICY.messageSv), so that
+ * message is shown as is.
+ */
+
+export type LuErrorContext =
+  | 'current-assessment'
+  | 'viewer-evidence'
+  | 'run'
+  | 'geometry-load'
+  | 'geometry-save'
+  | 'geometry-retry'
+  | 'export'
+  | 'verify'
+  | 'property-lookup'
+  | 'property-search'
+  | 'project-create'
+  | 'bootstrap-retry';
+
+/**
+ * TECHNICAL  -- the system could not answer (network, 5xx, not yet provisioned): may work on retry.
+ * REFUSED    -- a deliberate governance refusal (e.g. ambiguous localization): not a data answer.
+ * NOT_FOUND  -- the thing asked for does not exist (yet).
+ * UNAUTHORIZED -- session or project access.
+ * INTEGRITY  -- stored material failed verification (tamper, binding, contract version).
+ * INCOHERENT -- two sources that must describe the same assessment do not.
+ */
+export type LuErrorKind = 'TECHNICAL' | 'REFUSED' | 'NOT_FOUND' | 'UNAUTHORIZED' | 'INTEGRITY' | 'INCOHERENT';
+
+export interface LuErrorDetailRow {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface LuErrorPresentation {
+  readonly kind: LuErrorKind;
+  /** Swedish, user-facing. Never contains the server's raw text. */
+  readonly messageSv: string;
+  /** True when trying again can reasonably give a different answer. */
+  readonly retryable: boolean;
+  /** For the collapsed "Teknisk information": status, codes and the server's own text. */
+  readonly technical: readonly LuErrorDetailRow[];
+}
+
+/** A client-side error whose message is already plain Swedish written by this UI. */
+export class LuClientError extends Error {
+  readonly luClientError = true as const;
+  constructor(messageSv: string) {
+    super(messageSv);
+    this.name = 'LuClientError';
+  }
+}
+
+/** Exact server strings without a machine code (see module comment). */
+export const LU_SERVER_MESSAGE = {
+  NO_CURRENT_ASSESSMENT: 'No current governed LU assessment is available for this project.',
+  VIEWER_CAPABILITY_NOT_CONFIGURED: 'Governed viewer capability is not configured for this project.',
+  ASSESSMENT_TAMPER: 'Governed LU assessment failed tamper verification.',
+  ASSESSMENT_NOT_BOUND: 'Governed LU assessment is not bound to this project.',
+  NOT_AUTHORIZED: 'Not authorized for this project.',
+  PRESENTATION_REJECT_PREFIX: 'REJECT_LOCALIZATION_PRESENTATION',
+} as const;
+
+const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
+  'current-assessment': 'Den sparade bedömningen kunde inte läsas.',
+  'viewer-evidence': 'Kontrollresultaten kunde inte hämtas.',
+  run: 'Bedömningen kunde inte köras.',
+  'geometry-load': 'Kontrollpunkten kunde inte hämtas.',
+  'geometry-save': 'Kontrollpunkten kunde inte sparas.',
+  'geometry-retry': 'Förberedelsen av analysen kunde inte startas om.',
+  export: 'Rapporten kunde inte exporteras.',
+  verify: 'Verifieringen kunde inte genomföras.',
+  'property-lookup': 'Fastigheten kunde inte slås upp.',
+  'property-search': 'Fastighetssökningen misslyckades.',
+  'project-create': 'Lokaliseringen kunde inte skapas.',
+  'bootstrap-retry': 'Det gick inte att försöka igen.',
+};
+
+const NOT_FOUND_TEXT: Readonly<Partial<Record<LuErrorContext, string>>> = {
+  'current-assessment': 'Det finns ingen sparad bedömning för kontrollpunkten ännu.',
+  'viewer-evidence': 'Det finns ingen sparad bedömning att hämta kontrollresultat för.',
+  export: 'Det finns ingen sparad bedömning att exportera.',
+  verify: 'Det finns ingen sparad bedömning att verifiera.',
+};
+
+interface ErrorFields {
+  readonly status: number | null;
+  readonly code: string | null;
+  readonly failureClass: string | null;
+  readonly reasonCode: string | null;
+  readonly message: string;
+  readonly isClientError: boolean;
+}
+
+function readFields(err: unknown): ErrorFields {
+  const e = (err ?? {}) as Record<string, unknown>;
+  const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  return {
+    status: typeof e.status === 'number' && Number.isFinite(e.status) ? e.status : null,
+    code: s(e.code),
+    failureClass: s(e.failureClass),
+    reasonCode: s(e.reasonCode),
+    message: typeof err === 'string' ? err : typeof e.message === 'string' ? e.message : '',
+    isClientError: e.luClientError === true,
+  };
+}
+
+function technicalRows(f: ErrorFields): LuErrorDetailRow[] {
+  const rows: LuErrorDetailRow[] = [];
+  if (f.status !== null) rows.push({ label: 'HTTP-status', value: String(f.status) });
+  if (f.code) rows.push({ label: 'Felkod', value: f.code });
+  if (f.failureClass) rows.push({ label: 'Felklass', value: f.failureClass });
+  if (f.reasonCode) rows.push({ label: 'Orsakskod', value: f.reasonCode });
+  if (f.message) rows.push({ label: f.status !== null ? 'Serverns meddelande' : 'Felmeddelande', value: f.message });
+  return rows;
+}
+
+export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPresentation {
+  const f = readFields(err);
+  const lead = CONTEXT_LEAD[context];
+  const technical = technicalRows(f);
+  const make = (kind: LuErrorKind, messageSv: string, retryable: boolean): LuErrorPresentation => ({
+    kind,
+    messageSv,
+    retryable,
+    technical,
+  });
+
+  // A Swedish message written by this UI itself.
+  if (f.isClientError && f.message) return make('TECHNICAL', f.message, true);
+
+  if (f.code === 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED') {
+    const refused = f.status === 409;
+    return make(refused ? 'REFUSED' : 'TECHNICAL', f.message || `${lead} Lokaliseringen kunde inte fastställas.`, !refused);
+  }
+  if (f.code === 'LOCALIZATION_DATA_UNAVAILABLE') {
+    return make('TECHNICAL', `${lead} För många datakällor var otillgängliga. Försök igen senare.`, true);
+  }
+
+  if (f.message === LU_SERVER_MESSAGE.NO_CURRENT_ASSESSMENT) {
+    return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det finns ingen sparad bedömning.`, false);
+  }
+  if (f.message === LU_SERVER_MESSAGE.VIEWER_CAPABILITY_NOT_CONFIGURED) {
+    return make(
+      'TECHNICAL',
+      'Kartvisningen för projektet är inte förberedd ännu, så kontrollresultaten kan inte hämtas. Försök igen om en stund.',
+      true,
+    );
+  }
+  if (f.message === LU_SERVER_MESSAGE.ASSESSMENT_TAMPER) {
+    return make(
+      'INTEGRITY',
+      'Den sparade bedömningen klarade inte integritetskontrollen. Den visas, verifieras och exporteras därför inte.',
+      false,
+    );
+  }
+  if (f.message === LU_SERVER_MESSAGE.ASSESSMENT_NOT_BOUND) {
+    return make(
+      'INTEGRITY',
+      'Det gick inte att bekräfta att den sparade bedömningen hör till det här projektet. Den visas, verifieras och exporteras därför inte.',
+      false,
+    );
+  }
+  if (f.message.startsWith(LU_SERVER_MESSAGE.PRESENTATION_REJECT_PREFIX)) {
+    return make('INTEGRITY', 'Kontrollunderlaget klarade inte integritetskontrollen och visas därför inte.', false);
+  }
+
+  if (f.status === 401) return make('UNAUTHORIZED', `${lead} Sessionen har gått ut – logga in igen.`, false);
+  if (f.status === 403 || f.message === LU_SERVER_MESSAGE.NOT_AUTHORIZED) {
+    return make('UNAUTHORIZED', `${lead} Du saknar behörighet till det här projektet.`, false);
+  }
+  if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget kunde inte verifieras och visas därför inte.`, false);
+  if (f.status === 404) return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det som efterfrågades finns inte.`, false);
+  if (f.status === 409) return make('REFUSED', `${lead} Åtgärden nekades eftersom underlaget är motstridigt.`, false);
+  if (f.status === 429) return make('TECHNICAL', `${lead} För många förfrågningar just nu – vänta en stund och försök igen.`, true);
+  if (f.status === 400) {
+    if (context === 'property-lookup' || context === 'property-search') {
+      return make('NOT_FOUND', `${lead} Kontrollera fastighetsbeteckningen.`, false);
+    }
+    return make('TECHNICAL', `${lead} Begäran kunde inte behandlas.`, false);
+  }
+  if (f.status !== null && f.status >= 500) return make('TECHNICAL', `${lead} Ett tekniskt fel uppstod på servern.`, true);
+
+  // No HTTP status: the request never got a normal answer (network, unexpected response shape).
+  return make('TECHNICAL', `${lead} Servern kunde inte nås eller svarade oväntat.`, true);
+}
+
+/**
+ * The ONLY signal that a project has no current assessment yet: the server's exact 404 text. Any
+ * other failure -- including some other 404 -- is an error, never "there is no assessment".
+ */
+export function isNoCurrentAssessmentError(err: unknown): boolean {
+  return err instanceof Error && err.message === LU_SERVER_MESSAGE.NO_CURRENT_ASSESSMENT;
+}
+
+/** An incoherence between sources that must describe the same assessment (DEMO M2b item 2). */
+export function presentLuIncoherence(messageSv: string, technical: readonly LuErrorDetailRow[]): LuErrorPresentation {
+  return { kind: 'INCOHERENT', messageSv, retryable: true, technical };
+}

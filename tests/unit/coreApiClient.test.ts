@@ -244,4 +244,32 @@ describe('callCore', () => {
 
     await expect(callCore('/api/broken')).rejects.toThrow(/502/);
   });
+
+  it('DEMO M2b: the thrown error keeps the server message and also carries the HTTP status and machine codes', async () => {
+    vi.stubGlobal('window', { localStorage: mockLocalStorage(null) });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-123' }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            ok: false,
+            error: 'Projektets lokalisering är ogiltig och kan inte användas. Ingen bedömning görs.',
+            code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+            failureClass: 'INVALID_GEOMETRY_HEAD',
+            reasonCode: 'LOCALIZATION_GEOMETRY_INVALID_GEOMETRY_HEAD',
+          },
+          409,
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const err = (await callCore('/api/localization/generate-report').catch((e: unknown) => e)) as Error & Record<string, unknown>;
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('Projektets lokalisering är ogiltig och kan inte användas. Ingen bedömning görs.');
+    expect(err.status).toBe(409);
+    expect(err.code).toBe('LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED');
+    expect(err.failureClass).toBe('INVALID_GEOMETRY_HEAD');
+    expect(err.reasonCode).toBe('LOCALIZATION_GEOMETRY_INVALID_GEOMETRY_HEAD');
+  });
 });

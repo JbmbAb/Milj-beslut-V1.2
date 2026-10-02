@@ -127,12 +127,23 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
     const err = (await response.json().catch(() => ({}))) as {
       error?: string | { message?: string };
       message?: string;
+      code?: unknown;
+      failureClass?: unknown;
+      reasonCode?: unknown;
     };
     const raw = err.error;
     const fromError =
       typeof raw === 'string' ? raw : raw && typeof raw === 'object' ? String(raw.message || '') : '';
     const msg = (fromError || err.message || '').trim() || `HTTP ${response.status}`;
-    throw new Error(msg);
+    // DEMO M2b: the message stays exactly as before; the HTTP status and the machine-readable codes
+    // the server sends (code / failureClass / reasonCode) are attached so the UI can show plain
+    // Swedish text and keep the codes for "Teknisk information" instead of the raw server text.
+    throw Object.assign(new Error(msg), {
+      status: response.status,
+      ...(typeof err.code === 'string' ? { code: err.code } : {}),
+      ...(typeof err.failureClass === 'string' ? { failureClass: err.failureClass } : {}),
+      ...(typeof err.reasonCode === 'string' ? { reasonCode: err.reasonCode } : {}),
+    });
   }
 
   const contentType = response.headers.get('content-type');

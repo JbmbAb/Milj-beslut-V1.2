@@ -82,4 +82,38 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
     expect(technical).toHaveTextContent('PROPERTY_CENTROID_UNAVAILABLE');
     expect(screen.getByTestId('pf-retry')).toBeInTheDocument();
   });
+
+  it('DEMO M2b item 3: a failed search or create is plain Swedish; the raw server text stays collapsed', async () => {
+    const user = userEvent.setup();
+    client.listPropertyProjects.mockRejectedValueOnce(Object.assign(new Error('Not authorized for this project.'), { status: 403 }));
+    render(<PropertyFirstLuEntry />);
+    await user.type(screen.getByTestId('pf-designation'), 'UPPSALA SVIA 1:111');
+    await user.click(screen.getByTestId('pf-search'));
+    expect(await screen.findByTestId('pf-search-error-message')).toHaveTextContent(
+      'Fastighetssökningen misslyckades. Du saknar behörighet till det här projektet.',
+    );
+    expect(screen.getByTestId('pf-search-error-message')).not.toHaveTextContent('Not authorized');
+    expect(screen.getByTestId('pf-search-error-technical')).toHaveTextContent('Not authorized for this project.');
+
+    client.listPropertyProjects.mockResolvedValue([]);
+    client.createLocalizationProjectRequest.mockRejectedValueOnce(
+      Object.assign(new Error('propertyDesignation and name are required'), { status: 400 }),
+    );
+    await user.click(screen.getByTestId('pf-search'));
+    await user.click(await screen.findByTestId('pf-create-new'));
+    expect(await screen.findByTestId('pf-search-error-message')).toHaveTextContent('Lokaliseringen kunde inte skapas.');
+    expect(screen.getByTestId('pf-search-error-message')).not.toHaveTextContent('propertyDesignation');
+  });
+
+  it('DEMO M2b: a failed bootstrap retry is shown (it used to be set but never displayed in that phase)', async () => {
+    const user = userEvent.setup();
+    client.listPropertyProjects.mockResolvedValue([]);
+    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode: 'X', failureDetail: null });
+    client.retryLocalizationBootstrap.mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }));
+    await searchAndCreate(user);
+    await user.click(await screen.findByTestId('pf-retry'));
+    expect(await screen.findByTestId('pf-retry-error-message')).toHaveTextContent(
+      'Det gick inte att försöka igen. Ett tekniskt fel uppstod på servern.',
+    );
+  });
 });

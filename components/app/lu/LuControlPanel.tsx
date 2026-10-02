@@ -1,22 +1,25 @@
 import React from 'react';
-import type { LuCheckKey, LuCheckView, LuFindingLike, LuKnowledgeState } from './luControlChecks';
+import type { LuCheckRowKey, LuCheckView, LuFindingLike, LuKnowledgeState } from './luControlChecks';
 import { presentLuFinding, presentLuFindingSummary } from './luFindingPresentation';
 
 /**
- * DEMO M2a items 3 + 5: the six LU v1 checks with a visible knowledge state, and an evidence panel
- * for the selected check. Pure presentation of `deriveLuControlChecks` output -- it fetches nothing.
+ * DEMO M2a items 3 + 5, M2b item 1: the LU v1 checks with a visible knowledge state, and an evidence
+ * panel for the selected check. Pure presentation of `deriveLuControlChecks` output -- it fetches
+ * nothing; "Försök igen" only calls back to the workspace.
  */
 
 const STATE_STYLE: Readonly<Record<LuKnowledgeState, { color: string; border: string; background: string }>> = {
   HIT: { color: '#FCD34D', border: '#F59E0B', background: 'rgba(245,158,11,0.12)' },
   NO_HIT: { color: '#6EE7B7', border: '#10B981', background: 'rgba(16,185,129,0.10)' },
   NOT_CHECKED: { color: '#CBD5E1', border: '#64748B', background: 'transparent' },
-  UNCERTAIN: { color: '#FDBA74', border: '#F97316', background: 'rgba(249,115,22,0.10)' },
   SOURCE_UNAVAILABLE: { color: '#FCA5A5', border: '#EF4444', background: 'rgba(239,68,68,0.10)' },
+  UNCERTAIN: { color: '#FDBA74', border: '#F97316', background: 'rgba(249,115,22,0.10)' },
+  // Its own colour: a technical failure is neither a data gap (orange) nor an unavailable source (red).
+  TECHNICAL_ERROR: { color: '#F0ABFC', border: '#C026D3', background: 'rgba(192,38,211,0.12)' },
   LOADING: { color: '#94A3B8', border: '#475569', background: 'transparent' },
 };
 
-/** The property "Träff" means "found", not a risk signal, so it gets a neutral tone. */
+/** The property "Hittad" means "found", not a risk signal, so it gets a neutral tone. */
 const PROPERTY_FOUND_STYLE = { color: '#A5F3FC', border: '#22D3EE', background: 'rgba(34,211,238,0.08)' };
 
 export const LuStateChip: React.FC<{ check: Pick<LuCheckView, 'key' | 'state' | 'stateLabel'> }> = ({ check }) => {
@@ -40,10 +43,9 @@ export const LuStateChip: React.FC<{ check: Pick<LuCheckView, 'key' | 'state' | 
 export const LuCheckDetails: React.FC<{
   check: LuCheckView;
   findings: readonly LuFindingLike[];
-  ruleId: string | null;
   onClose: () => void;
-}> = ({ check, findings, ruleId, onClose }) => {
-  const related = ruleId ? findings.filter((f) => f.rule_id === ruleId) : [];
+}> = ({ check, findings, onClose }) => {
+  const related = check.ruleId ? findings.filter((f) => f.rule_id === check.ruleId) : [];
   return (
     <div data-testid="lu-check-details" className="border p-4 space-y-3" style={{ borderColor: '#334155' }}>
       <div className="flex items-start justify-between gap-3">
@@ -59,6 +61,11 @@ export const LuCheckDetails: React.FC<{
         <LuStateChip check={check} />
         <span className="text-sm">{check.summary}</span>
       </div>
+      {check.registerNote || check.serverNote ? (
+        <p data-testid="lu-check-details-register-note" className="text-xs opacity-80">
+          {check.registerNote ?? check.serverNote}
+        </p>
+      ) : null}
       {check.details.length > 0 ? (
         <dl data-testid="lu-check-details-rows" className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
           {check.details.map((row) => (
@@ -104,16 +111,22 @@ export const LuCheckDetails: React.FC<{
 export const LuControlPanel: React.FC<{
   checks: readonly LuCheckView[];
   findings: readonly LuFindingLike[];
-  selectedKey: LuCheckKey | null;
-  onSelect: (key: LuCheckKey | null) => void;
-  ruleIdFor: (key: LuCheckKey) => string | null;
-}> = ({ checks, findings, selectedKey, onSelect, ruleIdFor }) => {
+  selectedKey: LuCheckRowKey | null;
+  onSelect: (key: LuCheckRowKey | null) => void;
+  /** Shown only when at least one check is a technical error that can be retried. */
+  onRetry?: (() => void) | null;
+  retrying?: boolean;
+  /** A short honest note under the list (e.g. that the server's answer lacks the document check). */
+  note?: string | null;
+}> = ({ checks, findings, selectedKey, onSelect, onRetry = null, retrying = false, note = null }) => {
   const selected = checks.find((c) => c.key === selectedKey) ?? null;
+  const hasTechnicalError = checks.some((c) => c.state === 'TECHNICAL_ERROR');
   return (
     <section data-testid="lu-control-panel" className="space-y-3 mb-10">
       <h2 className="text-xs uppercase tracking-widest opacity-70" style={{ color: 'inherit' }}>Kontroller</h2>
       <p className="text-xs opacity-60">
-        ”Inte kontrollerat” betyder att det saknas ett kontrollresultat – inte att det saknas objekt.
+        ”Inte kontrollerat” betyder att det saknas ett kontrollresultat – inte att det saknas objekt. ”Tekniskt fel” betyder
+        att resultatet inte kunde hämtas eller kontrolleras – inte att underlaget är bristfälligt.
       </p>
       <ul className="divide-y border" style={{ borderColor: '#334155' }}>
         {checks.map((check) => (
@@ -128,13 +141,42 @@ export const LuControlPanel: React.FC<{
               <span className="font-semibold min-w-[14rem]">{check.label}</span>
               <LuStateChip check={check} />
               <span className="text-sm opacity-80">{check.summary}</span>
+              {check.registerNote ? (
+                <span data-testid={`lu-check-register-note-${check.key}`} className="basis-full text-xs opacity-60">
+                  {check.registerNote}
+                </span>
+              ) : null}
+              {check.serverNote ? (
+                <span data-testid={`lu-check-server-note-${check.key}`} className="basis-full text-xs opacity-60">
+                  {check.serverNote}
+                </span>
+              ) : null}
             </button>
           </li>
         ))}
       </ul>
-      {selected ? (
-        <LuCheckDetails check={selected} findings={findings} ruleId={ruleIdFor(selected.key)} onClose={() => onSelect(null)} />
+      {/* Static scope statement: LU v1 has no governed input for this, so nothing is claimed about it. */}
+      <p data-testid="lu-control-out-of-scope" className="text-xs opacity-60">
+        Inte bedömt: hydrologisk koppling (spridningsväg). Bedömningen innehåller inget underlag för det.
+      </p>
+      {hasTechnicalError && onRetry ? (
+        <button
+          type="button"
+          data-testid="lu-control-retry"
+          disabled={retrying}
+          onClick={onRetry}
+          className="px-3 py-1.5 text-xs font-semibold border disabled:opacity-40"
+          style={{ borderColor: '#C026D3' }}
+        >
+          {retrying ? 'Försöker igen…' : 'Försök igen'}
+        </button>
       ) : null}
+      {note ? (
+        <p data-testid="lu-control-note" className="text-xs opacity-60">
+          {note}
+        </p>
+      ) : null}
+      {selected ? <LuCheckDetails check={selected} findings={findings} onClose={() => onSelect(null)} /> : null}
     </section>
   );
 };

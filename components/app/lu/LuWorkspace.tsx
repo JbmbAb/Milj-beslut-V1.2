@@ -2,19 +2,29 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { designTokens } from '@miljobeslut/mps-identity';
 import { callApi, getActiveProjectId } from '../../../services/coreApiClient';
 import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
-import type { CesiumEvidenceMode } from '../../CesiumMapView';
+import type { CesiumProductEvidence } from '../../CesiumMapView';
 import { presentLuFinding, presentLuFindingSummary } from './luFindingPresentation';
 import {
   checkDefinitionForLayer,
   checkDefinitionForRule,
+  checkEvidenceBinding,
   deriveLuControlChecks,
+  parseServerLayerChecks,
   parseViewerEvidence,
-  LU_V1_CHECKS,
+  LU_V1_LAYER_COUNT,
   type LuAssessmentPresence,
-  type LuCheckKey,
+  type LuCheckRowKey,
   type LuEvidenceLoad,
 } from './luControlChecks';
+import {
+  LuClientError,
+  isNoCurrentAssessmentError,
+  presentLuError,
+  presentLuIncoherence,
+  type LuErrorPresentation,
+} from './luErrorPresentation';
 import { LuControlPanel } from './LuControlPanel';
+import { LuErrorNotice } from './LuErrorNotice';
 import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
 
 const CesiumMapView = lazy(() => import('../../CesiumMapView'));
@@ -31,6 +41,13 @@ const ASSESSMENT_STATUS_LABEL: Record<string, string> = {
   GOVERNANCE_DENIED: 'Ej bedömd – nekad av styrning',
   EXECUTION_FAILED: 'Ej bedömd – körning misslyckades',
 };
+
+/**
+ * DEMO M2b item 5: shown only when neither the read-back (`documentCheck`, K0b) nor the run
+ * (`governed_layer_checks`) carries the server's document check -- e.g. an older server. The UI never
+ * derives the document status itself.
+ */
+const MISSING_DOCUMENT_CHECK_NOTE = 'Uppgift om dokumentkontrollen saknas i svaret för den här bedömningen.';
 
 type SiteInput = {
   id: string;
@@ -64,9 +81,11 @@ type LuFindingView = {
 type ExecutionMotorMeta = {
   admitted?: boolean;
   assessment_artifact_id?: string | null;
+  assessment_projection_registered?: boolean | null;
   assessment_status?: string;
   findings?: LuFindingView[];
   localization_geometry?: { status?: string; message_sv?: string | null } | null;
+  governed_layer_checks?: unknown;
 };
 
 type LocalizationReport = {
@@ -74,37 +93,112 @@ type LocalizationReport = {
   siteAnalyses?: Array<{ executionMotor?: ExecutionMotorMeta }>;
 };
 
+/** GET /api/localization/:projectId/current-assessment (server/routes/localization.routes.ts). */
+type CurrentAssessmentResponse = {
+  ok?: boolean;
+  assessmentArtifactId?: unknown;
+  findings?: LuFindingView[];
+  evidenceRefs?: unknown;
+  systemSummary?: string;
+  /** K0b: the server's governed document check, derived from the assessment's pinned refs. */
+  documentCheck?: unknown;
+};
+
 /**
- * DEMO M2a item 2 -- the ONE governed result this view renders, whether it comes from a fresh run
- * (generate-report's executionMotor) or from a reopen (GET current-assessment). Only fields both
- * paths carry are kept, so fresh and reopened views render the same content. Legacy observations
- * (complianceAnalysis.overallRisk, dataSources, warnings, spatialAudit) are deliberately NOT part of
- * it: they are not the governed assessment.
+ * DEMO M2a item 2 / M2b item 2 -- the ONE governed result this view renders. An ASSESSED result is
+ * ALWAYS read from GET current-assessment, for a fresh run (after checking that the read-back is the
+ * assessment the run produced) and for a reopen alike: one data source, one mapping. Only a run
+ * that produced no assessment is rendered from the run response itself (there is nothing to read
+ * back). Legacy observations (complianceAnalysis, dataSources, warnings) are never part of it.
  */
 type GovernedResult = {
   assessmentStatus: string;
   assessmentArtifactId: string | null;
   findings: LuFindingView[];
   statusMessage: string | null;
+  /** The displayed assessment's own SPATIAL_EVIDENCE ids -- the viewer evidence must equal these. */
+  spatialEvidenceRefs: readonly string[] | null;
+  /**
+   * Server-stated checks outside the five map layers, for THIS assessment: the read-back's
+   * documentCheck (fresh run and reopen alike), plus any other extra layer only a run reports.
+   */
+  serverLayerChecks: readonly unknown[] | null;
+};
+
+function layerOf(entry: unknown): string | null {
+  const layer = entry && typeof entry === 'object' ? (entry as { layer?: unknown }).layer : null;
+  return typeof layer === 'string' && layer ? layer : null;
+}
+
+/** Read-back first (the same source for fresh and reopen); a run adds only layers the read-back lacks. */
+function mergeServerChecks(readBackDocumentCheck: unknown, runChecks: readonly unknown[] | null): unknown[] {
+  const readBack = readBackDocumentCheck && typeof readBackDocumentCheck === 'object' ? [readBackDocumentCheck] : [];
+  const readBackLayers = new Set(readBack.map(layerOf));
+  return [...readBack, ...(runChecks ?? []).filter((e) => !readBackLayers.has(layerOf(e)))];
+}
+
+/** What a fresh run produced, kept until its read-back is confirmed or found to disagree. */
+type RunExpectation = {
+  assessmentId: string;
+  projectionRegistered: boolean | null;
+  serverLayerChecks: readonly unknown[] | null;
+};
+
+/** DEMO M2b item 2: the run's assessment and the project's current assessment disagree. */
+type Incoherence = {
+  expectedId: string;
+  currentId: string | null;
+  projectionRegistered: boolean | null;
 };
 
 const RISK_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NOT_CHECKED: 3 };
 
-/** Deterministic order so a fresh run and a reopen list the same findings in the same order. */
+/** Deterministic order so the same assessment always lists its findings in the same order. */
 function sortFindings(findings: readonly LuFindingView[]): LuFindingView[] {
   return [...findings].sort(
     (a, b) => (RISK_ORDER[a.risk_level] ?? 9) - (RISK_ORDER[b.risk_level] ?? 9) || a.finding_id.localeCompare(b.finding_id),
   );
 }
 
-function governedFromRun(report: LocalizationReport): GovernedResult {
-  const motor = report.siteAnalyses?.[0]?.executionMotor ?? {};
+function spatialRefsOf(evidenceRefs: unknown): string[] | null {
+  if (!Array.isArray(evidenceRefs)) return null;
+  return evidenceRefs
+    .filter((r): r is { artifact_id: string; artifact_type: string } =>
+      Boolean(r) && typeof (r as { artifact_id?: unknown }).artifact_id === 'string' && (r as { artifact_type?: unknown }).artifact_type === 'SPATIAL_EVIDENCE',
+    )
+    .map((r) => r.artifact_id);
+}
+
+function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assessmentId: string, serverLayerChecks: readonly unknown[] | null): GovernedResult {
   return {
-    assessmentStatus: motor.assessment_status ?? (motor.assessment_artifact_id ? 'ASSESSED' : 'NOT_ASSESSED'),
-    assessmentArtifactId: motor.assessment_artifact_id ?? null,
-    findings: sortFindings(motor.findings ?? []),
-    statusMessage: motor.localization_geometry?.message_sv ?? null,
+    assessmentStatus: 'ASSESSED',
+    assessmentArtifactId: assessmentId,
+    findings: sortFindings(Array.isArray(result.findings) ? result.findings : []),
+    statusMessage: null,
+    spatialEvidenceRefs: spatialRefsOf(result.evidenceRefs),
+    serverLayerChecks: mergeServerChecks(result.documentCheck, serverLayerChecks),
   };
+}
+
+function incoherenceReason(i: Incoherence): string {
+  if (i.currentId === null && i.projectionRegistered === false) {
+    return 'Bedömningen gjordes och sparades, men registrerades inte som projektets aktuella bedömning. Den kan därför inte läsas tillbaka, verifieras eller exporteras ännu.';
+  }
+  if (i.currentId === null) {
+    return 'Bedömningen gjordes, men projektet har ingen aktuell bedömning att läsa tillbaka. Den kan därför inte visas, verifieras eller exporteras.';
+  }
+  return 'Den nyss gjorda bedömningen är inte den som projektet nu anger som aktuell. Mimer visar inte en blandning av två bedömningar.';
+}
+
+function incoherenceTechnical(i: Incoherence) {
+  return [
+    { label: 'Bedömning från körningen', value: i.expectedId },
+    { label: 'Projektets aktuella bedömning', value: i.currentId ?? 'ingen' },
+    {
+      label: 'Registrerad som aktuell',
+      value: i.projectionRegistered === true ? 'ja' : i.projectionRegistered === false ? 'nej' : 'okänt',
+    },
+  ];
 }
 
 function fileSlug(value: string): string {
@@ -125,34 +219,39 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [designation, setDesignation] = useState(initialDesignation);
   const [siteName, setSiteName] = useState('Alternativ A');
   const [site, setSite] = useState<SiteInput | null>(null);
-  const [lookupError, setLookupError] = useState('');
+  const [lookupError, setLookupError] = useState<LuErrorPresentation | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState('');
+  const [runError, setRunError] = useState<LuErrorPresentation | null>(null);
   const [governed, setGoverned] = useState<GovernedResult | null>(null);
+  const [incoherence, setIncoherence] = useState<Incoherence | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
-  const [exportPdfError, setExportPdfError] = useState('');
+  const [exportPdfError, setExportPdfError] = useState<LuErrorPresentation | null>(null);
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
-  const [verifyError, setVerifyError] = useState('');
-  const [verifyResult, setVerifyResult] = useState<{ outcome: 'PASS' | 'DENY'; mismatches: readonly { code: string; detail: string }[] } | null>(null);
+  const [verifyError, setVerifyError] = useState<LuErrorPresentation | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{
+    outcome: 'PASS' | 'DENY' | 'OTHER_ASSESSMENT' | 'UNKNOWN';
+    verifiedId: string | null;
+    mismatches: readonly { code: string; detail: string }[];
+  } | null>(null);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
-  const [persistedAssessmentError, setPersistedAssessmentError] = useState('');
+  const [persistedAssessmentError, setPersistedAssessmentError] = useState<LuErrorPresentation | null>(null);
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
-  // The product LU view only ever shows live, governed evidence; there is no fixture mode here.
-  const cesiumEvidenceMode: CesiumEvidenceMode = 'live';
-  const [selectedCheck, setSelectedCheck] = useState<LuCheckKey | null>(null);
-  const [evidenceLoad, setEvidenceLoad] = useState<LuEvidenceLoad>({ status: 'idle' });
+  const [selectedCheck, setSelectedCheck] = useState<LuCheckRowKey | null>(null);
+  const [evidence, setEvidence] = useState<{ load: LuEvidenceLoad; geojson: unknown }>({ load: { status: 'idle' }, geojson: null });
   const [evidenceNonce, setEvidenceNonce] = useState(0);
   const evidenceRequestRef = useRef(0);
+  const assessmentRequestRef = useRef(0);
+  const expectedRunRef = useRef<RunExpectation | null>(null);
 
   // PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01.
   const [localizationGeometry, setLocalizationGeometry] = useState<LocalizationGeometryView | null>(null);
   const [geometryLoading, setGeometryLoading] = useState(false);
-  const [geometryError, setGeometryError] = useState('');
+  const [geometryError, setGeometryError] = useState<LuErrorPresentation | null>(null);
   const [pickingLocation, setPickingLocation] = useState(false);
   const [draftPoint, setDraftPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [savingLocation, setSavingLocation] = useState(false);
-  const [saveLocationError, setSaveLocationError] = useState('');
+  const [saveLocationError, setSaveLocationError] = useState<LuErrorPresentation | null>(null);
 
   const fieldStyle: React.CSSProperties = {
     width: '100%',
@@ -165,21 +264,24 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
   const clearResultState = () => {
     setGoverned(null);
+    setIncoherence(null);
     setVerifyResult(null);
-    setVerifyError('');
+    setVerifyError(null);
+    setExportPdfError(null);
     setSelectedCheck(null);
   };
 
   const lookupProperty = async () => {
-    setLookupError('');
+    setLookupError(null);
     setLookingUp(true);
     clearResultState();
+    expectedRunRef.current = null;
     try {
       const info = await fetchPropertyInfo(designation.trim(), getActiveProjectId() || undefined);
       const lat = Number(info.centroid?.lat);
       const lng = Number(info.centroid?.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        throw new Error('Fastighetsuppslaget saknar koordinater.');
+        throw new LuClientError('Fastighetsuppslaget saknar koordinater, så fastigheten kan inte visas.');
       }
       const name = info.designation || designation.trim();
       setSite({
@@ -192,7 +294,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       });
     } catch (err) {
       setSite(null);
-      setLookupError(err instanceof Error ? err.message : 'Uppslaget misslyckades.');
+      setLookupError(presentLuError(err, 'property-lookup'));
     } finally {
       setLookingUp(false);
     }
@@ -211,7 +313,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const loadCurrentGeometry = async () => {
     const projectId = getActiveProjectId();
     if (!projectId) return;
-    setGeometryError('');
+    setGeometryError(null);
     setGeometryLoading(true);
     try {
       const result = await callApi<{ ok: boolean; geometry: LocalizationGeometryView }>(
@@ -220,7 +322,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       );
       setLocalizationGeometry(result.geometry);
     } catch (err) {
-      setGeometryError(err instanceof Error ? err.message : 'Kunde inte hämta lokaliseringspunkten.');
+      setGeometryError(presentLuError(err, 'geometry-load'));
     } finally {
       setGeometryLoading(false);
     }
@@ -233,75 +335,99 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.id]);
 
-  // LU-ASSESSMENT-PERSISTENCE-READ-V1B: read-only -- never runs the kernel. This is the exact string
-  // resolveCurrentLuAssessmentSummary uses for "no current assessment".
-  const NO_CURRENT_ASSESSMENT_MESSAGE = 'No current governed LU assessment is available for this project.';
-
+  /**
+   * LU-ASSESSMENT-PERSISTENCE-READ-V1B, DEMO M2b item 2: read-only -- never runs the kernel. The
+   * single source of an ASSESSED result. After a fresh run, the read-back must be the assessment
+   * the run produced; otherwise the view says so instead of showing either one.
+   */
   const loadCurrentAssessment = async () => {
     const projectId = getActiveProjectId();
     if (!projectId || !site) return;
+    const requestId = ++assessmentRequestRef.current;
     // Clear FIRST, so a previous localization's assessment can never stay visible.
     clearResultState();
-    setPersistedAssessmentError('');
+    setPersistedAssessmentError(null);
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentLoading(true);
     try {
-      const result = await callApi<{
-        ok: true;
-        assessmentArtifactId: string;
-        findings: LuFindingView[];
-        systemSummary: string;
-      }>(`/api/localization/${encodeURIComponent(projectId)}/current-assessment`, { method: 'GET' });
-      setGoverned({
-        assessmentStatus: 'ASSESSED',
-        assessmentArtifactId: result.assessmentArtifactId,
-        findings: sortFindings(result.findings ?? []),
-        statusMessage: null,
-      });
+      const result = await callApi<CurrentAssessmentResponse>(
+        `/api/localization/${encodeURIComponent(projectId)}/current-assessment`,
+        { method: 'GET' },
+      );
+      if (assessmentRequestRef.current !== requestId) return; // a newer read owns the view
+      const currentId = typeof result?.assessmentArtifactId === 'string' && result.assessmentArtifactId ? result.assessmentArtifactId : null;
+      const expected = expectedRunRef.current;
+      if (!currentId) {
+        setPersistedAssessmentError(
+          presentLuError(new LuClientError('Den sparade bedömningen kunde inte läsas: svaret saknar bedömnings-id.'), 'current-assessment'),
+        );
+        return;
+      }
+      if (expected && expected.assessmentId !== currentId) {
+        setIncoherence({ expectedId: expected.assessmentId, currentId, projectionRegistered: expected.projectionRegistered });
+        return;
+      }
+      setGoverned(governedFromCurrentAssessment(result, currentId, expected ? expected.serverLayerChecks : null));
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Kunde inte hämta sparad bedömning.';
-      if (message === NO_CURRENT_ASSESSMENT_MESSAGE) {
-        setPersistedAssessmentNotFound(true);
+      if (assessmentRequestRef.current !== requestId) return;
+      const expected = expectedRunRef.current;
+      if (isNoCurrentAssessmentError(err)) {
+        if (expected) {
+          setIncoherence({ expectedId: expected.assessmentId, currentId: null, projectionRegistered: expected.projectionRegistered });
+        } else {
+          setPersistedAssessmentNotFound(true);
+        }
       } else {
-        setPersistedAssessmentError(message);
+        setPersistedAssessmentError(presentLuError(err, 'current-assessment'));
       }
     } finally {
-      setPersistedAssessmentLoading(false);
+      if (assessmentRequestRef.current === requestId) setPersistedAssessmentLoading(false);
     }
   };
 
   useEffect(() => {
     if (site) {
+      // A new property/point is a new context: a previous run's expectation no longer applies.
+      expectedRunRef.current = null;
       void loadCurrentAssessment();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [site?.id, localizationGeometry?.artifact_id, localizationGeometry?.provisioningStatus]);
 
-  // DEMO M2a item 3: the per-layer check results come from the governed viewer evidence of the
-  // CURRENT assessment -- fetched only when an assessment exists, re-fetched after every run.
-  const assessmentArtifactId = governed?.assessmentArtifactId ?? null;
+  // DEMO M2a item 3 / M2b item 2: the per-layer check results come from the governed viewer evidence,
+  // fetched ONCE for the DISPLAYED assessment and accepted only if its evidence ids are exactly that
+  // assessment's spatial evidence refs. The same FeatureCollection then feeds the panel and the map.
+  const displayedAssessmentId = governed?.assessmentStatus === 'ASSESSED' ? governed.assessmentArtifactId : null;
+  const spatialRefsKey = governed?.spatialEvidenceRefs ? JSON.stringify(governed.spatialEvidenceRefs) : null;
   useEffect(() => {
     const projectId = getActiveProjectId();
     const requestId = ++evidenceRequestRef.current;
-    if (!projectId || !assessmentArtifactId) {
-      setEvidenceLoad({ status: 'idle' });
+    if (!projectId || !displayedAssessmentId) {
+      setEvidence({ load: { status: 'idle' }, geojson: null });
       return;
     }
-    setEvidenceLoad({ status: 'loading' });
+    setEvidence({ load: { status: 'loading' }, geojson: null });
+    const refs: string[] | null = spatialRefsKey === null ? null : (JSON.parse(spatialRefsKey) as string[]);
     void (async () => {
       try {
         const payload = await callApi<unknown>(`/api/localization/${encodeURIComponent(projectId)}/viewer/evidence`, {
           method: 'GET',
         });
         const features = parseViewerEvidence(payload);
-        if (evidenceRequestRef.current === requestId) setEvidenceLoad({ status: 'loaded', features });
+        if (evidenceRequestRef.current !== requestId) return;
+        const binding = checkEvidenceBinding(features, refs);
+        if ('messageSv' in binding) {
+          setEvidence({ load: { status: 'error', error: presentLuIncoherence(binding.messageSv, binding.technical) }, geojson: null });
+          return;
+        }
+        setEvidence({ load: { status: 'loaded', features }, geojson: payload });
       } catch (err) {
         if (evidenceRequestRef.current === requestId) {
-          setEvidenceLoad({ status: 'error', message: err instanceof Error ? err.message : 'Okänt fel.' });
+          setEvidence({ load: { status: 'error', error: presentLuError(err, 'viewer-evidence') }, geojson: null });
         }
       }
     })();
-  }, [assessmentArtifactId, evidenceNonce]);
+  }, [displayedAssessmentId, spatialRefsKey, evidenceNonce]);
 
   // While the point's execution identity is being prepared by the worker, re-poll the same GET.
   useEffect(() => {
@@ -326,14 +452,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       );
       setLocalizationGeometry(result.geometry);
     } catch (err) {
-      setGeometryError(err instanceof Error ? err.message : 'Kunde inte försöka igen.');
+      setGeometryError(presentLuError(err, 'geometry-retry'));
     } finally {
       setRetryingProvisioning(false);
     }
   };
 
   const startPickingLocation = () => {
-    setSaveLocationError('');
+    setSaveLocationError(null);
     setDraftPoint(null);
     setPickingLocation(true);
   };
@@ -341,14 +467,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const cancelPickingLocation = () => {
     setPickingLocation(false);
     setDraftPoint(null);
-    setSaveLocationError('');
+    setSaveLocationError(null);
   };
 
   const saveLocation = async () => {
     const projectId = getActiveProjectId();
     if (!projectId || !draftPoint) return;
     setSavingLocation(true);
-    setSaveLocationError('');
+    setSaveLocationError(null);
     try {
       const result = await callApi<{ ok: boolean; geometry: LocalizationGeometryView }>(
         `/api/localization/${encodeURIComponent(projectId)}/geometry`,
@@ -365,7 +491,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       setPickingLocation(false);
       setDraftPoint(null);
     } catch (err) {
-      setSaveLocationError(err instanceof Error ? err.message : 'Kunde inte spara lokaliseringspunkten.');
+      setSaveLocationError(presentLuError(err, 'geometry-save'));
     } finally {
       setSavingLocation(false);
     }
@@ -373,20 +499,22 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
   const runAssessment = async () => {
     if (!site) {
-      setRunError('Slå upp en fastighet först.');
+      setRunError(presentLuError(new LuClientError('Slå upp en fastighet först.'), 'run'));
       return;
     }
-    setRunError('');
+    setRunError(null);
     const projectId = getActiveProjectId();
     if (!projectId) {
       // No synthetic project id: without a real active project there is nothing governed to assess.
-      setRunError('Inget aktivt projekt valt. Välj ett projekt innan bedömning körs.');
+      setRunError(presentLuError(new LuClientError('Inget aktivt projekt valt. Välj ett projekt innan bedömning körs.'), 'run'));
       return;
     }
     setRunning(true);
+    assessmentRequestRef.current++; // any read still in flight no longer owns the view
+    expectedRunRef.current = null;
     clearResultState();
     setPersistedAssessmentNotFound(false);
-    setPersistedAssessmentError('');
+    setPersistedAssessmentError(null);
     try {
       const result = await callApi<LocalizationReport>('/api/localization/generate-report', {
         method: 'POST',
@@ -402,28 +530,72 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           ],
         },
       });
-      // Item 2: only the governed fields are kept -- the same shape a reopen renders.
-      setGoverned(governedFromRun(result));
-      setEvidenceNonce((n) => n + 1);
+      const motor = result.siteAnalyses?.[0]?.executionMotor ?? {};
+      const assessmentId = typeof motor.assessment_artifact_id === 'string' && motor.assessment_artifact_id ? motor.assessment_artifact_id : null;
+      const status = motor.assessment_status ?? (assessmentId ? 'ASSESSED' : 'NOT_ASSESSED');
+      if (status === 'ASSESSED' && assessmentId) {
+        // Item 2: render the run's assessment only through the same read-back a reopen uses, and
+        // only if the read-back IS that assessment.
+        expectedRunRef.current = {
+          assessmentId,
+          projectionRegistered: typeof motor.assessment_projection_registered === 'boolean' ? motor.assessment_projection_registered : null,
+          serverLayerChecks: parseServerLayerChecks(motor.governed_layer_checks),
+        };
+        await loadCurrentAssessment();
+      } else {
+        // No assessment was produced: there is nothing to read back. Show the governed status and
+        // the server's Swedish reason (localization_geometry.message_sv) only.
+        setGoverned({
+          assessmentStatus: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
+          assessmentArtifactId: null,
+          findings: [],
+          statusMessage: motor.localization_geometry?.message_sv ?? null,
+          spatialEvidenceRefs: [],
+          serverLayerChecks: null,
+        });
+      }
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : 'Kunde inte köra bedömningen.');
+      setRunError(presentLuError(err, 'run'));
+      // The failed run changed nothing the user can see: show what is actually current again,
+      // instead of claiming there is no assessment.
+      void loadCurrentAssessment();
     } finally {
       setRunning(false);
     }
   };
 
-  // LU-REPORT-EXPORT-UI-V1: exports the governed assessment resolved server-side; only projectId
-  // is sent.
+  // LU-REPORT-EXPORT-UI-V1 / DEMO M2b item 2: the export endpoint takes only the project and returns
+  // no assessment id, so right before exporting the project's current assessment is checked to
+  // still be the displayed one. (A residual window between the check and the export remains until
+  // the endpoint accepts or returns the assessment id -- a server change.)
   const exportPdf = async () => {
     if (exportingPdf) return; // duplicate-click guard
     const projectId = getActiveProjectId();
-    if (!projectId) {
-      setExportPdfError('Inget aktivt projekt valt.');
+    const shownId = governed?.assessmentArtifactId ?? null;
+    if (!projectId || !shownId) {
+      setExportPdfError(presentLuError(new LuClientError('Det finns ingen visad bedömning att exportera.'), 'export'));
       return;
     }
-    setExportPdfError('');
+    setExportPdfError(null);
     setExportingPdf(true);
     try {
+      const current = await callApi<CurrentAssessmentResponse>(
+        `/api/localization/${encodeURIComponent(projectId)}/current-assessment`,
+        { method: 'GET' },
+      );
+      const currentId = typeof current?.assessmentArtifactId === 'string' ? current.assessmentArtifactId : null;
+      if (currentId !== shownId) {
+        setExportPdfError(
+          presentLuIncoherence(
+            'Rapporten exporteras inte: projektets aktuella bedömning är inte den som visas. Läs in bedömningen på nytt.',
+            [
+              { label: 'Visad bedömning', value: shownId },
+              { label: 'Projektets aktuella bedömning', value: currentId ?? 'ingen' },
+            ],
+          ),
+        );
+        return;
+      }
       const blob = await callApi<Blob>(
         `/api/localization/${encodeURIComponent(projectId)}/export-assessment-pdf`,
         { method: 'GET' },
@@ -435,33 +607,43 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setExportPdfError(err instanceof Error ? err.message : 'Exporten misslyckades.');
+      setExportPdfError(presentLuError(err, 'export'));
     } finally {
       setExportingPdf(false);
     }
   };
 
-  // LU-REEXECUTION-VERIFY-UI-V1: deterministic re-execution; only projectId is sent.
+  // LU-REEXECUTION-VERIFY-UI-V1 / DEMO M2b item 2: deterministic re-execution of the project's
+  // current assessment; the result counts only if it names the DISPLAYED assessment.
   const verifyAssessment = async () => {
     if (verifyingAssessment) return; // duplicate-click guard
     const projectId = getActiveProjectId();
-    if (!projectId) {
-      setVerifyError('Inget aktivt projekt valt.');
+    const shownId = governed?.assessmentArtifactId ?? null;
+    if (!projectId || !shownId) {
+      setVerifyError(presentLuError(new LuClientError('Det finns ingen visad bedömning att verifiera.'), 'verify'));
       return;
     }
-    setVerifyError('');
+    setVerifyError(null);
     setVerifyResult(null);
     setVerifyingAssessment(true);
     try {
       const result = await callApi<{
         ok: true;
-        outcome: 'PASS' | 'DENY';
+        outcome: string;
         assessmentArtifactId: string;
-        mismatches: readonly { code: string; detail: string }[];
+        mismatches?: readonly { code: string; detail: string }[];
       }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, { method: 'POST' });
-      setVerifyResult({ outcome: result.outcome, mismatches: result.mismatches });
+      const verifiedId = typeof result?.assessmentArtifactId === 'string' ? result.assessmentArtifactId : null;
+      const mismatches = Array.isArray(result?.mismatches) ? result.mismatches : [];
+      if (verifiedId !== shownId) {
+        setVerifyResult({ outcome: 'OTHER_ASSESSMENT', verifiedId, mismatches: [] });
+      } else if (result.outcome === 'PASS' || result.outcome === 'DENY') {
+        setVerifyResult({ outcome: result.outcome, verifiedId, mismatches });
+      } else {
+        setVerifyResult({ outcome: 'UNKNOWN', verifiedId, mismatches });
+      }
     } catch (err) {
-      setVerifyError(err instanceof Error ? err.message : 'Verifieringen misslyckades.');
+      setVerifyError(presentLuError(err, 'verify'));
     } finally {
       setVerifyingAssessment(false);
     }
@@ -474,46 +656,114 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   };
 
   const isExecutionReady = localizationGeometry?.provisioningStatus === 'COMPLETED';
-  const assessmentPresence: LuAssessmentPresence = persistedAssessmentLoading
-    ? 'loading'
-    : governed?.assessmentStatus === 'ASSESSED' && governed.assessmentArtifactId
-      ? 'present'
-      : persistedAssessmentError
-        ? 'error'
-        : 'none';
+  const projectReady = Boolean(getActiveProjectId());
+  const incoherencePresentation = useMemo(
+    () =>
+      incoherence
+        ? presentLuIncoherence('Kontrollresultaten visas inte: det går inte att visa en sammanhängande bedömning (se ovan).', incoherenceTechnical(incoherence))
+        : null,
+    [incoherence],
+  );
+  const assessmentPresence: LuAssessmentPresence = useMemo(() => {
+    if (persistedAssessmentLoading) return { status: 'loading' };
+    if (incoherencePresentation) return { status: 'error', error: incoherencePresentation };
+    if (governed) {
+      return governed.assessmentStatus === 'ASSESSED' && governed.assessmentArtifactId ? { status: 'present' } : { status: 'not_assessed' };
+    }
+    if (persistedAssessmentError) return { status: 'error', error: persistedAssessmentError };
+    if (persistedAssessmentNotFound || !site || !projectReady) return { status: 'none' };
+    return { status: 'loading' };
+  }, [persistedAssessmentLoading, incoherencePresentation, governed, persistedAssessmentError, persistedAssessmentNotFound, site, projectReady]);
 
   const checks = useMemo(
     () =>
       deriveLuControlChecks({
         property: {
           lookedUp: Boolean(site),
-          lookupError: lookupError || undefined,
+          lookupError,
           geometryLoading,
-          geometryError: geometryError || undefined,
+          geometryError,
           geometry: localizationGeometry,
         },
         assessment: assessmentPresence,
-        evidence: evidenceLoad,
+        evidence: evidence.load,
         findings: governed?.findings ?? [],
+        serverLayerChecks: governed?.serverLayerChecks ?? null,
       }),
-    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, evidenceLoad, governed],
+    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, evidence.load, governed],
   );
 
-  // DEMO M2a item 7: progress derived only from real, polled state -- no timers, no fake bars.
+  // DEMO M2b item 1: one "Försök igen" for whatever failed technically.
+  const retryChecks = () => {
+    if (incoherence || persistedAssessmentError) {
+      void loadCurrentAssessment();
+    } else if (evidence.load.status === 'error') {
+      setEvidenceNonce((n) => n + 1);
+    }
+    if (geometryError) void loadCurrentGeometry();
+    if (lookupError) void lookupProperty();
+  };
+  const retryAvailable =
+    Boolean(incoherence) ||
+    Boolean(persistedAssessmentError?.retryable) ||
+    (evidence.load.status === 'error' && evidence.load.error.retryable) ||
+    Boolean(geometryError?.retryable) ||
+    Boolean(lookupError?.retryable);
+
+  // DEMO M2b item 2: the map shows exactly what the panel shows -- same fetch, same binding check.
+  const productEvidence: CesiumProductEvidence = useMemo(() => {
+    switch (assessmentPresence.status) {
+      case 'loading':
+        return { status: 'loading' };
+      case 'none':
+      case 'not_assessed':
+        return { status: 'none' };
+      case 'error':
+        return { status: 'error', messageSv: assessmentPresence.error.messageSv, retryable: assessmentPresence.error.retryable };
+      case 'present':
+        break;
+    }
+    switch (evidence.load.status) {
+      case 'idle':
+      case 'loading':
+        return { status: 'loading' };
+      case 'error':
+        return { status: 'error', messageSv: evidence.load.error.messageSv, retryable: evidence.load.error.retryable };
+      case 'loaded':
+        return { status: 'loaded', geojson: evidence.geojson };
+    }
+  }, [assessmentPresence, evidence]);
+
+  const propertyCoordinates = useMemo<[number, number] | null>(() => (site ? [site.lat, site.lng] : null), [site?.lat, site?.lng]);
+  const currentLocationPoint = useMemo(
+    () => (localizationGeometry ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] } : null),
+    [localizationGeometry?.wgs84LngLat[0], localizationGeometry?.wgs84LngLat[1]],
+  );
+
+  // DEMO M2a item 7 / M2b: progress derived only from real, polled state -- no timers, no fake bars;
+  // every label says what is true in that state (nothing reads "klart" before it is).
   const provisioning = localizationGeometry?.provisioningStatus ?? null;
+  const assessedAndShown = assessmentPresence.status === 'present';
   const progressSteps: LuProgressStep[] = [
-    { key: 'property', label: 'Fastigheten uppslagen', state: site ? 'done' : lookingUp ? 'active' : 'pending' },
+    {
+      key: 'property',
+      label: site ? 'Fastigheten uppslagen' : lookupError ? 'Fastigheten kunde inte slås upp' : 'Fastigheten slås upp',
+      state: site ? 'done' : lookingUp ? 'active' : lookupError ? 'failed' : 'pending',
+    },
     {
       key: 'point',
-      label:
-        localizationGeometry?.provenance === 'derived_from_property_boundary'
-          ? 'Kontrollpunkt beräknad från fastigheten'
-          : 'Kontrollpunkt sparad',
+      label: geometryError
+        ? 'Kontrollpunkten kunde inte hämtas'
+        : localizationGeometry
+          ? localizationGeometry.provenance === 'derived_from_property_boundary'
+            ? 'Kontrollpunkt beräknad från fastigheten'
+            : 'Kontrollpunkt sparad'
+          : 'Kontrollpunkten hämtas',
       state: geometryError ? 'failed' : localizationGeometry ? 'done' : site ? 'active' : 'pending',
     },
     {
       key: 'prepare',
-      label: provisioning === 'FAILED' ? 'Analysen kunde inte förberedas' : 'Analysen förberedd',
+      label: provisioning === 'FAILED' ? 'Analysen kunde inte förberedas' : provisioning === 'COMPLETED' ? 'Analysen förberedd' : 'Analysen förbereds',
       state:
         provisioning === 'COMPLETED'
           ? 'done'
@@ -526,31 +776,92 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     {
       key: 'run',
       label: running
-        ? `Bedömningen körs – ${LU_V1_CHECKS.length - 1} kartlager kontrolleras`
-        : governed && governed.assessmentStatus !== 'ASSESSED'
-          ? 'Ingen bedömning gjordes'
-          : 'Bedömning sparad',
-      state: running ? 'active' : governed ? (governed.assessmentStatus === 'ASSESSED' ? 'done' : 'failed') : 'pending',
+        ? `Bedömningen körs – ${LU_V1_LAYER_COUNT} kartlager kontrolleras`
+        : runError
+          ? 'Bedömningen kunde inte köras'
+          : incoherence
+            ? 'Bedömningen kunde inte läsas tillbaka'
+            : assessmentPresence.status === 'not_assessed'
+              ? 'Ingen bedömning gjordes'
+              : assessedAndShown
+                ? 'Bedömning sparad'
+                : 'Bedömning',
+      state: running
+        ? 'active'
+        : runError || incoherence || assessmentPresence.status === 'not_assessed'
+          ? 'failed'
+          : assessedAndShown
+            ? 'done'
+            : 'pending',
     },
     {
       key: 'evidence',
-      label: evidenceLoad.status === 'error' ? 'Kontrollresultaten kunde inte hämtas' : 'Kontrollresultat hämtade',
+      label:
+        evidence.load.status === 'error'
+          ? 'Kontrollresultaten kunde inte hämtas'
+          : evidence.load.status === 'loaded'
+            ? 'Kontrollresultat hämtade'
+            : evidence.load.status === 'loading'
+              ? 'Kontrollresultat hämtas'
+              : 'Kontrollresultat',
       state:
-        evidenceLoad.status === 'loaded'
+        evidence.load.status === 'loaded'
           ? 'done'
-          : evidenceLoad.status === 'loading'
+          : evidence.load.status === 'loading'
             ? 'active'
-            : evidenceLoad.status === 'error'
+            : evidence.load.status === 'error'
               ? 'failed'
               : 'pending',
     },
   ];
   const showProgress =
-    Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidenceLoad.status === 'loading');
+    Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidence.load.status === 'loading');
+
+  // DEMO M2b (§11, coordinator 2026-10-02): the assessment line never stands alone while any check is
+  // not done. Counted from the SAME rows the control panel shows -- no new derivation, and the
+  // machine-readable risk levels are untouched.
+  const coverage = useMemo(() => {
+    const rows = checks.filter((c) => c.key !== 'property');
+    const pending = rows.filter((c) => c.state === 'LOADING');
+    const incomplete = rows.filter((c) => c.state !== 'HIT' && c.state !== 'NO_HIT' && c.state !== 'LOADING');
+    const shortState = (c: (typeof rows)[number]): string =>
+      c.key === 'extra-document' && c.state === 'NOT_CHECKED'
+        ? 'ej analyserat'
+        : c.state === 'NOT_CHECKED'
+          ? 'inte kontrollerat'
+          : c.state === 'SOURCE_UNAVAILABLE'
+            ? 'källa otillgänglig'
+            : c.state === 'UNCERTAIN'
+              ? 'ofullständigt underlag'
+              : 'tekniskt fel';
+    // The document check is part of DoD v1 (K-8): a missing server answer about it is not "complete".
+    const documentCheckMissing = !rows.some((c) => c.key === 'extra-document');
+    if (pending.length > 0) {
+      return { complete: false, text: 'Kontrollresultaten hämtas – underlagets fullständighet visas när de är hämtade.' };
+    }
+    if (incomplete.length > 0) {
+      const list = incomplete.map((c) => `${c.label}: ${shortState(c)}`).join('; ');
+      return {
+        complete: false,
+        text:
+          `Underlaget är ofullständigt: ${incomplete.length} av ${rows.length} kontroller kunde inte utföras eller visas (${list}). ` +
+          `Bedömningen gäller bara de kontroller som utfördes.${documentCheckMissing ? ' Uppgift om dokumentkontrollen saknas.' : ''}`,
+      };
+    }
+    if (documentCheckMissing) {
+      return {
+        complete: false,
+        text: `Alla ${rows.length} kartkontroller gav ett kontrollresultat, men uppgift om dokumentkontrollen saknas – underlaget kan vara ofullständigt.`,
+      };
+    }
+    return { complete: true, text: `Alla ${rows.length} kontroller gav ett kontrollresultat (se Kontroller).` };
+  }, [checks]);
 
   // Item 4: one ring only when every checked layer used the same governed search radius.
   const distinctRadii = [...new Set(checks.map((c) => c.searchRadiusMeters).filter((r): r is number => r !== null))];
   const searchRadiusMeters = distinctRadii.length === 1 ? distinctRadii[0]! : null;
+
+  const verifyMismatchCount = verifyResult?.mismatches.length ?? 0;
 
   return (
     <div
@@ -602,8 +913,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           <button
             type="button"
             data-testid="lu-run"
-            disabled={!site || running || !isExecutionReady}
-            title={!isExecutionReady && site ? 'Analysen förbereds fortfarande.' : undefined}
+            disabled={!site || running || !isExecutionReady || persistedAssessmentLoading}
+            title={
+              !isExecutionReady && site
+                ? 'Analysen förbereds fortfarande.'
+                : persistedAssessmentLoading
+                  ? 'Den sparade bedömningen läses in.'
+                  : undefined
+            }
             onClick={() => void runAssessment()}
             className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
             style={{
@@ -615,16 +932,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           </button>
         </div>
 
-        {lookupError ? (
-          <p data-testid="lu-lookup-error" className="text-sm" style={{ color: '#F87171' }}>
-            {lookupError}
-          </p>
-        ) : null}
-        {runError ? (
-          <p data-testid="lu-run-error" className="text-sm" style={{ color: '#F87171' }}>
-            {runError}
-          </p>
-        ) : null}
+        {lookupError ? <LuErrorNotice testId="lu-lookup-error" error={lookupError} className="" /> : null}
+        {runError ? <LuErrorNotice testId="lu-run-error" error={runError} className="" /> : null}
 
         {site ? (
           <p data-testid="lu-site-ready" className="text-sm opacity-80">
@@ -677,9 +986,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           ) : null}
 
           {geometryError ? (
-            <p data-testid="lu-geometry-error" className="text-sm" style={{ color: '#F87171' }}>
-              {geometryError}
-            </p>
+            <LuErrorNotice testId="lu-geometry-error" error={geometryError} onRetry={() => void loadCurrentGeometry()} retrying={geometryLoading} className="" />
           ) : null}
 
           {!pickingLocation ? (
@@ -700,11 +1007,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                   <p data-testid="lu-draft-point" className="text-sm font-mono">
                     Utkast: {draftPoint.lat.toFixed(6)}, {draftPoint.lng.toFixed(6)}
                   </p>
-                  {saveLocationError ? (
-                    <p data-testid="lu-save-location-error" className="text-sm" style={{ color: '#F87171' }}>
-                      {saveLocationError}
-                    </p>
-                  ) : null}
+                  {saveLocationError ? <LuErrorNotice testId="lu-save-location-error" error={saveLocationError} className="" /> : null}
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -752,7 +1055,13 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           findings={governed?.findings ?? []}
           selectedKey={selectedCheck}
           onSelect={setSelectedCheck}
-          ruleIdFor={(key) => LU_V1_CHECKS.find((c) => c.key === key)?.ruleId ?? null}
+          onRetry={retryAvailable ? retryChecks : null}
+          retrying={persistedAssessmentLoading || evidence.load.status === 'loading'}
+          note={
+            assessmentPresence.status === 'present' && governed && !(governed.serverLayerChecks ?? []).some((e) => layerOf(e) === 'document')
+              ? MISSING_DOCUMENT_CHECK_NOTE
+              : null
+          }
         />
       ) : null}
 
@@ -762,14 +1071,53 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         </p>
       ) : null}
       {persistedAssessmentError ? (
-        <p data-testid="lu-persisted-assessment-error" className="text-sm mb-4" style={{ color: '#F87171' }}>
-          {persistedAssessmentError}
-        </p>
+        <LuErrorNotice
+          testId="lu-persisted-assessment-error"
+          error={persistedAssessmentError}
+          onRetry={() => void loadCurrentAssessment()}
+          retrying={persistedAssessmentLoading}
+        />
       ) : null}
       {!persistedAssessmentLoading && persistedAssessmentNotFound && !governed ? (
         <p data-testid="lu-persisted-assessment-not-found" className="text-sm opacity-70 mb-4">
           Ingen sparad bedömning finns ännu för denna kontrollpunkt. Kör en bedömning för att skapa en.
         </p>
+      ) : null}
+
+      {incoherence ? (
+        <section
+          data-testid="lu-incoherent"
+          className="border p-6 space-y-3 mb-10"
+          style={{ borderColor: '#C026D3' }}
+        >
+          <h2 className="text-xl font-bold" style={{ color: 'inherit' }}>Kan inte visa en sammanhängande bedömning</h2>
+          <p className="text-sm">{incoherenceReason(incoherence)}</p>
+          <p className="text-sm opacity-80">
+            Fynd, kontrollresultat, karta, verifiering och export visas inte förrän bedömningen kan läsas tillbaka som projektets
+            aktuella bedömning.
+          </p>
+          <button
+            type="button"
+            data-testid="lu-incoherent-retry"
+            disabled={persistedAssessmentLoading}
+            onClick={() => void loadCurrentAssessment()}
+            className="px-3 py-1.5 text-xs font-semibold border disabled:opacity-40"
+            style={{ borderColor: '#C026D3' }}
+          >
+            Läs in på nytt
+          </button>
+          <details data-testid="lu-incoherent-technical" className="text-xs opacity-80">
+            <summary className="cursor-pointer">Teknisk information</summary>
+            <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono break-all">
+              {incoherenceTechnical(incoherence).map((row) => (
+                <React.Fragment key={row.label}>
+                  <dt className="opacity-60 font-sans">{row.label}</dt>
+                  <dd>{row.value}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </details>
+        </section>
       ) : null}
 
       {governed ? (
@@ -807,39 +1155,76 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               ) : null}
             </div>
           </div>
-          {exportPdfError ? (
-            <p data-testid="lu-export-pdf-error" className="text-sm" style={{ color: '#F87171' }}>
-              {exportPdfError}
-            </p>
-          ) : null}
-          {verifyError ? (
-            <p data-testid="lu-verify-error" className="text-sm" style={{ color: '#F87171' }}>
-              {verifyError}
-            </p>
-          ) : null}
+          {exportPdfError ? <LuErrorNotice testId="lu-export-pdf-error" error={exportPdfError} className="" /> : null}
+          {verifyError ? <LuErrorNotice testId="lu-verify-error" error={verifyError} className="" /> : null}
           {verifyResult ? (
             verifyResult.outcome === 'PASS' ? (
               <p data-testid="lu-verify-result-pass" className="text-sm" style={{ color: '#34D399' }}>
                 Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.
               </p>
+            ) : verifyResult.outcome === 'OTHER_ASSESSMENT' ? (
+              <div data-testid="lu-verify-result-other" className="text-sm space-y-1" style={{ color: '#F0ABFC' }}>
+                <p>
+                  Verifieringen gällde en annan bedömning än den som visas, så den räknas inte som en verifiering av den här
+                  bedömningen. Läs in bedömningen på nytt.
+                </p>
+                <details className="text-xs opacity-80">
+                  <summary className="cursor-pointer">Teknisk information</summary>
+                  <p className="font-mono break-all">Visad bedömning: {governed.assessmentArtifactId}</p>
+                  <p className="font-mono break-all">Verifierad bedömning: {verifyResult.verifiedId ?? 'okänd'}</p>
+                </details>
+              </div>
             ) : (
-              <div data-testid="lu-verify-result-mismatch" className="text-sm" style={{ color: '#F87171' }}>
-                <p>Verifieringen upptäckte avvikelser mot det ursprungliga underlaget. Bedömningen kunde inte bekräftas som identisk.</p>
-                <ul className="list-disc pl-5 mt-1 opacity-80">
-                  {verifyResult.mismatches.map((m, i) => (
-                    <li key={`${m.code}-${i}`}>{m.code}: {m.detail}</li>
-                  ))}
-                </ul>
+              <div data-testid="lu-verify-result-mismatch" className="text-sm space-y-1" style={{ color: '#F87171' }}>
+                <p data-testid="lu-verify-result-mismatch-summary">
+                  {verifyResult.outcome === 'UNKNOWN'
+                    ? 'Verifieringen gav ett okänt utfall. Bedömningen kunde inte bekräftas som identisk.'
+                    : verifyMismatchCount > 0
+                      ? `Verifieringen hittade ${verifyMismatchCount} ${verifyMismatchCount === 1 ? 'avvikelse' : 'avvikelser'} mot det ursprungliga underlaget. Bedömningen kunde inte bekräftas som identisk.`
+                      : 'Verifieringen kunde inte bekräfta bedömningen som identisk.'}
+                </p>
+                {verifyMismatchCount > 0 ? (
+                  <details data-testid="lu-verify-result-mismatch-technical" className="text-xs opacity-80">
+                    <summary className="cursor-pointer">Teknisk information</summary>
+                    <ul className="list-disc pl-5 mt-1 font-mono break-all">
+                      {verifyResult.mismatches.map((m, i) => (
+                        <li key={`${m.code}-${i}`}>
+                          {m.code}: {m.detail}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
               </div>
             )
           ) : null}
 
-          <p className="text-sm">
-            Status:{' '}
-            <span data-testid="lu-assessment-status" className="font-semibold">
-              {ASSESSMENT_STATUS_LABEL[governed.assessmentStatus] ?? 'Okänd status'}
-            </span>
-          </p>
+          <div
+            data-testid="lu-assessment-summary"
+            className="space-y-1"
+            style={
+              governed.assessmentStatus === 'ASSESSED' && !coverage.complete
+                ? { borderLeft: '3px solid #F97316', paddingLeft: '0.75rem' }
+                : undefined
+            }
+          >
+            <p className="text-sm">
+              Status:{' '}
+              <span data-testid="lu-assessment-status" className="font-semibold">
+                {ASSESSMENT_STATUS_LABEL[governed.assessmentStatus] ?? 'Okänd status'}
+              </span>
+            </p>
+            {governed.assessmentStatus === 'ASSESSED' ? (
+              <p
+                data-testid="lu-assessment-coverage"
+                data-complete={coverage.complete ? 'true' : 'false'}
+                className="text-sm font-semibold"
+                style={{ color: coverage.complete ? 'inherit' : '#FDBA74' }}
+              >
+                {coverage.text}
+              </p>
+            ) : null}
+          </div>
           {governed.statusMessage ? (
             <p data-testid="lu-assessment-status-message" className="text-sm" style={{ color: '#FDBA74' }}>
               {governed.statusMessage}
@@ -926,24 +1311,18 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           >
             <CesiumMapView
               propertyGeometry={site.geometry}
-              propertyCoordinates={[site.lat, site.lng]}
-              evidenceMode={cesiumEvidenceMode}
+              propertyCoordinates={propertyCoordinates}
               onEvidenceClick={(props) => {
                 const def = checkDefinitionForLayer(props?.layer_id);
                 if (def) setSelectedCheck(def.key);
               }}
-              projectId={getActiveProjectId() || undefined}
               pickingLocation={pickingLocation}
               onLocationPick={(lat, lng) => setDraftPoint({ lat, lng })}
               draftLocationPoint={draftPoint}
-              currentLocationPoint={
-                localizationGeometry
-                  ? { lat: localizationGeometry.wgs84LngLat[1], lng: localizationGeometry.wgs84LngLat[0] }
-                  : null
-              }
+              currentLocationPoint={currentLocationPoint}
               productMode
-              assessmentAvailable={assessmentPresence === 'present'}
-              evidenceReloadNonce={evidenceNonce}
+              productEvidence={productEvidence}
+              onProductEvidenceRetry={retryChecks}
               searchRadiusMeters={searchRadiusMeters}
               currentLocationLabel={
                 localizationGeometry?.provenance === 'user_defined'

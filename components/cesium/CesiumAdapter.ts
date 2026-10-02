@@ -149,7 +149,8 @@ export class CesiumAdapter {
    * DEMO M2a: draws the governed SEARCH RADIUS (existence-within-distance query) as a ring around
    * the control point. It is derived only from the point and the evidence's distance_meters; it
    * shows where the check looked, never where any object is (the governed evidence carries no
-   * object geometry). Flat ellipsoid terrain, so a height-0 outline is visible.
+   * object geometry). Flat ellipsoid terrain, so a height-0 outline is visible. White, so it is never
+   * confused with the cyan property boundary.
    */
   public setSearchRadiusRing(lat: number, lng: number, radiusMeters: number): void {
     if (this.destroyed) return;
@@ -162,9 +163,9 @@ export class CesiumAdapter {
         semiMajorAxis: radiusMeters as any,
         semiMinorAxis: radiusMeters as any,
         height: 0 as any,
-        material: Color.CYAN.withAlpha(0.06) as any,
+        material: Color.WHITE.withAlpha(0.05) as any,
         outline: true as any,
-        outlineColor: Color.CYAN.withAlpha(0.9) as any,
+        outlineColor: Color.WHITE.withAlpha(0.9) as any,
       } as any,
       properties: { title: `Sökradie ${radiusMeters} m` } as any,
     });
@@ -356,33 +357,10 @@ export class CesiumAdapter {
     });
   }
 
-  /**
-   * LU-FINDING-MAP-DRILLDOWN-V1. Locates an already-rendered evidence entity by its governed
-   * cas_artifact_id (the SAME id already present in a finding's evidence_refs -- see
-   * ViewerKernel.exportAsGeoJSON) among the entities setEvidenceLayers() already loaded via the
-   * canonical /viewer/evidence path. Never queries anything new: this only searches evidence the
-   * server has already authorized and the map has already rendered. Flies the camera to it and
-   * returns its full properties (the exact same shape a manual click would produce), so the caller
-   * can open EvidenceDetailsPanel through the identical existing path. Returns null, honestly, if
-   * no matching entity is currently rendered (wrong project's id, evidence not yet loaded, or a
-   * non-spatial evidence ref) -- never fabricates a match.
-   */
-  public focusEvidenceByArtifactId(artifactId: string): Record<string, unknown> | null {
-    if (this.destroyed || !this.evidenceDataSource) return null;
-    const entities = this.evidenceDataSource.entities.values;
-    const match = entities.find((entity) => entity.properties?.cas_artifact_id?.getValue() === artifactId);
-    if (!match) return null;
-
-    this.viewer.flyTo(match, { duration: 1.5 }).catch(() => undefined);
-
-    const props: Record<string, unknown> = {};
-    if (match.properties) {
-      for (const name of match.properties.propertyNames) {
-        props[name] = match.properties[name]?.getValue();
-      }
-    }
-    return props;
-  }
+  // DEMO M2b: LU-FINDING-MAP-DRILLDOWN-V1's focusEvidenceByArtifactId() was removed -- it had no
+  // caller. "Finding -> Visa på karta" needs governed object geometry first, which is a frozen-
+  // semantics owner decision (SpatialResultSemantics: today only EXISTENCE_WITHIN_DISTANCE with
+  // geometry:null is admitted). Re-add a focus method together with that decision.
 
   /** Reset camera to Sweden overview (L0 home). */
   public resetCameraOverview(): void {

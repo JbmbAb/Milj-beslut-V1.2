@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CesiumAdapter } from './cesium/CesiumAdapter';
 import { loadCesiumL0L1FixtureScene } from './cesium/fixtures/l0L1Scene';
-import { callApi } from '../services/coreApiClient';
 import {
   CESIUM_EVIDENCE_LAYERS,
   type CesiumEvidenceLayerKey,
@@ -11,22 +10,36 @@ import {
 
 export type { CesiumEvidenceMode };
 
+/**
+ * DEMO M2b item 2: in productMode the map does not fetch anything itself. The LU workspace fetches
+ * the governed /viewer/evidence ONCE, checks that it belongs to the assessment on screen, and hands
+ * the same FeatureCollection (or a plain-Swedish reason why there is none) to both the control panel
+ * and this map -- so the two can never show different assessments.
+ */
+export type CesiumProductEvidence =
+  | { readonly status: 'none' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'loaded'; readonly geojson: unknown }
+  | { readonly status: 'error'; readonly messageSv: string; readonly retryable: boolean };
+
+/** True when the property lookup gave a real boundary (polygon), not just a point or nothing. */
+export function hasPolygonBoundary(geojson: unknown): boolean {
+  const g = geojson as { type?: unknown; geometry?: unknown; features?: unknown; geometries?: unknown } | null;
+  if (!g || typeof g !== 'object') return false;
+  if (g.type === 'Polygon' || g.type === 'MultiPolygon') return true;
+  if (g.type === 'Feature') return hasPolygonBoundary(g.geometry);
+  if (g.type === 'FeatureCollection' && Array.isArray(g.features)) return g.features.some(hasPolygonBoundary);
+  if (g.type === 'GeometryCollection' && Array.isArray(g.geometries)) return g.geometries.some(hasPolygonBoundary);
+  return false;
+}
+
 interface CesiumMapViewProps {
   propertyGeometry: any;
   propertyCoordinates: [number, number] | null;
   onEvidenceClick?: (properties: any) => void;
-  /** Initial mode — UI can toggle; default fixture while PostGIS rebuild fills. */
+  /** Exploration mode only (ignored in productMode) -- UI can toggle; default fixture. */
   evidenceMode?: CesiumEvidenceMode;
   onEvidenceModeChange?: (mode: CesiumEvidenceMode) => void;
-  /**
-   * P3-LU-CESIUM-PRESENTATION-WIRING-01. When set, 'live' mode calls the governed LU presentation
-   * endpoint (GET /api/localization/:projectId/viewer/evidence -- authenticated, CAS-verified,
-   * ViewerKernel-projected) for THIS project's already-governed assessment, instead of the older
-   * ungoverned /api/spatial/evidence (raw PostGIS, no auth, arbitrary lat/lng). Omit this prop to
-   * keep the prior general-purpose GIS exploration behavior (e.g. GisRiskModule, which has no
-   * governed LU project/assessment to show).
-   */
-  projectId?: string;
   /**
    * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. When true, the next LEFT_CLICK picks a WGS84
    * lat/lng off the globe (via onLocationPick) instead of picking an evidence feature.
@@ -38,26 +51,16 @@ interface CesiumMapViewProps {
   /** The persisted, current LocalizationGeometry point. */
   currentLocationPoint?: { lat: number; lng: number } | null;
   /**
-   * LU-FINDING-MAP-DRILLDOWN-V1. When set (together with a changed focusEvidenceNonce), locates
-   * the already-rendered evidence entity with this cas_artifact_id among what setEvidenceLayers()
-   * already loaded via the governed /viewer/evidence path, flies the camera to it, and opens the
-   * details panel through the exact same onEvidenceClick callback a manual click would use. Never
-   * triggers a new query. onFocusEvidenceMissing fires, honestly, when no matching entity is
-   * currently rendered.
-   */
-  focusEvidenceArtifactId?: string | null;
-  focusEvidenceNonce?: number;
-  onFocusEvidenceMissing?: () => void;
-  /**
    * DEMO M2a item 4 (governed LU product view). Hides the fixture toggle, the 'Använd fixture'
    * fallback, the internal overlay labels and the layer toggles (governed evidence carries no
-   * object geometry, so they change nothing), and shows a plain legend instead.
+   * object geometry, so they change nothing), and shows a plain legend instead. In productMode
+   * there is no fixture path at all and no own fetch: evidence comes only from `productEvidence`.
    */
   productMode?: boolean;
-  /** productMode only: false = no governed assessment yet -> no evidence fetch, honest empty state. */
-  assessmentAvailable?: boolean;
-  /** Bump to re-fetch the governed evidence (e.g. after a new assessment run). */
-  evidenceReloadNonce?: number;
+  /** productMode only: the governed evidence the workspace fetched for the displayed assessment. */
+  productEvidence?: CesiumProductEvidence;
+  /** productMode only: asks the workspace to fetch the governed evidence again. */
+  onProductEvidenceRetry?: () => void;
   /** The governed search radius (distance_meters) drawn as a ring around the current point. */
   searchRadiusMeters?: number | null;
   /** How the current point was made, e.g. 'Beräknad mittpunkt (ej inmätt)'. */
@@ -70,17 +73,13 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   onEvidenceClick,
   evidenceMode: evidenceModeProp = 'fixture',
   onEvidenceModeChange,
-  projectId,
   pickingLocation = false,
   onLocationPick,
   draftLocationPoint = null,
   currentLocationPoint = null,
-  focusEvidenceArtifactId = null,
-  focusEvidenceNonce = 0,
-  onFocusEvidenceMissing,
   productMode = false,
-  assessmentAvailable,
-  evidenceReloadNonce = 0,
+  productEvidence,
+  onProductEvidenceRetry,
   searchRadiusMeters = null,
   currentLocationLabel,
 }) => {
@@ -133,25 +132,14 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     onLocationPickRef.current = onLocationPick;
   }, [onLocationPick]);
 
-  const onFocusEvidenceMissingRef = useRef(onFocusEvidenceMissing);
+  const onProductEvidenceRetryRef = useRef(onProductEvidenceRetry);
   useEffect(() => {
-    onFocusEvidenceMissingRef.current = onFocusEvidenceMissing;
-  }, [onFocusEvidenceMissing]);
+    onProductEvidenceRetryRef.current = onProductEvidenceRetry;
+  }, [onProductEvidenceRetry]);
 
-  // LU-FINDING-MAP-DRILLDOWN-V1: fires only on an actual (artifactId, nonce) change -- the nonce
-  // lets the caller re-trigger a focus on the SAME artifact twice in a row (e.g. clicking "Visa
-  // på karta" again after panning away). Never issues a new query: focusEvidenceByArtifactId only
-  // searches entities setEvidenceLayers() already loaded via the governed /viewer/evidence path.
-  useEffect(() => {
-    if (!focusEvidenceArtifactId || !adapterRef.current) return;
-    const props = adapterRef.current.focusEvidenceByArtifactId(focusEvidenceArtifactId);
-    if (props) {
-      onEvidenceClickRef.current?.(props);
-    } else {
-      onFocusEvidenceMissingRef.current?.();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusEvidenceArtifactId, focusEvidenceNonce]);
+  // Primitive deps: callers commonly pass a fresh [lat, lng] array per render.
+  const propertyLat = propertyCoordinates ? propertyCoordinates[0] : null;
+  const propertyLng = propertyCoordinates ? propertyCoordinates[1] : null;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -207,8 +195,65 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     }
   }, [currentLocationPoint, searchRadiusMeters]);
 
+  // ---- productMode: property geometry (independent of the evidence, so a new evidence result never
+  // re-flies the camera).
   useEffect(() => {
-    if (!adapterRef.current) return;
+    if (!productMode) return;
+    const adapter = adapterRef.current;
+    if (!adapter) return;
+    void adapter.setPropertyGeometry(
+      propertyGeometry,
+      propertyLat !== null && propertyLng !== null ? [propertyLat, propertyLng] : null,
+    );
+  }, [productMode, propertyGeometry, propertyLat, propertyLng]);
+
+  // ---- productMode: governed evidence handed down by the workspace. No fetch, no fixture.
+  useEffect(() => {
+    if (!productMode) return;
+    const adapter = adapterRef.current;
+    if (!adapter) return;
+    let cancelled = false;
+    const evidence: CesiumProductEvidence = productEvidence ?? { status: 'none' };
+    setEvidenceError(null);
+    setEvidenceMeta(null);
+    setEmptyEvidence(false);
+    setGeometrylessEvidence(false);
+    setAwaitingAssessment(evidence.status === 'none');
+    if (evidence.status !== 'loaded') {
+      adapter.clearEvidenceLayers();
+      setEvidenceCount(null);
+      setLoadingEvidence(evidence.status === 'loading');
+      if (evidence.status === 'error') setEvidenceError(evidence.messageSv);
+      return;
+    }
+    setLoadingEvidence(true);
+    void (async () => {
+      try {
+        const count = await adapter.setEvidenceLayers(evidence.geojson);
+        if (cancelled) return;
+        const fc = evidence.geojson as { features?: unknown };
+        const features = Array.isArray(fc?.features) ? (fc.features as Array<{ geometry?: unknown } | null>) : [];
+        setEvidenceCount(count);
+        setEmptyEvidence(count === 0);
+        setGeometrylessEvidence(features.length > 0 && features.every((f) => !f?.geometry));
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[CesiumMapView] Error rendering governed evidence:', err);
+        adapterRef.current?.clearEvidenceLayers();
+        setEvidenceCount(0);
+        setEvidenceError('Kontrollresultaten kunde inte visas på kartan.');
+      } finally {
+        if (!cancelled) setLoadingEvidence(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [productMode, productEvidence, reloadToken]);
+
+  // ---- Exploration mode (e.g. GisRiskModule): fixture or the general-purpose /api/spatial/evidence.
+  useEffect(() => {
+    if (productMode || !adapterRef.current) return;
 
     let cancelled = false;
     setLoadingEvidence(true);
@@ -217,33 +262,26 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     setEmptyEvidence(false);
     setAwaitingAssessment(false);
     setGeometrylessEvidence(false);
+    const propertyCoordinatesNow: [number, number] | null =
+      propertyLat !== null && propertyLng !== null ? [propertyLat, propertyLng] : null;
 
     const run = async () => {
       try {
-        // DEMO M2a: no governed assessment yet -> show the property only; never fetch or show
-        // evidence, and never read the absence of results as 'no hits'.
-        if (productMode && assessmentAvailable === false) {
-          await adapterRef.current.setPropertyGeometry(propertyGeometry, propertyCoordinates);
-          adapterRef.current?.clearEvidenceLayers();
-          if (!cancelled) {
-            setEvidenceCount(null);
-            setAwaitingAssessment(true);
-          }
-          return;
-        }
-
+        const adapter = adapterRef.current;
+        if (!adapter) return;
         if (mode === 'fixture') {
           const scene = await loadCesiumL0L1FixtureScene();
           if (cancelled || !adapterRef.current) return;
 
           const propGeom = propertyGeometry ?? scene.property;
-          const fallback: [number, number] = propertyCoordinates ?? [
+          const fallback: [number, number] = propertyCoordinatesNow ?? [
             scene.center.lat,
             scene.center.lng,
           ];
           await adapterRef.current.setPropertyGeometry(propGeom, fallback);
+          if (cancelled || !adapterRef.current) return;
           const count = await adapterRef.current.setEvidenceLayers(scene.evidence);
-          adapterRef.current.setLayerVisibility(visibleLayers);
+          adapterRef.current?.setLayerVisibility(visibleLayers);
           if (!cancelled) {
             setEvidenceCount(count);
             setEvidenceMeta({
@@ -260,32 +298,27 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           return;
         }
 
-        if (!propertyCoordinates) {
+        if (!propertyCoordinatesNow) {
           throw new Error('Live-läge kräver fastighetskoordinater (lat/lng). Byt till fixture eller sök fastighet.');
         }
 
-        await adapterRef.current.setPropertyGeometry(propertyGeometry, propertyCoordinates);
+        await adapter.setPropertyGeometry(propertyGeometry, propertyCoordinatesNow);
 
-        // P3-LU-CESIUM-PRESENTATION-WIRING-01: a governed LU project shows its own already-CAS-
-        // verified assessment via the governed presentation endpoint, never a fresh, ungoverned
-        // PostGIS query. Only when no projectId is given (general-purpose GIS exploration, e.g.
-        // GisRiskModule) does the old arbitrary lat/lng endpoint remain in use.
-        const geojson = projectId
-          ? await callApi(`/api/localization/${encodeURIComponent(projectId)}/viewer/evidence`, {
-              method: 'GET',
-            })
-          : await (async () => {
-              const [lat, lng] = propertyCoordinates;
-              const res = await fetch(`/api/spatial/evidence?lat=${lat}&lng=${lng}`);
-              if (!res.ok) {
-                throw new Error(`Live evidence misslyckades (HTTP ${res.status}). PostGIS kanske inte är klar.`);
-              }
-              return res.json();
-            })();
+        // General-purpose GIS exploration (e.g. GisRiskModule) only. The governed LU product view
+        // never reaches this branch: it runs in productMode, where the LU workspace fetches the
+        // governed /viewer/evidence itself and hands it down (see CesiumProductEvidence).
+        const geojson = await (async () => {
+          const [lat, lng] = propertyCoordinatesNow;
+          const res = await fetch(`/api/spatial/evidence?lat=${lat}&lng=${lng}`);
+          if (!res.ok) {
+            throw new Error(`Live evidence misslyckades (HTTP ${res.status}). PostGIS kanske inte är klar.`);
+          }
+          return res.json();
+        })();
         if (cancelled || !adapterRef.current) return;
 
         const count = await adapterRef.current.setEvidenceLayers(geojson);
-        adapterRef.current.setLayerVisibility(visibleLayers);
+        adapterRef.current?.setLayerVisibility(visibleLayers);
         if (!cancelled) {
           setEvidenceCount(count);
           setEvidenceMeta({
@@ -315,7 +348,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyGeometry, propertyCoordinates, mode, reloadToken, projectId, productMode, assessmentAvailable, evidenceReloadNonce]);
+  }, [productMode, propertyGeometry, propertyLat, propertyLng, mode, reloadToken]);
 
   useEffect(() => {
     adapterRef.current?.setLayerVisibility(visibleLayers);
@@ -335,13 +368,23 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     (mode === 'fixture' ? 'FIXTURE_OBSERVATION' : 'VERIFIED_OBSERVATION');
   const sridLabel = evidenceMeta?.srid ? `EPSG:${evidenceMeta.srid}` : 'EPSG:4326';
   const sourceLabel = evidenceMeta?.source === 'fixture' ? 'Fixture' : mode === 'live' ? 'Live' : 'Fixture';
+  const propertyHasBoundary = hasPolygonBoundary(propertyGeometry);
+  // productMode: the retry either asks the workspace to fetch again (data error) or re-renders (render error).
+  const retryEvidence = () => {
+    if (productMode && productEvidence?.status === 'error') {
+      onProductEvidenceRetryRef.current?.();
+      return;
+    }
+    setReloadToken((n) => n + 1);
+  };
+  const canRetryEvidence = !productMode || productEvidence?.status !== 'error' || productEvidence.retryable;
 
   return (
     <div
       className="relative w-full h-full rounded-2xl overflow-hidden border border-slate-200 shadow-inner flex flex-col"
       style={{ minHeight: '550px' }}
       data-testid="cesium-map-view"
-      data-evidence-mode={mode}
+      data-evidence-mode={productMode ? 'governed' : mode}
     >
       {productMode ? (
         <div
@@ -349,7 +392,15 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           className="absolute top-4 left-4 z-10 bg-slate-900/90 text-white p-3 rounded-xl shadow-lg border border-slate-700/50 backdrop-blur-md flex flex-col gap-1.5 w-[270px] text-[11px]"
         >
           <p className="font-black uppercase tracking-wider text-slate-300">Karta</p>
-          <p className="text-slate-300">Fastighetsgränsen från fastighetsuppslaget.</p>
+          {propertyHasBoundary ? (
+            <p data-testid="cesium-property-legend" className="text-slate-300">
+              <span style={{ color: '#00FFFF' }}>▭</span> Fastighetsgränsen från fastighetsuppslaget.
+            </p>
+          ) : propertyGeometry || propertyCoordinates ? (
+            <p data-testid="cesium-property-legend" className="text-slate-300">
+              <span style={{ color: '#FFD700' }}>●</span> Fastighetens ungefärliga läge – fastighetsuppslaget innehåller ingen gräns.
+            </p>
+          ) : null}
           {currentLocationPoint ? (
             <p className="text-slate-300">
               <span style={{ color: '#00FF00' }}>●</span> {currentLocationLabel ?? 'Kontrollpunkt'}
@@ -357,7 +408,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           ) : null}
           {typeof searchRadiusMeters === 'number' && searchRadiusMeters > 0 && currentLocationPoint ? (
             <p data-testid="cesium-search-radius-legend" className="text-slate-300">
-              <span style={{ color: '#00FFFF' }}>◯</span> Sökradie {searchRadiusMeters} m – visar var kontrollen sökte, inte var
+              <span style={{ color: '#FFFFFF' }}>◯</span> Sökradie {searchRadiusMeters} m – visar var kontrollen sökte, inte var
               några objekt ligger.
             </p>
           ) : null}
@@ -542,18 +593,21 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-rose-950/95 text-white px-4 py-3 rounded-xl shadow border border-rose-700/50 max-w-lg w-[min(92%,28rem)]"
         >
           <p className="text-[11px] font-black uppercase tracking-wider text-rose-200">
-            {productMode ? 'Kontrollresultaten kunde inte hämtas' : 'Evidensfel'}
+            {productMode ? 'Tekniskt fel – kontrollresultat kan inte visas' : 'Evidensfel'}
           </p>
-          <p className="text-[10px] text-rose-100/90 mt-1">{evidenceError}</p>
+          {/* productMode: always the workspace's plain-Swedish text, never a raw server message. */}
+          <p data-testid="cesium-evidence-error-message" className="text-[10px] text-rose-100/90 mt-1">{evidenceError}</p>
           <div className="flex flex-wrap gap-2 mt-3">
-            <button
-              type="button"
-              data-testid="cesium-retry"
-              onClick={() => setReloadToken((n) => n + 1)}
-              className="text-[10px] font-black uppercase bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg"
-            >
-              Försök igen
-            </button>
+            {canRetryEvidence ? (
+              <button
+                type="button"
+                data-testid="cesium-retry"
+                onClick={retryEvidence}
+                className="text-[10px] font-black uppercase bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg"
+              >
+                Försök igen
+              </button>
+            ) : null}
             {mode === 'live' && !productMode && (
               <button
                 type="button"
