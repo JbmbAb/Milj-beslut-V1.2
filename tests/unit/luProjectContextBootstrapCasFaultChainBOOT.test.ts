@@ -207,6 +207,7 @@ import { MimersByteStorageBackend } from '../../packages/mps-runtime/src/reposit
 import { CasBackedArtifactRepository } from '../../packages/mps-runtime/src/repository/CasBackedArtifactRepository';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 import { executeProjectContextBootstrap } from '../../server/modules/localization/luProjectContextBootstrap';
+import * as bindingGate from '../../server/modules/localization/projectContextBootstrapBindingGate';
 import { attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
 import {
   attestProjectContextBindingSupersessionArtifact,
@@ -319,7 +320,7 @@ const LASTING = 'Felet är bestående och löses inte av ett nytt försök. Kont
 const TEXT_READ = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas (tekniskt fel). ${NO_NEW_BINDING} Ett nytt försök kan lyckas.`;
 const TEXT_STORAGE = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
 const TEXT_REFUSED = `Projektkontexten kunde inte etableras: projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja). ${NO_NEW_BINDING} ${LASTING}`;
-const TEXT_INCONSISTENT = `Projektkontexten kunde inte etableras: projektets bindning saknas i bindningsindexet, men indexen visar att en bindning har funnits (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
+const TEXT_INCONSISTENT = `Projektkontexten kunde inte etableras: projektets bindningsindex är inkonsekvent: indexen visar att en bindning har funnits, men den saknas, är dubblerad eller hör till ett annat projekt (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
 
 const READ = { failureCode: 'CURRENT_BINDING_READ_ERROR', reason: 'READ_ERROR', retryable: true, refusalCode: null, failureDetail: TEXT_READ } as const;
 const STORAGE = { failureCode: 'CURRENT_BINDING_INTEGRITY_FAULT', reason: 'STORAGE_INTEGRITY_FAULT', retryable: false, refusalCode: null, failureDetail: TEXT_STORAGE } as const;
@@ -406,6 +407,47 @@ afterEach(() => {
   __resetProjectContextBindingSupersessionVerifierForTests(null);
   rmSync(root, { recursive: true, force: true });
   expect(hermeticPrismaTouches).toEqual([]);
+});
+
+// W-CATCH2 (BOOT verifier finding 1, owner decision (4) p.6): the gate proves only that NO INDEX TRACE
+// shows a binding. When every trace is lost together, the bootstrap mints a new root although the old
+// binding is intact in CAS -- the same documented KNOWN_LIMITATION class as M1a's. Pinned as a LIMIT,
+// NOT as approved behaviour: invert to fail closed when a CAS-anchored binding head exists.
+describe('KNOWN_LIMITATION PROJECT_CONTEXT_BOOTSTRAP_CORRELATED_METADATA_LOSS -- NOT approved behaviour', () => {
+  it('the machine-readable marker carries exactly this meaning and scope; the owner accepted it as a documented limitation', () => {
+    expect((bindingGate as Record<string, unknown>).PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION).toEqual({
+      code: 'KNOWN_LIMITATION',
+      id: 'PROJECT_CONTEXT_BOOTSTRAP_CORRELATED_METADATA_LOSS',
+      meaning_sv:
+        'currentness/bindning är fail-closed för detekterbara fel men inte bevisad mot korrelerad förlust av all metadata som visar att en bindning existerat',
+      scope_sv:
+        'Bootstrapen bevisar bara att inget indexspår visar en bindning: bindningsindexets bindnings- och ersättningsrader, bedömningsprojektionens rader, lokaliseringsgeometrins rader och en slutförd bootstrap-begäran med bindning. Förloras alla dessa spår tillsammans mintas en ny bindning, efter en omimport av fastighetsskiktet med en annan fastighetsrot, fast den gamla bindningen finns kvar i CAS. För ett projekt som bootstrappats via kön krävs förlust i minst två tabeller (bindningsraden och den slutförda begäran); för ett projekt vars bindning installerats utanför kön och som saknar bedömnings- och geometrirader räcker att bindningsraden förloras.',
+      owner_decision:
+        'ACCEPTED 2026-10-03 (owner decision (4) p.6): correlated total metadata loss is the same documented KNOWN_LIMITATION class as M1a; documented, NOT approved behaviour; the structural fix (a CAS-anchored binding head) is not built',
+    });
+    expect(Object.isFrozen((bindingGate as Record<string, unknown>).PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION)).toBe(true);
+  });
+
+  it('K1, pinned as a LIMIT: every index trace lost and the property layer re-imported -> a NEW root is minted although the old binding is intact in CAS', async () => {
+    const first = await bootstrapOnce();
+    state.bindingRows.length = 0; // no supersession, assessment, geometry or completed-request trace either
+    state.lookupVersion = 'v2';
+    const outcome = await bootstrap();
+    // Not a requirement: when a CAS-anchored binding head exists, invert this to fail closed.
+    expect(outcome).toEqual({ ok: true, contextBindingArtifactId: expect.stringMatching(/^project-context-binding-/), reused: false });
+    expect(outcome.ok && outcome.contextBindingArtifactId).not.toBe(first);
+    const old = await repository().resolve<ProjectContextBindingArtifactV2>({ artifact_id: first, artifact_type: 'project_context_binding' });
+    expect(old.payload.project_id, 'the old binding is still intact in CAS').toBe(PROJECT_ID);
+  });
+
+  it('control: the same loss with ONE trace left (a completed bootstrap request) is detected -- nothing is minted', async () => {
+    const first = await bootstrapOnce();
+    state.bootstrapRequests.push({ projectId: PROJECT_ID, status: 'COMPLETED', contextBindingArtifactId: first });
+    state.bindingRows.length = 0;
+    state.lookupVersion = 'v2';
+    const outcome = await bootstrap();
+    expect(outcome).toMatchObject({ ok: false, failureCode: 'CURRENT_BINDING_INTEGRITY_FAULT', reason: 'BINDING_INDEX_INCONSISTENT', retryable: false });
+  });
 });
 
 describe('W-BOOT normal flows on a real FileCAS (unchanged)', () => {

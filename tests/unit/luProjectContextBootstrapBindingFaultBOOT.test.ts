@@ -237,7 +237,7 @@ const TEXT: Record<Expected['reason'], string> = {
   STORAGE_INTEGRITY_FAULT: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
   MISSING_FROM_CAS: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
   REFUSED: `Projektkontexten kunde inte etableras: projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja). ${NO_NEW_BINDING} ${LASTING}`,
-  BINDING_INDEX_INCONSISTENT: `Projektkontexten kunde inte etableras: projektets bindning saknas i bindningsindexet, men indexen visar att en bindning har funnits (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
+  BINDING_INDEX_INCONSISTENT: `Projektkontexten kunde inte etableras: projektets bindningsindex är inkonsekvent: indexen visar att en bindning har funnits, men den saknas, är dubblerad eller hör till ett annat projekt (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
 };
 
 function nothingMinted(): void {
