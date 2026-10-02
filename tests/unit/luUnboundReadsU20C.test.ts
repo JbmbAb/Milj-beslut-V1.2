@@ -285,6 +285,8 @@ describe('U20-C: unbound reads never steer the governed generate-report request'
     expect(details.bestPermitProbability).toBe(0.95);
     expect(details.bestCheckCoverage).toEqual({
       checks_total: 6, checks_completed: 5, checks_not_completed: 1, not_completed_layers: ['document'],
+      // U20CDF (F6): this fixture's evidence names no ADMIT dataset version -> no known gaps.
+      checks_completed_with_limited_coverage: 0, limited_coverage_layers: [],
     });
   });
 
@@ -330,6 +332,7 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
     expect(details.bestCheckCoverage).toEqual({
       checks_total: 6, checks_completed: 0, checks_not_completed: 6,
       not_completed_layers: [...LAYERS, 'document'],
+      checks_completed_with_limited_coverage: 0, limited_coverage_layers: [],
     });
   });
 

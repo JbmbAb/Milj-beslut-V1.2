@@ -11,7 +11,8 @@
  *
  *   incomplete -> "Låg risk i de kontroller som utfördes; underlaget är ofullständigt:
  *                  5 av 6 kontroller genomförda."   (owner-approved form, OD-K0-1)
- *   complete   -> "Låg risk i de kontroller som utfördes; 6 av 6 kontroller genomförda."
+ *   complete   -> "Låg risk i de kontroller som utfördes; 6 av 6 kontroller genomförda, varav 4 med
+ *                  begränsad täckning."   (U20CDF F6; without the clause when none is limited)
  *   unknown    -> "Låg risk i de kontroller som utfördes; uppgift om antalet genomförda
  *                  kontroller saknas i underlaget."
  *   none done  -> "Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda."
@@ -45,20 +46,37 @@ export interface GovernedCheckCoverage {
   readonly checks_not_completed: number;
   /** The layers whose check did not complete, in check order. */
   readonly not_completed_layers: readonly string[];
+  /**
+   * U20CDF (U20CD verification F6): completed checks whose basis is known NOT to be complete -- a
+   * dataset with known coverage gaps (knownCoverageGaps.ts), or the v1 document check, which only
+   * covers the documents pinned to the assessment. Counted only from presented checks.
+   */
+  readonly checks_completed_with_limited_coverage: number;
+  readonly limited_coverage_layers: readonly string[];
 }
 
 function isCompleted(check: GovernedLayerCheck): boolean {
   return check.status === 'CHECKED_HIT' || check.status === 'CHECKED_NO_HIT';
 }
 
+function hasLimitedCoverage(check: GovernedLayerCheck): boolean {
+  const gaps = (check as { known_coverage_gaps?: unknown }).known_coverage_gaps;
+  // v1 document check: "Övriga dokument för fastigheten är inte kontrollerade" (K0) -- always limited.
+  return (Array.isArray(gaps) && gaps.length > 0) || check.layer === 'document';
+}
+
 /** `null` when the checks are not available at all (e.g. no governed assessment): coverage unknown. */
 export function summarizeGovernedCheckCoverage(checks: unknown): GovernedCheckCoverage | null {
   if (!Array.isArray(checks) || checks.length === 0) return null;
   const notCompletedLayers: string[] = [];
+  const limitedCoverageLayers: string[] = [];
   for (const check of checks) {
     const wellFormed =
       Boolean(check) && typeof check === 'object' && typeof (check as GovernedLayerCheck).layer === 'string';
-    if (wellFormed && isCompleted(check as GovernedLayerCheck)) continue;
+    if (wellFormed && isCompleted(check as GovernedLayerCheck)) {
+      if (hasLimitedCoverage(check as GovernedLayerCheck)) limitedCoverageLayers.push((check as GovernedLayerCheck).layer);
+      continue;
+    }
     // A malformed entry is still a check that cannot be shown as completed.
     notCompletedLayers.push(wellFormed ? (check as GovernedLayerCheck).layer : 'okänd kontroll');
   }
@@ -67,6 +85,8 @@ export function summarizeGovernedCheckCoverage(checks: unknown): GovernedCheckCo
     checks_completed: checks.length - notCompletedLayers.length,
     checks_not_completed: notCompletedLayers.length,
     not_completed_layers: notCompletedLayers,
+    checks_completed_with_limited_coverage: limitedCoverageLayers.length,
+    limited_coverage_layers: limitedCoverageLayers,
   };
 }
 
@@ -99,5 +119,11 @@ export function governedOverallStatementSv(riskLevel: string, checks: unknown): 
       `${coverage.checks_completed} av ${coverage.checks_total} kontroller genomförda.`
     );
   }
-  return `${risk} i de kontroller som utfördes; ${coverage.checks_completed} av ${coverage.checks_total} kontroller genomförda.`;
+  const limited = coverage.checks_completed_with_limited_coverage;
+  // U20CDF (U20CD verification F6): "all checks done" never reads as full coverage when the basis of
+  // some of them is known to be limited.
+  return (
+    `${risk} i de kontroller som utfördes; ${coverage.checks_completed} av ${coverage.checks_total} kontroller genomförda` +
+    (limited > 0 ? `, varav ${limited} med begränsad täckning.` : '.')
+  );
 }

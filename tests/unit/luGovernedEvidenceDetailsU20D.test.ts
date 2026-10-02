@@ -511,7 +511,11 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     // OD-K0-1: the overall risk only together with its coverage (HIGH from the natura2000 finding).
     expect(summary.overallStatement).toEqual({
       risk_level: 'HIGH',
-      coverage: { checks_total: 6, checks_completed: 4, checks_not_completed: 2, not_completed_layers: ['water_protection_area', 'document'] },
+      coverage: {
+        checks_total: 6, checks_completed: 4, checks_not_completed: 2, not_completed_layers: ['water_protection_area', 'document'],
+        // U20CDF (F6): completed checks resting on a basis with known coverage gaps.
+        checks_completed_with_limited_coverage: 2, limited_coverage_layers: ['protected_area', 'natura2000'],
+      },
       statement_sv: 'Hög risk i de kontroller som utfördes; underlaget är ofullständigt: 4 av 6 kontroller genomförda.',
     });
     expect(fresh.complianceAnalysis.summary).toBe(summary.overallStatement.statement_sv);
