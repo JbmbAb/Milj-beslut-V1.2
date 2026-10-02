@@ -120,6 +120,7 @@ import type { ProjectContextBindingIndex } from '../../server/repositories/proje
 import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { assessGovernedCoverage } from '../../server/modules/localization/governedCoverageStatement';
+import { governedOverallStatement, resolveGovernedAssessmentDetails } from '../../server/modules/localization/governedEvidenceDetails';
 import { createTokenPair } from '../../server/security/auth';
 import localizationRoutes from '../../server/routes/localization.routes';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
@@ -425,5 +426,34 @@ describe('W-U20CDF5 M1: assessGovernedCoverage -- a break established without th
       pinnedEvidence: unreadable,
     });
     expect(assessed.coverage_state).toBe('PINNED_EVIDENCE_UNREADABLE');
+  });
+});
+
+describe('W-U20CDF5 M1 (mutation M1-DOCREFS): the read path itself knows the pinned DE + VF from the refs alone, also when a document cannot be read', () => {
+  const DE_REF = { artifact_id: 'document-evidence-u20cdf5', artifact_type: 'DOCUMENT_EVIDENCE' };
+  const VF_REF = { artifact_id: 'verified-document-fact-u20cdf5', artifact_type: 'VERIFIED_DOCUMENT_FACT' };
+  const ncDocument = { finding_id: 'finding-notchecked-document', rule_id: 'LU-DOC-BESLUT-001', rule_version: '2.0', risk_level: 'NOT_CHECKED', explanation: 'x', evidence_refs: [] };
+
+  it('the pinned document cannot be read (EIO) and a NOT_CHECKED document finding stands beside the DE + VF refs -> RECORD_INTEGRITY_ERROR, never PINNED_EVIDENCE_UNREADABLE', async () => {
+    const store = new Map<string, unknown>(NEGATIVES.map((e) => [e.artifact_id, e] as const));
+    store.set(VF_REF.artifact_id, { artifact_id: VF_REF.artifact_id, artifact_type: VF_REF.artifact_type, payload: {} });
+    const repository = {
+      async resolve<T>(r: { artifact_id: string }): Promise<T> {
+        if (r.artifact_id === DE_REF.artifact_id) throw eio();
+        const value = store.get(r.artifact_id);
+        if (!value) throw new Error(`Artifact not found: ${r.artifact_id}`);
+        return structuredClone(value) as T;
+      },
+    };
+    const findings = [ncDocument];
+    const details = await resolveGovernedAssessmentDetails({
+      assessment: { payload: { findings, evidence_refs: [...NEGATIVES.map(ref), DE_REF, VF_REF] } } as never,
+      artifactRepository: repository as never,
+    });
+    expect(details.pinnedEvidence.document_rule_inputs_pinned).toBe(true);
+    expect(details.documentCheck).toMatchObject({ status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE' });
+    const statement = governedOverallStatement('LOW', details.governedLayerChecks, { findings: findings as never, pinnedEvidence: details.pinnedEvidence });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['NOT_CHECKED_FINDING_WITH_EVIDENCE:document', `PINNED_EVIDENCE_UNREADABLE:${DE_REF.artifact_id}`]);
   });
 });

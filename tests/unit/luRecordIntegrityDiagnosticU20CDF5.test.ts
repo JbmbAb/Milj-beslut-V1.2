@@ -126,6 +126,7 @@ import { createTokenPair } from '../../server/security/auth';
 import localizationRoutes from '../../server/routes/localization.routes';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 import { recordIntegrityDiagnosticWire } from '../../server/modules/localization/localizationOrchestrator';
+import { recordIntegrityDiagnostic } from '../../server/modules/localization/recordIntegrityDiagnostic';
 import { storedRiskFindingsSv } from '../../server/modules/localization/governedCoverageStatement';
 
 /** In-memory CAS. `failFirstRead` makes the next N reads of one id fail with the given error. */
@@ -431,5 +432,29 @@ describe('W-U20CDF5 L5 (verifier probe A1): only a rule id of the governed regis
         { rule_id: 'LU-DOC-BESLUT-001', risk_level: 'MEDIUM' },
       ]),
     ).toBe('risknivå hög – Natura 2000, regel utanför regelregistret, regel med ogiltigt id; risknivå måttlig – Dokument och tidigare beslut');
+  });
+});
+
+describe('W-U20CDF5 L5 (mutations L5-CAP, L5-RULE): the builder itself -- the fresh run uses it without the wire whitelist of the route', () => {
+  it('250 stored findings -> 100 entries, total 250, truncated; counts over all of them', () => {
+    const many = Array.from({ length: 250 }, (_, i) => stored(`f-${i}`, 'LU-EBH-001', 'HIGH'));
+    const diagnostic = recordIntegrityDiagnostic('assessment-x', ['UNKNOWN_SEVERITY:f-1'], many);
+    expect(diagnostic.stored_findings_unverified.entries).toHaveLength(100);
+    expect(diagnostic.stored_findings_unverified).toMatchObject({ total: 250, truncated: true, counts: { high: 250 } });
+    expect(diagnostic.basis_codes).toEqual(['UNKNOWN_SEVERITY']);
+  });
+
+  it('a stored rule id outside the registry is rule: null in the own output of the builder (never echoed)', () => {
+    const diagnostic = recordIntegrityDiagnostic('assessment-x', [], [
+      stored('f-1', HOSTILE_RULES[0], 'HIGH'),
+      stored('f-2', HOSTILE_RULES[2], 'LOW'),
+      stored('f-3', 'LU-WATERPROTECTION-001', 'MEDIUM'),
+    ]);
+    expect(diagnostic.stored_findings_unverified.entries.map((e) => [e.check, e.rule])).toEqual([
+      [null, null],
+      [null, null],
+      ['water_protection_area', 'LU-WATERPROTECTION-001'],
+    ]);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/IGNORE_PREVIOUS|LU-GOVERNED-001/);
   });
 });

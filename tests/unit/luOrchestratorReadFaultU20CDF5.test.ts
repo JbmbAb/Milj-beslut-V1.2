@@ -497,6 +497,15 @@ describe('W-U20CDF5 B4: authorizeAssessmentPresentation -- a read fault is never
     expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.' });
   });
 
+  it('mutation B4-PHASE: an unknown failure READING the binding index (no stable code) is a read of unknown persistence -> 503 READ_ERROR, never "not bound"', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    faults.bindingResolve = async () => { throw new Error('socket hang up while reading the binding row'); };
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_BINDING_UNRESOLVED', failureClass: 'READ_ERROR', retryable: true });
+    expect(JSON.stringify(res.body)).not.toContain('socket hang up');
+  });
+
   it('control: the index has no binding for the assessment\'s context (a refusal) -> 424 "not bound" (unchanged)', async () => {
     await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
     faults.bindingResolve = async () => { throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE'); };
