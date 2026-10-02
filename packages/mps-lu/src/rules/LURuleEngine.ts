@@ -102,19 +102,58 @@ export function notCheckedLayerExplanation(dataset: string): string {
 const HISTORICAL_NOT_CHECKED_SUFFIX = "). Ej kontrollerbart - underlag saknas.";
 
 /**
+ * U30-R3 (a) -- the exact form of the cause the provider embedded before U30-R2. Its one producer was
+ * `describeQueryFailure` (SpatialProviderPostGIS.ts, unchanged from d27d240a to c3d06557^):
+ * `${error.name or "UnknownError"}: ${message, or its first 200 UTF-16 units + "..." when longer}`.
+ * So: an error-class name (an identifier, e.g. pg's DatabaseError name "error", "Error",
+ * "AggregateError"), ": ", then a single-line message of at most 200 units, or of exactly 200 units
+ * followed by "...". The message is the driver's own text and was never pinned, so it cannot be
+ * checked further without turning genuine historical assessments into false tamper findings.
+ */
+const HISTORICAL_PROVIDER_CAUSE = /^[A-Za-z_$][A-Za-z0-9_$]*: ([\s\S]*)$/;
+const HISTORICAL_PROVIDER_MESSAGE_LIMIT = 200;
+const HISTORICAL_PROVIDER_TRUNCATION = "...";
+
+/** No C0/C1 control character and no Unicode line or paragraph separator: one printable line. */
+function isSingleLine(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) return false;
+  }
+  return true;
+}
+
+function isHistoricalProviderCause(cause: string): boolean {
+  const match = HISTORICAL_PROVIDER_CAUSE.exec(cause);
+  if (!match) return false;
+  const message = match[1]!;
+  if (!isSingleLine(message)) return false;
+  return (
+    message.length <= HISTORICAL_PROVIDER_MESSAGE_LIMIT ||
+    (message.length === HISTORICAL_PROVIDER_MESSAGE_LIMIT + HISTORICAL_PROVIDER_TRUNCATION.length &&
+      message.endsWith(HISTORICAL_PROVIDER_TRUNCATION))
+  );
+}
+
+/**
  * The wording every NOT_CHECKED layer finding was stored with before U30-R2:
- * 'Lagret "<layer>" kunde inte kontrolleras (<provider free text>). Ej kontrollerbart - underlag saknas.'
- * The free text was never pinned anywhere else, so it cannot be reproduced; this recognizes the
- * historical frame only, so re-execution can report such a finding honestly
- * (NOT_CHECKED_CAUSE_NOT_PINNED) instead of as tampering. Any other wording is not recognized.
+ * 'Lagret "<layer>" kunde inte kontrolleras (<provider cause>). Ej kontrollerbart - underlag saknas.'
+ * The cause was never pinned anywhere else, so it cannot be reproduced; this recognizes the
+ * historical frame AND the exact form its one producer gave the cause (isHistoricalProviderCause),
+ * so re-execution can report such a finding honestly (NOT_CHECKED_CAUSE_NOT_PINNED) instead of as
+ * tampering. Any other wording -- free text without an error name, an untruncated message over the
+ * limit, a line break -- is not recognized.
  */
 export function isHistoricalNotCheckedExplanation(explanation: string, dataset: string): boolean {
   const prefix = `Lagret "${dataset}" kunde inte kontrolleras (`;
-  return (
-    explanation.startsWith(prefix) &&
-    explanation.endsWith(HISTORICAL_NOT_CHECKED_SUFFIX) &&
-    explanation.length > prefix.length + HISTORICAL_NOT_CHECKED_SUFFIX.length
-  );
+  if (
+    !explanation.startsWith(prefix) ||
+    !explanation.endsWith(HISTORICAL_NOT_CHECKED_SUFFIX) ||
+    explanation.length < prefix.length + HISTORICAL_NOT_CHECKED_SUFFIX.length
+  ) {
+    return false;
+  }
+  return isHistoricalProviderCause(explanation.slice(prefix.length, explanation.length - HISTORICAL_NOT_CHECKED_SUFFIX.length));
 }
 
 /**
