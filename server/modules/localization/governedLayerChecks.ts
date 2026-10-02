@@ -17,7 +17,7 @@
  * the fresh run, the read-back and the PDF alike, over the PERSISTED inputs (stored evidence +
  * stored findings); a layer whose query failed is seen through its NOT_CHECKED finding there.
  */
-import { readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
+import { declaresSpatialResultContract, readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
 
 export type GovernedLayerCheckStatus = 'CHECKED_NO_HIT' | 'CHECKED_HIT' | 'NOT_CHECKED';
 
@@ -34,6 +34,9 @@ export interface GovernedLayerCheck {
    * 'FINDING_WITH_UNKNOWN_SEVERITY' for a stored finding of the layer's rule with an unknown severity;
    * 'DUPLICATE_LAYER_EVIDENCE' (also on a CHECKED_HIT) when the record holds more than one evidence for
    * the layer -- the gate admits one outcome per layer.
+   * U20CDF4 (owner decision 2): 'EVIDENCE_VIOLATES_RESULT_CONTRACT' (also on a CHECKED_HIT) for stored
+   * evidence that declares the result contract (has result_semantics) but is outside the normal form --
+   * an integrity error; 'UNRECOGNIZED_RESULT' is kept for evidence from before the contract.
    * U20CDF2: on a CHECKED_HIT only 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' (a stored risk finding whose
    * record lacks the consistent evidence a current run pins); null on every consistent check.
    */
@@ -261,7 +264,9 @@ export interface LayerCheckFindingLike {
  *     writes) -> NOT_CHECKED with reason NOT_CHECKED_FINDING_WITH_EVIDENCE, which makes the record a
  *     RECORD_INTEGRITY_ERROR -- the finding still wins (never a no-hit), and never "0 av M";
  *  4. no evidence -> NOT_CHECKED (NO_EVIDENCE: silence is never "checked");
- *  5. evidence outside the normal form -> NOT_CHECKED (UNRECOGNIZED_RESULT);
+ *  5. evidence outside the normal form -> NOT_CHECKED: U20CDF4 (owner decision 2) EVIDENCE_VIOLATES_RESULT_CONTRACT
+ *     when it declares the result contract (an integrity error), UNRECOGNIZED_RESULT when it predates
+ *     the contract (historical);
  *  6. otherwise CHECKED_HIT / CHECKED_NO_HIT from `exists`, exactly as the rule engine reads it.
  *
  * @param unreadableArtifactIds ids of pinned refs the read-back could not read from CAS.
@@ -303,14 +308,24 @@ export function computeGovernedLayerChecks(input: {
       if (unreadableCited.length > 0) return notChecked('PINNED_EVIDENCE_UNREADABLE', unreadableCited[0]!);
       const hitIndex = forms.findIndex((form) => form.valid && form.exists);
       const consistent = hitIndex >= 0 && forms.every((form) => form.valid) && !hasNotCheckedFinding;
+      // U20CDF4 (owner decision 2): evidence that declares the result contract and breaks it.
+      const violatesContract = forms.some((form, index) => !form.valid && declaresSpatialResultContract(layerEvidence[index]));
       return {
         layer,
         rule_id: ruleId,
         status: 'CHECKED_HIT',
         evidence_artifact_id: hitIndex >= 0 ? layerEvidence[hitIndex]!.artifact_id : (layerEvidence[0]?.artifact_id ?? null),
         // U20CDF3 (low 7b): still completed (a known risk), but more than one evidence for one layer is
-        // an invalid combination (RECORD_INTEGRITY_ERROR), not merely an inconsistent one.
-        reason: layerEvidence.length > 1 ? 'DUPLICATE_LAYER_EVIDENCE' : consistent ? null : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
+        // an invalid combination (RECORD_INTEGRITY_ERROR), not merely an inconsistent one; U20CDF4: so is
+        // evidence that breaks the result contract it declares.
+        reason:
+          layerEvidence.length > 1
+            ? 'DUPLICATE_LAYER_EVIDENCE'
+            : violatesContract
+              ? 'EVIDENCE_VIOLATES_RESULT_CONTRACT'
+              : consistent
+                ? null
+                : 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
       };
     }
     // U20CDF3 (low 3): a finding of the layer's rule with a severity outside the governed values cannot
@@ -332,8 +347,14 @@ export function computeGovernedLayerChecks(input: {
     // U20-D (M2b findings 8 and 9), now through the one normal form: an evidence that declares
     // another result kind, a non-boolean `exists`, or a match count contradicting it cannot be read
     // as checked -- with or without a hit.
+    // U20CDF4 (owner decision 2): evidence that declares the result contract and breaks it is an
+    // integrity error (EVIDENCE_VIOLATES_RESULT_CONTRACT); evidence from before the contract stays
+    // historical (UNRECOGNIZED_RESULT). Neither is ever read as checked.
     const invalidIndex = forms.findIndex((form) => !form.valid);
-    if (invalidIndex >= 0) return notChecked('UNRECOGNIZED_RESULT', layerEvidence[invalidIndex]!.artifact_id);
+    if (invalidIndex >= 0) {
+      const invalid = layerEvidence[invalidIndex]!;
+      return notChecked(declaresSpatialResultContract(invalid) ? 'EVIDENCE_VIOLATES_RESULT_CONTRACT' : 'UNRECOGNIZED_RESULT', invalid.artifact_id);
+    }
 
     const hitIndex = forms.findIndex((form) => form.valid && form.exists);
     return {

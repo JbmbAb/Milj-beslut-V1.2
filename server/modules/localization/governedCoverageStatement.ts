@@ -208,7 +208,9 @@ export interface GovernedCoverageAssessment {
  *    producer leaves this (e.g. before negative results were persisted, or before the layer existed);
  *  - FINDING_WITHOUT_CONSISTENT_EVIDENCE:<layer>  a stored risk finding without the consistent
  *    evidence a current run pins with it (the layer still counts as processed);
- *  - EVIDENCE_NOT_IN_NORMAL_FORM:<layer>  stored evidence the fresh-run gate would have rejected;
+ *  - EVIDENCE_NOT_IN_NORMAL_FORM:<layer>  stored evidence the fresh-run gate would have rejected, from
+ *    before the result contract (no result_semantics); U20CDF4: evidence that declares the contract and
+ *    breaks it is EVIDENCE_VIOLATES_RESULT_CONTRACT, an integrity error (owner decision 2);
  *  - HIT_WITHOUT_FINDING:<layer>  a hit the layer's rule did not turn into a finding;
  *  - DOCUMENT_FINDING_WITHOUT_PINNED_DOCUMENTS  an LU-DOC-BESLUT-001 finding without the pinned
  *    document evidence + verified fact it rests on.
@@ -265,6 +267,9 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
     if (contradicted) integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${check.layer}`);
     // U20CDF3 (low 7b): more than one evidence for one layer (the gate admits one outcome per layer).
     if (check.reason === 'DUPLICATE_LAYER_EVIDENCE') integrity.push(`DUPLICATE_LAYER_EVIDENCE:${check.layer}`);
+    // U20CDF4 (owner decision 2): evidence that declares the result contract and breaks it. (Evidence
+    // from before the contract -- UNRECOGNIZED_RESULT -- stays historical below.)
+    if (check.reason === 'EVIDENCE_VIOLATES_RESULT_CONTRACT') integrity.push(`EVIDENCE_VIOLATES_RESULT_CONTRACT:${check.layer}`);
   }
   // U20CDF3 (U20CDF2 verification H4 / low 3): a stored finding with a severity outside the governed
   // values ('high', 'CRITICAL', ...) used to be silently ignored (machine level LOW, nothing in the

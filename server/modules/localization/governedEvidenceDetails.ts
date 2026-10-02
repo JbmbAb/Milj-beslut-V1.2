@@ -66,7 +66,7 @@ import {
   type GovernedStatementContext,
   type PinnedEvidenceReadability,
 } from './governedCoverageStatement';
-import { readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
+import { declaresSpatialResultContract, readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
 import { knownCoverageGapsFor, knownCoverageLimitationSv, type KnownCoverageGap } from './knownCoverageGaps';
 
 /** The governed spatial layers of LU v1, in check order. The product query requests exactly these. */
@@ -197,6 +197,8 @@ const COVERAGE_STATE_BY_REASON: Readonly<Record<string, GovernedCoverageState>> 
   FINDING_WITH_UNKNOWN_SEVERITY: 'TECHNICAL_ERROR',
   // U20CDF3 (low 7b): more than one evidence for one layer.
   DUPLICATE_LAYER_EVIDENCE: 'TECHNICAL_ERROR',
+  // U20CDF4 (owner decision 2): evidence that declares the result contract and breaks it.
+  EVIDENCE_VIOLATES_RESULT_CONTRACT: 'TECHNICAL_ERROR',
   NO_EVIDENCE: 'NOT_CHECKED',
   UNRECOGNIZED_RESULT: 'INCOMPLETE_EVIDENCE',
   PINNED_EVIDENCE_UNREADABLE: 'TECHNICAL_ERROR',
@@ -262,6 +264,15 @@ function spatialCheckMessageSv(
           (storedRiskLevel ? ` (${riskLevelPhraseSv(storedRiskLevel)})` : '') +
           `. ${duplicate}`
       : `${duplicate} Ingen slutsats om lagret.`;
+  }
+  if (check.reason === 'EVIDENCE_VIOLATES_RESULT_CONTRACT') {
+    // U20CDF4 (owner decision 2): a contract break, never "kunde inte tolkas" (that is for older evidence).
+    const violation = `Integritetsfel: evidensen för ${governedLayerLabelSv(check.layer)} anger det styrda resultatkontraktet men bryter mot det.`;
+    return check.status === 'CHECKED_HIT'
+      ? `Träff enligt bedömningens lagrade fynd för ${source}` +
+          (storedRiskLevel ? ` (${riskLevelPhraseSv(storedRiskLevel)})` : '') +
+          `. ${violation}`
+      : `${violation} Ingen slutsats om lagret.`;
   }
   if (check.reason === 'FINDING_WITH_UNKNOWN_SEVERITY') {
     return (
@@ -606,7 +617,9 @@ function spatialDetail(
     rule_id: null,
     status: !form.valid ? 'NOT_CHECKED' : form.exists ? 'CHECKED_HIT' : 'CHECKED_NO_HIT',
     evidence_artifact_id: ref.artifact_id,
-    reason: form.valid ? null : 'UNRECOGNIZED_RESULT',
+    // U20CDF4 (owner decision 2): the same split as the layer row -- a declared contract that is broken
+    // is an integrity error; older evidence without one cannot be interpreted.
+    reason: form.valid ? null : declaresSpatialResultContract(artifact) ? 'EVIDENCE_VIOLATES_RESULT_CONTRACT' : 'UNRECOGNIZED_RESULT',
   };
   return {
     evidence_artifact_id: ref.artifact_id,

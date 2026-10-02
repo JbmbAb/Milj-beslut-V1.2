@@ -571,11 +571,13 @@ describe('U20CDF3 invariant B2: a broad, generated set of invalid forms is rejec
 //  Invalid combinations no producer writes, by the owner's normal-form rule an integrity error:
 //     a NOT_CHECKED finding beside stored evidence of the same layer; stored evidence of a dataset
 //     outside the governed layers; two evidences for one layer (the gate admits one outcome per
-//     layer); a finding whose severity is outside HIGH/MEDIUM/LOW/NOT_CHECKED.
-//  Everything else outside the producer shapes (a silent layer, evidence outside the normal form, a
-//  hit without its finding, a risk finding without the consistent evidence, a document finding
-//  without the pinned documents) gets no count; the specification does not say which of the two
-//  "not determinable" states it is, so the oracle does not either.
+//     layer); a finding whose severity is outside HIGH/MEDIUM/LOW/NOT_CHECKED; U20CDF4 (owner decision
+//     2026-10-03 (4) point 2): evidence that declares the result contract (all INV_* forms here carry
+//     result_semantics) and breaks it.
+//  Everything else outside the producer shapes (a silent layer, a hit without its finding, a risk
+//  finding without the consistent evidence, a document finding without the pinned documents) gets no
+//  count; the specification does not say which of the two "not determinable" states it is, so the
+//  oracle does not either.
 //  A finding of a rule outside the M checks is not described by the specification: such records are
 //  checked against S1-S4 only.
 
@@ -617,7 +619,8 @@ function specOracle(record: StoredRecord): OracleVerdict {
     record.foreign !== null ||
     layerStates.some((s) => s.finding === 'UNKNOWN_SEVERITY') ||
     layerStates.some((s) => s.evidence === 'DUP_NO_HIT' || s.evidence === 'DUP_HIT_NO_HIT') ||
-    layerStates.some((s) => (s.finding === 'NC' || s.finding === 'HIGH_NC') && s.evidence !== 'NONE');
+    layerStates.some((s) => (s.finding === 'NC' || s.finding === 'HIGH_NC') && s.evidence !== 'NONE') ||
+    layerStates.some((s) => INVALID.has(s.evidence as EvidenceState));
   if (invalidCombination) return { kind: 'NO_COUNT', integrity: true };
   // The producer shapes.
   let completed = 0;

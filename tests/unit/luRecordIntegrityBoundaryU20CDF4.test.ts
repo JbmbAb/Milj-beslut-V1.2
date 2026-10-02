@@ -145,3 +145,59 @@ describe('U20CDF4 (U20CDF3 verification L4): the same ref pinned twice is named 
     expect(details.governedLayerChecks[0]!.message_sv).toBe('Integritetsfel: bedömningen innehåller mer än en evidens för Brunnar. Ingen slutsats om lagret.');
   });
 });
+
+describe('U20CDF4 (owner decision 2): stored evidence that DECLARES the result contract but breaks it is an integrity error, never historical', () => {
+  // Every intact SPATIAL_EVIDENCE has carried result_semantics since b2f7ea9b (2026-08-13), and the
+  // only kind ever admitted/produced is EXISTENCE_WITHIN_DISTANCE with { exists, match_count_observed,
+  // max_features_per_layer }. Evidence that declares that contract and breaks it was never written by a
+  // producer: a contract break (RECORD_INTEGRITY_ERROR), not an older format.
+  const VIOLATE_SV = 'Integritetsfel: evidensen för Brunnar anger det styrda resultatkontraktet men bryter mot det. Ingen slutsats om lagret.';
+  it.each<[string, Result, unknown]>([
+    ['exists as a string', { exists: 'true', match_count_observed: 1, max_features_per_layer: 50 }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['a field outside the contract', { exists: false, match_count_observed: 0, max_features_per_layer: 50, note: 'x' }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['a count above the cap', { exists: true, match_count_observed: 99, max_features_per_layer: 50 }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['exists:true with count 0', { exists: true, match_count_observed: 0, max_features_per_layer: 50 }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['exists:false with count 3', { exists: false, match_count_observed: 3, max_features_per_layer: 50 }, 'EXISTENCE_WITHIN_DISTANCE'],
+    ['another declared kind', { exists: true, match_count_observed: 1, max_features_per_layer: 50 }, 'FEATURE_GEOMETRY'],
+  ])('%s, no finding -> RECORD_INTEGRITY_ERROR (EVIDENCE_VIOLATES_RESULT_CONTRACT); row and evidence detail say so, never a hit or a no-hit', async (_label, result, kind) => {
+    const broken = spatialEvidence('water', result, kind);
+    const { details, statement } = await readBack({ stored: [broken, ...without('water')], findings: [] });
+    expect(details.integrity).toEqual({ ok: true });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['EVIDENCE_VIOLATES_RESULT_CONTRACT:water']);
+    expect(statement.coverage).toBeNull();
+    expect(statement.statement_sv).toBe(INTEGRITY_SV);
+    expect(statement.statement_sv).not.toMatch(COUNT_PATTERN);
+    const row = details.governedLayerChecks[0]!;
+    expect(row).toMatchObject({
+      layer: 'water', status: 'NOT_CHECKED', reason: 'EVIDENCE_VIOLATES_RESULT_CONTRACT', evidence_artifact_id: broken.artifact_id, coverage_state: 'TECHNICAL_ERROR',
+    });
+    expect(row.message_sv).toBe(VIOLATE_SV);
+    // U20CDF3 verification L5 (mutation X6 survived): the evidence DETAIL of an evidence outside the
+    // normal form is pinned too -- it is the integrity text, never a register hit or no-hit read from
+    // the raw `exists`.
+    const detail = details.evidenceDetails.find((d) => d.evidence_artifact_id === broken.artifact_id)!;
+    expect(detail.message_sv).toBe(VIOLATE_SV);
+    expect(detail.message_sv).not.toMatch(/Registrerad träff|Ingen registrerad träff/);
+  });
+
+  it('next to a stored risk finding: the layer stays a hit (a known risk never disappears), the record is an integrity error', async () => {
+    const broken = spatialEvidence('water', { exists: true, match_count_observed: 0, max_features_per_layer: 50 });
+    const { details, statement } = await readBack({ stored: [broken, ...without('water')], findings: [finding('water', 'MEDIUM', [broken])] });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['EVIDENCE_VIOLATES_RESULT_CONTRACT:water']);
+    expect(statement.statement_sv).toBe(`${INTEGRITY_SV} Bedömningens lagrade fynd redovisas var för sig: risknivå måttlig – Brunnar.`);
+    expect(details.governedLayerChecks[0]).toMatchObject({ layer: 'water', status: 'CHECKED_HIT', reason: 'EVIDENCE_VIOLATES_RESULT_CONTRACT' });
+    expect(details.governedLayerChecks[0]!.message_sv).toBe(
+      'Träff enligt bedömningens lagrade fynd för Brunnar (Provider) (risknivå måttlig). ' +
+        'Integritetsfel: evidensen för Brunnar anger det styrda resultatkontraktet men bryter mot det.',
+    );
+  });
+
+  it('the same record with a valid negative evidence is DETERMINED (control)', async () => {
+    const { statement, details } = await readBack({ stored: NEGATIVES, findings: [] });
+    expect(statement.coverage_state).toBe('DETERMINED');
+    expect(statement.coverage?.checks_completed).toBe(5);
+    expect(details.evidenceDetails[0]!.message_sv).toMatch(/^Ingen registrerad träff i Brunnar \(Provider\) inom 500 m/);
+  });
+});

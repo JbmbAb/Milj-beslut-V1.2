@@ -257,9 +257,18 @@ describe('U12 computeGovernedLayerChecks (pure)', () => {
     expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING_WITH_EVIDENCE', evidence_artifact_id: 'evidence-ebh-x' });
   });
 
-  it('an evidence result without a boolean `exists` is NOT_CHECKED (UNRECOGNIZED_RESULT), never no-hit', () => {
+  // U20CDF4 (owner decision 2026-10-03 (4) point 2): still NOT_CHECKED, never no-hit. Evidence that
+  // declares the result contract (has result_semantics) and breaks it is now named as the integrity error
+  // it is (EVIDENCE_VIOLATES_RESULT_CONTRACT); evidence from before the contract keeps UNRECOGNIZED_RESULT.
+  it('an evidence result without a boolean `exists` is NOT_CHECKED (EVIDENCE_VIOLATES_RESULT_CONTRACT), never no-hit', () => {
     const weird = { artifact_id: 'evidence-water-y', payload: { source_metadata: { dataset: 'water' }, result_semantics: { result: {} } } };
     const [check] = computeGovernedLayerChecks({ requestedLayers: ['water'], evidence: [weird], unavailableLayers: [], findings: [] });
+    expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'EVIDENCE_VIOLATES_RESULT_CONTRACT' });
+  });
+
+  it('an evidence from before the result contract (no result_semantics) is NOT_CHECKED (UNRECOGNIZED_RESULT), never no-hit', () => {
+    const older = { artifact_id: 'evidence-water-z', payload: { source_metadata: { dataset: 'water' } } };
+    const [check] = computeGovernedLayerChecks({ requestedLayers: ['water'], evidence: [older as never], unavailableLayers: [], findings: [] });
     expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'UNRECOGNIZED_RESULT' });
   });
 });

@@ -251,8 +251,10 @@ describe('U20CDF2 (G3 / owner invariant): a layer with a stored risk finding was
     });
     expect(checks[0]).toEqual({
       layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: water.artifact_id,
-      // Counted as completed, and says that its evidence is not the consistent evidence a current run pins.
-      reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
+      // Counted as completed. U20CDF4 (owner decision 2026-10-03 (4) point 2): the evidence declares the
+      // result contract and breaks it, so the row names that integrity error (was
+      // FINDING_WITHOUT_CONSISTENT_EVIDENCE, a historical class); the stored risk is still a hit.
+      reason: 'EVIDENCE_VIOLATES_RESULT_CONTRACT',
     });
     expect(checks.slice(1).map((c) => [c.status, c.reason])).toEqual(Array(4).fill(['NOT_CHECKED', 'NOT_CHECKED_FINDING']));
   });
@@ -260,13 +262,22 @@ describe('U20CDF2 (G3 / owner invariant): a layer with a stored risk finding was
   it.each<[string, readonly ReturnType<typeof ev>[], readonly { rule_id: string; risk_level: string }[]]>([
     ['a risk finding without any evidence for the layer', [], [{ rule_id: 'LU-EBH-001', risk_level: 'HIGH' }]],
     ['a risk finding next to negative evidence', [ev('ebh', { exists: false, match_count_observed: 0 })], [{ rule_id: 'LU-EBH-001', risk_level: 'HIGH' }]],
-    ['a risk finding next to an uninterpretable result', [ev('ebh', { exists: 'yes' })], [{ rule_id: 'LU-EBH-001', risk_level: 'LOW' }]],
     ['a risk finding AND a NOT_CHECKED finding', [ev('ebh', { exists: true, match_count_observed: 1 })], [
       { rule_id: 'LU-EBH-001', risk_level: 'MEDIUM' }, { rule_id: 'LU-EBH-001', risk_level: 'NOT_CHECKED' },
     ]],
   ])('%s -> CHECKED_HIT / FINDING_WITHOUT_CONSISTENT_EVIDENCE', (_label, evidence, findings) => {
     const [check] = computeGovernedLayerChecks({ requestedLayers: ['ebh'], evidence, unavailableLayers: [], findings });
     expect(check).toMatchObject({ layer: 'ebh', status: 'CHECKED_HIT', reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' });
+  });
+
+  // U20CDF4 (owner decision 2026-10-03 (4) point 2): moved out of the case list above -- an
+  // uninterpretable result that DECLARES the result contract breaks it (an integrity error); the layer
+  // still counts as completed (the stored risk finding is a hit, never NOT_CHECKED).
+  it('a risk finding next to a result that breaks the contract it declares -> CHECKED_HIT / EVIDENCE_VIOLATES_RESULT_CONTRACT', () => {
+    const [check] = computeGovernedLayerChecks({
+      requestedLayers: ['ebh'], evidence: [ev('ebh', { exists: 'yes' })], unavailableLayers: [], findings: [{ rule_id: 'LU-EBH-001', risk_level: 'LOW' }],
+    });
+    expect(check).toMatchObject({ layer: 'ebh', status: 'CHECKED_HIT', reason: 'EVIDENCE_VIOLATES_RESULT_CONTRACT' });
   });
 
   it('the consistent case keeps reason null; a NOT_CHECKED finding still wins over evidence when no risk finding exists', () => {

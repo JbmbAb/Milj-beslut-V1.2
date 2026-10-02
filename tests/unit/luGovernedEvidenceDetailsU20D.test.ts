@@ -1151,8 +1151,18 @@ describe('U20-D: computeGovernedLayerChecks decides the contradictory cases (M2b
     ['an unadmitted result semantics kind', { kind: 'FEATURE_GEOMETRY', result: { exists: true, match_count_observed: 1 } }],
     ['exists:false with a positive count', { kind: 'EXISTENCE_WITHIN_DISTANCE', result: { exists: false, match_count_observed: 3 } }],
     ['exists:true with a zero count', { kind: 'EXISTENCE_WITHIN_DISTANCE', result: { exists: true, match_count_observed: 0 } }],
-  ])('%s -> NOT_CHECKED / UNRECOGNIZED_RESULT, never a hit or a no-hit', (_label, semantics) => {
+  // U20CDF4 (owner decision 2026-10-03 (4) point 2): each of these DECLARES the result contract
+  // (result_semantics present) and breaks it -- an integrity error (EVIDENCE_VIOLATES_RESULT_CONTRACT),
+  // still NOT_CHECKED, never a hit or a no-hit.
+  ])('%s -> NOT_CHECKED / EVIDENCE_VIOLATES_RESULT_CONTRACT, never a hit or a no-hit', (_label, semantics) => {
     expect(computeGovernedLayerChecks({ requestedLayers: ['water'], evidence: [ev(semantics)], unavailableLayers: [], findings: [] })).toEqual([
+      { layer: 'water', rule_id: 'LU-WATER-001', status: 'NOT_CHECKED', evidence_artifact_id: 'evidence-water-x', reason: 'EVIDENCE_VIOLATES_RESULT_CONTRACT' },
+    ]);
+  });
+
+  it('an evidence from before the result contract (no result_semantics) -> NOT_CHECKED / UNRECOGNIZED_RESULT, never a hit or a no-hit', () => {
+    const older = { artifact_id: 'evidence-water-x', payload: { source_metadata: { dataset: 'water' } } };
+    expect(computeGovernedLayerChecks({ requestedLayers: ['water'], evidence: [older as never], unavailableLayers: [], findings: [] })).toEqual([
       { layer: 'water', rule_id: 'LU-WATER-001', status: 'NOT_CHECKED', evidence_artifact_id: 'evidence-water-x', reason: 'UNRECOGNIZED_RESULT' },
     ]);
   });

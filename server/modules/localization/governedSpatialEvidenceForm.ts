@@ -99,6 +99,18 @@ export function readSpatialEvidenceForm(evidence: unknown): SpatialEvidenceForm 
   return { valid: true, dataset, exists: result.exists, match_count: count };
 }
 
+/**
+ * U20CDF4 (owner decision 2026-10-03 (4) point 2): does this evidence DECLARE the result contract, i.e.
+ * carry `payload.result_semantics` at all? Every SPATIAL_EVIDENCE has since b2f7ea9b (2026-08-13), when
+ * the field and its one admitted kind (EXISTENCE_WITHIN_DISTANCE) were introduced. Evidence that declares
+ * it and is outside the normal form breaks an actual contract (an integrity error); evidence from before
+ * the contract (no result_semantics) merely predates it (historical, never called corruption).
+ */
+export function declaresSpatialResultContract(evidence: unknown): boolean {
+  const payload = evidence && typeof evidence === 'object' ? (evidence as { payload?: unknown }).payload : undefined;
+  return Boolean(payload) && typeof payload === 'object' && (payload as { result_semantics?: unknown }).result_semantics !== undefined;
+}
+
 /** The query-outcome level violations of the fresh-run gate (on top of the per-evidence ones). */
 export type SpatialQueryOutcomeViolation =
   | SpatialEvidenceFormViolation
