@@ -178,9 +178,18 @@ export const TEST_RELATIVE_ROOTS_NOT_LIVE: readonly ProtectedDataRoot[] = Object
     root: 'source-registry',
     why: 'the signed source registry, only read (SOURCE_REGISTRY_ARTIFACT_PATH default)',
   },
+  // TDG-6: found by the scanner's "relative literal straight to fs" form
+  {
+    root: 'src',
+    why: "source: rewritten only by the developer codemod scripts/ci/split-types-domains.mjs, never by a test (the tree's source files are not protected)",
+  },
   { root: 'tests/setup', why: 'the Vitest setup source, only loaded (scripts/devgov/vitest.config.mjs)' },
   { root: 'training', why: 'source material only read (server/scripts/migrateToFirestore.ts)' },
   { root: 'tsconfig.json', why: 'compiler configuration, only read (luApiBoundary)' },
+  {
+    root: 'types.ts',
+    why: 'source: rewritten only by the developer codemod scripts/ci/split-types-domains.mjs, never by a test',
+  },
 ]);
 
 /**

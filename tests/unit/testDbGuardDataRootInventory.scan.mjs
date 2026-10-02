@@ -5,18 +5,29 @@
 // TDG-5: the scanner is a DRIFT GUARD, NOT A PROOF. It recognises the forms below by pattern; code that
 // builds a key or a path in another way (a key or a path computed at run time, read from a file or an
 // argument, passed through a variable it cannot follow) is not seen. The write guard
-// (server/modules/test-db-guard/installTestDataRootWriteGuard.ts) is the protection; this inventory only
-// makes a NEW root in a known form fail CI until it is handled. Recognised:
+// (server/modules/test-db-guard/installTestDataRootWriteGuard.ts) is the in-process backstop behind it --
+// not a proof either (children, worker_threads and the raw fs binding pass it: its KNOWN LIMITATIONS); this
+// inventory only makes a NEW root in a known form fail CI until it is handled. Recognised:
 //   - keys: process.env.X, process.env['X'], env.X, readEnv('X')-like helpers, a key-shaped literal in a
 //     file that indexes process.env, process.env[`${p}_X`] (a pattern), process.env['A' + 'B'],
-//     `const { X, Y: y = 'd' } = process.env`; a key is data-root-shaped by a path-like NAME token or by a
-//     fallback that BUILDS A PATH (whatever its name); fallbacks `X || f`, `X ?? f`, `X ? a : f`, `!X ? f : a`;
+//     `const { X, Y: y = 'd' } = process.env`; TDG-6: Reflect.get(process.env, 'X') and another name for
+//     process.env in the same file (`const e = process.env; e.X`, a parameter default, `{ env: e } =
+//     process`); a key is data-root-shaped by a path-like NAME token or by a fallback that BUILDS A PATH
+//     (whatever its name); fallbacks `X || f`, `X ?? f`, `X ? a : f`, `!X ? f : a`;
 //   - relative roots: join/resolve(process.cwd() | cwd | repoRoot ... , 'a', 'b'), path.resolve('a'),
 //     `${process.cwd()}/a`, process.cwd() + '/a', new URL('../a', import.meta.url),
-//     join/resolve(__dirname | import.meta.dirname, '..', 'a') (resolved against the file);
-//   - absolute paths: EVERY absolute path literal (drive, \\host\share, /tmp /mnt /home ...), with the
-//     literal segments a join/resolve adds; a path under <drive>:\Users\<name> or from os.homedir() is
-//     reported home-relative (~/...).
+//     join/resolve(__dirname | import.meta.dirname, '..', 'a') (resolved against the file); TDG-6:
+//     `${cwd}/a` and cwd + '/a' with a cwd/repo-root variable, __dirname + '/../a' and `${__dirname}/a`, and a
+//     relative literal handed straight to a writing fs call (`fs.writeFileSync('a/x')`, `copyFileSync(s, 'a/x')`);
+//   - absolute paths: EVERY absolute path literal (drive, \\host\share, TDG-6: //host/share, a file:/// URL,
+//     /tmp /mnt /home ...), with the literal segments a join/resolve adds; TDG-6: a drive put together with
+//     the rest ('D:' + '\\x', ['D:', 'x'].join('\\')); a path under <drive>:\Users\<name> or from
+//     os.homedir() (TDG-6: also USERPROFILE/HOME and os.userInfo().homedir) is reported home-relative (~/...).
+// NOT recognised (KNOWN LIMITATION, TDG-6): `...rest` destructuring of process.env, a key or path computed at
+// run time, path.join('a', ...) with no base (relative, but too common to tell from a sub-path), a relative
+// fallback literal without `./` and without a name token ('n/a' cannot be told from a path), a path under
+// tmpdir() that climbs out with '..', other package directories than src/ and scripts/ (packages/*/lib),
+// POSIX paths outside the listed top directories, and tests and test helpers.
 //
 // Plain ESM (no TypeScript) so that the inventory test (tests/unit/testDbGuardDataRootInventory.test.ts)
 // imports it and node can run it to print the inventory -- one scanner, never two copies that drift.
@@ -277,7 +288,38 @@ const ENV_READS = [
     re: new RegExp(`\\b[A-Za-z_$]*[Ee]nv[A-Za-z0-9_$]*\\(\\s*${Q}(${KEY})\\1`, 'g'),
     group: 2,
   },
+  // TDG-6 (TDG5-VERIFICATION finding 10)
+  {
+    how: "Reflect.get(process.env, 'KEY')",
+    re: new RegExp(`Reflect\\.get\\(\\s*process\\.env\\s*,\\s*${Q}(${KEY})\\1`, 'g'),
+    group: 2,
+  },
 ];
+
+/**
+ * TDG-6: another name for process.env in the same file -- `const e = process.env`, a parameter default
+ * `(vars = process.env)`, `const { env: e } = process` -- read as `e.KEY` / `e['KEY']` (`env` itself is
+ * read above).
+ */
+const ENV_ALIAS = [
+  /(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?::\s*[\w$.<>[\]|\s]+?)?\s*=\s*process\.env\b(?!\s*(?:\??\.|\[))/g,
+  /\{\s*env\s*:\s*([A-Za-z_$][\w$]*)\s*\}\s*=\s*process\b/g,
+];
+function envAliasReads(text) {
+  const names = new Set();
+  for (const re of ENV_ALIAS) for (const m of text.matchAll(re)) if (m[1] !== 'env') names.add(m[1]);
+  return [...names].flatMap((name) => {
+    const n = name.replace(/\$/g, '\\$');
+    return [
+      { how: 'alias.KEY', re: new RegExp(`(?<![\\w$.])${n}\\??\\.(${KEY})\\b`, 'g'), group: 1 },
+      {
+        how: "alias['KEY']",
+        re: new RegExp(`(?<![\\w$.])${n}\\??\\.?\\[\\s*${Q}(${KEY})\\1\\s*\\]`, 'g'),
+        group: 2,
+      },
+    ];
+  });
+}
 const DYNAMIC_INDEX = /process\.env\??\.?\[\s*(?!['"`])/;
 const DYNAMIC_KEY_LITERAL = /(['"`])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\1/g;
 
@@ -493,6 +535,28 @@ const FILE_BASE_JOIN =
 const URL_RELATIVE = /new\s+URL\(\s*(['"`])([^'"`$\n]+)\1\s*,\s*import\.meta\.url\s*\)/g;
 const CWD_TEMPLATE = /`\$\{\s*process\.cwd\(\)\s*\}[\\/]+([^`$]+)/g;
 const CWD_CONCAT = /process\.cwd\(\)\s*\+\s*(['"`])[\\/]+([^'"`$\n]+)\1/g;
+// TDG-6 (TDG5-VERIFICATION finding 10): a cwd/repo-root VARIABLE with `+` or in a template
+const CWD_VARS = String.raw`repoRoot\(\)|repoRoot|REPO_ROOT|projectRoot|PROJECT_ROOT|ROOT_DIR|cwd|CWD`;
+const CWD_VAR_TEMPLATE = new RegExp(`\`\\$\\{\\s*(?:${CWD_VARS})\\s*\\}[\\\\/]+([^\`$]+)`, 'g');
+const CWD_VAR_CONCAT = new RegExp(`(?<![\\w$.])(?:${CWD_VARS})\\s*\\+\\s*(['"\`])[\\\\/]+([^'"\`$\\n]+)\\1`, 'g');
+// TDG-6: a file-relative path built with `+` or a template (`__dirname + '/../x'`, `${import.meta.dirname}/x`)
+const FILE_CONCAT = /(?<![\w$.])(?:__dirname|import\.meta\.dirname)\s*\+\s*(['"`])[\\/]+([^'"`$\n]+)\1/g;
+const FILE_TEMPLATE = /`\$\{\s*(?:__dirname|import\.meta\.dirname)\s*\}[\\/]+([^`$]+)/g;
+/**
+ * TDG-6 (TDG5-VERIFICATION finding 10): a RELATIVE literal handed straight to a writing fs call --
+ * `fs.writeFileSync('rot/x')`, `mkdirSync('out')`, `copyFileSync(a, 'rot/x')` -- is cwd-relative.
+ */
+const FS_FIRST_ARG_WRITERS = String.raw`writeFileSync|writeFile|appendFileSync|appendFile|mkdirSync|mkdir|mkdtempSync|mkdtemp|createWriteStream|truncateSync|truncate|rmSync|rmdirSync|rmdir|unlinkSync|unlink|outputFileSync|outputFile|ensureDirSync|ensureDir`;
+const FS_SECOND_ARG_WRITERS = String.raw`copyFileSync|copyFile|cpSync|renameSync|rename|linkSync|symlinkSync`;
+const FS_RECEIVER = String.raw`(?:(?:fs|fsp|fsPromises|fse|promises|nodeFs)\s*\.\s*)?`;
+const FS_FIRST = new RegExp(
+  `(?<![\\w$.])${FS_RECEIVER}(?:${FS_FIRST_ARG_WRITERS})\\(\\s*(['"\`])([^'"\`$\\n]+)\\1`,
+  'g',
+);
+const FS_SECOND = new RegExp(
+  `(?<![\\w$.])${FS_RECEIVER}(?:${FS_SECOND_ARG_WRITERS})\\(\\s*[^,()]+(?:\\([^()]*\\))?[^,()]*,\\s*(['"\`])([^'"\`$\\n]+)\\1`,
+  'g',
+);
 
 /** cwd-relative and repo-relative default directories written in code. */
 const RELATIVE_ROOTS = [
@@ -503,6 +567,10 @@ const RELATIVE_ROOTS = [
   },
   { how: '`${process.cwd()}/<p>`', re: CWD_TEMPLATE, group: 1 },
   { how: "process.cwd() + '/<p>'", re: CWD_CONCAT, group: 2 },
+  { how: '`${cwd}/<p>`', re: CWD_VAR_TEMPLATE, group: 1 },
+  { how: "cwd + '/<p>'", re: CWD_VAR_CONCAT, group: 2 },
+  { how: "fs.writeFileSync('<p>')", re: FS_FIRST, group: 2, relativeOnly: true },
+  { how: "fs.copyFileSync(a, '<p>')", re: FS_SECOND, group: 2, relativeOnly: true },
 ];
 
 /**
@@ -533,7 +601,8 @@ function lineAt(text, index) {
 
 const ANY_LITERAL = /(['"`])((?:[^'"`\\\n]|\\.)*)\1/g;
 const POSIX_FS_ROOT = /^\/(?:tmp|mnt|home|var|data|opt|srv|Users|root|etc|media|Volumes|usr)(?:\/|$)/;
-const WIN_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\[A-Za-z0-9._$-]+\\[^\\])/;
+// TDG-6 (TDG5-VERIFICATION finding 10): a UNC path written with forward slashes (`//host/share`) too
+const WIN_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\[A-Za-z0-9._$-]+\\[^\\]|\/\/[A-Za-z0-9._$-]+\/[^/])/;
 
 /** `C:\x\` -> `C:\x`; `/tmp/x/` -> `/tmp/x`; a bare root (`C:\`, `/`) -> null (only compared or listed). */
 function normalizeAbsolute(value) {
@@ -555,9 +624,30 @@ export function homeRelative(absolute) {
   return null;
 }
 
-const HOME_JOIN = /(?<![\w$.])(?:path\.)?(?:join|resolve)\(\s*(?:os\.)?homedir\(\)\s*(?=,)/g;
-const HOME_TEMPLATE = /`\$\{\s*(?:os\.)?homedir\(\)\s*\}[\\/]+([^`$]+)/g;
-const HOME_CONCAT = /(?:os\.)?homedir\(\)\s*\+\s*(['"`])[\\/]+([^'"`$\n]+)\1/g;
+// TDG-6 (TDG5-VERIFICATION finding 10): the home directory also as USERPROFILE/HOME or os.userInfo().homedir
+const HOME_BASE = String.raw`(?:os\.)?homedir\(\)|process\.env\.(?:USERPROFILE|HOME)\b|(?:os\.)?userInfo\(\)\.homedir`;
+const HOME_JOIN = new RegExp(`(?<![\\w$.])(?:path\\.)?(?:join|resolve)\\(\\s*(?:${HOME_BASE})\\s*(?=,)`, 'g');
+const HOME_TEMPLATE = new RegExp(`\`\\$\\{\\s*(?:${HOME_BASE})\\s*\\}[\\\\/]+([^\`$]+)`, 'g');
+const HOME_CONCAT = new RegExp(`(?:${HOME_BASE})\\s*\\+\\s*(['"\`])[\\\\/]+([^'"\`$\\n]+)\\1`, 'g');
+
+/**
+ * TDG-6 (TDG5-VERIFICATION finding 10): a drive root put together with the rest -- `'D:' + '\\x'`,
+ * `'D:\\' + 'x'`, `['D:', 'x', 'y'].join('\\')` -- and a `file:///D:/x` URL literal.
+ */
+const DRIVE_CONCAT = /(['"`])([A-Za-z]:(?:\\\\|\/)?)\1\s*\+\s*(['"`])([^'"`$\n]+)\3/g;
+const DRIVE_ARRAY_JOIN =
+  /\[\s*(['"`])([A-Za-z]:(?:\\\\|\/)?)\1((?:\s*,\s*(['"`])[^'"`$\n]*\4)+)\s*,?\s*\]\s*\.join\(\s*(['"`])(?:\\\\|\/)\5\s*\)/g;
+function pathOfFileUrlLiteral(value) {
+  const m = /^file:\/\/(?:localhost)?\/([^?#]*)$/i.exec(value);
+  if (!m) return null;
+  let rest = m[1];
+  try {
+    rest = decodeURIComponent(rest);
+  } catch {
+    // keep it as written
+  }
+  return /^[A-Za-z]:[\\/]/.test(rest) ? rest : `/${rest}`;
+}
 
 const homePath = (rest) => `~/${path.posix.normalize(rest.replace(/\\/g, '/')).replace(/^\/+|\/+$/g, '')}`;
 
@@ -611,7 +701,7 @@ export function scanDataRoots(root, options = {}) {
       continue;
     }
     const text = stripComments(raw);
-    for (const read of ENV_READS) {
+    for (const read of [...ENV_READS, ...envAliasReads(text)]) {
       for (const m of text.matchAll(read.re)) {
         noteRead(file, text, m[read.group], m.index, m.index + m[0].length, read.how);
       }
@@ -650,6 +740,7 @@ export function scanDataRoots(root, options = {}) {
       for (const m of text.matchAll(rr.re)) {
         const p = m[rr.group];
         if (/^[a-z][a-z0-9+.-]*:/i.test(p)) continue;
+        if (rr.relativeOnly && (isAbsolutePathLiteral(unescapeLiteral(p)) || /^[\\/]/.test(p))) continue;
         note(relativeRoots, topRelativeRoot(p), { file, line: lineAt(text, m.index), path: p, how: rr.how });
       }
     }
@@ -686,11 +777,29 @@ export function scanDataRoots(root, options = {}) {
       if (/^[a-z][a-z0-9+.-]*:/i.test(m[2]) || m[2].startsWith('/')) continue;
       noteFileRelative(m[2], m.index, "new URL('<p>', import.meta.url)");
     }
+    for (const m of text.matchAll(FILE_CONCAT)) noteFileRelative(m[2], m.index, "__dirname + '/<p>'");
+    for (const m of text.matchAll(FILE_TEMPLATE)) noteFileRelative(m[1], m.index, '`${__dirname}/<p>`');
+    // TDG-6: a drive root put together with the rest; a file:/// URL literal
+    for (const m of text.matchAll(DRIVE_CONCAT)) {
+      const drive = m[2].replace(/[\\/]+$/, '');
+      noteAbsolute(`${drive}\\${unescapeLiteral(m[4]).replace(/^[\\/]+/, '')}`, file, lineAt(text, m.index), "'D:' + '\\x'");
+    }
+    for (const m of text.matchAll(DRIVE_ARRAY_JOIN)) {
+      const parts = [...m[3].matchAll(/(['"`])([^'"`$\n]*)\1/g)].map((p) => unescapeLiteral(p[2]));
+      noteAbsolute(
+        path.win32.join(`${m[2].replace(/[\\/]+$/, '')}\\`, ...parts),
+        file,
+        lineAt(text, m.index),
+        "['D:', 'x'].join('\\')",
+      );
+    }
     // every absolute path literal (a template literal up to its first ${...}); join/resolve's literal tail
     for (const m of text.matchAll(ANY_LITERAL)) {
       let value = unescapeLiteral(m[2]);
       const interpolation = value.indexOf('${');
       if (interpolation >= 0) value = value.slice(0, interpolation);
+      const fromUrl = pathOfFileUrlLiteral(value);
+      if (fromUrl !== null) value = fromUrl;
       if (!WIN_ABSOLUTE.test(value) && !POSIX_FS_ROOT.test(value)) continue;
       const before = text.slice(Math.max(0, m.index - 24), m.index);
       if (interpolation < 0 && /(?:join|resolve)\(\s*$/.test(before)) {
