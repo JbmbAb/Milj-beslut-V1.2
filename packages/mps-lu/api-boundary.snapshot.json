@@ -280,18 +280,6 @@
   ],
   "grandfathered_deep_imports": [
     {
-      "file": "packages/document-provider/src/MockDocumentProvider.ts",
-      "specifier": "../../mps-lu/src/domain/CanonicalGeometry"
-    },
-    {
-      "file": "packages/document-provider/src/MockDocumentProvider.ts",
-      "specifier": "../../mps-lu/src/domain/DocumentDescriptor"
-    },
-    {
-      "file": "packages/document-provider/src/MockDocumentProvider.ts",
-      "specifier": "../../mps-lu/src/providers/DocumentProviderContract"
-    },
-    {
       "file": "server/modules/localization/luExecutionIdentityV3Provisioning.ts",
       "specifier": "../../../packages/mps-lu/src/execution/ExecutionIdentityAttestation"
     },

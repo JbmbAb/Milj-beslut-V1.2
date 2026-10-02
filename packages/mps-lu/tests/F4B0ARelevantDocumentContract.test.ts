@@ -10,7 +10,7 @@ import {
   type RelevantDocument,
   type RelevantDocumentMetadata,
 } from "../src/domain/RelevantDocument";
-import { MockDocumentProvider } from "../../document-provider/src/MockDocumentProvider";
+import { MockDocumentProvider } from "./fixtures/MockDocumentProvider";
 
 /**
  * ✅ F4B-0A — RelevantDocument CONTRACT GREEN PROOF.

@@ -13,6 +13,10 @@
  * Because the package root re-exported the orchestrator (and its `orchestrator` singleton), every
  * import of @miljobeslut/mps-lu also loaded server/db/prisma and server/loadEnv.
  *
+ * MockDocumentProvider itself is still needed by a test (F4B0A), so it moved from the
+ * production-looking packages/document-provider/src to a test fixture
+ * (packages/mps-lu/tests/fixtures): no product path can reach it.
+ *
  * These checks are static: they read files and execute no product code, so they cannot reach a
  * database whatever the environment.
  */
@@ -86,6 +90,23 @@ function reachableFrom(repoRoot: string, entry: string): { reached: string[]; un
 /** Modules that open a database client or read env files. The LU package root must reach none. */
 const DB_OR_ENV_LOADER = /^(server\/db\/|server\/config\/prisma|server\/loadEnv|packages\/alpha-runtime\/)/;
 
+/** Roots whose code a product path can load. Test directories, fixtures and test files are excluded. */
+const PRODUCTION_ROOTS = ['packages', 'server', 'src', 'scripts', 'workers', 'components', 'services', 'integrations'];
+const NON_PRODUCTION_DIRS = new Set(['node_modules', 'dist', 'coverage', 'tests', 'test', '__tests__', 'fixtures', '.claude', '.worktrees']);
+
+function productionFiles(dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      if (!NON_PRODUCTION_DIRS.has(entry)) productionFiles(full, out);
+    } else if (/\.(ts|tsx|mts|js|mjs|cjs|jsx)$/.test(entry) && !/\.(test|spec)\.[^.]+$/.test(entry)) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 describe('K0-FIX-1 (b): the dead, ungoverned document packaging is gone from @miljobeslut/mps-lu', () => {
   it('the orchestrator and the packaging service no longer exist', () => {
     expect(existsSync(join(LU_SRC, 'api', 'LUBackendOrchestrator.ts'))).toBe(false);
@@ -141,6 +162,18 @@ describe('K0-FIX-1 (b): the dead, ungoverned document packaging is gone from @mi
     expect(reached.filter((f) => f.startsWith('packages/document-provider/'))).toEqual([]);
   });
 
+  it('the mock document provider lives only in a test fixture: no production file defines or imports it', () => {
+    expect(existsSync(join(PKG, 'tests', 'fixtures', 'MockDocumentProvider.ts'))).toBe(true);
+    expect(sourceFiles(join(REPO, 'packages', 'document-provider'))).toEqual([]);
+
+    const files = PRODUCTION_ROOTS.flatMap((root) => productionFiles(join(REPO, root)));
+    expect(files.length, 'a scan over an empty file list proves nothing').toBeGreaterThan(500);
+    const offenders = files
+      .filter((file) => /\bMockDocumentProvider\b/.test(stripComments(readFileSync(file, 'utf8'))))
+      .map((file) => posix(relative(REPO, file)));
+    expect(offenders).toEqual([]);
+  });
+
   it('CONTROL: the walk and the detectors fire on the shapes they claim to detect', () => {
     const root = mkdtempSync(join(tmpdir(), 'k0fix1b-'));
     try {
@@ -170,5 +203,7 @@ describe('K0-FIX-1 (b): the dead, ungoverned document packaging is gone from @mi
     expect([...dynamicMock.matchAll(SPECIFIER)].map((m) => m[1])).toEqual(['../../../document-provider/src/MockDocumentProvider']);
     expect(/["'`]Mora["'`]/.test('const municipality = res[0]?.kommunnamn || "Mora";')).toBe(true);
     expect(stripComments('// orchestrator.generateDocumentEvidence was removed\nconst a = 1;')).not.toMatch(/generateDocumentEvidence/);
+    expect(/\bMockDocumentProvider\b/.test(stripComments('export class MockDocumentProvider implements X {}'))).toBe(true);
+    expect(NON_PRODUCTION_DIRS.has('fixtures') && NON_PRODUCTION_DIRS.has('tests')).toBe(true);
   });
 });

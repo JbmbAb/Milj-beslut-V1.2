@@ -14,7 +14,7 @@
     "s5_r5_r6": "DORMANT_UNTIL_FEATURE_GEOMETRY_ADMISSION"
   },
   "required_support_files": [
-    "packages/document-provider/src/MockDocumentProvider.ts",
+    "packages/mps-lu/tests/fixtures/MockDocumentProvider.ts",
     "packages/mps-lu/tests/fixtures/spatialLayerHashes.ts"
   ],
   "required_proofs": [

@@ -1,7 +1,13 @@
-import { DocumentProviderContract } from "../../mps-lu/src/providers/DocumentProviderContract";
-import { DocumentDescriptor } from "../../mps-lu/src/domain/DocumentDescriptor";
-import { CanonicalGeometry } from "../../mps-lu/src/domain/CanonicalGeometry";
+import type { DocumentProviderContract } from "../../src/providers/DocumentProviderContract";
+import type { DocumentDescriptor } from "../../src/domain/DocumentDescriptor";
+import type { CanonicalGeometry } from "../../src/domain/CanonicalGeometry";
 
+/**
+ * TEST FIXTURE ONLY (K0-FIX-1 b). Moved from packages/document-provider/src, where it looked like a
+ * production adapter and was reachable from package code through LUBackendOrchestrator's dynamic
+ * import (now removed). It lives under tests/fixtures so no product path can load it; the F4B-0A
+ * contract test uses it as a conforming sample provider.
+ */
 export class MockDocumentProvider implements DocumentProviderContract {
   public async fetchDocumentsForGeometry(geometry: CanonicalGeometry): Promise<DocumentDescriptor[]> {
     // This is a mock adapter. In a real scenario, this would query Lantmäteriet, Naturvårdsverket, or VISS
