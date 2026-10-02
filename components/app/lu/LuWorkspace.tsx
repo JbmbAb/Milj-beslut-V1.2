@@ -31,6 +31,7 @@ import {
 import { LuControlPanel } from './LuControlPanel';
 import { LuErrorNotice } from './LuErrorNotice';
 import { presentLuOverallStatement, type LuOverallTone } from './luOverallStatement';
+import { useLuRunOutcome, type LuRunOutcomeRecord } from './luSessionMemory';
 import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
 
 /** W-M2d item 2: the assessment line is never green -- complete is neutral, anything else is marked. */
@@ -190,20 +191,15 @@ type GovernedResult = {
 };
 
 /**
- * DEMO M2c item 3 (M2b verifier finding 7): the latest run in THIS view produced no assessment
- * (GOVERNANCE_DENIED, NOT_ASSESSED, EXECUTION_FAILED). The server keeps no record of it in the read
- * model, so a reload cannot show it; the view says it as long as it is open.
+ * DEMO M2c item 3 (M2b verifier finding 7), W-M2d item 8: the latest run of the project produced no
+ * assessment (GOVERNANCE_DENIED, NOT_ASSESSED, EXECUTION_FAILED). The server keeps no record of it in
+ * the read model; it is remembered in the product shell's state for the session (luSessionMemory.tsx),
+ * so a view switch keeps it, and a reload cannot -- the notice says so. Fields: status; messageSv (for
+ * a known currentness failure class this UI's text for it, W-M2d items 5 and 9, otherwise the server's
+ * own message_sv); retryable (the server's flag of a FAILED_CLOSED record, null when it says nothing);
+ * endedAt (this browser's clock).
  */
-type RunOutcome = {
-  status: string;
-  /**
-   * The reason in Swedish: for a known currentness failure class this UI's text for it (W-M2d items
-   * 5 and 9), otherwise the server's own message_sv (executionMotor.localization_geometry).
-   */
-  messageSv: string | null;
-  /** W-M2d item 5: the server's `retryable` of a FAILED_CLOSED record; null when it says nothing. */
-  retryable: boolean | null;
-};
+type RunOutcome = LuRunOutcomeRecord;
 
 /** W-M2d item 4: one machine notice of a verification (LuReExecutionResult.notices). */
 type VerifyNotice = { code: string; finding_ids: readonly string[] };
@@ -341,6 +337,25 @@ function incoherenceTechnical(i: Incoherence) {
   ];
 }
 
+/** W-M2d item 8: "14:32" from an ISO time, or null. */
+function formatClock(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * W-M2d item 8: when the displayed assessment's basis was retrieved -- the latest `retrieved_at` of its
+ * evidence details (server, U20-D) -- so an older assessment can be told apart; null when not stated.
+ */
+function retrievedAtOf(evidenceDetails: readonly unknown[] | null): string | null {
+  const times = (evidenceDetails ?? [])
+    .map((d) => (d && typeof d === 'object' ? (d as { retrieved_at?: unknown }).retrieved_at : null))
+    .filter((t): t is string => typeof t === 'string' && !Number.isNaN(new Date(t).getTime()))
+    .sort();
+  return times.length > 0 ? times[times.length - 1]! : null;
+}
+
 function fileSlug(value: string): string {
   const slug = value
     .normalize('NFD')
@@ -364,7 +379,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<LuErrorPresentation | null>(null);
   const [governed, setGoverned] = useState<GovernedResult | null>(null);
-  const [runOutcome, setRunOutcome] = useState<RunOutcome | null>(null);
+  const [runOutcome, setRunOutcome, runOutcomeInShell] = useLuRunOutcome(getActiveProjectId() || null);
   const [incoherence, setIncoherence] = useState<Incoherence | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState<LuErrorPresentation | null>(null);
@@ -436,7 +451,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setLookupError(null);
     setLookingUp(true);
     clearResultState();
-    setRunOutcome(null);
     setPending(null);
     setSaveOutcomeNote(null);
     expectedRunRef.current = null;
@@ -558,9 +572,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
   useEffect(() => {
     if (site) {
-      // A new property/point is a new context: a previous run's expectation (and outcome) no longer applies.
+      // A new property/point is a new context: a previous run's expectation no longer applies. W-M2d
+      // item 8: the latest run's outcome is kept (per project, in the shell) -- it is still the latest
+      // run, also after a remount, until a new run replaces it.
       expectedRunRef.current = null;
-      setRunOutcome(null);
       void loadCurrentAssessment();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -767,6 +782,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           status: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
           messageSv: classText?.messageSv ?? geometryRecord?.message_sv ?? null,
           retryable: classText ? classText.retryable : typeof geometryRecord?.retryable === 'boolean' ? geometryRecord.retryable : null,
+          endedAt: new Date().toISOString(),
         });
         await loadCurrentAssessment();
       }
@@ -1196,7 +1212,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             style={{ borderColor: '#F97316', color: '#FDBA74' }}
           >
             <p>
-              Senaste körningen:{' '}
+              Senaste körningen{formatClock(runOutcome.endedAt) ? ` (kl. ${formatClock(runOutcome.endedAt)})` : ''}:{' '}
               <span data-testid="lu-run-outcome-status" className="font-semibold">
                 {ASSESSMENT_STATUS_LABEL[runOutcome.status] ?? 'Okänd status'}
               </span>
@@ -1208,6 +1224,12 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             <p>
               Körningen gav ingen ny bedömning.
               {governed ? ' Bedömningen som visas nedan är projektets aktuella sparade bedömning från en annan körning.' : ''}
+            </p>
+            {/* W-M2d item 8: honest about what is kept -- the server stores no denied runs. */}
+            <p data-testid="lu-run-outcome-session-note" className="text-xs opacity-80">
+              {runOutcomeInShell
+                ? 'Uppgiften finns kvar så länge du är inloggad i den här fliken. Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om.'
+                : 'Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om.'}
             </p>
           </div>
         ) : null}
@@ -1540,6 +1562,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 {ASSESSMENT_STATUS_LABEL[governed.assessmentStatus] ?? 'Okänd status'}
               </span>
             </p>
+            {retrievedAtOf(governed.evidenceDetails) ? (
+              <p data-testid="lu-assessment-retrieved" className="text-xs opacity-80">
+                Underlaget för bedömningen hämtades {new Date(retrievedAtOf(governed.evidenceDetails)!).toLocaleString('sv-SE')}.
+              </p>
+            ) : null}
             {governed.assessmentStatus === 'ASSESSED' && overall ? (
               <div
                 data-testid="lu-assessment-overall"

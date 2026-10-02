@@ -3,6 +3,7 @@ import { MpsCompass } from '@miljobeslut/mps-compass';
 import { designTokens } from '@miljobeslut/mps-identity';
 import { MpsConsoleApp, type MpsProjectionApi } from '@miljobeslut/mps-console';
 import { PropertyFirstLuEntry } from './lu/PropertyFirstLuEntry';
+import { LuSessionMemoryProvider } from './lu/luSessionMemory';
 import { ProjectPicker } from './ProjectPicker';
 import type { AppBootstrapProjectSummary } from '../../src/types/app';
 
@@ -122,6 +123,8 @@ export const MimerProductShell: React.FC<MimerProductShellProps> = ({
           </nav>
         </aside>
 
+        {/* W-M2d item 8: what the LU view must remember across view switches (session only). */}
+        <LuSessionMemoryProvider>
         <main className="flex-1 overflow-y-auto min-w-0">
           {view === 'home' && (
             <section className="max-w-3xl px-8 py-10" data-testid="product-home">
@@ -158,6 +161,7 @@ export const MimerProductShell: React.FC<MimerProductShellProps> = ({
             </div>
           )}
         </main>
+        </LuSessionMemoryProvider>
       </div>
     </div>
   );
