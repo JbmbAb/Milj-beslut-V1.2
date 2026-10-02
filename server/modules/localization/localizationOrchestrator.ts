@@ -62,6 +62,8 @@ import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
 import {
   classifyReadFault,
+  isProjectAccessDenied,
+  LuReadFaultError,
   projectAccessFailure,
   readFaultHttpStatus,
   readFaultOfClass,
@@ -409,6 +411,7 @@ export async function resolveLuViewerPresentation(input: {
   | GovernedRecordIntegrityFailure
   | GovernedEvidenceIntegrityFailure
   | PinnedEvidenceUnreadableRefusal
+  | ViewerPresentationUnresolved
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
@@ -487,11 +490,12 @@ export async function resolveLuViewerPresentation(input: {
   } catch (error) {
     // Covers: missing/superseded/tampered capability, missing/tampered CAS evidence, wrong
     // release/viewer-identity. Fail closed, never a stale or synthetic fallback.
-    return {
-      ok: false,
-      status: 424,
-      error: error instanceof Error ? error.message : 'Governed viewer presentation is unavailable.',
-    };
+    // W-U20CDF5 (B2; W-CATCH2 #4/#13 class): typed and neutral, never the raw message (ids, paths). A typed
+    // capability/binding read fault keeps the route's own mapping (VIEWER_CAPABILITY_UNRESOLVED); the typed
+    // access denial is 403; everything else is the shared class as VIEWER_PRESENTATION_UNRESOLVED.
+    if (error instanceof LuReadFaultError) throw error;
+    if (isProjectAccessDenied(error)) return projectAccessFailure(error);
+    return viewerPresentationFailure(classifyReadFault(error));
   }
 
   // U20CDF4 (owner decision 2026-10-03 (4) point 1; coordinator clarification 2): the map presents the
@@ -520,6 +524,40 @@ export async function resolveLuViewerPresentation(input: {
     geojson: presentation.geojson,
     assessmentArtifactId: presentation.assessmentArtifactId,
     capabilityArtifactId: presentation.capabilityArtifactId,
+  };
+}
+
+/** W-U20CDF5 (B2): the map's governed presentation could not be read or verified. */
+export const VIEWER_PRESENTATION_UNRESOLVED = 'VIEWER_PRESENTATION_UNRESOLVED';
+
+export interface ViewerPresentationUnresolved {
+  readonly ok: false;
+  readonly status: 424 | 503;
+  readonly error: string;
+  readonly code: typeof VIEWER_PRESENTATION_UNRESOLVED;
+  readonly failureClass: ReadFaultClass;
+  /** The REJECT_* token of a refusal (never its text), else the class. */
+  readonly reasonCode: string;
+  readonly retryable: boolean;
+}
+
+/**
+ * W-U20CDF5 (B2): a failure of resolveGovernedLocalizationPresentation in the shared classes. A verification
+ * refusal (tampered assessment or evidence, wrong release/identity) keeps the presentation's fail-closed 424;
+ * a read fault is 503 (retryable only for READ_ERROR; an artifact the CAS does not hold is MISSING_FROM_CAS,
+ * lasting). The text is neutral -- the raw message (artifact ids, paths, codes) stays server-side.
+ */
+function viewerPresentationFailure(fault: ReadFault): ViewerPresentationUnresolved {
+  return {
+    ok: false,
+    status: fault.faultClass === 'REFUSED' ? 424 : 503,
+    error:
+      `${readFaultSentenceSv(fault, 'Kartans styrda underlag (bedömning, evidens eller visningsbehörighet)')} ` +
+      'Kartan visar inte kontrollresultaten, och inget annat underlag används i stället.',
+    code: VIEWER_PRESENTATION_UNRESOLVED,
+    failureClass: fault.faultClass,
+    reasonCode: fault.refusalCode ?? fault.faultClass,
+    retryable: fault.retryable,
   };
 }
 

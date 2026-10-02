@@ -73,7 +73,9 @@ export const READ_FAULT_CATCH_REVIEWED: readonly ReviewedCatch[] = [
   // W-U20CDF5 (B1): the two assertProjectAccess catches (former OPEN_NOT_FIXED 0e002c221d34609a x2) now call
   // projectAccessFailure -- classified, so they are accepted by the scanner and no longer listed here.
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'dad2ad37bc2f8019', count: 1, kind: 'OWN_CLASSIFICATION', note: 'W-APR/U20CDF2 assessmentResolutionFailure: REJECT absence 404, typed selection faults 503/409/424' },
-  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'd7ff42e40d76b015', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (#4/#13 class, W-U20CDF4 lane): every presentation failure is 424 with the RAW error message (ids; a read fault is not 503/retryable); the capability fault now carries faultClass/retryable/cause (W-CATCH2 #13) for this mapping to use' },
+  // W-U20CDF5 (B2): the presentation catch (former OPEN_NOT_FIXED d7ff42e40d76b015) rethrows a typed
+  // LuReadFaultError to the route and classifies everything else (projectAccessFailure / classifyReadFault ->
+  // VIEWER_PRESENTATION_UNRESOLVED) -- accepted by the scanner, no longer listed here.
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '451e8918e6743c45', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure: exact not-found 404, read error 503 retryable, lasting storage fault 503' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '76c1f80445ebfa62', count: 1, kind: 'OWN_CLASSIFICATION', note: 'W-APR/U20CDF2 assessmentResolutionFailure (see above)' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'b9fde1fe58ff150c', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure (see above)' },
