@@ -119,7 +119,11 @@ export class MimersByteStorageBackend implements ByteStorageBackend {
     return hash;
   }
 
-  /** Write-then-rename, so a concurrent reader never sees a torn (empty/partial) entry. */
+  /**
+   * Write-then-rename, so a concurrent reader never sees a torn (empty/partial) entry. Replaces an
+   * existing entry: used only by rebuildIndexFromCas (which starts from an empty index). put() uses
+   * the exclusive createHashEntry below.
+   */
   private async writeHash(id: string, hash: string): Promise<void> {
     await fs.mkdir(this.indexDir, { recursive: true });
     const record: IndexRecord = { artifact_id: id, hash };
@@ -146,20 +150,66 @@ export class MimersByteStorageBackend implements ByteStorageBackend {
     return bytes;
   }
 
+  /**
+   * M1a-F1 (5) / U30 F8: create the id->hash entry EXCLUSIVELY. The complete entry is written to a
+   * unique temp file and hard-linked to its final name, so the name appears atomically with complete
+   * content (no torn reads, as with write-then-rename) and the link fails with EEXIST instead of
+   * replacing an entry that a concurrent writer created in the meantime. The rename used before
+   * replaced the target: on Windows a concurrent replace failed with EPERM (5 of 16 concurrent puts of
+   * one id), and between two writers with DIFFERENT bytes the last rename silently won -- both callers
+   * saw success, one of them for content that was not stored (a WORM violation). The temp file sits
+   * next to the entry, so the link never crosses a filesystem (FileCASRepository.initialize already
+   * requires hard links on the CAS volume, which holds the index).
+   */
+  private async createHashEntry(id: string, hash: string): Promise<"CREATED" | "EXISTS"> {
+    await fs.mkdir(this.indexDir, { recursive: true });
+    const record: IndexRecord = { artifact_id: id, hash };
+    const target = this.indexPath(id);
+    const temp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    await fs.writeFile(temp, JSON.stringify(record), { encoding: "utf8", flag: "wx" });
+    try {
+      await fs.link(temp, target);
+      return "CREATED";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | null)?.code === "EEXIST") return "EXISTS";
+      throw error;
+    } finally {
+      await fs.rm(temp, { force: true }).catch(() => undefined);
+    }
+  }
+
+  /** The id is already indexed: put() is idempotent for the SAME bytes, a WORM violation otherwise. */
+  private async assertStoredBytesEqual(id: string, existingHash: string, bytes: Uint8Array): Promise<void> {
+    const existing = await this.cas.getBytes(existingHash);
+    // ADV-1 rest: an indexed id whose object is gone is not "already stored" -- fail closed instead
+    // of returning silently over it (the artifact would stay unreadable). No silent repair either.
+    if (existing === null) throw new MimersArtifactObjectMissingError(id, existingHash, "put");
+    if (Buffer.compare(Buffer.from(existing), Buffer.from(bytes)) !== 0) {
+      throw new Error(`WORM violation: ${id}`);
+    }
+  }
+
   async put(id: string, bytes: Uint8Array): Promise<void> {
     const existingHash = await this.readHash(id);
     if (existingHash) {
-      const existing = await this.cas.getBytes(existingHash);
-      // ADV-1 rest: an indexed id whose object is gone is not "already stored" -- fail closed instead
-      // of returning silently over it (the artifact would stay unreadable). No silent repair either.
-      if (existing === null) throw new MimersArtifactObjectMissingError(id, existingHash, "put");
-      if (Buffer.compare(Buffer.from(existing), Buffer.from(bytes)) !== 0) {
-        throw new Error(`WORM violation: ${id}`);
-      }
+      await this.assertStoredBytesEqual(id, existingHash, bytes);
       return;
     }
     const result = await this.cas.putBytes(bytes);
-    await this.writeHash(id, result.hash);
+    if ((await this.createHashEntry(id, result.hash)) === "CREATED") return;
+    // M1a-F1 (5): a concurrent put() of the same id created the entry first. Same rule as above:
+    // success only if it names exactly these bytes; different bytes are a WORM violation (never a
+    // silent overwrite). Our own object stays in the CAS unreferenced (content-addressed, harmless).
+    const winnerHash = await this.readHash(id);
+    if (!winnerHash) {
+      throw new MimersArtifactIndexReadError(
+        id,
+        this.indexPath(id),
+        "IO",
+        "the entry existed when put() tried to create it but was gone when read back",
+      );
+    }
+    await this.assertStoredBytesEqual(id, winnerHash, bytes);
   }
 
   async exists(id: string): Promise<boolean> {
