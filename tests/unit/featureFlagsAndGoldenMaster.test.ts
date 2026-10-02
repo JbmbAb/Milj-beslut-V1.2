@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { featureFlags, FeatureFlagService } from '../../src/infrastructure/feature-flags';
 import { goldenMaster, GoldenMasterManager, GisResult, PdfStructure } from '../helpers/goldenMaster';
@@ -78,19 +79,25 @@ describe('Feature Flags Service', () => {
 
 describe('Golden Master Manager', () => {
   const testKey = 'test-temp-golden-master';
+  // TEST-DB-GUARD, TDG-4: a recorded golden master goes to a temp directory of this test, never into
+  // tests/fixtures/golden-masters of the tree the run happens in.
+  let recordDir: string;
+
+  beforeEach(() => {
+    recordDir = fs.mkdtempSync(path.join(os.tmpdir(), 'golden-master-test-'));
+  });
 
   afterEach(() => {
-    const filePath = path.join(process.cwd(), 'tests', 'fixtures', 'golden-masters', `${testKey}.json`);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    fs.rmSync(recordDir, { recursive: true, force: true });
   });
 
   it('should save and load JSON golden masters correctly', () => {
     const sampleData = { version: '1.2.3', features: ['gis', 'pdf'] };
-    goldenMaster.saveGoldenMaster(testKey, sampleData);
+    const recorder = new GoldenMasterManager(recordDir);
+    recorder.saveGoldenMaster(testKey, sampleData);
 
-    const loaded = goldenMaster.loadGoldenMaster(testKey);
+    expect(fs.existsSync(path.join(recordDir, `${testKey}.json`))).toBe(true);
+    const loaded = recorder.loadGoldenMaster(testKey);
     expect(loaded).toEqual(sampleData);
   });
 

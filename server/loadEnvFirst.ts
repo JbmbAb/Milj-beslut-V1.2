@@ -1,5 +1,6 @@
 import { loadEnvFile } from './loadEnv';
 import { installTestDatabaseConnectionGuard } from './modules/test-db-guard/installTestDatabaseConnectionGuard';
+import { installTestDataRootWriteGuard } from './modules/test-db-guard/installTestDataRootWriteGuard';
 import { isTestRuntime } from './modules/test-db-guard/testDatabaseTargetPolicy';
 
 // TEST-DB-GUARD (OD-K0-5): decided once, before any env file is read.
@@ -10,6 +11,8 @@ const testRuntime = isTestRuntime(process.env);
 // before any other module of the process can call dotenv or open a database connection.
 if (testRuntime) {
   installTestDatabaseConnectionGuard();
+  // TDG-4: nor does it write into a live data root of a product tree (storage/, .quarantine/, ...).
+  installTestDataRootWriteGuard();
 }
 
 // Force delete any system-level DATABASE_URL on startup to ensure

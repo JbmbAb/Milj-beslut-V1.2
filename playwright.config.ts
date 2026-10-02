@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import { ensureDockerDatabaseEndpointDiscovery } from './server/modules/test-db-guard/dockerPublishedDatabaseEndpoints';
 import { installTestDatabaseConnectionGuard } from './server/modules/test-db-guard/installTestDatabaseConnectionGuard';
+import { installTestDataRootWriteGuard } from './server/modules/test-db-guard/installTestDataRootWriteGuard';
 import {
   assertExternalE2eTargetsAreRemote,
   LOCAL_E2E_DEFAULT_API_PORT,
@@ -62,6 +63,9 @@ const geminiApiKey = trim(process.env.GEMINI_API_KEY) || (process.env.CI ? 'ci-g
 isolateTestDataRootEnv(process.env, 'playwright.config.ts', { assignFreshRoots: false });
 const e2eCas = localPlan ? createFreshTestCasRoots() : null;
 const e2eDataRoots = localPlan ? createFreshTestDataRoots() : null;
+// TDG-4: the runner and every worker (they load this config) never write into a live data root of a
+// product tree; the API server (MIMER_TEST_MODE) installs the same guard in server/loadEnvFirst.ts.
+installTestDataRootWriteGuard();
 
 const serverEnv = {
   NODE_ENV: 'development',

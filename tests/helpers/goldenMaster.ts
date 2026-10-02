@@ -26,21 +26,26 @@ export interface ComparisonResult {
   difference?: string;
 }
 
-const GOLDEN_MASTER_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'golden-masters');
+/** The committed golden masters (read). A test that records a new one passes its own temp directory. */
+export const GOLDEN_MASTER_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'golden-masters');
 
 /**
  * Hjälpmedel för att spara och jämföra resultat mot en känd fungerande "Golden Master"-referens.
  * Säkerställer funktionell ekvivalens vid refaktorering från legacy till Clean Architecture.
+ *
+ * TEST-DB-GUARD, TDG-4: constructing a manager creates nothing (the module-level instance used to create
+ * tests/fixtures/golden-masters in the tree of every run that imported it); the directory is created only
+ * when a golden master is saved.
  */
 export class GoldenMasterManager {
-  constructor() {
-    if (!fs.existsSync(GOLDEN_MASTER_DIR)) {
-      fs.mkdirSync(GOLDEN_MASTER_DIR, { recursive: true });
-    }
+  private readonly dir: string;
+
+  constructor(dir: string = GOLDEN_MASTER_DIR) {
+    this.dir = dir;
   }
 
   private getFilePath(key: string): string {
-    return path.join(GOLDEN_MASTER_DIR, `${key}.json`);
+    return path.join(this.dir, `${key}.json`);
   }
 
   /**
@@ -48,6 +53,7 @@ export class GoldenMasterManager {
    */
   saveGoldenMaster(key: string, data: any): void {
     const filePath = this.getFilePath(key);
+    fs.mkdirSync(this.dir, { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
   }
 

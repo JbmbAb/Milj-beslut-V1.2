@@ -25,6 +25,10 @@
  *      server/modules/test-db-guard/testDataRootIsolation.ts): removed before every test file, and
  *      each key whose unset default is a location (a cwd-relative or absolute live directory) is
  *      set to a path in a NEW temp run directory of this test file instead.
+ *   5. TDG-4: installs the data-root write guard -- a write, mkdir, copy, rename or removal inside a
+ *      live data root of a product tree (storage/, .quarantine/, .data/, tmp-artifacts/,
+ *      tests/fixtures/ ...) is refused with TestDataRootWriteRefusedError before anything happens
+ *      (server/modules/test-db-guard/installTestDataRootWriteGuard.ts; reviewed exceptions there).
  *
  * Policy and denylist: server/modules/test-db-guard/testDatabaseTargetPolicy.ts. The destructive
  * GIS globalSetup admission (tests/setup/disposableGisTestDatabase.ts) uses the same policy.
@@ -41,6 +45,7 @@
  * and they never reach a live database.
  */
 import { installTestDatabaseConnectionGuard } from '../../server/modules/test-db-guard/installTestDatabaseConnectionGuard';
+import { installTestDataRootWriteGuard } from '../../server/modules/test-db-guard/installTestDataRootWriteGuard';
 import { isolateTestDataRootEnv } from '../../server/modules/test-db-guard/testDataRootIsolation';
 import {
   assertNoKnownLiveDatabaseInEnv,
@@ -60,3 +65,7 @@ if (!isHermeticTestProcess(process.env)) {
 // Before every test file: no data root of the shell (or of an earlier file) reaches the test; the
 // keys with a location default get a fresh temp root of this file (TDG-3 CAS, TDG-4 all roots).
 isolateTestDataRootEnv(process.env, 'Vitest setup (tests/setup/testDatabaseGuard.ts)');
+
+// TDG-4: no write lands in a live data root of a product tree (storage/, .quarantine/, .data/,
+// tmp-artifacts/, tests/fixtures/ ...) -- whatever cwd the run has; refused before anything happens.
+installTestDataRootWriteGuard();
