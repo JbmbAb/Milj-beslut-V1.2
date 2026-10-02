@@ -2656,6 +2656,25 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expectLegacyUnboundForm(await verify(absent, A), "LEGACY_UNBOUND");
   });
 
+  it("28u (U30-R6b; mutant B02 survived without it): the manifest's identity reference is compared by id AND artifact_type -- the authority identity's id under another type (rewritten in place) is not the identity the authority binds -> the notice", async () => {
+    const { repo, A } = await twoCanonical();
+    const outcome = await repo.resolve<{ attempt_ref: Ref }>(A.payload.execution_outcome_ref);
+    const attempt = await repo.resolve<{ manifest_ref: Ref }>(outcome.attempt_ref);
+    const store = (repo as unknown as { store: Map<string, { content_hash: unknown; body: Record<string, unknown> }> }).store;
+    const entry = store.get(attempt.manifest_ref.artifact_id)!;
+    const named = entry.body.execution_identity_ref as Ref;
+    // Precondition (structural; a verify here would write the REPLAY record a second verify must not overwrite): the
+    // genuine manifest names exactly the authority subject identity, id and type.
+    const evidence = await repo.resolve<{ authority_path: { role: string; artifact_ref?: Ref }[] }>(A.payload.authority_evidence_ref!);
+    expect(evidence.authority_path.find((e) => e.role === "subject")!.artifact_ref).toEqual(named);
+    strictProduction();
+    store.set(attempt.manifest_ref.artifact_id, {
+      content_hash: entry.content_hash,
+      body: { ...entry.body, execution_identity_ref: { artifact_id: named.artifact_id, artifact_type: "execution_identity_wu30r6b" } },
+    });
+    expectLegacyUnboundForm(await verify(repo, A), "LEGACY_UNBOUND");
+  });
+
   // ---------------------------------------------------------------------------------------------
   // U30-R6b (U30R6-VERIFICATION finding 3): strictNullChecks is off in this repository, so the result type alone cannot
   // keep a consumer from showing a DENY, a missing or null strength, or an unpaired notice as green. The ONE safe way
