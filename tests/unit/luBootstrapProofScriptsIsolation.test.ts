@@ -13,7 +13,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { isDatabaseConnectionEnvKey } from '../../server/modules/test-db-guard/testDatabaseTargetPolicy';
 
 /**
  * LU-CANONICAL-RUNTIME-HARDENING-R1 -- claim 4.
@@ -31,7 +34,12 @@ import { join, relative, resolve, sep } from 'node:path';
  * proves isolation, not that verdict.
  */
 
-const repoRoot = resolve(process.cwd());
+// The scripts read repository files relative to their working directory: the repository root of
+// THIS checkout, independent of the directory Vitest was started from.
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** Explicitly dead: port 1 on loopback never answers. */
+const DEAD_DATABASE_URL = 'postgresql://x:x@127.0.0.1:1/none';
 
 const SCRIPTS = [
   'scripts/ops/prove-lu-replay-cold-verify-01.ts',
@@ -57,13 +65,24 @@ function snapshot(root: string): Record<string, string> {
   return out;
 }
 
+/**
+ * The operator's view of the product (no VITEST, no NODE_ENV=test), in a controlled test
+ * environment (TEST-DB-GUARD, OD-K0-5): MIMER_TEST_MODE=1 makes the child a hermetic test process
+ * -- server/loadEnvFirst reads no env file at all, so the worktree's `.env.local` (the live
+ * database) is never loaded although the child's cwd is the repository root -- no database
+ * setting is inherited, and the only DATABASE_URL is explicitly dead.
+ */
 function operatorEnv(sentinelRoot: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of Object.keys(env)) {
+  for (const [key, value] of Object.entries(env)) {
     if (key.startsWith('VITEST') || key.startsWith('MIMERS_') || key === 'NODE_ENV') delete env[key];
+    else if (value !== undefined && isDatabaseConnectionEnvKey(key, value)) delete env[key];
   }
   delete env.MPS_LU_BOOTSTRAP_ADMIT;
   delete env.LU_MPS_CAS;
+  env.MIMER_TEST_MODE = '1';
+  env.DATABASE_URL = DEAD_DATABASE_URL;
+  env.TEST_DATABASE_URL = DEAD_DATABASE_URL;
   env.MIMERS_ROOT = sentinelRoot;
   return env;
 }
@@ -88,6 +107,36 @@ function runScript(script: string, sentinelRoot: string) {
     : null;
   return { result, stdout, isolation };
 }
+
+describe('LU bootstrap proof scripts run in a controlled test environment (TEST-DB-GUARD, OD-K0-5)', () => {
+  it('as a hermetic test process with an explicitly dead database and no inherited database setting', () => {
+    const inherited = {
+      POSTGRES_URL: 'postgresql://wtdg2:x@wtdg2-inherited.invalid:1/wtdg2_inherited',
+      PGHOST: 'wtdg2-inherited.invalid',
+      MIMER_TEST_DB_ALLOW: 'wtdg2_inherited_test',
+    };
+    const saved = Object.fromEntries(Object.keys(inherited).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, inherited);
+    let env: NodeJS.ProcessEnv;
+    try {
+      env = operatorEnv('wtdg2-sentinel-root');
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+    expect(env.MIMER_TEST_MODE).toBe('1');
+    expect(env.DATABASE_URL).toBe(DEAD_DATABASE_URL);
+    expect(env.TEST_DATABASE_URL).toBe(DEAD_DATABASE_URL);
+    const databaseKeys = Object.entries(env)
+      .filter(([key, value]) => value !== undefined && isDatabaseConnectionEnvKey(key, value))
+      .map(([key]) => key)
+      .sort();
+    expect(databaseKeys).toEqual(['DATABASE_URL', 'TEST_DATABASE_URL']);
+    expect(Object.keys(env).filter((key) => key.startsWith('VITEST') || key === 'NODE_ENV')).toEqual([]);
+  });
+});
 
 describe("LU bootstrap proof scripts never touch the caller's MIMERS_ROOT", () => {
   it.each(SCRIPTS)(

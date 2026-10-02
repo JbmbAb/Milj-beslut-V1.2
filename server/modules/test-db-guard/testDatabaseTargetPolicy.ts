@@ -123,23 +123,55 @@ function admitted(basis: 'dead-target' | 'explicit-opt-in', reason: string): Tar
  * starts. Recognized values: `1` and `true`. Such a process is a test runtime AND hermetic: it
  * reads no env file at all (neither `.env` nor `.env.local` nor any other), so the explicitly given
  * process environment -- with its controlled DATABASE_URL -- is its whole configuration.
+ *
+ * Third value, `vitest-worker:<pid>`: set by the Vitest setup file (tests/setup/testDatabaseGuard.ts)
+ * in every worker, so that every process a test starts inherits it -- also when the test strips
+ * VITEST and NODE_ENV to run a script "as an operator would". The worker itself (same pid) keeps
+ * the Vitest rule (no `*.local`, no database keys from env files; fixtures still load); every
+ * other process carrying it -- a child, a grandchild -- is a hermetic test process.
  */
 export const TEST_MODE_ENV = 'MIMER_TEST_MODE';
 
-/** A process explicitly marked by MIMER_TEST_MODE: test runtime, and no env file is ever read. */
-export function isHermeticTestProcess(env: NodeJS.ProcessEnv = process.env): boolean {
-  const marker = String(env[TEST_MODE_ENV] ?? '')
+const VITEST_WORKER_TEST_MODE = /^vitest-worker:(\d+)$/;
+
+/** The MIMER_TEST_MODE value a Vitest worker hands down to every process its tests start. */
+export function vitestWorkerTestModeMarker(pid: number = process.pid): string {
+  return `vitest-worker:${pid}`;
+}
+
+function testModeMarkerOf(env: NodeJS.ProcessEnv): string {
+  return String(env[TEST_MODE_ENV] ?? '')
     .trim()
     .toLowerCase();
-  return marker === '1' || marker === 'true';
+}
+
+/**
+ * A process marked by MIMER_TEST_MODE (other than the Vitest worker that set the inherited
+ * marker): test runtime, and no env file is ever read.
+ */
+export function isHermeticTestProcess(
+  env: NodeJS.ProcessEnv = process.env,
+  pid: number = process.pid,
+): boolean {
+  const marker = testModeMarkerOf(env);
+  if (marker === '1' || marker === 'true') return true;
+  const worker = VITEST_WORKER_TEST_MODE.exec(marker);
+  return worker !== null && Number(worker[1]) !== pid;
 }
 
 /**
  * NODE_ENV=test, any Vitest worker (a test may set NODE_ENV=production to test a branch), or a
- * process explicitly marked by MIMER_TEST_MODE.
+ * process marked by MIMER_TEST_MODE.
  */
 export function isTestRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.NODE_ENV === 'test' || Boolean(env.VITEST) || isHermeticTestProcess(env);
+  const marker = testModeMarkerOf(env);
+  return (
+    env.NODE_ENV === 'test' ||
+    Boolean(env.VITEST) ||
+    marker === '1' ||
+    marker === 'true' ||
+    VITEST_WORKER_TEST_MODE.test(marker)
+  );
 }
 
 function normalizeHost(host: string | undefined | null): string {
