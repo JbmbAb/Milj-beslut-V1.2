@@ -61,6 +61,8 @@ export * from "./execution/LuDeterministicReExecution";
 // refuse to start with MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process (gate "process_startup") -- one rule,
 // no duplicate. The allowance, the error class and the re-execution KNOWN_LIMITATION marker stay internal.
 export { assertBootstrapAdmitFlagOnlyInExplicitTestProcess } from "./execution/LuReExecutionBootstrapAllowance";
+// U30-R6b (U30R6-VERIFICATION finding 3): the ONE fail-closed way to decide whether a verify result may be shown green.
+export { classifyVerifyPresentation } from "./execution/LuVerifyPresentation";
 export * from "./registry/LuSiteAssessmentRegistry";
 export * from "./registry/createLuRegistryRuntime";
 

@@ -193,6 +193,12 @@ import {
  *  - a DENY has no strength (`null`) and never the notice.
  * The verdict (PASS/DENY) is unchanged by U30-R6; only the notice and the strength are added. EXECUTION_SUBJECT_UNBOUND
  * carries its own Swedish text (`text_sv`), distinct from the deviation/tampering wording.
+ *
+ * U30-R6b (U30R6-VERIFICATION findings 1 and 3): a V4's authority binding counts as "bound" only when its subject IS
+ * the identity the execution's manifest names (F11: a never-issued bootstrap identity, relabelled V4 with an identity
+ * minted elsewhere, PASSed as FULLY_BOUND); otherwise the same PASS carries the notice. And since strictNullChecks is off
+ * here, the result type cannot keep a consumer from showing a DENY or an unpaired strength as green:
+ * classifyVerifyPresentation (./LuVerifyPresentation.ts, a package-root export) is the one fail-closed way to decide.
  */
 
 export type LuReExecutionMismatchCode =
@@ -566,7 +572,8 @@ export async function reExecuteLocalizationAssessment(args: {
   }
 
   // U30-R3 K2: a V4 assessment's authority subject must name the execution its outcome pins.
-  const authorityBinding = await authoritySubjectBinding(assessment, manifestIdFromAttemptRef, args.artifactRepository);
+  // U30-R6b: ... and be the very identity that execution's manifest names (else the PASS is not bound: notice).
+  const authorityBinding = await authoritySubjectBinding(assessment, manifestIdFromAttemptRef, attempt.manifest_ref, args.artifactRepository);
   if (authorityBinding.kind === "mismatch") {
     return denied(authorityBinding.mismatch);
   }
@@ -695,8 +702,10 @@ export async function reExecuteLocalizationAssessment(args: {
  *  - a v2 outcome with a positively established subject binding (V4 authority subject, or V3 execution subject) ->
  *    fully bound (null);
  *  - otherwise LEGACY_UNBOUND: the execution had no governed subject and was accepted only in an explicit test
- *    bootstrap -- or, fail-closed for the presentation, no subject binding was established at all (no reachable PASS
- *    takes that branch today; it exists so that a PASS can never be FULLY_BOUND without a binding).
+ *    bootstrap; or (U30-R6b, U30R6-VERIFICATION finding 1, F11) a V4's authority binds an identity that is NOT the one
+ *    its execution's manifest names (the named one missing, another one, or none) -- the authority then binds no
+ *    execution that was issued to it; or, fail-closed for the presentation, no subject binding was established at all
+ *    (no reachable PASS takes that last branch; it exists so that a PASS can never be FULLY_BOUND without a binding).
  */
 function legacyUnboundFormNotice(
   outcome: FrozenExecutionOutcomeIdentity,
@@ -724,9 +733,11 @@ function legacyUnboundFormNotice(
   if (authority.kind === "bound" || subject.kind === "bound") return null;
   return notice(
     "LEGACY_UNBOUND",
-    subject.kind === "unbound_accepted_in_test_bootstrap"
-      ? `execution ${manifestId} has no governed subject and was accepted only because the verifying process is an explicit test bootstrap; consistency with the pinned artifacts only`
-      : `no binding of execution ${manifestId} to a governed subject was established; consistency with the pinned artifacts only`,
+    authority.kind === "authority_not_the_manifest_identity"
+      ? `${authority.detail}; consistency with the pinned artifacts only`
+      : subject.kind === "unbound_accepted_in_test_bootstrap"
+        ? `execution ${manifestId} has no governed subject and was accepted only because the verifying process is an explicit test bootstrap; consistency with the pinned artifacts only`
+        : `no binding of execution ${manifestId} to a governed subject was established; consistency with the pinned artifacts only`,
   );
 }
 
@@ -741,7 +752,12 @@ type LuReExecutionBindingCheck =
   /** The binding does not apply to this assessment/outcome. */
   | { readonly kind: "not_applicable" }
   /** No governed subject to bind; accepted only because the verifying process is an explicit test bootstrap. */
-  | { readonly kind: "unbound_accepted_in_test_bootstrap" };
+  | { readonly kind: "unbound_accepted_in_test_bootstrap" }
+  /**
+   * U30-R6b (F11): every authority check held, but the authority subject is not the identity the execution's manifest
+   * names (that one missing, another one, or none) -- never a verdict, only the strength of a PASS.
+   */
+  | { readonly kind: "authority_not_the_manifest_identity"; readonly detail: string };
 
 const BOUND: LuReExecutionBindingCheck = { kind: "bound" };
 const NOT_APPLICABLE: LuReExecutionBindingCheck = { kind: "not_applicable" };
@@ -790,11 +806,13 @@ function exactOutputBindingMismatch(
  * Applies to V4 only: V1-V3 assessments pin no authority subject; over a v2 outcome they are bound to the
  * execution's subject by executionSubjectBinding (U30-R4) instead. Genuine absence of a pinned artifact is
  * MANIFEST_ATTEMPT_MISMATCH; a storage fault is LuReExecutionStorageError (OD-R2). U30-R6: "bound" only when every
- * step held, "not_applicable" when the assessment pins no authority evidence.
+ * step held, "not_applicable" when the assessment pins no authority evidence. U30-R6b: and only when the authority
+ * subject IS the identity the execution's manifest names ("authority_not_the_manifest_identity" otherwise).
  */
 async function authoritySubjectBinding(
   assessment: LocalizationAssessmentArtifact,
   manifestIdFromAttemptRef: string,
+  manifestRef: ArtifactReference,
   repository: ArtifactRepositoryPort,
 ): Promise<LuReExecutionBindingCheck> {
   const evidenceRef = assessment.payload.authority_evidence_ref;
@@ -867,6 +885,29 @@ async function authoritySubjectBinding(
     point.artifact_type !== subject.localization_geometry_ref?.artifact_type
   ) {
     return unbound(`the assessment's localization point is not the one its authority subject ${subjectRef.artifact_id} was issued for`);
+  }
+
+  // U30-R6b (U30R6-VERIFICATION finding 1, F11). The subject derives the manifest id, but that alone does not say the
+  // authority binds THIS execution: a bootstrap V3-subject run whose identity was never issued derives the same id, and
+  // an identity minted for the same subject at ANOTHER id passes every step above. In a genuine canonical V4 the
+  // manifest names exactly the identity the authority evidence names, so anything else -- the named identity missing
+  // from CAS, another one, or none (or the manifest itself gone at this read) -- is an execution the authority never
+  // bound: a PASS over it is LEGACY_UNBOUND_FORM with the notice. Never a verdict: the owner rule is a notice on every
+  // PASS over an unbound form, and the form cannot be shown never to be genuine without a census. A storage fault on
+  // this read is the typed technical error (OD-R2).
+  const manifestRead = await readPinnedArtifact<{ readonly execution_identity_ref?: unknown }>(repository, manifestRef, "execution_manifest");
+  const named = (manifestRead.found && typeof manifestRead.value === "object" && manifestRead.value !== null
+    ? manifestRead.value.execution_identity_ref
+    : undefined) as { readonly artifact_id?: unknown; readonly artifact_type?: unknown } | null | undefined;
+  if (named?.artifact_id !== subjectRef.artifact_id || named?.artifact_type !== subjectRef.artifact_type) {
+    return {
+      kind: "authority_not_the_manifest_identity",
+      detail: !manifestRead.found
+        ? `the authority subject ${subjectRef.artifact_id} could not be matched: manifest ${manifestRef.artifact_id} is not in CAS at the binding read`
+        : typeof named?.artifact_id !== "string"
+          ? `manifest ${manifestRef.artifact_id} names no execution identity, so the authority subject ${subjectRef.artifact_id} binds no issued execution`
+          : `manifest ${manifestRef.artifact_id} names execution identity ${named.artifact_id}, not the authority subject ${subjectRef.artifact_id}`,
+    };
   }
   return BOUND;
 }

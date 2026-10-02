@@ -28,6 +28,9 @@
  *  - NOT_CHECKED_CAUSE_NOTICE_ONLY: the form carries its own notice NOT_CHECKED_CAUSE_NOT_PINNED; its binding strength
  *    is decided by the chain it sits on;
  *  - EVERY_PASS_UNMARKED: applies to every PASS (no attestation is checked); FULLY_BOUND does not say it.
+ * U30-R6b: a V4 counts as bound only when its authority subject IS the identity the manifest names; rest 6 therefore
+ * needs the identity AT the named id (elsewhere -> the notice), and a minted authority evidence over a genuine run (a V3
+ * upgraded to V4 naming its real identity) is FULLY_BOUND under rest 4.
  */
 export const LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION = Object.freeze({
   code: "KNOWN_LIMITATION",
@@ -58,7 +61,8 @@ export const LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION = Object.freeze({
     }),
     Object.freeze({
       id: "fabricated-chain-never-run",
-      form_sv: "En helt nypåhittad kedja för ett subjekt som aldrig körts ger PASS, eftersom ingen signatur kontrolleras",
+      form_sv:
+        "En helt nypåhittad kedja för ett subjekt som aldrig körts ger PASS, eftersom ingen signatur kontrolleras; detsamma gäller en påhittad auktoritetsevidens över en äkta körning, t.ex. en äkta historisk V3 uppgraderad till V4 med präglad auktoritetsevidens som namnger dess äkta identitet (FULLY_BOUND, U30R6-VERIFICATION fynd 6)",
       requires_sv: "nya CAS-objekt + en DB-rad",
       verify_pass_marking: "DEPENDS_ON_FORM",
     }),
@@ -72,7 +76,7 @@ export const LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION = Object.freeze({
     Object.freeze({
       id: "identity-minted-after-the-fact",
       form_sv:
-        "En bootstrap-körning med V3-subjekt ger EXECUTION_SUBJECT_UNBOUND i produktkonfiguration tills någon präglar den aldrig utfärdade identiteten på det id manifestet namnger; därefter PASS (UNBOUND är ingen hård grind; identiteten finns men dess utfärdarkedja kontrolleras inte vid verify, census-klass C10)",
+        "En bootstrap-körning med V3-subjekt ger EXECUTION_SUBJECT_UNBOUND i produktkonfiguration tills någon präglar den aldrig utfärdade identiteten på det id manifestet namnger; därefter PASS (UNBOUND är ingen hård grind; identiteten finns men dess utfärdarkedja kontrolleras inte vid verify, census-klass C10) – som V3, och som V4 med präglad auktoritetsevidens som namnger SAMMA identitet. Präglas identiteten i stället på ett ANNAT id än manifestet namnger (U30R6-VERIFICATION fynd 1, F11) bär PASS:en notisen LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY (U30-R6b)",
       requires_sv: "ett nytt CAS-objekt; ingen WORM-förbikoppling och ingen DB-rad om bootstrap-bedömningen redan är aktuell (rest i samma familj som R-3/R-4: förfalskare med skrivåtkomst)",
       verify_pass_marking: "NOT_DETECTABLE_FULLY_BOUND",
     }),
