@@ -38,8 +38,9 @@ import { homeRelative, scanDataRoots, type DataRootInventory } from './testDbGua
  *     changed in review, and an entry the code no longer needs fails as stale.
  *
  * A NEW data root without handling makes this test fail -- proven by the canaries on a temporary copy.
- * TDG-5: the scanner is a drift guard, not a proof: a form it does not recognise is not seen (see the
- * scanner's header); the write guard is the protection.
+ * TDG-5/TDG-6: the scanner is a drift guard, not a proof: a form it does not recognise is not seen (see the
+ * scanner's header). The write guard is the in-process backstop behind it -- not a proof either: a child
+ * process that does not load it, worker_threads and the raw fs bindings pass it (its KNOWN LIMITATIONS).
  */
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -279,7 +280,7 @@ describe('the reviewed lists are locked (a new entry fails here until the lock i
     for (const e of TEST_ENV_KEYS_NOT_DATA_ROOTS) expect(e.why.length).toBeGreaterThan(10);
   });
 
-  it('relative roots that are not live: exactly these 15', () => {
+  it('relative roots that are not live: exactly these 17', () => {
     expect(TEST_RELATIVE_ROOTS_NOT_LIVE.map((e) => e.root)).toEqual([
       '.dockerignore',
       '.prettierrc.json',
@@ -293,9 +294,12 @@ describe('the reviewed lists are locked (a new entry fails here until the lock i
       'server',
       'services',
       'source-registry',
+      // TDG-6: found by the new "relative literal straight to fs" form (scripts/ci/split-types-domains.mjs)
+      'src',
       'tests/setup',
       'training',
       'tsconfig.json',
+      'types.ts',
     ]);
   });
 
@@ -431,6 +435,33 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
       '',
     ].join('\n');
     fs.writeFileSync(path.join(copy, 'server/services/wtdg5CanaryEvade.ts'), evade);
+    // TDG-6: the four forms whose mutations survived TDG5-VERIFICATION (N11-N14), and the statically visible
+    // forms finding 10 showed unseen
+    const forms6 = [
+      "import fs from 'node:fs';",
+      "import os from 'node:os';",
+      "import path from 'node:path';",
+      'const cwd = process.cwd();',
+      'export const n11 = `${os.homedir()}/.wtdg6-home-template/x`;',
+      "export const n12 = os.homedir() + '/.wtdg6-home-concat';",
+      "export const n13 = '\\\\\\\\wtdg6-host\\\\share\\\\archive';",
+      "export const n14 = !process.env.WTDG6_NEGATED_ROOT ? path.join(process.cwd(), 'wtdg6-negated-root') : 'x';",
+      "fs.writeFileSync('wtdg6-fs-direct/out.json', '');",
+      "fs.copyFileSync('a.txt', 'wtdg6-fs-second/x.txt');",
+      "export const r = Reflect.get(process.env, 'WTDG6_REFLECT_DIR');",
+      'const e6 = process.env;',
+      'export const al = e6.WTDG6_ALIAS_DIR;',
+      "export const cc = cwd + '/wtdg6-cwdvar-concat';",
+      'export const ct = `${cwd}/wtdg6-cwdvar-template/x`;',
+      "export const dc = import.meta.dirname + '/../../wtdg6-dirname-concat';",
+      "export const fu = new URL('file:///G:/wtdg6/url-archive');",
+      "export const dcat = 'H:' + '\\\\wtdg6-concat-archive';",
+      "export const aj = ['E:', 'wtdg6-array', 'joined'].join('\\\\');",
+      "export const up = path.join(process.env.USERPROFILE, '.wtdg6-userprofile');",
+      "export const fw = '//wtdg6-fwd-host/share/fwd';",
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(copy, 'server/services/wtdg6CanaryForms.ts'), forms6);
     fs.mkdirSync(path.join(copy, 'packages', 'wtdg5pkg', 'scripts'), { recursive: true });
     fs.writeFileSync(
       path.join(copy, 'packages', 'wtdg5pkg', 'scripts', 'run.ts'),
@@ -456,6 +487,9 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
         'WTDG5_SINK',
         'WTDG5_SPOOL_DIR',
         'WTDG5_UPLOADS',
+        'WTDG6_ALIAS_DIR',
+        'WTDG6_NEGATED_ROOT',
+        'WTDG6_REFLECT_DIR',
       ],
       dynamicKeyPatterns: ['*_STORE_ROOT'],
       locationDefaultButOnlyRemoved: [],
@@ -470,20 +504,36 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
         'wtdg5-sink',
         'wtdg5-template-root',
         'wtdg5-url-root',
+        'wtdg6-cwdvar-concat',
+        'wtdg6-cwdvar-template',
+        'wtdg6-dirname-concat',
+        'wtdg6-fs-direct',
+        'wtdg6-fs-second',
+        'wtdg6-negated-root',
       ],
       absoluteDefaultsNotProtected: ['D:\\wtdg4-canary\\live-archive'],
       absolutePathsNotHandled: [
         'D:\\wtdg4-canary\\live-archive',
         'E:\\wtdg5\\hard-coded-archive',
+        'E:\\wtdg6-array\\joined',
         'F:\\wtdg5-joined-archive',
+        'G:\\wtdg6\\url-archive',
+        'H:\\wtdg6-concat-archive',
+        '\\\\wtdg6-fwd-host\\share\\fwd',
+        '\\\\wtdg6-host\\share\\archive',
         '~/.wtdg5-home/secrets',
         '~/.wtdg5-profile/keys',
+        '~/.wtdg6-home-concat',
+        '~/.wtdg6-home-template/x',
+        '~/.wtdg6-userprofile',
       ],
     });
     // the ternary's and the destructuring default's fallbacks are locations
     expect(inv.envKeys.WTDG5_PIPE_ROOT.fallsBackToLocation).toBe(true);
     expect(inv.envKeys.WTDG5_DEFAULTED_DIR.fallsBackToLocation).toBe(true);
     expect(inv.envKeys.WTDG5_SINK.fallsBackToLocation).toBe(true);
+    // TDG-6, N14: `!X ? <location> : x` -- the negated ternary's consequent is the fallback
+    expect(inv.envKeys.WTDG6_NEGATED_ROOT.fallsBackToLocation).toBe(true);
   });
 
   it('handled by the lists, the canary passes; scrubbed but only "removed" (or a remote store), it still fails', () => {
@@ -497,6 +547,9 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
       'WTDG5_SINK',
       'WTDG5_SPOOL_DIR',
       'WTDG5_UPLOADS',
+      'WTDG6_ALIAS_DIR',
+      'WTDG6_NEGATED_ROOT',
+      'WTDG6_REFLECT_DIR',
     ];
     const handled: Lists = {
       ...LISTS,
@@ -510,8 +563,20 @@ describe('canary: a NEW data root without handling makes the inventory fail (tem
         { root: 'D:\\wtdg4-canary' },
         { root: 'E:\\wtdg5' },
         { root: 'F:\\wtdg5-joined-archive' },
+        { root: 'E:\\wtdg6-array' },
+        { root: 'G:\\wtdg6' },
+        { root: 'H:\\wtdg6-concat-archive' },
+        { root: '\\\\wtdg6-fwd-host' },
+        { root: '\\\\wtdg6-host' },
       ],
-      protectedHome: [...LISTS.protectedHome, { root: '.wtdg5-home' }, { root: '.wtdg5-profile' }],
+      protectedHome: [
+        ...LISTS.protectedHome,
+        { root: '.wtdg5-home' },
+        { root: '.wtdg5-profile' },
+        { root: '.wtdg6-home-concat' },
+        { root: '.wtdg6-home-template' },
+        { root: '.wtdg6-userprofile' },
+      ],
     };
     const left = unhandled(inv, handled);
     expect({ ...left, dynamicKeyPatterns: [] }).toEqual({

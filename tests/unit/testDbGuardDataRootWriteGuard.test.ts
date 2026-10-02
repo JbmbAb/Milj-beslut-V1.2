@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -827,4 +828,772 @@ describe("TDG-5: the workstation's actual live roots (finding 4)", () => {
       nested: false,
     });
   });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// TDG-6 (TDG5-VERIFICATION findings 1-5, and the cheap low findings 6, 8, 9, 13): readFile with a write flag
+// and EVERY other node:fs function decided, every path type, a link to an ANCESTOR of a root plus a recursive
+// copy, the fail-open real path, mkdtempDisposable, the device namespace, .git and the surviving mutations
+// N01-N04, N08, N09, N18. Every write still targets a FAKE tree in this test's temp directory.
+
+const GUARD_MARK = Symbol.for('mimer.testDbGuard.dataRootWriteGuard');
+/** 70 directory levels: more than the 64 the real-path lookup used to climb before it said "allowed". */
+const DEEP = Array.from({ length: 70 }, (_, i) => `l${i}`);
+
+const codeOf = (error: unknown): string => {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? code : String((error as Error)?.message ?? error);
+};
+
+/** The 8.3 short form of an existing path, or null when the volume makes none (then the case is skipped). */
+function shortPathOf(target: string): string | null {
+  if (!isWin) return null;
+  const query = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${target}") do @echo %~sI`], {
+    encoding: 'utf8',
+    windowsVerbatimArguments: true,
+  });
+  const short = String(query.stdout ?? '').trim();
+  return short && short.toLowerCase() !== target.toLowerCase() ? short : null;
+}
+
+/** 'WROTE' when a stream opened its file (or became ready), else the error code. */
+function streamOutcome(make: () => unknown): Promise<string> {
+  return new Promise((resolve) => {
+    let stream: { once: (event: string, f: (e?: unknown) => void) => void; destroy?: () => void };
+    try {
+      stream = make() as typeof stream;
+    } catch (error) {
+      resolve(codeOf(error));
+      return;
+    }
+    const timer = setTimeout(() => resolve('NO_EVENT'), 5_000);
+    stream.once('error', (error) => {
+      clearTimeout(timer);
+      resolve(codeOf(error));
+    });
+    for (const event of ['open', 'ready'])
+      stream.once(event, () => {
+        clearTimeout(timer);
+        resolve('WROTE');
+        stream.destroy?.();
+      });
+  });
+}
+
+describe('TDG-6: readFile and createReadStream with a write flag, the stream classes, mkdtempDisposable (findings 1, 5)', () => {
+  let area: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg6-flags-'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  for (const style of STYLES) {
+    it(`${style}: readFile with flag w, w+, a, a+ or r+ (with and without an encoding) into a root is refused, nothing is created or truncated; flag r still reads`, async () => {
+      const tree = path.join(area, `tree-${style}`);
+      makeFakeProductTree(tree);
+      const live = path.join(tree, 'storage', 'keep', 'live.txt');
+      const fresh = path.join(tree, 'storage', 'keep', 'created-by-readfile.txt');
+      const before = listing(tree);
+      vi.spyOn(process, 'cwd').mockReturnValue(tree);
+      const results: Record<string, string> = {};
+      for (const flag of ['w', 'w+', 'a', 'a+', 'r+']) {
+        results[`${flag}, utf8, the live file`] = await outcomeOf(() =>
+          fsCall(style, 'readFile', live, { encoding: 'utf8', flag }),
+        );
+        results[`${flag}, a new file`] = await outcomeOf(() => fsCall(style, 'readFile', fresh, { flag }));
+      }
+      results['r, utf8 (a read)'] = await outcomeOf(() =>
+        fsCall(style, 'readFile', live, { encoding: 'utf8', flag: 'r' }),
+      );
+      vi.restoreAllMocks();
+      const refusedNames = Object.keys(results).filter((name) => !name.startsWith('r,'));
+      expect(results).toEqual({
+        ...Object.fromEntries(refusedNames.map((name) => [name, REFUSED])),
+        'r, utf8 (a read)': 'WROTE', // succeeded: reading is never refused
+      });
+      expect(listing(tree)).toEqual(before);
+      expect(fs.readFileSync(live, 'utf8')).toBe('live');
+    });
+  }
+
+  it('createReadStream / new ReadStream with a write flag, new WriteStream, a Utf8Stream, mkdtempDisposableSync and promises.mkdtempDisposable into a root are refused, nothing lands', async () => {
+    const tree = path.join(area, 'tree-streams');
+    makeFakeProductTree(tree);
+    const keep = path.join(tree, 'storage', 'keep');
+    const live = path.join(keep, 'live.txt');
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    type Ctor = new (...args: unknown[]) => unknown;
+    const anyFs = fs as unknown as Record<string, unknown>;
+    const results: Record<string, string> = {
+      'createReadStream flags w': await streamOutcome(() => fs.createReadStream(live, { flags: 'w' })),
+      'createReadStream flags a+, a new file': await streamOutcome(() =>
+        fs.createReadStream(path.join(keep, 'rs-new.txt'), { flags: 'a+' }),
+      ),
+      'new ReadStream flags w': await streamOutcome(() => new (anyFs.ReadStream as Ctor)(live, { flags: 'w' })),
+      'new WriteStream': await streamOutcome(() => new (anyFs.WriteStream as Ctor)(path.join(keep, 'ws.txt'))),
+      'new FileWriteStream': await streamOutcome(
+        () => new (anyFs.FileWriteStream as Ctor)(path.join(keep, 'fws.txt')),
+      ),
+      'mkdtempDisposableSync': await outcomeOf(
+        async () =>
+          (anyFs.mkdtempDisposableSync as (p: string) => unknown)?.(path.join(keep, 'disp-')) ??
+          'NOT_IN_THIS_NODE',
+      ),
+      'promises.mkdtempDisposable': await outcomeOf(async () => {
+        const fn = (fs.promises as unknown as Record<string, unknown>).mkdtempDisposable as
+          | ((p: string) => Promise<unknown>)
+          | undefined;
+        return fn ? fn(path.join(keep, 'pdisp-')) : 'NOT_IN_THIS_NODE';
+      }),
+    };
+    if (typeof anyFs.Utf8Stream === 'function') {
+      results['new Utf8Stream (sync)'] = await streamOutcome(
+        () => new (anyFs.Utf8Stream as Ctor)({ dest: path.join(keep, 'u8.txt'), sync: true }),
+      );
+      results['new Utf8Stream (async, mkdir)'] = await streamOutcome(
+        () => new (anyFs.Utf8Stream as Ctor)({ dest: path.join(keep, 'u8dir', 'u8.txt'), mkdir: true }),
+      );
+    }
+    results['control: createReadStream flag r reads'] = await streamOutcome(() => fs.createReadStream(live));
+    vi.restoreAllMocks();
+    expect(results).toEqual({
+      ...Object.fromEntries(
+        Object.keys(results)
+          .filter((name) => !name.startsWith('control'))
+          .map((name) => [name, REFUSED]),
+      ),
+      'control: createReadStream flag r reads': 'WROTE', // opened for reading
+    });
+    expect(listing(tree)).toEqual(before);
+    expect(fs.readFileSync(live, 'utf8')).toBe('live');
+  });
+});
+
+/** Every function of node:fs (and its function properties), node:fs/promises and a FileHandle, by name. */
+async function fsFunctionSurfaces(): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  const add = (prefix: string, holder: object, own: object, nested: boolean) => {
+    for (const name of Object.getOwnPropertyNames(own)) {
+      let value: unknown;
+      try {
+        value = (holder as Record<string, unknown>)[name]; // a lazy getter (ReadStream, Utf8Stream ...) included
+      } catch {
+        continue;
+      }
+      if (typeof value !== 'function') continue;
+      const key = `${prefix}.${name}`;
+      if (!(key in out)) out[key] = value;
+      if (!nested) continue;
+      for (const sub of Object.getOwnPropertyNames(value)) {
+        if (['length', 'name', 'prototype', 'caller', 'arguments'].includes(sub)) continue;
+        const inner = (value as unknown as Record<string, unknown>)[sub];
+        if (typeof inner === 'function') out[`${key}.${sub}`] = inner;
+      }
+    }
+  };
+  const noDeprecation = process.noDeprecation;
+  process.noDeprecation = true; // fs.F_OK and friends warn when read
+  try {
+    add('fs', fs, fs, true);
+    add('fs.promises', fs.promises, fs.promises, true);
+  } finally {
+    process.noDeprecation = noDeprecation;
+  }
+  const probe = path.join(tmpRoot, 'wtdg6-filehandle-probe.txt');
+  fs.writeFileSync(probe, 'x');
+  const handle = await fs.promises.open(probe, 'r');
+  try {
+    // the handle's own functions (close) and its class's, up to EventEmitter
+    for (let own: object | null = handle; own && own !== EventEmitter.prototype; own = Object.getPrototypeOf(own))
+      add('FileHandle', handle, own, false);
+  } finally {
+    await handle.close();
+  }
+  return out;
+}
+
+describe('TDG-6: every node:fs, node:fs/promises and FileHandle function is guarded or reviewed (finding 1)', () => {
+  it('the installed Node has no function that is neither wrapped by the guard nor on the reviewed list -- a new Node API is a decision, never a silent pass', async () => {
+    const { TEST_FS_FUNCTIONS_NOT_GUARDED } = await import(GUARD_MODULE);
+    const reviewed = TEST_FS_FUNCTIONS_NOT_GUARDED as Readonly<Record<string, string>>;
+    expect(reviewed).toBeTypeOf('object');
+    const surfaces = await fsFunctionSurfaces();
+    const guarded: string[] = [];
+    const unclassified: string[] = [];
+    const bothGuardedAndReviewed: string[] = [];
+    for (const [name, fn] of Object.entries(surfaces)) {
+      const isGuarded = (fn as unknown as Record<symbol, unknown>)[GUARD_MARK] === true;
+      const isReviewed = Object.prototype.hasOwnProperty.call(reviewed, name);
+      if (isGuarded && isReviewed) bothGuardedAndReviewed.push(name);
+      else if (isGuarded) guarded.push(name);
+      else if (!isReviewed) unclassified.push(name);
+    }
+    expect({ unclassified, bothGuardedAndReviewed }).toEqual({ unclassified: [], bothGuardedAndReviewed: [] });
+    for (const [name, why] of Object.entries(reviewed))
+      expect({ name, reasoned: typeof why === 'string' && why.length >= 30 }).toEqual({ name, reasoned: true });
+    // not vacuous: the enumeration sees all three surfaces, and the writing functions are wrapped
+    expect(Object.keys(surfaces).filter((name) => name.startsWith('FileHandle.'))).toEqual(
+      expect.arrayContaining(['FileHandle.close', 'FileHandle.writeFile', 'FileHandle.chmod']),
+    );
+    expect(guarded).toEqual(
+      expect.arrayContaining([
+        'fs.writeFileSync',
+        'fs.readFile',
+        'fs.readFileSync',
+        'fs.promises.readFile',
+        'fs.createReadStream',
+        'fs.cpSync',
+        'fs.promises.cp',
+        'fs.chownSync',
+        'fs.lutimesSync',
+        'fs.lchownSync',
+        'fs.promises.lchmod',
+        ...(typeof (fs as unknown as Record<string, unknown>).mkdtempDisposableSync === 'function'
+          ? ['fs.mkdtempDisposableSync', 'fs.promises.mkdtempDisposable']
+          : []),
+      ]),
+    );
+  });
+
+  it('the guarded functions and how each argument is judged are locked', async () => {
+    const { TEST_DATA_ROOT_GUARDED_FS_CALLS } = await import(GUARD_MODULE);
+    expect(TEST_DATA_ROOT_GUARDED_FS_CALLS).toEqual({
+      writeFile: ['0:write'],
+      appendFile: ['0:write'],
+      truncate: ['0:write'],
+      readFile: ['0:write if its flag writes'],
+      mkdir: ['0:mkdir'],
+      mkdtemp: ['0:mkdtemp'],
+      mkdtempDisposable: ['0:mkdtemp'],
+      copyFile: ['1:write'],
+      cp: ['1:tree', '1:tree for every path a recursive copy writes'],
+      rename: ['0:remove', '1:tree'],
+      link: ['0:write', '1:write'],
+      symlink: ['0:write (a relative target also against the link)', '1:tree'],
+      rm: ['0:remove'],
+      rmdir: ['0:remove'],
+      unlink: ['0:remove'],
+      open: ['0:write if its flag writes'],
+      createWriteStream: ['0:write'],
+      createReadStream: ['0:write if its flag writes'],
+      utimes: ['0:write'],
+      lutimes: ['0:write'],
+      chmod: ['0:write'],
+      lchmod: ['0:write'],
+      chown: ['0:write'],
+      lchown: ['0:write'],
+    });
+  });
+});
+
+type PathMaker = (p: string) => unknown;
+/** Every path type node:fs accepts, by name (TDG5-VERIFICATION finding 2: a Uint8Array went past every check). */
+const PATH_TYPES: Readonly<Record<string, PathMaker>> = {
+  string: (p) => p,
+  Buffer: (p) => Buffer.from(p),
+  Uint8Array: (p) => new Uint8Array(Buffer.from(p)),
+  'file: URL': (p) => pathToFileURL(p),
+  'URL-like object': (p) => {
+    const u = pathToFileURL(p);
+    return { href: u.href, protocol: u.protocol, hostname: u.hostname, pathname: u.pathname };
+  },
+};
+
+describe('TDG-6: every path type reaches the same decision -- string, Buffer, Uint8Array, a file: URL, a URL-like object (finding 2, mutation N01)', () => {
+  let area: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg6-types-'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  for (const [typeName, T] of Object.entries(PATH_TYPES)) {
+    for (const style of ['sync', 'promise'] as const) {
+      it(`${typeName}, ${style}: every write function into a root is refused, nothing changes; outside every root it writes`, async () => {
+        const slug = `${typeName.replace(/[^A-Za-z0-9]+/g, '-')}-${style}`;
+        const tree = path.join(area, `tree-${slug}`);
+        const outside = path.join(area, `outside-${slug}`);
+        makeFakeProductTree(tree);
+        fs.mkdirSync(outside, { recursive: true });
+        const file = path.join(outside, 'file.txt');
+        fs.writeFileSync(file, 'outside');
+        const keep = path.join(tree, 'storage', 'keep');
+        const live = path.join(keep, 'live.txt');
+        linkPathsToRemove.push(path.join(outside, 'alias'), path.join(keep, 'link'), path.join(outside, 'hard.txt'));
+        linkPathsToRemove.push(path.join(keep, 'hard.txt'));
+        const treeBefore = listing(tree);
+        const outsideBefore = listing(outside);
+        vi.spyOn(process, 'cwd').mockReturnValue(tree);
+        const promises = fs.promises as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+        const disposable = (prefix: unknown) =>
+          style === 'sync'
+            ? Promise.resolve().then(() =>
+                (fs as unknown as Record<string, (p: unknown) => unknown>).mkdtempDisposableSync(prefix),
+              )
+            : promises.mkdtempDisposable(prefix);
+        const attempts: Record<string, () => Promise<unknown>> = {
+          writeFile: () => fsCall(style, 'writeFile', T(path.join(keep, 'w.txt')), 'x'),
+          appendFile: () => fsCall(style, 'appendFile', T(live), 'x'),
+          truncate: () => fsCall(style, 'truncate', T(live), 0),
+          'readFile with flag w': () => fsCall(style, 'readFile', T(path.join(keep, 'r.txt')), { flag: 'w' }),
+          mkdir: () => fsCall(style, 'mkdir', T(path.join(keep, 'd')), { recursive: true }),
+          mkdtemp: () => fsCall(style, 'mkdtemp', T(path.join(keep, 't-'))),
+          ...(typeof (fs as unknown as Record<string, unknown>).mkdtempDisposableSync === 'function'
+            ? { mkdtempDisposable: () => disposable(T(path.join(keep, 'td-'))) }
+            : {}),
+          copyFile: () => fsCall(style, 'copyFile', file, T(path.join(keep, 'c.txt'))),
+          cp: () => fsCall(style, 'cp', file, T(path.join(keep, 'cp.txt')), {}),
+          'rename a live file out': () => fsCall(style, 'rename', T(live), path.join(outside, 'stolen.txt')),
+          'rename into storage': () => fsCall(style, 'rename', file, T(path.join(keep, 'm.txt'))),
+          'link a live file out': () => fsCall(style, 'link', T(live), path.join(outside, 'hard.txt')),
+          'link into storage': () => fsCall(style, 'link', file, T(path.join(keep, 'hard.txt'))),
+          'open r+': () => fsCall(style, 'open', T(live), 'r+'),
+          utimes: () => fsCall(style, 'utimes', T(live), new Date(0), new Date(0)),
+          lutimes: () => fsCall(style, 'lutimes', T(live), new Date(0), new Date(0)),
+          chmod: () => fsCall(style, 'chmod', T(live), 0o444),
+          chown: () => fsCall(style, 'chown', T(live), 0, 0),
+          lchown: () => fsCall(style, 'lchown', T(live), 0, 0),
+          ...(style === 'sync'
+            ? {
+                createWriteStream: () =>
+                  streamOutcome(() => fs.createWriteStream(T(path.join(keep, 's.txt')) as string)).then((o) => {
+                    if (o !== 'WROTE') throw Object.assign(new Error(o), { code: o });
+                  }),
+              }
+            : {}),
+          unlink: () => fsCall(style, 'unlink', T(live)),
+          rmdir: () => fsCall(style, 'rmdir', T(keep)),
+          rm: () => fsCall(style, 'rm', T(keep), { recursive: true, force: true }),
+          // the links last: a broken guard never leaves a link inside a directory a later attempt removes
+          'symlink INTO storage': () => fsCall(style, 'symlink', T(keep), path.join(outside, 'alias'), 'junction'),
+          'symlink placed in storage': () =>
+            fsCall(style, 'symlink', outside, T(path.join(keep, 'link')), 'junction'),
+        };
+        const results: Record<string, string> = {};
+        for (const [name, run] of Object.entries(attempts)) results[name] = await outcomeOf(run);
+        vi.restoreAllMocks();
+        expect(results).toEqual(Object.fromEntries(Object.keys(attempts).map((name) => [name, REFUSED])));
+        expect(listing(tree)).toEqual(treeBefore);
+        expect(listing(outside)).toEqual(outsideBefore);
+        expect(fs.readFileSync(live, 'utf8')).toBe('live');
+        // not a blanket refusal: the same type outside every root writes exactly there
+        const ok = path.join(outside, `ok-${slug}.txt`);
+        expect(await outcomeOf(() => fsCall(style, 'writeFile', T(ok), 'ok'))).toBe('WROTE');
+        expect(fs.readFileSync(ok, 'utf8')).toBe('ok');
+      });
+    }
+  }
+
+  it('a byte view that is not a Uint8Array (Node rejects it as a path) into a root is refused by the guard as well', async () => {
+    const tree = path.join(area, 'tree-views');
+    makeFakeProductTree(tree);
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const target = Buffer.from(path.join(tree, 'storage', 'keep', 'v.txt'));
+    const outcome = await outcomeOf(() =>
+      fsCall('sync', 'writeFile', new Uint8ClampedArray(target.buffer, target.byteOffset, target.byteLength), 'x'),
+    );
+    vi.restoreAllMocks();
+    expect(outcome).toBe(REFUSED);
+    expect(listing(tree)).toEqual(before);
+  });
+
+  it('a URL-like object whose href and hostname/pathname name different paths is refused (both ways); one whose getters change is judged once and written as judged', async () => {
+    const tree = path.join(area, 'tree-urllike');
+    const outside = path.join(area, 'outside-urllike');
+    makeFakeProductTree(tree);
+    fs.mkdirSync(outside, { recursive: true });
+    const inRoot = pathToFileURL(path.join(tree, 'storage', 'keep', 'u.txt'));
+    const out = pathToFileURL(path.join(outside, 'u.txt'));
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const mixed = (href: URL, at: URL) => ({
+      href: href.href,
+      protocol: 'file:',
+      hostname: at.hostname,
+      pathname: at.pathname,
+    });
+    let reads = 0;
+    const shifting = {
+      href: out.href,
+      protocol: 'file:',
+      hostname: '',
+      get pathname() {
+        reads += 1;
+        return reads <= 1 ? out.pathname : inRoot.pathname; // the outside path first, the root afterwards
+      },
+    };
+    const results = {
+      'href outside, pathname in a root': await outcomeOf(() =>
+        fsCall('sync', 'writeFile', mixed(out, inRoot), 'x'),
+      ),
+      'href in a root, pathname outside': await outcomeOf(() =>
+        fsCall('sync', 'writeFile', mixed(inRoot, out), 'x'),
+      ),
+      'getters that change after the decision': await outcomeOf(() => fsCall('sync', 'writeFile', shifting, 'x')),
+    };
+    vi.restoreAllMocks();
+    expect(results).toEqual({
+      'href outside, pathname in a root': REFUSED,
+      'href in a root, pathname outside': REFUSED,
+      'getters that change after the decision': 'WROTE',
+    });
+    expect(listing(tree)).toEqual(before);
+    expect(fs.existsSync(path.join(outside, 'u.txt'))).toBe(true); // written where it was judged
+  });
+});
+
+describe('TDG-6: a link to an ANCESTOR of a root may exist, but no copy writes through it (finding 3)', () => {
+  let area: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg6-ancestor-'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  it('a junction to the tree root (as scripts/audit/devgovPathBranchLock.test.ts:73 makes one to process.cwd()) and to tests/ is allowed; cpSync, fs.cp and promises.cp of a bundle into the link\'s parent are refused, nothing lands', async () => {
+    const tree = path.join(area, 'tree');
+    const outside = path.join(area, 'outside');
+    const bundle = path.join(area, 'bundle');
+    const plainBundle = path.join(area, 'plain-bundle');
+    makeFakeProductTree(tree);
+    fs.mkdirSync(outside, { recursive: true });
+    fs.mkdirSync(path.join(bundle, 'j-tree', 'storage', 'keep'), { recursive: true });
+    fs.writeFileSync(path.join(bundle, 'j-tree', 'storage', 'keep', 'planted.pem'), 'planted');
+    fs.mkdirSync(path.join(bundle, 'j-tests', 'fixtures'), { recursive: true });
+    fs.writeFileSync(path.join(bundle, 'j-tests', 'fixtures', 'planted.txt'), 'planted');
+    fs.mkdirSync(path.join(plainBundle, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(plainBundle, 'sub', 'ok.txt'), 'ok');
+    const jTree = path.join(outside, 'j-tree');
+    const jTests = path.join(outside, 'j-tests');
+    linkPathsToRemove.push(jTree, jTests);
+    const treeBefore = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const results: Record<string, string> = {
+      'symlink (junction) to the tree root': await outcomeOf(() =>
+        fsCall('sync', 'symlink', tree, jTree, isWin ? 'junction' : 'dir'),
+      ),
+      'symlink (junction) to tests/, an ancestor of tests/fixtures': await outcomeOf(() =>
+        fsCall('sync', 'symlink', path.join(tree, 'tests'), jTests, isWin ? 'junction' : 'dir'),
+      ),
+    };
+    for (const style of STYLES)
+      results[`${style}: cp the bundle into the link's parent (recursive)`] = await outcomeOf(() =>
+        fsCall(style, 'cp', bundle, outside, { recursive: true }),
+      );
+    results['control: cp a bundle without such paths into the same parent'] = await outcomeOf(() =>
+      fsCall('sync', 'cp', plainBundle, outside, { recursive: true }),
+    );
+    vi.restoreAllMocks();
+    expect(results).toEqual({
+      'symlink (junction) to the tree root': 'WROTE',
+      'symlink (junction) to tests/, an ancestor of tests/fixtures': 'WROTE',
+      "sync: cp the bundle into the link's parent (recursive)": REFUSED,
+      "callback: cp the bundle into the link's parent (recursive)": REFUSED,
+      "promise: cp the bundle into the link's parent (recursive)": REFUSED,
+      'control: cp a bundle without such paths into the same parent': 'WROTE',
+    });
+    expect(listing(tree)).toEqual(treeBefore);
+    expect(fs.existsSync(path.join(outside, 'sub', 'ok.txt'))).toBe(true);
+  });
+
+  it('decided: a recursive copy is refused for the destination path of every entry it would write, a link target that is the tree root is not', async () => {
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    const tree = path.join(area, 'tree-decide');
+    makeFakeProductTree(tree);
+    expect(
+      testDataRootWriteRefusal('fs.symlinkSync', 'write', tree, { trees: [tree], testFile: null }),
+    ).toBeNull();
+    expect(
+      testDataRootWriteRefusal('fs.cpSync', 'tree', path.join(tree, 'storage'), { trees: [tree], testFile: null }),
+    ).not.toBeNull();
+  });
+});
+
+describe('TDG-6: the real path is fail-closed and compared in its long form (finding 4, mutation N18)', () => {
+  let area: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg6-realpath-'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  it('70 missing levels under a junction to the tree: mkdir (recursive) and cpSync are refused, nothing lands', async () => {
+    const tree = path.join(area, 'tree-junction');
+    const outside = path.join(area, 'outside-junction');
+    makeFakeProductTree(tree);
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'src.txt'), 'x');
+    const link = path.join(outside, 'j');
+    linkPathsToRemove.push(link);
+    fs.symlinkSync(tree, link, isWin ? 'junction' : 'dir'); // made before the tree is protected
+    const deep = path.join(link, 'storage', 'keep', ...DEEP);
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const results = {
+      mkdir: await outcomeOf(() => fsCall('sync', 'mkdir', deep, { recursive: true })),
+      cpSync: await outcomeOf(() => fsCall('sync', 'cp', path.join(outside, 'src.txt'), path.join(deep, 'x.txt'), {})),
+      'promises.mkdir': await outcomeOf(() => fsCall('promise', 'mkdir', deep, { recursive: true })),
+    };
+    vi.restoreAllMocks();
+    expect(results).toEqual({ mkdir: REFUSED, cpSync: REFUSED, 'promises.mkdir': REFUSED });
+    expect(listing(tree)).toEqual(before);
+  });
+
+  it.runIf(isWin)(
+    "70 missing levels under an 8.3 alias of the tree's parent -- no link at all: mkdir (recursive) and cpSync are refused, nothing lands",
+    async (ctx) => {
+      const parent = path.join(area, 'long-parent-name-for-83');
+      const tree = path.join(parent, 'tree');
+      makeFakeProductTree(tree);
+      fs.writeFileSync(path.join(area, 'src83.txt'), 'x');
+      const shortParent = shortPathOf(parent);
+      if (!shortParent) ctx.skip(); // no 8.3 names on this volume
+      const deep = path.join(shortParent as string, 'tree', 'storage', 'keep', ...DEEP);
+      const before = listing(tree);
+      vi.spyOn(process, 'cwd').mockReturnValue(tree);
+      const results = {
+        mkdir: await outcomeOf(() => fsCall('sync', 'mkdir', deep, { recursive: true })),
+        cpSync: await outcomeOf(() =>
+          fsCall('sync', 'cp', path.join(area, 'src83.txt'), path.join(deep, 'x.txt'), {}),
+        ),
+      };
+      vi.restoreAllMocks();
+      expect(results).toEqual({ mkdir: REFUSED, cpSync: REFUSED });
+      expect(listing(tree)).toEqual(before);
+    },
+  );
+
+  it('a chain of more links than the guard follows is undecidable: refused even outside every root (fail-closed), nothing is written', async () => {
+    const tree = path.join(area, 'tree-chain');
+    const outside = path.join(area, 'outside-chain');
+    makeFakeProductTree(tree);
+    fs.mkdirSync(outside, { recursive: true });
+    // j0 -> j1 -> ... -> j39 -> (missing), made from the front (each target does not exist yet, so each link
+    // is decidable when it is made) and removed from the end afterwards (each removal stays decidable)
+    const links = Array.from({ length: 40 }, (_, i) => path.join(outside, `j${i}`));
+    for (let i = 0; i < links.length; i += 1)
+      fs.symlinkSync(
+        i === links.length - 1 ? path.join(outside, 'missing') : links[i + 1],
+        links[i],
+        isWin ? 'junction' : 'dir',
+      );
+    linkPathsToRemove.push(...[...links].reverse());
+    const outsideBefore = listing(outside);
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    const refusal = testDataRootWriteRefusal('fs.writeFileSync', 'write', path.join(links[0], 'x.txt'), {
+      trees: [tree],
+      testFile: null,
+    });
+    const written = await outcomeOf(() => fsCall('sync', 'writeFile', path.join(links[0], 'x.txt'), 'x'));
+    expect({ refused: Boolean(refusal), written }).toEqual({ refused: true, written: REFUSED });
+    expect(String(refusal?.undecidable ?? '')).not.toBe('');
+    expect(listing(outside)).toEqual(outsideBefore);
+    // decidable again once the chain is short: the last links are no target of any root
+    expect(
+      testDataRootWriteRefusal('fs.writeFileSync', 'write', path.join(links[30], 'x.txt'), {
+        trees: [tree],
+        testFile: null,
+      }),
+    ).toBeNull();
+  });
+
+  it.runIf(isWin)('a volume that does not exist is no target: nothing can land there, it is not refused', async () => {
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    const free = 'QWXYZRSTUVJKLNOP'.split('').find((letter) => !fs.existsSync(`${letter}:\\`));
+    expect(free).toBeDefined();
+    expect(
+      testDataRootWriteRefusal('fs.writeFileSync', 'write', `${free}:\\wtdg6\\x.txt`, { trees: [fakeTree], testFile: null }),
+    ).toBeNull();
+  });
+
+  it('N18: a tree given through a junction protects its real path as written, without the real-path pass', async () => {
+    const tree = path.join(area, 'tree-n18');
+    makeFakeProductTree(tree);
+    const alias = path.join(area, 'alias-n18');
+    linkPathsToRemove.push(alias);
+    fs.symlinkSync(tree, alias, isWin ? 'junction' : 'dir');
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    const refusal = testDataRootWriteRefusal('fs.writeFileSync', 'write', path.join(tree, 'storage', 'x.txt'), {
+      trees: [alias],
+      testFile: null,
+      resolveLinks: false,
+    });
+    expect(String(refusal?.protectedRoot).toLowerCase()).toBe(path.join(tree, 'storage').toLowerCase());
+  });
+
+  it.runIf(isWin)(
+    'a protected home root given by an 8.3 short name still protects the long form of ~/.mimers (roots are compared by their real path too)',
+    async (ctx) => {
+      const fakeHome = path.join(area, 'long-fake-home-directory');
+      fs.mkdirSync(fakeHome, { recursive: true });
+      const shortHome = shortPathOf(fakeHome);
+      if (!shortHome) ctx.skip();
+      const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+      vi.spyOn(os, 'homedir').mockReturnValue(shortHome as string);
+      const refusal = testDataRootWriteRefusal(
+        'fs.writeFileSync',
+        'write',
+        path.join(fakeHome, '.mimers', 'secrets', 'k.pem'),
+        { trees: [fakeTree], testFile: null },
+      );
+      vi.restoreAllMocks();
+      expect(refusal).not.toBeNull();
+    },
+  );
+});
+
+describe('TDG-6: device-namespace forms, other names of this machine, forward slashes, .git (findings 8, 9, 13; mutations N02-N04)', () => {
+  let area: string;
+  let tree: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg6-forms-'));
+    tree = path.join(area, 'tree');
+    makeFakeProductTree(tree);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  const decideAsWritten = async (target: string, kind = 'write') => {
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    return testDataRootWriteRefusal('fs.writeFileSync', kind, target, {
+      trees: [tree],
+      testFile: null,
+      resolveLinks: false,
+    });
+  };
+
+  it.runIf(isWin)(
+    '\\\\?\\GLOBALROOT, \\\\?\\Volume{GUID} and every device-namespace form that names no drive and no UNC share are refused -- also outside every root',
+    async () => {
+      const inStorage = path.join(tree, 'storage', 'keep', 'x.txt');
+      const outsideFile = path.join(area, 'outside', 'x.txt');
+      const forms = {
+        globalRootInRoot: `\\\\?\\GLOBALROOT\\GLOBAL??\\${inStorage}`,
+        globalRootOutside: `\\\\?\\GLOBALROOT\\GLOBAL??\\${outsideFile}`,
+        globalRootDevice: `\\\\.\\GLOBALROOT\\GLOBAL??\\${outsideFile}`,
+        globalRootForwardSlashes: `//?/GLOBALROOT/GLOBAL??/${outsideFile.replace(/\\/g, '/')}`,
+        volumeGuid: `\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\${outsideFile.slice(3)}`,
+        harddiskVolume: `\\\\?\\HarddiskVolume3\\${outsideFile.slice(3)}`,
+      };
+      const decided: Record<string, boolean> = {};
+      for (const [name, target] of Object.entries(forms)) decided[name] = Boolean(await decideAsWritten(target));
+      expect(decided).toEqual(Object.fromEntries(Object.keys(forms).map((name) => [name, true])));
+      // a drive or a UNC share in the same namespace is judged as the path it names
+      expect(await decideAsWritten(`\\\\?\\${outsideFile}`)).toBeNull();
+      expect(await decideAsWritten(`\\\\?\\UNC\\localhost\\${outsideFile[0]}$\\${outsideFile.slice(3)}`)).toBeNull();
+    },
+  );
+
+  it.runIf(isWin)(
+    'written for real: \\\\?\\GLOBALROOT\\GLOBAL??\\<tree>\\storage\\... is refused, nothing lands (TDG5-VERIFICATION B12)',
+    async () => {
+      const before = listing(tree);
+      vi.spyOn(process, 'cwd').mockReturnValue(tree);
+      const outcome = await outcomeOf(() =>
+        fsCall('sync', 'writeFile', `\\\\?\\GLOBALROOT\\GLOBAL??\\${path.join(tree, 'storage', 'keep', 'g.txt')}`, 'x'),
+      );
+      vi.restoreAllMocks();
+      expect(outcome).toBe(REFUSED);
+      expect(listing(tree)).toEqual(before);
+    },
+  );
+
+  it.runIf(isWin)(
+    "N02-N04: this machine's own name, any 127.x.x.x and the forward-slash spellings of \\\\?\\, \\\\.\\ and an administrative share are the root, as written",
+    async () => {
+      const inStorage = path.join(tree, 'storage', 'keep', 'x.txt');
+      const drive = inStorage.slice(0, 1);
+      const rest = inStorage.slice(3);
+      const forms = {
+        hostname: `\\\\${os.hostname()}\\${drive}$\\${rest}`,
+        hostnameUpper: `\\\\${os.hostname().toUpperCase()}\\${drive.toLowerCase()}$\\${rest}`,
+        loopback2: `\\\\127.0.0.2\\${drive}$\\${rest}`,
+        loopbackHigh: `\\\\127.255.255.254\\${drive}$\\${rest}`,
+        forwardWin32File: `//?/${inStorage.replace(/\\/g, '/')}`,
+        forwardWin32Device: `//./${inStorage.replace(/\\/g, '/')}`,
+        forwardAdminShare: `//localhost/${drive}$/${rest.replace(/\\/g, '/')}`,
+        forwardUncLong: `//?/UNC/localhost/${drive}$/${rest.replace(/\\/g, '/')}`,
+      };
+      const decided: Record<string, boolean> = {};
+      for (const [name, target] of Object.entries(forms)) decided[name] = Boolean(await decideAsWritten(target));
+      expect(decided).toEqual(Object.fromEntries(Object.keys(forms).map((name) => [name, true])));
+      // another machine's share is not this drive
+      expect(await decideAsWritten(`\\\\128.0.0.1\\${drive}$\\${rest}`)).toBeNull();
+    },
+  );
+
+  it("finding 13: the tree's .git (a directory, or a worktree's gitdir file) is protected; .gitignore and .github beside it are not", async () => {
+    const decided = async (rel: string) => Boolean(await decideAsWritten(path.join(tree, rel)));
+    expect({
+      gitConfig: await decided('.git/config'),
+      gitHook: await decided('.git/hooks/pre-commit'),
+      gitFile: await decided('.git'),
+      gitRemoved: Boolean(await decideAsWritten(path.join(tree, '.git'), 'remove')),
+      gitignore: await decided('.gitignore'),
+      github: await decided('.github/workflows/x.yml'),
+    }).toEqual({
+      gitConfig: true,
+      gitHook: true,
+      gitFile: true,
+      gitRemoved: true,
+      gitignore: false,
+      github: false,
+    });
+  });
+
+  for (const style of STYLES) {
+    it(`N08/N09, ${style}: chown, lchown, lutimes (and lchmod where Node has it) of a live file are refused`, async () => {
+      const local = path.join(area, `tree-meta-${style}`);
+      makeFakeProductTree(local);
+      const live = path.join(local, 'storage', 'keep', 'live.txt');
+      const before = listing(local);
+      vi.spyOn(process, 'cwd').mockReturnValue(local);
+      const results: Record<string, string> = {
+        chown: await outcomeOf(() => fsCall(style, 'chown', live, 0, 0)),
+        lchown: await outcomeOf(() => fsCall(style, 'lchown', live, 0, 0)),
+        lutimes: await outcomeOf(() => fsCall(style, 'lutimes', live, new Date(0), new Date(0))),
+      };
+      const lchmodHere =
+        style === 'promise'
+          ? typeof (fs.promises as unknown as Record<string, unknown>).lchmod === 'function'
+          : typeof (fs as unknown as Record<string, unknown>)[style === 'sync' ? 'lchmodSync' : 'lchmod'] === 'function';
+      if (lchmodHere) results.lchmod = await outcomeOf(() => fsCall(style, 'lchmod', live, 0o444));
+      vi.restoreAllMocks();
+      expect(results).toEqual(Object.fromEntries(Object.keys(results).map((name) => [name, REFUSED])));
+      expect(listing(local)).toEqual(before);
+    });
+  }
 });
