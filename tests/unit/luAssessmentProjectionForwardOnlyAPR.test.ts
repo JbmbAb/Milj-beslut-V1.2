@@ -106,6 +106,8 @@ class FaultableRepository {
 }
 
 class MemoryBindingIndex implements ProjectContextBindingIndex {
+  /** W-APR add-on 2: when set, listing the project's bindings fails (e.g. the index database is down). */
+  failList: Error | null = null;
   private readonly byProjectAndContext = new Map<string, string>();
   private readonly bindingsByProject = new Map<string, ArtifactReference[]>();
   private readonly supersessionsByProject = new Map<string, ArtifactReference[]>();
@@ -129,6 +131,7 @@ class MemoryBindingIndex implements ProjectContextBindingIndex {
     this.supersessionsByProject.set(supersession.payload.project_id, list);
   }
   async listBindingRefs(projectId: string): Promise<readonly ArtifactReference[]> {
+    if (this.failList) throw this.failList;
     return this.bindingsByProject.get(projectId) ?? [];
   }
   async listSupersessionRefs(projectId: string): Promise<readonly ArtifactReference[]> {
@@ -243,15 +246,15 @@ async function setup() {
     });
   }
 
-  function resolve(currentPoint?: ArtifactReference) {
+  function resolve(currentPoint?: ArtifactReference, projectId = PROJECT_ID) {
     return resolveCurrentAssessmentProjection({
-      projectId: PROJECT_ID, artifactRepository: repository as never,
+      projectId, artifactRepository: repository as never,
       currentBindingProvider: new ProjectContextBindingProvider(repository as never, bindingIndex, pcbVerification),
       ...(currentPoint ? { currentLocalizationGeometryArtifactId: currentPoint.artifact_id } : {}), index,
     });
   }
 
-  return { repository, index, newBindingRef, supersedeOldBinding, assessment, register, resolve };
+  return { repository, index, bindingIndex, newBindingRef, supersedeOldBinding, assessment, register, resolve };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -495,5 +498,55 @@ describe('W-APR: unchanged normal outcomes', () => {
     const outcome = await outcomeOf(s.resolve(POINT_B));
     expect((outcome as { error: Error }).error.message).toMatch(/^REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT/);
     expect(s.repository.reads).not.toContain(atA.artifact_id);
+  });
+});
+
+/**
+ * W-APR add-on 2 (U20CDF2 verifier, H1): the current ProjectContextBinding could not be resolved. That
+ * used to be REJECT_ASSESSMENT_PROJECTION_NOT_FOUND ("current binding unavailable") whatever the
+ * cause, i.e. 404 "no current assessment". Only a project with NO binding registered is absent; a
+ * failure to read the binding (or its issuer, or the binding index) is a technical fault by its
+ * nature, and a binding that fails verification is a refusal -- both typed, never REJECT_* absence.
+ */
+describe('W-APR add-on 2: the current binding cannot be resolved -> a typed fault by its nature, never "no assessment"', () => {
+  const BINDING_CODE = 'ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE';
+  type BindingFault = (s: Setup) => void;
+  const BINDING_FAULTS: ReadonlyArray<[string, string, boolean, string | null, BindingFault]> = [
+    ['the binding index cannot be listed (database unavailable)', 'READ_ERROR', true, null, (s) => { s.bindingIndex.failList = new Error('connect ECONNREFUSED 10.0.0.5:5432'); }],
+    ['the current binding\'s CAS read fails (EIO)', 'READ_ERROR', true, null, (s) => s.repository.faults.set(s.newBindingRef.artifact_id, () => { throw Object.assign(new Error('EIO: i/o error, read'), { code: 'EIO' }); })],
+    ['the current binding\'s object is gone behind its index entry', 'STORAGE_INTEGRITY_FAULT', false, null, (s) => s.repository.faults.set(s.newBindingRef.artifact_id, () => { throw Object.assign(new Error('MIMERS_ARTIFACT_OBJECT_MISSING: gone'), { code: 'MIMERS_ARTIFACT_OBJECT_MISSING' }); })],
+    ['the current binding is listed but not in the CAS ("Artifact not found")', 'MISSING_FROM_CAS', false, null, (s) => { s.repository.values.delete(s.newBindingRef.artifact_id); }],
+    ['the binding issuer cannot be read (torn index entry)', 'STORAGE_INTEGRITY_FAULT', false, null, (s) => s.repository.faults.set(pcbIssuer.artifact_id, () => { throw Object.assign(new Error('MIMERS_ARTIFACT_INDEX_READ_FAILED: torn'), { code: 'MIMERS_ARTIFACT_INDEX_READ_FAILED', reason: 'MALFORMED' }); })],
+    ['the current binding\'s signature does not verify', 'REFUSED', false, 'REJECT_PROJECT_CONTEXT_BINDING_ATTESTATION_SIGNATURE', (s) => {
+      const stored = s.repository.values.get(s.newBindingRef.artifact_id) as { attestation: { signature: string } };
+      s.repository.values.set(s.newBindingRef.artifact_id, { ...stored, attestation: { ...stored.attestation, signature: `ed25519:${Buffer.alloc(64).toString('base64')}` } });
+    }],
+  ];
+
+  it.each(BINDING_FAULTS)('%s -> %s (retryable %s, refusal %s), never REJECT_ASSESSMENT_PROJECTION_NOT_FOUND', async (_label, reason, retryable, refusalCode, fault) => {
+    const s = await setup();
+    const current = await s.assessment('binding-fault');
+    await s.register(current);
+    fault(s);
+
+    const outcome = await outcomeOf(s.resolve());
+    expect(outcome, 'an assessment was selected although the current binding could not be resolved').not.toEqual({ resolved: current.artifact_id });
+    expect('error' in outcome).toBe(true);
+    const error = (outcome as { error: Error & Record<string, unknown> }).error;
+    expect(error.message, 'a binding that cannot be resolved for a technical reason or is refused is never "no assessment" (404)').not.toMatch(/^REJECT_/);
+    expect({ code: error.code, reason: error.reason, retryable: error.retryable, refusalCode: error.refusalCode }).toEqual({ code: BINDING_CODE, reason, retryable, refusalCode });
+    expect(error.message.startsWith(`${BINDING_CODE}:`)).toBe(true);
+  });
+
+  it('a project with NO binding registered is genuine absence: REJECT_ASSESSMENT_PROJECTION_NOT_FOUND, unchanged', async () => {
+    const s = await setup();
+    const orphan = await s.assessment('no-binding-project');
+    await s.index.register({
+      projectId: 'project-without-binding-apr', assessmentArtifactId: orphan.artifact_id, assessmentArtifactType: orphan.artifact_type,
+      projectContextRef: contextNew, bindingArtifactId: s.newBindingRef.artifact_id, releaseArtifactId: RELEASE_REF.artifact_id,
+    });
+    const outcome = await outcomeOf(s.resolve(undefined, 'project-without-binding-apr'));
+    expect((outcome as { error: Error }).error.message).toBe('REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable');
+    expect(s.repository.reads).not.toContain(orphan.artifact_id);
   });
 });
