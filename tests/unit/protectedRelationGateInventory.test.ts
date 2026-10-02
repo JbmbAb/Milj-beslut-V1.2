@@ -827,6 +827,11 @@ describe('canaries: unknown or dynamic write channels fail closed (U30F3 M-2, ow
     expect(problemsOf(file, content).length).toBeGreaterThan(0);
   });
 
+  it('a static statement after a leading ; is SQL on the literal surface too (V28 handed to a function the scan does not know)', () => {
+    // U30F3 mutation round 2: the leading-; rule survived because V28's knex import is caught on its own
+    expect(problemsOf('scripts/vrogue/g16.ts', "import { handOff } from './hand-off';\nawait handOff(';TRUNCATE env.sgu_well');\n").length).toBeGreaterThan(0);
+  });
+
   it.each([
     ['JS: named child_process import used statically', 'scripts/vrogue/c1.ts', "import { spawnSync } from 'node:child_process';\nspawnSync('git', ['status']);\n"],
     ['JS: a namespace import of child_process used statically', 'scripts/vrogue/c2.ts', "import * as cp from 'node:child_process';\ncp.spawnSync('git', ['status']);\n"],
