@@ -5,6 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
+import { ensureDockerDatabaseEndpointDiscovery } from './dockerPublishedDatabaseEndpoints';
 import {
   deniedWorkstationDatabasePorts,
   describeDatabaseTarget,
@@ -262,6 +263,9 @@ export function installTestDatabaseConnectionGuard(): void {
   guardPgClientConnect();
   guardSocketConnect();
   guardDotenvFileLoading();
+  // TDG-2 F4: every host port a running non-test container publishes is denied from here on
+  // (best effort, once per process; without Docker the static denylist applies).
+  ensureDockerDatabaseEndpointDiscovery();
 }
 
 /** For the proof tests: which of the three layers are installed in this process. */

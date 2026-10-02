@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
+import { ensureDockerDatabaseEndpointDiscovery } from './server/modules/test-db-guard/dockerPublishedDatabaseEndpoints';
 import { installTestDatabaseConnectionGuard } from './server/modules/test-db-guard/installTestDatabaseConnectionGuard';
 import {
   assertExternalE2eTargetsAreRemote,
@@ -25,6 +26,9 @@ const isExternalTarget = Boolean(externalBaseUrl);
 //   - A local run needs MIMER_TEST_DB_ALLOW=<db> naming the *_test database of
 //     PLAYWRIGHT_DATABASE_URL / DATABASE_URL, both from the process environment (no env file is
 //     read for E2E any more), and always gets fresh servers on ports of its own (never 8787).
+//   - Ports published by running non-test Docker containers (the live and staging databases)
+//     are denied before anything is decided: discovery runs first.
+ensureDockerDatabaseEndpointDiscovery();
 if (isExternalTarget) assertExternalE2eTargetsAreRemote(process.env);
 const localPlan: LocalE2eServerPlan | null = isExternalTarget ? null : resolveLocalE2eServerPlan(process.env);
 

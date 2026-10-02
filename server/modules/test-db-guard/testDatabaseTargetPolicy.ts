@@ -47,7 +47,8 @@ export const TEST_DB_GUARD_LABEL = 'TEST-DB-GUARD (OD-K0-5)';
  *   - miljobeslut          docker `miljobeslut-postgres` (0.0.0.0:5432), docker-compose.geodata.yml,
  *                          docker-compose.prod.yml, .env.example
  *   - miljobeslut_prod     docker-compose.prod.yml (`miljobeslut-db`), deploy/gcp (Cloud SQL)
- *   - miljobeslut_staging  docker-compose.staging.yml
+ *   - miljobeslut_staging  docker-compose.staging.yml; docker `miljobeslut-lu-proof-db`
+ *                          (compose project miljobeslut-lu-proof-staging, 127.0.0.1:55432)
  */
 export const KNOWN_LIVE_DATABASE_NAMES: readonly string[] = [
   'miljobeslut',
@@ -64,6 +65,13 @@ export const KNOWN_LIVE_DATABASE_NAMES: readonly string[] = [
  *   - miljobeslut-staging-postgres  docker-compose.staging.yml container
  *   - db                            compose service alias on the staging/platform networks
  *                                   (docker-compose.staging.yml, docker-compose.test.yml)
+ *   - miljobeslut-lu-proof-db       docker container of the LU proof staging stack
+ *                                   (D:/Miljobeslut-worktrees/lu-product-proof-staging-v1/
+ *                                   docker-compose.lu-proof-staging.yml), database
+ *                                   `miljobeslut_staging`, published on 127.0.0.1:55432
+ *   - lu-proof-db                   its compose service name on that stack's network
+ * Plus, at run time, the names of every running container that is not a disposable test
+ * container (dockerPublishedDatabaseEndpoints.ts).
  */
 export const KNOWN_LIVE_DATABASE_HOSTS: readonly string[] = [
   'miljobeslut-postgres',
@@ -72,6 +80,8 @@ export const KNOWN_LIVE_DATABASE_HOSTS: readonly string[] = [
   'miljobeslut-db',
   'miljobeslut-staging-postgres',
   'db',
+  'miljobeslut-lu-proof-db',
+  'lu-proof-db',
 ];
 
 /** Unix-socket hosts of managed production databases (deploy/gcp: `?host=/cloudsql/...`). */
@@ -82,10 +92,42 @@ export const KNOWN_LIVE_SOCKET_PATH_MARKERS: readonly string[] = ['/cloudsql/'];
  * production database container:
  *   - 5432  docker `miljobeslut-postgres` publishes 0.0.0.0:5432 and [::]:5432 (live `miljobeslut`)
  *   - 5434  docker-compose.prod.yml `miljobeslut-db` publishes 5434 (`miljobeslut_prod`)
+ *   - 55432 docker `miljobeslut-lu-proof-db` publishes 127.0.0.1:55432 (`miljobeslut_staging`)
+ * Plus, at run time, every host port a running container publishes unless the container is a
+ * disposable test container (dockerPublishedDatabaseEndpoints.ts) -- an unknown new container too.
  * 5433 is deliberately absent: it is the documented disposable test database port
  * (.env.test.example); the staging compose that can also publish it is refused by name instead.
  */
-export const WORKSTATION_LIVE_DATABASE_PORTS: readonly number[] = [5432, 5434];
+export const WORKSTATION_LIVE_DATABASE_PORTS: readonly number[] = [5432, 5434, 55432];
+
+const REGISTERED_LIVE_ENDPOINTS = Symbol.for('mimer.testDbGuard.registeredLiveEndpoints');
+type RegisteredLiveEndpoints = { ports: Set<number>; hosts: Set<string> };
+
+function registeredLiveEndpoints(): RegisteredLiveEndpoints {
+  const g = globalThis as { [REGISTERED_LIVE_ENDPOINTS]?: RegisteredLiveEndpoints };
+  g[REGISTERED_LIVE_ENDPOINTS] ??= { ports: new Set(), hosts: new Set() };
+  return g[REGISTERED_LIVE_ENDPOINTS];
+}
+
+/**
+ * Adds live endpoints found at run time (Docker port discovery). Additive only, process-wide:
+ * nothing registered can be removed again, so a later call can only refuse more.
+ */
+export function registerLiveDatabaseEndpoints(endpoints: {
+  ports?: Iterable<number>;
+  hosts?: Iterable<string>;
+}): void {
+  const registered = registeredLiveEndpoints();
+  for (const port of endpoints.ports ?? []) {
+    if (Number.isInteger(port) && port > 0 && port !== DEAD_PORT) registered.ports.add(port);
+  }
+  for (const host of endpoints.hosts ?? []) {
+    const name = String(host ?? '')
+      .trim()
+      .toLowerCase();
+    if (name) registered.hosts.add(name);
+  }
+}
 
 /**
  * Names that are this workstation itself (loopback, wildcard). Compared after canonicalization
@@ -312,10 +354,12 @@ export function isWorkstationHost(host: string | undefined | null): boolean {
 }
 
 function isKnownLiveHostForm(host: string): boolean {
-  if (KNOWN_LIVE_DATABASE_HOSTS.includes(host)) return true;
+  const registered = registeredLiveEndpoints().hosts;
+  if (KNOWN_LIVE_DATABASE_HOSTS.includes(host) || registered.has(host)) return true;
   // `miljobeslut-postgres.<network>`: a container name qualified by a Docker network or domain.
   const isIpLiteral = /^[\d.]+$/.test(host) || host.includes(':');
-  return !isIpLiteral && KNOWN_LIVE_DATABASE_HOSTS.includes(host.split('.')[0]);
+  const firstLabel = host.split('.')[0];
+  return !isIpLiteral && (KNOWN_LIVE_DATABASE_HOSTS.includes(firstLabel) || registered.has(firstLabel));
 }
 
 /** A unix socket path names its port: `/tmp/.s.PGSQL.5432` -> 5432. */
@@ -327,9 +371,11 @@ function socketPathPort(forms: readonly string[]): number | null {
   return null;
 }
 
-/** Ports refused on every address of this workstation, whatever the opt-in. */
+/** Ports refused on every address of this workstation, whatever the opt-in: static + discovered. */
 export function deniedWorkstationDatabasePorts(): readonly number[] {
-  return WORKSTATION_LIVE_DATABASE_PORTS;
+  return [...new Set([...WORKSTATION_LIVE_DATABASE_PORTS, ...registeredLiveEndpoints().ports])].sort(
+    (a, b) => a - b,
+  );
 }
 
 /**

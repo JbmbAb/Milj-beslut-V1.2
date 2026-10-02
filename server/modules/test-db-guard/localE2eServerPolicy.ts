@@ -33,6 +33,7 @@ export const LOCAL_E2E_RESERVED_PORTS: Readonly<Record<number, string>> = {
   8787: 'the local demonstrator API server (live database)',
   5173: 'the local demonstrator UI (Vite)',
   3000: "vite.config.ts's default dev server port",
+  8877: 'the LU proof-staging app (miljobeslut-lu-proof-app, staging database)',
 };
 
 /** The keys that point an E2E run at an already running server (tests/e2e/support.ts). */

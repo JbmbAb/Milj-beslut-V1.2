@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
 
+import { ensureDockerDatabaseEndpointDiscovery } from '../../server/modules/test-db-guard/dockerPublishedDatabaseEndpoints';
 import {
   evaluateDatabaseUrl,
   KNOWN_LIVE_DATABASE_NAMES,
@@ -202,6 +203,8 @@ export function resolveDisposableGisTestConfig(
 export function admitDisposableGisTestDatabase(
   cwd: string = process.cwd(),
 ): AdmittedDisposableGisTestDatabase {
+  // TEST-DB-GUARD (OD-K0-5, TDG-2 F4): ports of running non-test containers are denied first.
+  ensureDockerDatabaseEndpointDiscovery();
   const admitted = assertDisposableGisTestDatabase(resolveDisposableGisTestConfig(cwd));
   process.env.DATABASE_URL = admitted.databaseUrl;
   return admitted;
