@@ -309,6 +309,21 @@ describe('import-librarian-manifest promote: retain before replace (U30-B2, PRES
     expect(h.state.log).toEqual([]);
   });
 
+  it('U30F3 (U30F2 verifier L-5): an append promote into a protected relation is refused before PROMOTE_STARTED -- append never bypasses retention, the F4 precondition or the first-import admission', async () => {
+    seed();
+    const { processManifest } = await loadScript();
+    // the same (freshly loaded) registry module the script reads: this dataset's entry switched to append
+    const registry = await import('../../../scripts/import/config/importRegistry');
+    const entry = registry.getRegistryEntry('SGU', 'Brunnar') as { promote_strategy?: string };
+    expect(entry.promote_strategy).toBe('replace');
+    entry.promote_strategy = 'append';
+
+    await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION/);
+    expect(h.state.updates).toEqual([]);
+    expect(h.state.log).not.toContain('INSERT');
+    expect(h.state.log).not.toContain('TRUNCATE');
+  });
+
   it('--retry-failed never deletes SUCCESS ledger rows', async () => {
     seed();
     const { processManifest } = await loadScript(['--retry-failed']);
