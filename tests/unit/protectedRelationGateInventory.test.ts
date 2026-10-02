@@ -44,6 +44,7 @@ import {
   validateRetiredDestructiveScripts,
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { languageOf, scanFile, walkRepository, type ChannelSite, type FileScan } from './protectedWriteChannels';
+import * as channels from './protectedWriteChannels';
 import {
   GATE_IMPLEMENTATION,
   HISTORICAL_SQL,
@@ -558,6 +559,70 @@ describe('canaries: changes to real files and lists are caught', () => {
     const withRogue: EvaluationContext = { ...ctx, importersOf: (f) => [...ctx.importersOf(f), 'scripts/rogue/uses-rc6.ts'] };
     expect(evaluateFile(file, REPO.texts.get(file)!, scan, ctx)).toEqual([]);
     expect(evaluateFile(file, REPO.texts.get(file)!, scan, withRogue).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U30F3 H-1 (U30F2-VERIFICATION H-1): the fold cap fails closed
+// ---------------------------------------------------------------------------------------------
+
+/** The scanner's fold cap: FOLD_MAX_TEXTS (before U30F3 an unexported 16). */
+const FOLD_CAP: number = (channels as { FOLD_MAX_TEXTS?: number }).FOLD_MAX_TEXTS ?? 16;
+const PG_POOL = "import pg from 'pg';\nconst pool = new pg.Pool();\n";
+const scratchTables = (n: number) => Array.from({ length: n }, (_, i) => `'public.scratch_${i}'`).join(', ');
+
+describe('canaries: the fold cap fails closed (U30F3 H-1)', () => {
+  it('a loop over FOLD_CAP + 1 static tables with the protected one LAST is caught (JS pool.query, Python cursor)', () => {
+    const js = `${PG_POOL}const tables = [${scratchTables(FOLD_CAP)}, 'env.sgu_well'];\nfor (const t of tables) await pool.query(\`TRUNCATE \${t}\`);\n`;
+    expect(problemsOf('scripts/rogue/cap-last.ts', js).length).toBeGreaterThan(0);
+    const py = `import psycopg2\ncur = psycopg2.connect('').cursor()\nfor t in [${scratchTables(FOLD_CAP)}, 'env.sgu_well']:\n    cur.execute(f'TRUNCATE {t}')\n`;
+    expect(problemsOf('scripts/rogue/cap-last.py', py).length).toBeGreaterThan(0);
+  });
+
+  it('a ternary chain of FOLD_CAP + 1 branches with the protected value last is caught', () => {
+    const chain = Array.from({ length: FOLD_CAP }, (_, i) => `n === ${i} ? 'public.scratch_${i}' : `).join('');
+    const js = `${PG_POOL}const n = Number(process.argv[2]);\nconst t = ${chain}'env.sgu_well';\nawait pool.query('TRUNCATE ' + t);\n`;
+    expect(problemsOf('scripts/rogue/cap-ternary.ts', js).length).toBeGreaterThan(0);
+  });
+
+  it('values past the cap are reported UNRESOLVABLE (FOLD_CAP_EXCEEDED) even when every enumerated value is unprotected -- never dropped', () => {
+    const js = `${PG_POOL}const tables = [${scratchTables(FOLD_CAP + 1)}];\nfor (const t of tables) await pool.query(\`TRUNCATE \${t}\`);\n`;
+    const scan = scanFile('scripts/rogue/cap-unprotected.ts', js, { readRepoFile: readRepo(REPO_ROOT) });
+    const call = scan.sites.find((s) => s.kind === 'SQL_CALL');
+    expect(call?.verdict).toBe('UNRESOLVABLE');
+    expect(call?.detail).toContain('FOLD_CAP_EXCEEDED');
+    expect(problemsOf('scripts/rogue/cap-unprotected.ts', js).length).toBeGreaterThan(0);
+  });
+
+  it('an enumerated protected value is never masked by the cap: the protected table FIRST of FOLD_CAP + 1 keeps the channel PROTECTED', () => {
+    const js = `${PG_POOL}const tables = ['env.sgu_well', ${scratchTables(FOLD_CAP)}];\nfor (const t of tables) await pool.query(\`TRUNCATE \${t}\`);\n`;
+    const call = scanFile('scripts/rogue/cap-first.ts', js, { readRepoFile: readRepo(REPO_ROOT) }).sites.find((s) => s.kind === 'SQL_CALL');
+    expect(call?.verdict).toBe('PROTECTED');
+    expect(call?.detail).toContain('TRUNCATE env.sgu_well');
+  });
+
+  it('control: exactly FOLD_CAP static unprotected tables fit the cap and pass', () => {
+    const js = `${PG_POOL}const tables = [${scratchTables(FOLD_CAP)}];\nfor (const t of tables) await pool.query(\`TRUNCATE \${t}\`);\n`;
+    expect(problemsOf('scripts/rogue/cap-fits.ts', js)).toEqual([]);
+  });
+
+  it('the write the cap hid in the repository: import-sgu-risk-layers.ts CREATE TABLE IF NOT EXISTS over envTables holding env.sgu_well / env.sgu_landslide_feature, ungated, is PROTECTED', () => {
+    const file = 'scripts/import/import-sgu-risk-layers.ts';
+    let text = realText(file);
+    // the shape before U30F3: both protected entries in envTables and the CREATE without a gate
+    for (const name of ['env.sgu_landslide_feature', 'env.sgu_well']) {
+      if (!text.includes(`name: '${name}'`)) text = text.replace('const envTables = [', `const envTables = [\n    { name: '${name}', cols: 'id SERIAL PRIMARY KEY, geom GEOMETRY' },`);
+    }
+    text = text.replace(
+      /await prisma\.\$executeRawUnsafe\((?:gatedSql\(GATE_CALLER, )?(`CREATE TABLE IF NOT EXISTS \$\{table\.name\} \(\$\{table\.cols\}\);`)\)?\);/,
+      (_m, sql: string) => `await prisma.$executeRawUnsafe(${sql});`,
+    );
+    expect(text).toContain('await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ${table.name} (${table.cols});`);');
+    const create = scanFile(file, text, { readRepoFile: readRepo(REPO_ROOT) }).sites.find((s) => s.kind === 'SQL_CALL' && s.excerpt.includes('CREATE TABLE IF NOT EXISTS ${table.name}'));
+    expect(create?.verdict).toBe('PROTECTED');
+    expect(create?.detail).toContain('CREATE env.sgu_landslide_feature');
+    expect(create?.detail).toContain('CREATE env.sgu_well');
+    expect(problemsOf(file, text).length).toBeGreaterThan(0);
   });
 });
 
