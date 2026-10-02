@@ -2439,4 +2439,37 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
       for (const mismatch of r.mismatches) expect("text_sv" in mismatch, mismatch.code).toBe(false);
     }
   });
+
+  it("28p (U30-R6; mutant U12 survived without it): a DENY found by the comparison itself (FINDINGS_MISMATCH / RULE_REFS_MISMATCH / the exact output binding) has no binding strength and never the legacy notice -- also over a V1-format outcome and a test-bootstrap execution, whose PASS would carry it", async () => {
+    const fabricated = { finding_id: "finding-fabricated-wu30r6", rule_id: "LU-FABRICATED-001", rule_version: "1.0", risk_level: "HIGH", evidence_refs: [], explanation: "fabricated" } as Finding;
+
+    // A test-bootstrap legacy execution (its PASS is LEGACY_UNBOUND_FORM) with a fabricated finding.
+    const legacyRepo = new InMemoryArtifactRepository();
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const legacy = (await runAssessment(legacyRepo, "wu30r6-cmp-legacy", [spatialEvidence("wu30r6-cmp-legacy", "water")])).assessment!;
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    const legacyForged = await storeUnderNewId(legacyRepo, legacy, withFindings(legacy.payload, [...legacy.payload.findings, fabricated]));
+    // A genuine pre-cutoff V1 execution (its PASS is LEGACY_UNBOUND_FORM, V1_FORM) with a fabricated finding.
+    const v1Era = await historicalV1Execution("wu30r6-cmp-v1-era");
+    const v1Forged = await storeUnderNewId(v1Era.repo, v1Era.assessment, withFindings(v1Era.assessment.payload, [...v1Era.assessment.payload.findings, fabricated]));
+    // A genuine V4 (its PASS is FULLY_BOUND) whose HIGH and evidence were removed: the exact output binding refuses it.
+    const { repo, A } = await twoCanonical();
+    const v4Stripped = await storeUnderNewId(repo, A, withFindings({ ...A.payload, evidence_refs: [] }, A.payload.findings.filter((f) => f.risk_level !== "HIGH")));
+
+    devTestBootstrap();
+    const legacyDeny = await verify(legacyRepo, legacyForged);
+    strictProduction();
+    const v1Deny = await verify(v1Era.repo, v1Forged);
+    const v4Deny = await verify(repo, v4Stripped);
+
+    expect(legacyDeny.mismatches.map((m) => m.code)).toEqual(["FINDINGS_MISMATCH", "RULE_REFS_MISMATCH"]);
+    expect(v1Deny.mismatches.map((m) => m.code)).toEqual(["FINDINGS_MISMATCH", "RULE_REFS_MISMATCH"]);
+    expect(v4Deny.mismatches.map((m) => m.code)).toContain("MANIFEST_ATTEMPT_MISMATCH");
+    for (const r of [legacyDeny, v1Deny, v4Deny]) {
+      expect(r.outcome).toBe("DENY");
+      expect(r.verification_binding).toBeNull();
+      expect(legacyNoticesOf(r)).toEqual([]);
+      expectBindingInvariant(r);
+    }
+  });
 });
