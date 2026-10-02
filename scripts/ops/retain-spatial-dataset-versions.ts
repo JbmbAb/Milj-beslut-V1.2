@@ -21,7 +21,12 @@
  *   DATABASE_URL=postgresql://... MIMERS_ROOT=D:/mimer-demo/cas \
  *     npx tsx scripts/ops/retain-spatial-dataset-versions.ts [--target env.sgu_well ...] [--execute]
  *
- * One JSON line per version on stdout; exit 1 if any version is DIGEST_MISMATCH or FAILED.
+ * One JSON line per version on stdout; exit 1 if any version is DIGEST_MISMATCH,
+ * LEDGER_ROW_COUNT_MISMATCH or FAILED.
+ *
+ * F3 (U30F): only the CURRENT version of a target can be recorded, on the gate's basis (retained
+ * digest = live digest, ledger row count agrees); the record states that basis. A superseded
+ * version is reported UNVERIFIED_BASIS and never recorded -- nothing can be compared with it.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +63,11 @@ export function parseRetentionCliArgs(argv: readonly string[]): { targets: Quali
   }
   const chosen = targets.length > 0 ? targets : [...DEFAULT_RETENTION_TARGETS];
   return { targets: chosen.map((t) => parseQualifiedTable(t)), execute };
+}
+
+/** Exit code: 1 when any version failed its basis or the run failed; UNVERIFIED_BASIS is an honest result, not a failure. */
+export function retentionCliExitCode(results: readonly Pick<BackfillVersionResult, 'status'>[]): 0 | 1 {
+  return results.some((r) => r.status === 'DIGEST_MISMATCH' || r.status === 'LEDGER_ROW_COUNT_MISMATCH' || r.status === 'FAILED') ? 1 : 0;
 }
 
 /** Query-only SQL port: any statement through `execute` is refused (the backfill never issues one). */
@@ -100,7 +110,7 @@ async function main(): Promise<void> {
     });
     const counts = results.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.status]: (acc[r.status] ?? 0) + 1 }), {});
     console.error(`retain-spatial-dataset-versions: ${execute ? 'EXECUTE' : 'PLAN'} ${JSON.stringify(counts)}`);
-    if (results.some((r) => r.status === 'DIGEST_MISMATCH' || r.status === 'FAILED')) process.exitCode = 1;
+    if (retentionCliExitCode(results) === 1) process.exitCode = 1;
   } finally {
     await pool.end();
   }

@@ -33,10 +33,25 @@ import {
  * backup and is protected only by code; the digest depends on the PostgreSQL/PostGIS stack (the
  * engine fingerprint is recorded, as asserted by SPATIAL_STACK_V1, not measured); `append`
  * promotes are out of scope. R2 (bytes in CAS) is a separate owner decision.
+ *
+ * U30F: records are contract v2 and carry their comparison basis (F3, `RetentionBasis`); a live
+ * table with rows and no SUCCESS batch is never replaced (F5); every relation write here is one
+ * of the governed doors of ProtectedRelationGate (F1).
  */
 
 export const SPATIAL_DATASET_RETENTION_RECORD = "SPATIAL_DATASET_RETENTION_RECORD" as const;
+/**
+ * Legacy (b740615b..b6106193): records without a basis. Never read as verified; still a reason to
+ * keep a relation (StagingCleanupProtection), since a record existed for it.
+ */
 export const SPATIAL_DATASET_RETENTION_CONTRACT_V1 = "spatial-dataset-retention-v1" as const;
+/**
+ * F3 (U30F): every record carries its comparison basis (`RetentionBasis`). A record exists only
+ * when the retained relation was compared with the live table while the ledger's SUCCESS batch
+ * identified the live version; there is no record without a basis and no "upgrade" of material
+ * that cannot be compared (a superseded version without reference stays UNVERIFIED_BASIS, unrecorded).
+ */
+export const SPATIAL_DATASET_RETENTION_CONTRACT_V2 = "spatial-dataset-retention-v2" as const;
 /**
  * Set digest over the materialised rows (multiset, order-independent, duplicate-sensitive):
  * row hash = sha256(to_jsonb(row of the sorted promote columns, cast to the live column types;
@@ -56,6 +71,8 @@ export type SpatialDatasetRetentionFailureReason =
   | "OUTGOING_VERSION_CHANGED"
   /** F5: the live table holds rows but the ledger names no SUCCESS batch for it. */
   | "NO_SUCCESS_BATCH_FOR_LIVE_DATA"
+  /** F3: the SUCCESS batch's recorded row count differs from the rows compared. */
+  | "LEDGER_ROW_COUNT_MISMATCH"
   | "RETAINED_RELATION_MISSING"
   | "NO_COMMON_COLUMNS"
   | "DIGEST_MISMATCH"
@@ -97,6 +114,8 @@ export interface ImportBatchRow {
   readonly id: string;
   readonly content_bundle_sha256: string;
   readonly dataset_version: string | null;
+  /** The ledger's row count for the batch (SUCCESS: live rows after promote); null/absent = not recorded. */
+  readonly row_count?: number | string | bigint | null;
 }
 
 export interface RelationColumn {
@@ -112,8 +131,43 @@ export interface MaterializedDigest {
   readonly digest: string;
 }
 
+/** Where the comparison that verified the record was made. */
+export type RetentionBasisEstablishedBy =
+  /** The gate, before TRUNCATE: the outgoing (current) version, live vs its retained relation. */
+  | "REPLACE_OUTGOING"
+  /** Right after a SUCCESS promote: the incoming version, live vs the staging relation it came from. */
+  | "PROMOTE_INCOMING"
+  /** The ops backfill: the CURRENT version only, live vs its retained relation. */
+  | "BACKFILL_CURRENT";
+
+export type RetainedRelationOrigin =
+  /** The staging relation the version was promoted from (an independent materialisation of the bundle). */
+  | "STAGING_IMPORT_PROMOTED_FROM"
+  /** Copied from live by the gate's phase A: equal to live by construction; identity rests on the ledger. */
+  | "CTAS_FROM_LIVE_AT_REPLACE"
+  /** Present before this comparison; how it came to be is not known here. */
+  | "PRE_EXISTING_RELATION";
+
+/**
+ * The comparison basis of a verified record (F3). It binds: the ledger SUCCESS batch that
+ * identifies the version (`version_batch_id`, `version_hash`), the live relation and its digest at
+ * the moment of comparison (equal to the retained digest, or no record is written), the ledger's
+ * row count cross-check, and where the retained relation came from.
+ */
+export interface RetentionBasis {
+  readonly kind: "LIVE_EQUALS_RETAINED";
+  readonly established_by: RetentionBasisEstablishedBy;
+  readonly version_batch_id: string;
+  readonly version_hash: string;
+  readonly live_relation: string;
+  readonly live_digest: { readonly row_count: number; readonly value: string };
+  /** The batch's ledger row_count (checked equal to the retained rows), or null when the ledger recorded none. */
+  readonly ledger_row_count: number | null;
+  readonly retained_relation_origin: RetainedRelationOrigin;
+}
+
 export interface SpatialDatasetRetentionPayload {
-  readonly contract_version: typeof SPATIAL_DATASET_RETENTION_CONTRACT_V1;
+  readonly contract_version: typeof SPATIAL_DATASET_RETENTION_CONTRACT_V2;
   readonly target: QualifiedTable;
   /** = SpatialLayerRegistry version_hash for a bound layer. */
   readonly content_bundle_sha256: string;
@@ -129,6 +183,7 @@ export interface SpatialDatasetRetentionPayload {
   readonly row_count: number;
   readonly digest: { readonly algorithm: typeof MATERIALIZED_DIGEST_V1; readonly value: string };
   readonly engine_fingerprint: SpatialEngineFingerprint;
+  readonly basis: RetentionBasis;
 }
 
 export interface SpatialDatasetRetentionRecord {
@@ -196,15 +251,25 @@ export function retainedRelationFor(target: QualifiedTable, sha256: string): Qua
   return relation;
 }
 
-/** Deterministic record id: one retention record per (target, version hash). */
-export function retentionRecordId(target: QualifiedTable, sha256: string): string {
+function recordIdIn(namespace: string, target: QualifiedTable, sha256: string): string {
   assertIdentifier(target.schema, "schema");
   assertIdentifier(target.table, "table");
   assertVersionHash(sha256);
-  const digest = createHash("sha256")
-    .update(`${SPATIAL_DATASET_RETENTION_CONTRACT_V1}\u0000${target.schema}.${target.table}\u0000${sha256}`, "utf8")
-    .digest("hex");
+  const digest = createHash("sha256").update(`${namespace}\u0000${target.schema}.${target.table}\u0000${sha256}`, "utf8").digest("hex");
   return `spatial-dataset-retention-${digest.slice(0, 40)}`;
+}
+
+/**
+ * Deterministic id of the VERIFIED record: one per (target, version hash), in the v2 namespace, so
+ * a basis-less v1 record can never occupy it.
+ */
+export function retentionRecordId(target: QualifiedTable, sha256: string): string {
+  return recordIdIn(SPATIAL_DATASET_RETENTION_CONTRACT_V2, target, sha256);
+}
+
+/** Id a legacy v1 (basis-less) record would have. Only consulted to keep a relation, never as verification. */
+export function legacyV1RetentionRecordId(target: QualifiedTable, sha256: string): string {
+  return recordIdIn(SPATIAL_DATASET_RETENTION_CONTRACT_V1, target, sha256);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -212,7 +277,7 @@ export function retentionRecordId(target: QualifiedTable, sha256: string): strin
 // ---------------------------------------------------------------------------------------------
 
 const LATEST_SUCCESS_BATCH_SQL = `
-    SELECT id, content_bundle_sha256, dataset_version
+    SELECT id, content_bundle_sha256, dataset_version, row_count
     FROM "PostgisImportBatch"
     WHERE target_schema = $1 AND target_table = $2 AND status = 'SUCCESS'
     ORDER BY completed_at DESC NULLS LAST, imported_at DESC
@@ -230,7 +295,7 @@ export async function listSuccessBatchVersions(db: SqlPort, target: QualifiedTab
   quoteTable(target);
   const result = await db.query<ImportBatchRow>(
     `
-    SELECT id, content_bundle_sha256, dataset_version
+    SELECT id, content_bundle_sha256, dataset_version, row_count
     FROM "PostgisImportBatch"
     WHERE target_schema = $1 AND target_table = $2 AND status = 'SUCCESS'
     ORDER BY completed_at DESC NULLS LAST, imported_at DESC`,
@@ -358,16 +423,84 @@ export async function computeMaterializedDigest(
 // Records
 // ---------------------------------------------------------------------------------------------
 
+/** The batch's ledger row count as a number, or null when the ledger recorded none. */
+export function ledgerRowCount(batch: ImportBatchRow): number | null {
+  if (batch.row_count === null || batch.row_count === undefined) return null;
+  const n = Number(batch.row_count);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The F3 basis check, shared by every writer: the retained digest must equal the live digest, and
+ * the ledger's row count for the identifying batch (when recorded) must equal the retained rows.
+ * Returns the basis; throws `code` [DIGEST_MISMATCH | LEDGER_ROW_COUNT_MISMATCH] otherwise.
+ */
+export function establishLiveEqualsRetainedBasis(input: {
+  readonly code: SpatialDatasetRetentionError["code"];
+  readonly target: QualifiedTable;
+  readonly batch: ImportBatchRow;
+  readonly retainedRelation: QualifiedTable;
+  readonly live: MaterializedDigest;
+  readonly retained: MaterializedDigest;
+  readonly establishedBy: RetentionBasisEstablishedBy;
+  readonly origin: RetainedRelationOrigin;
+}): RetentionBasis {
+  const { target, batch, retainedRelation, live, retained } = input;
+  const label = `${formatQualifiedTable(target)}@${batch.content_bundle_sha256} (batch ${batch.id})`;
+  if (live.row_count !== retained.row_count || live.digest !== retained.digest) {
+    throw new SpatialDatasetRetentionError(
+      input.code,
+      "DIGEST_MISMATCH",
+      `live ${formatQualifiedTable(target)} rows=${live.row_count} digest=${live.digest} != retained ` +
+        `${formatQualifiedTable(retainedRelation)} rows=${retained.row_count} digest=${retained.digest} for ${label} ` +
+        "(the retained relation does not hold the live version -- e.g. re-imported staging or an 8-hex name collision)",
+    );
+  }
+  const ledgerRows = ledgerRowCount(batch);
+  if (ledgerRows !== null && ledgerRows !== retained.row_count) {
+    throw new SpatialDatasetRetentionError(
+      input.code,
+      "LEDGER_ROW_COUNT_MISMATCH",
+      `the ledger records ${ledgerRows} rows for ${label} but ${formatQualifiedTable(retainedRelation)} and live hold ` +
+        `${retained.row_count}: live no longer holds the version the batch admitted`,
+    );
+  }
+  return {
+    kind: "LIVE_EQUALS_RETAINED",
+    established_by: input.establishedBy,
+    version_batch_id: batch.id,
+    version_hash: batch.content_bundle_sha256,
+    live_relation: formatQualifiedTable(target),
+    live_digest: { row_count: live.row_count, value: live.digest },
+    ledger_row_count: ledgerRows,
+    retained_relation_origin: input.origin,
+  };
+}
+
 export function buildRetentionRecord(input: {
   readonly target: QualifiedTable;
   readonly batch: ImportBatchRow;
   readonly retainedRelation: QualifiedTable;
   readonly columns: readonly RelationColumn[];
   readonly digest: MaterializedDigest;
+  readonly basis: RetentionBasis;
   readonly engineFingerprint?: SpatialEngineFingerprint;
 }): SpatialDatasetRetentionRecord {
+  if (
+    input.basis.kind !== "LIVE_EQUALS_RETAINED" ||
+    input.basis.version_hash !== input.batch.content_bundle_sha256 ||
+    input.basis.version_batch_id !== input.batch.id ||
+    input.basis.live_digest.value !== input.digest.digest ||
+    input.basis.live_digest.row_count !== input.digest.row_count
+  ) {
+    throw new SpatialDatasetRetentionError(
+      SPATIAL_DATASET_RETENTION_FAILED,
+      "DIGEST_MISMATCH",
+      `refusing to build a retention record for ${formatQualifiedTable(input.target)}@${input.batch.content_bundle_sha256} whose basis does not bind it`,
+    );
+  }
   const payload: SpatialDatasetRetentionPayload = {
-    contract_version: SPATIAL_DATASET_RETENTION_CONTRACT_V1,
+    contract_version: SPATIAL_DATASET_RETENTION_CONTRACT_V2,
     target: { schema: input.target.schema, table: input.target.table },
     content_bundle_sha256: input.batch.content_bundle_sha256,
     import_batch_id: input.batch.id,
@@ -378,6 +511,7 @@ export function buildRetentionRecord(input: {
     row_count: input.digest.row_count,
     digest: { algorithm: MATERIALIZED_DIGEST_V1, value: input.digest.digest },
     engine_fingerprint: input.engineFingerprint ?? SPATIAL_STACK_V1,
+    basis: input.basis,
   };
   return {
     artifact_id: retentionRecordId(input.target, input.batch.content_bundle_sha256),
@@ -410,6 +544,20 @@ export async function resolveRetentionRecord(
     if (isArtifactNotFound(error, artifactId)) return null;
     throw error;
   }
+}
+
+/** F3: a stored record counts as verified only with a v2 payload whose basis binds its own version. */
+export function hasVerifiedRetentionBasis(record: unknown): record is SpatialDatasetRetentionRecord {
+  const payload = (record as { payload?: Partial<SpatialDatasetRetentionPayload> } | null)?.payload;
+  const basis = payload?.basis;
+  return (
+    payload?.contract_version === SPATIAL_DATASET_RETENTION_CONTRACT_V2 &&
+    basis?.kind === "LIVE_EQUALS_RETAINED" &&
+    typeof basis.version_batch_id === "string" &&
+    basis.version_hash === payload.content_bundle_sha256 &&
+    basis.live_digest?.value === payload.digest?.value &&
+    basis.live_digest?.row_count === payload.row_count
+  );
 }
 
 function sameMaterialization(a: SpatialDatasetRetentionPayload, b: SpatialDatasetRetentionPayload): boolean {
@@ -445,6 +593,14 @@ export async function writeOrVerifyRetentionRecord(
     });
   }
   if (existing) {
+    if (!hasVerifiedRetentionBasis(existing)) {
+      throw new SpatialDatasetRetentionError(
+        rejectCode,
+        "RECORD_CONFLICT",
+        `retention record ${record.artifact_id} is stored without a verified basis (F3); it is never accepted as verification ` +
+          "and, being WORM, cannot be overwritten -- an owner decision is needed",
+      );
+    }
     if (!sameMaterialization(existing.payload, record.payload)) {
       throw new SpatialDatasetRetentionError(
         rejectCode,
@@ -484,6 +640,8 @@ export async function ensureOutgoingVersionRetained(input: {
   readonly repo: ArtifactRepositoryPort;
   readonly target: QualifiedTable;
   readonly outgoing: ImportBatchRow;
+  /** How the retained relation came to be (the gate passes CTAS_FROM_LIVE_AT_REPLACE when its phase A made it). */
+  readonly origin?: RetainedRelationOrigin;
 }): Promise<{ readonly outcome: EnsureRecordOutcome; readonly record: SpatialDatasetRetentionRecord }> {
   const reject = (reason: SpatialDatasetRetentionFailureReason, message: string, cause?: unknown) =>
     new SpatialDatasetRetentionError(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED, reason, message, { cause });
@@ -513,16 +671,17 @@ export async function ensureOutgoingVersionRetained(input: {
     throw reject("DATABASE_ERROR", `checking retention of ${label}: ${describe(error)}`, error);
   }
 
-  if (liveDigest.row_count !== retainedDigest.row_count || liveDigest.digest !== retainedDigest.digest) {
-    throw reject(
-      "DIGEST_MISMATCH",
-      `live ${formatQualifiedTable(target)} rows=${liveDigest.row_count} digest=${liveDigest.digest} != retained ` +
-        `${formatQualifiedTable(retained)} rows=${retainedDigest.row_count} digest=${retainedDigest.digest} for ${label} ` +
-        "(the retained relation does not hold the version being replaced -- e.g. re-imported staging or an 8-hex name collision)",
-    );
-  }
-
-  const record = buildRetentionRecord({ target, batch: outgoing, retainedRelation: retained, columns, digest: retainedDigest });
+  const basis = establishLiveEqualsRetainedBasis({
+    code: REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
+    target,
+    batch: outgoing,
+    retainedRelation: retained,
+    live: liveDigest,
+    retained: retainedDigest,
+    establishedBy: "REPLACE_OUTGOING",
+    origin: input.origin ?? "PRE_EXISTING_RELATION",
+  });
+  const record = buildRetentionRecord({ target, batch: outgoing, retainedRelation: retained, columns, digest: retainedDigest, basis });
   return writeOrVerifyRetentionRecord(repo, record, REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED);
 }
 
@@ -608,7 +767,13 @@ export async function retainOutgoingThenReplace(input: {
     }
     let status: ReplaceRetentionStatus;
     if (current) {
-      const ensured = await ensureOutgoingVersionRetained({ db: tx, repo, target, outgoing: current });
+      const ensured = await ensureOutgoingVersionRetained({
+        db: tx,
+        repo,
+        target,
+        outgoing: current,
+        origin: createdRetainedRelation ? "CTAS_FROM_LIVE_AT_REPLACE" : "PRE_EXISTING_RELATION",
+      });
       status = { kind: "RETAINED", outcome: ensured.outcome, record: ensured.record, created_retained_relation: createdRetainedRelation };
     } else {
       // F5: re-checked under the exclusive lock -- rows that arrived since phase A are not replaced.
@@ -650,14 +815,17 @@ export async function recordRetentionAtPromote(input: {
     if (error instanceof SpatialDatasetRetentionError) throw error;
     throw fail("DATABASE_ERROR", `recording retention of ${formatQualifiedTable(target)}: ${describe(error)}`, error);
   }
-  if (liveDigest.row_count !== retainedDigest.row_count || liveDigest.digest !== retainedDigest.digest) {
-    throw fail(
-      "DIGEST_MISMATCH",
-      `promoted live ${formatQualifiedTable(target)} digest ${liveDigest.digest} (rows=${liveDigest.row_count}) != staging ` +
-        `${formatQualifiedTable(retained)} digest ${retainedDigest.digest} (rows=${retainedDigest.row_count})`,
-    );
-  }
-  const record = buildRetentionRecord({ target, batch: incoming, retainedRelation: retained, columns, digest: retainedDigest });
+  const basis = establishLiveEqualsRetainedBasis({
+    code: SPATIAL_DATASET_RETENTION_FAILED,
+    target,
+    batch: incoming,
+    retainedRelation: retained,
+    live: liveDigest,
+    retained: retainedDigest,
+    establishedBy: "PROMOTE_INCOMING",
+    origin: "STAGING_IMPORT_PROMOTED_FROM",
+  });
+  const record = buildRetentionRecord({ target, batch: incoming, retainedRelation: retained, columns, digest: retainedDigest, basis });
   return writeOrVerifyRetentionRecord(repo, record);
 }
 
@@ -689,6 +857,13 @@ export type BackfillStatus =
   | "WOULD_RECORD"
   | "NOT_RETAINED_RELATION_MISSING"
   | "DIGEST_MISMATCH"
+  /** F3: the ledger's row count for the current batch differs from the rows live and retained hold. */
+  | "LEDGER_ROW_COUNT_MISMATCH"
+  /**
+   * F3: a superseded version. Live no longer holds it and nothing else records its rows, so its
+   * retained relation cannot be compared with anything: never recorded (no record, no "upgrade").
+   */
+  | "UNVERIFIED_BASIS"
   | "FAILED";
 
 export interface BackfillVersionResult {
@@ -705,10 +880,14 @@ export interface BackfillVersionResult {
 }
 
 /**
- * Backfill retention records for every SUCCESS version of `targets`. Read-only against the
- * database (no CTAS: a missing retained relation is reported, not created); writes to CAS only
- * when `execute` and a repository are given. A current version is recorded only if its retained
- * digest equals the live digest.
+ * Backfill retention records for the SUCCESS versions of `targets`. Read-only against the database
+ * (no CTAS: a missing retained relation is reported, not created); writes to CAS only when
+ * `execute` and a repository are given.
+ *
+ * F3: only the CURRENT version can be recorded, and only on the same basis as the gate (retained
+ * digest = live digest, ledger row count agrees). A superseded version is reported UNVERIFIED_BASIS
+ * and never recorded: live no longer holds it, the ledger holds no row digest, so hashing its
+ * relation now would only certify whatever the relation holds today. Its relation is not digested.
  */
 export async function backfillSpatialDatasetRetention(input: {
   readonly db: SqlPort;
@@ -746,20 +925,43 @@ export async function backfillSpatialDatasetRetention(input: {
           emit({ ...base, status: "NOT_RETAINED_RELATION_MISSING", detail: current ? "the next promote creates it (CTAS) before replacing" : "bytes of this version are no longer materialised" });
           continue;
         }
+        if (!current) {
+          emit({
+            ...base,
+            status: "UNVERIFIED_BASIS",
+            detail:
+              "superseded version: live no longer holds it and no recorded row digest exists, so its retained relation " +
+              "cannot be compared with anything; not recorded (F3)",
+          });
+          continue;
+        }
         const columns = digestColumns(liveColumns, await listRelationColumns(db, retained));
         const retainedDigest = await computeMaterializedDigest(db, retained, columns);
-        if (current) {
-          const key = columns.map((c) => c.name).join(",");
-          if (!liveDigestCache || liveDigestCache.key !== key) {
-            liveDigestCache = { key, digest: await computeMaterializedDigest(db, target, columns) };
-          }
-          const live = liveDigestCache.digest;
-          if (live.digest !== retainedDigest.digest || live.row_count !== retainedDigest.row_count) {
-            emit({ ...base, status: "DIGEST_MISMATCH", row_count: retainedDigest.row_count, digest: retainedDigest.digest, detail: `live digest ${live.digest} rows=${live.row_count}` });
+        const key = columns.map((c) => c.name).join(",");
+        if (!liveDigestCache || liveDigestCache.key !== key) {
+          liveDigestCache = { key, digest: await computeMaterializedDigest(db, target, columns) };
+        }
+        const live = liveDigestCache.digest;
+        let basis: RetentionBasis;
+        try {
+          basis = establishLiveEqualsRetainedBasis({
+            code: SPATIAL_DATASET_RETENTION_FAILED,
+            target,
+            batch,
+            retainedRelation: retained,
+            live,
+            retained: retainedDigest,
+            establishedBy: "BACKFILL_CURRENT",
+            origin: "PRE_EXISTING_RELATION",
+          });
+        } catch (error) {
+          if (error instanceof SpatialDatasetRetentionError && (error.reason === "DIGEST_MISMATCH" || error.reason === "LEDGER_ROW_COUNT_MISMATCH")) {
+            emit({ ...base, status: error.reason, row_count: retainedDigest.row_count, digest: retainedDigest.digest, detail: error.message });
             continue;
           }
+          throw error;
         }
-        const record = buildRetentionRecord({ target, batch, retainedRelation: retained, columns, digest: retainedDigest });
+        const record = buildRetentionRecord({ target, batch, retainedRelation: retained, columns, digest: retainedDigest, basis });
         if (!execute || !repo) {
           emit({ ...base, status: "WOULD_RECORD", row_count: retainedDigest.row_count, digest: retainedDigest.digest });
           continue;

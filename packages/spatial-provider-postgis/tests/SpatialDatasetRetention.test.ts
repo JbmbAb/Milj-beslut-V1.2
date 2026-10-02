@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
-import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
+import { sha256ContentHash, type ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import {
   MATERIALIZED_DIGEST_V1,
   REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
@@ -273,7 +274,7 @@ describe("retainOutgoingThenReplace: the PRES-05 gate before TRUNCATE", () => {
     const record = await store.resolve<SpatialDatasetRetentionRecord>({ artifact_id: recordId, artifact_type: SPATIAL_DATASET_RETENTION_RECORD });
     expect(record.artifact_type).toBe(SPATIAL_DATASET_RETENTION_RECORD);
     expect(record.payload).toMatchObject({
-      contract_version: "spatial-dataset-retention-v1",
+      contract_version: "spatial-dataset-retention-v2",
       target: TARGET,
       content_bundle_sha256: HASH_V1,
       import_batch_id: "batch-v1",
@@ -481,6 +482,115 @@ describe("resolveRetentionRecord", () => {
   });
 });
 
+/** The record id the b740615b-era code derived (contract v1 namespace), computed here so this file runs against old code. */
+function legacyV1RecordId(target: { schema: string; table: string }, sha256: string): string {
+  const digest = createHash("sha256").update(`spatial-dataset-retention-v1\u0000${target.schema}.${target.table}\u0000${sha256}`, "utf8").digest("hex");
+  return `spatial-dataset-retention-${digest.slice(0, 40)}`;
+}
+
+describe("F3 (U30F): a retention record is verified only on a comparison basis", () => {
+  it("every record written by the replace gate states its basis: the batch, the version it binds, the live digest it equalled, the relation's origin", async () => {
+    const db = retainedScenario();
+    db.successBatches = [{ ...batch("batch-v1", HASH_V1), row_count: D_V1.row_count }];
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db, repo: store, target: TARGET, insertSql: INSERT_SQL });
+    const record = (await resolveRetentionRecord(store, TARGET, HASH_V1))!;
+    expect(record.payload).toMatchObject({
+      contract_version: "spatial-dataset-retention-v2",
+      import_batch_id: "batch-v1",
+      basis: {
+        kind: "LIVE_EQUALS_RETAINED",
+        established_by: "REPLACE_OUTGOING",
+        version_batch_id: "batch-v1",
+        version_hash: HASH_V1,
+        live_relation: "env.sgu_well",
+        live_digest: { row_count: D_V1.row_count, value: D_V1.digest },
+        ledger_row_count: D_V1.row_count,
+        retained_relation_origin: "PRE_EXISTING_RELATION",
+      },
+    });
+  });
+
+  it("a CTAS copy made at replace says so (its equality with live is by construction, the version identity rests on the ledger)", async () => {
+    const db = retainedScenario();
+    db.tables.delete("lm_staging.sgu_well_2b4b514f");
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db, repo: store, target: TARGET, insertSql: INSERT_SQL });
+    expect((await resolveRetentionRecord(store, TARGET, HASH_V1))!.payload.basis).toMatchObject({
+      retained_relation_origin: "CTAS_FROM_LIVE_AT_REPLACE",
+      ledger_row_count: null,
+    });
+  });
+
+  it("the ledger's row count for the batch disagrees with the retained rows -> REJECT LEDGER_ROW_COUNT_MISMATCH, no record, no TRUNCATE", async () => {
+    const db = retainedScenario();
+    db.successBatches = [{ ...batch("batch-v1", HASH_V1), row_count: D_V1.row_count + 1 }];
+    const store = new InMemoryArtifactRepository();
+    const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db, store), target: TARGET, insertSql: INSERT_SQL }));
+    expect(error.reason).toBe("LEDGER_ROW_COUNT_MISMATCH");
+    expect(db.log).not.toContain("TRUNCATE");
+    expect(db.log.some((e) => e.startsWith("cas:put:"))).toBe(false);
+  });
+
+  it("a stored record without a verified basis is a RECORD_CONFLICT, never ALREADY_RECORDED", async () => {
+    const store = new InMemoryArtifactRepository();
+    const id = retentionRecordId(TARGET, HASH_V1);
+    const basisless = {
+      artifact_id: id,
+      artifact_type: SPATIAL_DATASET_RETENTION_RECORD,
+      payload: {
+        contract_version: "spatial-dataset-retention-v1",
+        target: TARGET,
+        content_bundle_sha256: HASH_V1,
+        import_batch_id: "batch-v1",
+        dataset_version_label: "label-batch-v1",
+        retained_relation: "lm_staging.sgu_well_2b4b514f",
+        columns: ["brunnsid", "geom"],
+        column_types: { brunnsid: "character varying(32)", geom: "geometry(Point,3006)" },
+        row_count: D_V1.row_count,
+        digest: { algorithm: MATERIALIZED_DIGEST_V1, value: D_V1.digest },
+      },
+    };
+    await store.put({ artifact_id: id, content_hash: sha256ContentHash(basisless), body: basisless });
+    const db = retainedScenario();
+    const error = await rejection(retainOutgoingThenReplace({ db, repo: store, target: TARGET, insertSql: INSERT_SQL }));
+    expect(error.reason).toBe("RECORD_CONFLICT");
+    expect(db.log).not.toContain("TRUNCATE");
+  });
+
+  it("a legacy (v1, basis-less) record is never read as the verified record: the gate writes its own", async () => {
+    const store = new InMemoryArtifactRepository();
+    const legacyId = legacyV1RecordId(TARGET, HASH_V1);
+    const legacy = { artifact_id: legacyId, artifact_type: SPATIAL_DATASET_RETENTION_RECORD, payload: { contract_version: "spatial-dataset-retention-v1" } };
+    await store.put({ artifact_id: legacyId, content_hash: sha256ContentHash(legacy), body: legacy });
+    const status = await retainOutgoingThenReplace({ db: retainedScenario(), repo: store, target: TARGET, insertSql: INSERT_SQL });
+    expect(status).toMatchObject({ kind: "RETAINED", outcome: "RECORDED" });
+    expect(retentionRecordId(TARGET, HASH_V1)).not.toBe(legacyId);
+  });
+
+  it("backfill: a superseded version has no comparison basis -> UNVERIFIED_BASIS, never recorded, even with --execute", async () => {
+    const db = new FakeDb();
+    db.successBatches = [batch("batch-v2", HASH_V2), batch("batch-v1", HASH_V1)];
+    db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: D_OTHER });
+    db.tables.set("lm_staging.sgu_well_aaaabbbb", { columns: STAGING_COLUMNS, digest: D_OTHER });
+    // The verifier's case: the superseded relation was manipulated; nothing can tell.
+    db.tables.set("lm_staging.sgu_well_2b4b514f", { columns: STAGING_COLUMNS, digest: { row_count: 7, digest: "9".repeat(64) } });
+    const store = new InMemoryArtifactRepository();
+    const results = await backfillSpatialDatasetRetention({ db, repo: loggingRepo(db, store), targets: [TARGET], execute: true });
+    expect(results.map((r) => [r.content_bundle_sha256, r.current, r.status])).toEqual([
+      [HASH_V2, true, "RECORDED"],
+      [HASH_V1, false, "UNVERIFIED_BASIS"],
+    ]);
+    expect(await resolveRetentionRecord(store, TARGET, HASH_V1)).toBeNull();
+    expect(db.log).not.toContain("digest:lm_staging.sgu_well_2b4b514f");
+    expect((await resolveRetentionRecord(store, TARGET, HASH_V2))!.payload.basis).toMatchObject({
+      kind: "LIVE_EQUALS_RETAINED",
+      established_by: "BACKFILL_CURRENT",
+      version_batch_id: "batch-v2",
+    });
+  });
+});
+
 describe("backfillSpatialDatasetRetention (ops CLI core): read-only DB, CAS only on execute", () => {
   function backfillScenario(): FakeDb {
     const db = new FakeDb();
@@ -491,22 +601,22 @@ describe("backfillSpatialDatasetRetention (ops CLI core): read-only DB, CAS only
     return db;
   }
 
-  it("plan mode: one result per version, WOULD_RECORD, no statement other than reads, no CAS", async () => {
+  it("plan mode: one result per version, WOULD_RECORD for the current one, UNVERIFIED_BASIS for the superseded one (F3), no statement other than reads, no CAS", async () => {
     const db = backfillScenario();
     const results = await backfillSpatialDatasetRetention({ db, repo: null, targets: [TARGET], execute: false });
     expect(results.map((r) => [r.content_bundle_sha256, r.current, r.status])).toEqual([
       [HASH_V2, true, "WOULD_RECORD"],
-      [HASH_V1, false, "WOULD_RECORD"],
+      [HASH_V1, false, "UNVERIFIED_BASIS"],
     ]);
     expect(db.log.filter((e) => /^(BEGIN|lock|ctas|create|TRUNCATE|INSERT|cas:)/.test(e))).toEqual([]);
   });
 
-  it("execute: RECORDED, then ALREADY_RECORDED on a second run", async () => {
+  it("execute: the current version RECORDED, then ALREADY_RECORDED; the superseded one never recorded", async () => {
     const store = new InMemoryArtifactRepository();
     const first = await backfillSpatialDatasetRetention({ db: backfillScenario(), repo: store, targets: [TARGET], execute: true });
-    expect(first.map((r) => r.status)).toEqual(["RECORDED", "RECORDED"]);
+    expect(first.map((r) => r.status)).toEqual(["RECORDED", "UNVERIFIED_BASIS"]);
     const second = await backfillSpatialDatasetRetention({ db: backfillScenario(), repo: store, targets: [TARGET], execute: true });
-    expect(second.map((r) => r.status)).toEqual(["ALREADY_RECORDED", "ALREADY_RECORDED"]);
+    expect(second.map((r) => r.status)).toEqual(["ALREADY_RECORDED", "UNVERIFIED_BASIS"]);
   });
 
   it("a replaced version whose relation is gone is reported NOT_RETAINED, never invented", async () => {

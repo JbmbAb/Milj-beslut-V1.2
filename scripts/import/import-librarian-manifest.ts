@@ -619,7 +619,8 @@ async function processManifest(manifestPath: string) {
               db: prismaSqlPort(prisma),
               repo: retentionRepo,
               target: retentionTarget,
-              incoming: { id: stagedBatch.id, content_bundle_sha256: manifest.content_bundle_sha256, dataset_version: manifest.version },
+              // F3: the ledger row count just written with SUCCESS is the basis's cross-check.
+              incoming: { id: stagedBatch.id, content_bundle_sha256: manifest.content_bundle_sha256, dataset_version: manifest.version, row_count: prodRowsAfter },
             });
             logger.info(
               `   - Incoming version retention ${recorded.outcome}: ${recorded.record.payload.retained_relation} ` +

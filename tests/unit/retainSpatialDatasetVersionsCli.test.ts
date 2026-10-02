@@ -10,6 +10,7 @@ import {
   DEFAULT_RETENTION_TARGETS,
   createReadOnlySqlPort,
   parseRetentionCliArgs,
+  retentionCliExitCode,
 } from '../../scripts/ops/retain-spatial-dataset-versions';
 
 describe('retain-spatial-dataset-versions CLI (U30-B3)', () => {
@@ -51,6 +52,13 @@ describe('retain-spatial-dataset-versions CLI (U30-B3)', () => {
     [['--force']],
   ])('rejects %j', (argv) => {
     expect(() => parseRetentionCliArgs(argv as string[])).toThrow();
+  });
+
+  it('F3: a failed basis exits 1; UNVERIFIED_BASIS (a superseded version, never recorded) is reported, not a failure', () => {
+    expect(retentionCliExitCode([{ status: 'RECORDED' }, { status: 'UNVERIFIED_BASIS' }])).toBe(0);
+    expect(retentionCliExitCode([{ status: 'LEDGER_ROW_COUNT_MISMATCH' }])).toBe(1);
+    expect(retentionCliExitCode([{ status: 'DIGEST_MISMATCH' }])).toBe(1);
+    expect(retentionCliExitCode([{ status: 'FAILED' }])).toBe(1);
   });
 
   it('the SQL port passes queries through and refuses any statement', async () => {
