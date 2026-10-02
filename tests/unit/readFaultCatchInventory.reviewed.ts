@@ -84,6 +84,8 @@ export const READ_FAULT_CATCH_REVIEWED: readonly ReviewedCatch[] = [
   // W-U20CDF5 (B4): the authorizeAssessmentPresentation catch (former OPEN_NOT_FIXED 78beea267442af8c) now
   // classifies (projectAccessFailure for the access re-check, classifyReadFault for the binding); its inner
   // access-check catch propagates the failure -- both accepted by the scanner, no longer listed here.
-  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '054922544981d0f7', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (OD-R2 class, NEW, W-U20CDF4 lane): the PDF export reads the property context; ANY read failure becomes property = null, a "gap" in the PDF -- a read error read as absence' },
-  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '37dd1e5d75a57bb2', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (OD-R2 class, NEW, W-U20CDF4 lane): the PDF export reads the project context; ANY read failure becomes project = null, a "gap" in the PDF -- a read error read as absence' },
+  // W-U20CDF5 (B5): the two PDF context catches (former OPEN_NOT_FIXED 054922544981d0f7, 37dd1e5d75a57bb2) are one
+  // readPdfContext catch that classifies (readExistingOrProvenAbsent + toReadFaultError) -- a failed read is a typed
+  // fail-closed answer without a PDF, only a proven absence is printed; accepted by the scanner, not listed here.
+  // No OPEN_NOT_FIXED entry remains in localizationOrchestrator.ts.
 ];

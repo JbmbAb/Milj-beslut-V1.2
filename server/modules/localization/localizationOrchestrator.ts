@@ -66,8 +66,10 @@ import {
   LuReadFaultError,
   projectAccessFailure,
   readFaultHttpStatus,
+  readExistingOrProvenAbsent,
   readFaultOfClass,
   readFaultSentenceSv,
+  toReadFaultError,
   type ReadFault,
   type ReadFaultClass,
   type ReadPhase,
@@ -1344,31 +1346,26 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
 
   const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
 
-  let property: { property_ref: string; official_name: string; municipality: string } | null = null;
-  try {
-    const propertyContext = await artifactRepository.resolve<{
-      payload: { property_ref: string; official_name: string; municipality: string };
-    }>(summary.propertyContextRef);
-    property = {
-      property_ref: propertyContext.payload.property_ref,
-      official_name: propertyContext.payload.official_name,
-      municipality: propertyContext.payload.municipality,
-    };
-  } catch {
-    // Governed context artifact missing/unresolvable -- report the gap honestly rather than
-    // fabricate a property identity. The assessment identity itself is still verified above.
-    property = null;
-  }
-
-  let project: { project_name: string; description: string } | null = null;
-  try {
-    const projectContext = await artifactRepository.resolve<{
-      payload: { project_name: string; description: string };
-    }>(summary.projectContextRef);
-    project = { project_name: projectContext.payload.project_name, description: projectContext.payload.description };
-  } catch {
-    project = null;
-  }
+  // W-U20CDF5 (B5; OD-R2 class, CATCH2-REPORT section 11 item 5): the property and project context give the PDF
+  // its names. A context whose read FAILED is never printed as a gap: no PDF is built, a typed fault in the shared
+  // classes is answered (READ_ERROR retryable; a lasting storage fault or a refusal not). Only a PROVEN absence --
+  // the repository's exact "never stored" for exactly that id -- is printed, in its own words.
+  const propertyRead = await readPdfContext(artifactRepository, summary.propertyContextRef, 'assessment-property-context');
+  if (propertyRead.ok === false) return pdfContextFailure(propertyRead.fault, 'Bedömningens fastighetskontext');
+  const projectRead = await readPdfContext(artifactRepository, summary.projectContextRef, 'assessment-project-context');
+  if (projectRead.ok === false) return pdfContextFailure(projectRead.fault, 'Bedömningens projektkontext');
+  const contextText = (payload: Record<string, unknown> | null, key: string) =>
+    typeof payload?.[key] === 'string' ? (payload[key] as string) : MISSING_IN_BASIS_SV;
+  const property = propertyRead.payload
+    ? {
+        property_ref: contextText(propertyRead.payload, 'property_ref'),
+        official_name: contextText(propertyRead.payload, 'official_name'),
+        municipality: contextText(propertyRead.payload, 'municipality'),
+      }
+    : null;
+  const project = projectRead.payload
+    ? { project_name: contextText(projectRead.payload, 'project_name'), description: contextText(projectRead.payload, 'description') }
+    : null;
 
   const pdfData = {
     title: 'Lokaliseringsbedömning',
@@ -1378,8 +1375,9 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
       'Human in the Loop: Detta dokument är genererat från ett styrt (governed) underlag och ' +
       'ersätter inte juridisk eller teknisk expertbedömning. Alla slutsatser ska granskas av ' +
       'behörig handläggare innan formellt beslut fattas.',
-    property: property ?? { note: 'Fastighetskontext kunde inte läsas -- se teknisk verifiering nedan.' },
-    project: project ?? { note: 'Projektkontext kunde inte läsas -- se teknisk verifiering nedan.' },
+    // W-U20CDF5 (B5): reached only for a PROVEN absence (a failed read answers above, without a PDF).
+    property: property ?? { note: PDF_PROPERTY_CONTEXT_ABSENT_SV },
+    project: project ?? { note: PDF_PROJECT_CONTEXT_ABSENT_SV },
     systemSummary: summary.systemSummary,
     // DEMO M1a / D9(a): geometry provenance survives into the exported report.
     lokalisering: {
@@ -1470,6 +1468,59 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
   const buffer = await buildJsonPdfBuffer(pdfData.title, `Projekt ${pdfData.projectId}`, pdfData);
   const safeId = pdfData.projectId.replace(/[^a-zA-Z0-9-_åäöÅÄÖ]+/g, '-').slice(0, 40) || 'projekt';
   return { ok: true, buffer, filename: `lokaliseringsbedomning-${safeId}.pdf`, assessmentArtifactId: summary.assessmentArtifactId };
+}
+
+/** W-U20CDF5 (B5): the PDF's property or project context could not be read or verified -- no PDF is built. */
+export const ASSESSMENT_PDF_CONTEXT_UNRESOLVED = 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED';
+
+/** W-U20CDF5 (B5): what the PDF prints for a context whose absence is PROVEN (never for a failed read). */
+const PDF_PROPERTY_CONTEXT_ABSENT_SV =
+  'Fastighetskontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Fastighetens beteckning, namn och kommun anges därför inte.';
+const PDF_PROJECT_CONTEXT_ABSENT_SV =
+  'Projektkontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Projektets namn och beskrivning anges därför inte.';
+
+export interface PdfContextUnresolved {
+  readonly ok: false;
+  readonly status: 409 | 503;
+  readonly error: string;
+  readonly code: typeof ASSESSMENT_PDF_CONTEXT_UNRESOLVED;
+  readonly failureClass: ReadFaultClass;
+  readonly reasonCode: string;
+  readonly retryable: boolean;
+}
+
+/**
+ * W-U20CDF5 (B5): reads one context the PDF names (the assessment's own property_ref / project_context_ref).
+ * `payload: null` ONLY for a proven absence (readExistingOrProvenAbsent: the repository's exact "never stored"
+ * for exactly that id) or a record that names no ref at all; every other failure is a typed LuReadFaultError.
+ */
+async function readPdfContext(
+  repository: ArtifactRepositoryPort,
+  ref: { readonly artifact_id?: unknown; readonly artifact_type?: unknown } | null | undefined,
+  subject: string,
+): Promise<{ readonly ok: true; readonly payload: Record<string, unknown> | null } | { readonly ok: false; readonly fault: LuReadFaultError }> {
+  if (!ref || typeof ref.artifact_id !== 'string' || typeof ref.artifact_type !== 'string') return { ok: true, payload: null };
+  const target = { artifact_id: ref.artifact_id, artifact_type: ref.artifact_type };
+  try {
+    const read = await readExistingOrProvenAbsent<{ payload?: unknown }>(repository, target, subject);
+    if (!read.found) return { ok: true, payload: null };
+    const payload = read.value?.payload;
+    return { ok: true, payload: payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {} };
+  } catch (error) {
+    return { ok: false, fault: toReadFaultError(subject, error, 'read') };
+  }
+}
+
+function pdfContextFailure(fault: LuReadFaultError, subjectSv: string): PdfContextUnresolved {
+  return {
+    ok: false,
+    status: readFaultHttpStatus(fault),
+    error: `${readFaultSentenceSv(fault, subjectSv)} Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.`,
+    code: ASSESSMENT_PDF_CONTEXT_UNRESOLVED,
+    failureClass: fault.faultClass,
+    reasonCode: fault.refusalCode ?? fault.faultClass,
+    retryable: fault.retryable,
+  };
 }
 
 /** U20-D / SI-3: what is missing reads "Saknas i underlaget", never an empty field or a zero. */
