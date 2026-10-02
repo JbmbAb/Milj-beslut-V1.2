@@ -68,8 +68,42 @@ export const TEST_PROTECTED_RELATIVE_ROOTS: readonly ProtectedDataRoot[] = Objec
     root: 'docs',
     why: 'committed documents; scripts/import/master-walk-pass2-sha.mjs writes its ledger under docs/architecture',
   },
+  {
+    root: 'public',
+    why: 'the UI assets the running Vite server serves live (written by scripts/capture_pwa_screenshots.ts)',
+  },
   { root: 'lm_headers.txt', why: 'scripts/import/import-lantmateriet.ts' },
   { root: 'anna_vestling_utredning.md', why: 'scripts/generate-lokaliseringsutredning.ts' },
+]);
+
+/**
+ * REVIEWED: cwd- or repo-relative directories product code names that are NOT live data roots -- source,
+ * configuration and committed inputs it only reads, or build output. Not guarded. The inventory test derives
+ * every relative root from the code, requires each to be protected or here, and locks this list.
+ */
+export const TEST_RELATIVE_ROOTS_NOT_LIVE: readonly ProtectedDataRoot[] = Object.freeze([
+  { root: '.dockerignore', why: 'read by the pattern-proof Docker executor (mps-pattern-proof)' },
+  {
+    root: '.env.test',
+    why: 'an env file read by provisioning/benchmark scripts (the test runtime never takes DB or data-root keys from it)',
+  },
+  { root: 'app', why: 'source scanned by scripts/ci/assert-data-classification-imports.ts' },
+  { root: 'components', why: 'source scanned by scripts/ci/assert-data-classification-imports.ts' },
+  {
+    root: 'coverage',
+    why: "Vitest's own coverage output (build output, read by scripts/report-coverage-gaps.mjs)",
+  },
+  { root: 'node_modules', why: 'installed tools started by import scripts (node_modules/.bin)' },
+  { root: 'prisma', why: 'schema and migrations, only read by db scripts' },
+  { root: 'scripts', why: 'source: scripts that start or read other scripts' },
+  { root: 'server', why: 'source: verify CLIs started by provisioning, CI scans' },
+  { root: 'services', why: 'source scanned by scripts/ci/assert-data-classification-imports.ts' },
+  {
+    root: 'source-registry',
+    why: 'the signed source registry, only read (SOURCE_REGISTRY_ARTIFACT_PATH default)',
+  },
+  { root: 'training', why: 'source material only read (server/scripts/migrateToFirestore.ts)' },
+  { root: 'tsconfig.json', why: 'compiler configuration, only read (luApiBoundary)' },
 ]);
 
 /** Absolute live locations a data-root key falls back to when unset (derived from the code). */

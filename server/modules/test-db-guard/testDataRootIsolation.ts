@@ -165,6 +165,62 @@ export const TEST_DATA_ROOT_ENV: readonly TestDataRootEnvEntry[] = Object.freeze
   removed('SMOKE_JSON_OUT', 'unset: the smoke scripts write no JSON report (scripts/smoke/*)'),
 ]);
 
+/**
+ * REVIEWED: keys whose NAME looks like a data root (a ROOT/PATH/DIR/DATA/OUT ... token) but that name no
+ * live, mutable data location -- a binary, a certificate or font that is only read, a remote path, key
+ * material, a version or an id. They are not scrubbed. The inventory test
+ * (tests/unit/testDbGuardDataRootInventory.test.ts) derives every such key from the code, requires each to
+ * be here or on TEST_DATA_ROOT_ENV, and locks this list: a new entry fails it until the lock is changed in
+ * review.
+ */
+export const TEST_ENV_KEYS_NOT_DATA_ROOTS: readonly { readonly key: string; readonly why: string }[] =
+  Object.freeze([
+    { key: 'ALLOW_SEARCH_MANIFEST_PATH_OVERRIDE', why: 'a flag (search/datasource routes), not a path' },
+    { key: 'BANKID_CA_PATH', why: 'a CA certificate, only read (bankIdService, security/env)' },
+    { key: 'BANKID_CERT_PATH', why: 'a client certificate, only read' },
+    { key: 'BANKID_KEY_PATH', why: 'a client key file, only read' },
+    { key: 'BANKID_PFX_PATH', why: 'a PFX bundle, only read' },
+    {
+      key: 'GDAL_BIN_PATH',
+      why: 'the GDAL binaries directory (nmdService, sguJordartRasterService), only executed',
+    },
+    {
+      key: 'GDAL_DATA',
+      why: "GDAL's own library data, set by import scripts for the GDAL child, only read by GDAL",
+    },
+    {
+      key: 'LIMS_SFTP_PATH',
+      why: 'a path on the remote LIMS SFTP server, not on this machine (scripts/smoke)',
+    },
+    { key: 'LU_EXECUTION_AUTHORITY_ROOT_KEY_ID', why: 'ROOT = trust root: a key id, not a location' },
+    {
+      key: 'LU_EXECUTION_AUTHORITY_ROOT_PRIVATE_KEY_PEM',
+      why: 'ROOT = trust root: key material, not a location',
+    },
+    {
+      key: 'LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM',
+      why: 'ROOT = trust root: key material, not a location',
+    },
+    { key: 'MCF_OUTPUT_VERSION', why: "a dataset version string ('2026-06-26'), not a path" },
+    { key: 'OGR2OGR_PATH', why: 'the ogr2ogr binary, only executed' },
+    { key: 'OGRINFO_PATH', why: 'the ogrinfo binary, only executed' },
+    { key: 'PDF_UNICODE_FONT_PATH', why: 'a font file, only read (pdfUnicodeFont)' },
+    {
+      key: 'POSTGIS_MOUNT_ROOT',
+      why: 'a path INSIDE the PostGIS container handed to docker exec; this process never opens it',
+    },
+    { key: 'SEARCH_DRAFT_WATERMARK', why: 'watermark text, not a path' },
+    { key: 'SEWAGE_DATA_STORE_ID', why: 'a Vertex data-store id, not a path' },
+    { key: 'SLU_ARTFAKTA_BASE_PATH', why: 'a URL path of the SLU API, not a file-system path' },
+    { key: 'SLU_METODKATALOG_BASE_PATH', why: 'a URL path of the SLU API, not a file-system path' },
+    { key: 'SLU_SPECIES_OBS_BASE_PATH', why: 'a URL path of the SLU API, not a file-system path' },
+    { key: 'SLU_TAXONOMY_BASE_PATH', why: 'a URL path of the SLU API, not a file-system path' },
+    {
+      key: 'SOURCE_REGISTRY_ARTIFACT_PATH',
+      why: 'the signed source registry, only read and verified (SourceRegistry); never written by product code',
+    },
+  ]);
+
 const ENTRY_BY_KEY: ReadonlyMap<string, TestDataRootEnvEntry> = new Map(
   TEST_DATA_ROOT_ENV.map((entry) => [entry.key, entry]),
 );
