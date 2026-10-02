@@ -242,8 +242,9 @@ describe('W-CATCH2 #11: a damaged, unreadable or unverifiable EXISTING relation 
 
 describe('W-CATCH2 #11: the same surface keeps the cause without raw text', () => {
   it('the currentness gate cannot read the projection (index down) -> M1a’s typed class, retryable, never an untyped CURRENT_GEOMETRY_UNAVAILABLE with raw text', async () => {
+    await transitionedOnce(); // the issuer exists, so nothing legitimate is minted before the gate
     h.geometryListError = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' });
-    expectTypedNoWrite(await request(A, B), { failureCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR', retryable: true });
+    expectTypedNoWrite(await request(B, C, '2026-10-02T11:00:00.000Z'), { failureCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR', retryable: true });
   });
   it('the pinned successor cannot be read (EISDIR) -> SUCCESSOR_GEOMETRY_UNAVAILABLE with a neutral text', async () => {
     unlinkSync(indexEntryPath(B.artifact_id));
