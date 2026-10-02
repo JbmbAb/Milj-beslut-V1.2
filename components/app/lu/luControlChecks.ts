@@ -540,9 +540,17 @@ function serverRow(
   // W-M2e item 2: own entries only -- a state named "constructor" is unknown, never a mapped one.
   const mapped =
     coverageState && Object.prototype.hasOwnProperty.call(STATE_BY_COVERAGE, coverageState) ? STATE_BY_COVERAGE[coverageState] : undefined;
+  const evidenceId = str(entry.evidence_artifact_id);
+  const detail = evidenceId ? (evidenceById.get(evidenceId) ?? null) : null;
+  // W-M2e item 3 (M2d verification finding 5): a "no hit" resting on evidence the server itself reports
+  // as unreadable or failing integrity is a contradiction (owner invariant: unreadable pinned evidence is
+  // never "ingen träff"/green). The server does not send it today; fail-safe only, and only towards
+  // UNCERTAIN -- a HIT is never hidden (a stored risk finding must stay visible).
+  const evidenceUnsound =
+    detail !== null && (str(detail.technical_error_class) !== null || detail.integrity === 'TAMPERED' || detail.integrity === 'CORRUPTED');
   // A checked state the machine status contradicts is never shown as checked (fail safe, never green).
   const contradictory =
-    (mapped === 'HIT' && status !== 'CHECKED_HIT') || (mapped === 'NO_HIT' && status !== 'CHECKED_NO_HIT');
+    (mapped === 'HIT' && status !== 'CHECKED_HIT') || (mapped === 'NO_HIT' && (status !== 'CHECKED_NO_HIT' || evidenceUnsound));
   const state: LuKnowledgeState = !mapped || contradictory ? 'UNCERTAIN' : mapped;
   const summary = !mapped
     ? coverageState
@@ -556,8 +564,6 @@ function serverRow(
   const limited = checked && (knownGaps.length > 0 || (layer !== null && limitedLayers.has(layer)));
   const knownDataGap = checked && knownGaps.some((gap) => gap.kind === 'KNOWN_INCOMPLETE_DATA');
   const coverageText = str(entry.coverage_limitation_sv);
-  const evidenceId = str(entry.evidence_artifact_id);
-  const detail = evidenceId ? (evidenceById.get(evidenceId) ?? null) : null;
   // W-M2d item 3: the server says the dataset version is outside the import contracts.
   const versionUnknown =
     checked &&

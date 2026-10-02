@@ -283,6 +283,36 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
     expect(c.protected_area!.summary).toBe('Saknas i underlaget: kontrolltillståndet saknas i svaret.');
   });
 
+  it('W-M2e item 3 (M2d verification finding 5): a "no hit" whose own evidence is unreadable or fails integrity is never shown as checked; a HIT is never hidden', () => {
+    const { readBack } = present({ layers: { water: { kind: 'hit' }, ebh: { kind: 'no_hit' } } });
+    const withEvidence = (layer: string, patch: Record<string, unknown>) => {
+      const check = readBack.governedLayerChecks.find((c) => c.layer === layer)!;
+      const evidenceId = (check as { evidence_artifact_id?: string }).evidence_artifact_id;
+      expect(evidenceId, `${layer} has pinned evidence in the fixture`).toBeTruthy();
+      return presentLuControlChecks({
+        property,
+        assessment: PRESENT,
+        server: {
+          ...serverOf(readBack),
+          evidenceDetails: readBack.evidenceDetails.map((d) => (d.evidence_artifact_id === evidenceId ? { ...d, ...patch } : d)),
+        },
+      }).find((row) => row.key === layer)!;
+    };
+    // The combination the server does not produce today (probe G): a CHECKED_NO_HIT row over evidence
+    // the server itself reports unreadable or failing integrity.
+    for (const patch of [{ technical_error_class: 'EVIDENCE_READ_ERROR' }, { technical_error_class: 'EVIDENCE_NOT_FOUND' }, { integrity: 'TAMPERED' }, { integrity: 'CORRUPTED' }]) {
+      const row = withEvidence('ebh', patch);
+      expect(row.state, JSON.stringify(patch)).toBe('UNCERTAIN');
+      expect(row.stateLabel).toBe('Ofullständigt underlag');
+      expect(row.summary).toBe('Kontrollposten från servern är motsägelsefull och visas därför inte som kontrollerad.');
+      expect(row.registerNote).toBeNull();
+    }
+    // A HIT stays a HIT -- a stored risk is never hidden by the UI (the server names the inconsistency).
+    expect(withEvidence('water', { technical_error_class: 'EVIDENCE_READ_ERROR' }).state).toBe('HIT');
+    // Sound evidence leaves the no-hit as it is.
+    expect(withEvidence('ebh', { integrity: 'CONTENT_HASH_VERIFIED' }).state).toBe('NO_HIT');
+  });
+
   it('W-M2e item 2: a coverage_state named like an Object.prototype member is an unknown state (UNCERTAIN), never a mapped one', () => {
     const { readBack } = present();
     for (const coverage_state of ['constructor', 'toString', '__proto__']) {
