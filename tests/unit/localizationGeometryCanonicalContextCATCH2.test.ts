@@ -32,6 +32,9 @@ const state = vi.hoisted(() => ({
   provisioningRequests: [] as Array<{ projectId: string; geometryArtifactId: string }>,
   accessError: null as Error | null,
   provisioningEnqueueError: null as Error | null,
+  /** W-CATCH3: a stored request record the queues answer with instead of a fresh PENDING one. */
+  provisioningRecord: null as Record<string, unknown> | null,
+  supersessionRecord: null as Record<string, unknown> | null,
 }));
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
@@ -98,7 +101,7 @@ vi.mock('../../server/modules/localization/localizationIdentityProvisioningQueue
   const record = (input: { projectId: string; geometryArtifactId: string }) => {
     if (state.provisioningEnqueueError) throw state.provisioningEnqueueError;
     state.provisioningRequests.push({ projectId: input.projectId, geometryArtifactId: input.geometryArtifactId });
-    return { status: 'PENDING', failureDetail: null };
+    return state.provisioningRecord ?? { status: 'PENDING', failureDetail: null };
   };
   return {
     ensureLocalizationIdentityProvisioningRequested: vi.fn(async (input: { projectId: string; geometryArtifactId: string }) => record(input)),
@@ -107,6 +110,7 @@ vi.mock('../../server/modules/localization/localizationIdentityProvisioningQueue
 });
 vi.mock('../../server/modules/localization/localizationGeometrySupersessionQueue', () => ({
   ensureLocalizationGeometrySupersessionRequested: vi.fn(async () => {
+    if (state.supersessionRecord) return state.supersessionRecord;
     throw new Error('no supersession request in this test');
   }),
 }));
@@ -274,6 +278,8 @@ beforeEach(async () => {
   state.provisioningRequests.length = 0;
   state.accessError = null;
   state.provisioningEnqueueError = null;
+  state.provisioningRecord = null;
+  state.supersessionRecord = null;
   puts.length = 0;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.keyId;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = issuerKey.publicKeyPem;
@@ -441,5 +447,91 @@ describe('W-CATCH2 (BOOT verifier finding 8, same surface): a request that could
     expect(moved.data.supersessionStatus).toBe('FAILED');
     expect(moved.data.supersessionFailureDetail).toMatch(/^Bytet till den nya kontrollpunkten kunde inte begäras/);
     expect(moved.data.supersessionFailureDetail).not.toMatch(/no supersession request in this test/);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (owner decision 2026-10-03: OLD provisioning rows' raw failureDetail is sanitised at
+// PRESENTATION -- no stored data changes; CATCH2 verifier finding 11): the geometry view sent a stored
+// request's failureDetail as is, and rows written before W-CATCH2 (and some fail() texts since) hold raw
+// storage paths, provider text and artifact ids. A FAILED or SUPERSEDED request is now shown by its
+// stable failureCode -- a neutral Swedish text, a retry sentence only where the code determines it --
+// never its stored text. A request this process could not enqueue keeps its own neutral text.
+// ------------------------------------------------------------------------------------------------
+
+const RAW_ROW_DETAIL = "EIO: i/o error, open 'D:\\mimer-demo\\cas\\index\\4f1c.idx' (PrismaClientKnownRequestError: SELECT * FROM \"LocalizationIdentityProvisioningRequest\" password=hunter2) geometry localization-geometry-3c1a belongs to project p-9";
+
+function storedRow(status: string, failureCode: string | null, failureDetail: string | null): Record<string, unknown> {
+  return { id: 'row-1', projectId: PROJECT_ID, status, failureCode, failureDetail, createdAt: new Date(), failedAt: new Date() };
+}
+
+function expectNeutralRowText(text: string | null | undefined): void {
+  expect(typeof text).toBe('string');
+  expect(text).not.toContain('mimer-demo');
+  expect(text).not.toMatch(/EIO|Prisma|SELECT|password|hunter2|localization-geometry-|\.idx|[A-Za-z]:[\\/]|belongs to project/);
+}
+
+describe('W-CATCH3: a stored provisioning / supersession row is shown by its code, never by its stored text', () => {
+  it('GET: an OLD identity provisioning row FAILED with a raw text (code PROVISIONING_EXECUTION_ERROR) -> the code\'s neutral text and retry sentence', async () => {
+    await provisionProject();
+    state.provisioningRecord = storedRow('FAILED', 'PROVISIONING_EXECUTION_ERROR', RAW_ROW_DETAIL);
+    const result = await load();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.provisioningStatus).toBe('FAILED');
+    expectNeutralRowText(result.data.provisioningFailureDetail);
+    expect(result.data.provisioningFailureDetail).toBe('Förberedelsen av analysen för kontrollpunkten slutfördes inte: ett tekniskt fel uppstod. Ett nytt försök kan lyckas.');
+  });
+  it('GET: a row with a domain code whose stored text names ids (GEOMETRY_PROJECT_MISMATCH) -> neutral, no retry promised', async () => {
+    await provisionProject();
+    state.provisioningRecord = storedRow('FAILED', 'GEOMETRY_PROJECT_MISMATCH', RAW_ROW_DETAIL);
+    const result = await load();
+    expect(result.ok && result.data.provisioningFailureDetail).toBe(
+      'Förberedelsen av analysen för kontrollpunkten slutfördes inte: kontrollpunkten hör till ett annat projekt. Felet är bestående och löses inte av ett nytt försök.',
+    );
+  });
+  it('GET: an unknown (older) code or no code at all -> a neutral text that promises nothing, never the stored text', async () => {
+    await provisionProject();
+    for (const code of ['SOME_OLDER_CODE_V0', null]) {
+      state.provisioningRecord = storedRow('FAILED', code, RAW_ROW_DETAIL);
+      const result = await load();
+      expect(result.ok && result.data.provisioningFailureDetail).toBe(
+        'Förberedelsen av analysen för kontrollpunkten slutfördes inte (okänd felkod). Felet beskrivs inte närmare här.',
+      );
+    }
+  });
+  it('GET: a PENDING / COMPLETED row shows no failure text even if the stored field holds one', async () => {
+    await provisionProject();
+    for (const status of ['PENDING', 'LEASED', 'COMPLETED']) {
+      state.provisioningRecord = storedRow(status, null, RAW_ROW_DETAIL);
+      const result = await load();
+      expect(result.ok && result.data.provisioningStatus).toBe(status);
+      expect(result.ok && result.data.provisioningFailureDetail).toBe(null);
+    }
+  });
+  it('POST: a stored supersession row FAILED with a raw text, and one SUPERSEDED with ids in its detail -> neutral texts by code', async () => {
+    await provisionProject();
+    expect((await save()).ok).toBe(true);
+    const move = (lng: number) =>
+      saveUserLocalizationGeometry({
+        authUser: USER,
+        projectId: PROJECT_ID,
+        input: { geometry_type: 'POINT', coordinates: [lng, 59.34], srid: 4326 },
+        artifactRepository: repository(),
+        spatialRuntime,
+      });
+    state.supersessionRecord = storedRow('FAILED', 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR', RAW_ROW_DETAIL);
+    const failed = await move(18.08);
+    expect(failed.ok && failed.data.supersessionStatus).toBe('FAILED');
+    expect(failed.ok && failed.data.supersessionFailureDetail).toBe(
+      'Bytet till den nya kontrollpunkten slutfördes inte: projektets aktuella kontrollpunkt kunde inte fastställas.',
+    );
+    state.supersessionRecord = storedRow('SUPERSEDED', 'PREDECESSOR_NO_LONGER_CURRENT', 'pinned predecessor localization-geometry-aa is no longer current (current is localization-geometry-bb)');
+    const superseded = await move(18.09);
+    expect(superseded.ok && superseded.data.supersessionStatus).toBe('SUPERSEDED');
+    expect(superseded.ok && superseded.data.supersessionFailureDetail).toBe(
+      'Bytet till den nya kontrollpunkten slutfördes inte: en annan ändring av projektets kontrollpunkt hann före, så den här ändringen gäller inte längre.',
+    );
+    expectNeutralRowText(failed.ok ? failed.data.supersessionFailureDetail : null);
   });
 });
