@@ -1,8 +1,11 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
@@ -34,6 +37,8 @@ import vitestConfig from '../../vitest.config';
 
 const GUARD_SETUP = 'tests/setup/testDatabaseGuard.ts';
 const SOCKET_SENTINEL = 'WTDG_SOCKET_CONNECT_REACHED';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const TSX_LOADER_URL = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
 const savedEnv = { ...process.env };
 
 afterEach(() => {
@@ -247,6 +252,66 @@ describe('the guard is installed in every test worker by the setup file, not by 
         name: project.test.name,
         envDir: false,
       });
+    }
+  });
+});
+
+describe('the guard also holds where the Vitest setup file does not run', () => {
+  it('the setup file itself refuses a test file whose environment names a live database', async () => {
+    process.env.DATABASE_URL = 'postgresql://wtdg:wtdg@wtdg-live-name.invalid:1/miljobeslut';
+    vi.resetModules();
+
+    expect(await rejectionOf(import('../setup/testDatabaseGuard'))).toMatch(/TEST-DB-GUARD.*miljobeslut/);
+  });
+
+  it('a NODE_ENV=test process outside Vitest is guarded by server/db/prisma itself, before any socket', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg-prisma-child-'));
+    const prismaUrl = pathToFileURL(path.join(REPO_ROOT, 'server/db/prisma.ts')).href;
+    // The child replaces every socket connect with a sentinel BEFORE loading the product module,
+    // so even with the guard removed nothing can connect; the guard must refuse before it.
+    const childCode = [
+      "import net from 'node:net';",
+      `net.Socket.prototype.connect = function () { throw new Error(${JSON.stringify(SOCKET_SENTINEL)}); };`,
+      `const { prisma } = await import(${JSON.stringify(prismaUrl)});`,
+      'let outcome = "NO_ERROR";',
+      "try { await prisma.$queryRawUnsafe('SELECT 1'); } catch (e) {",
+      '  const parts = []; let c = e;',
+      '  for (let i = 0; c && i < 6; i += 1) { parts.push(String(c.message ?? c)); c = c.cause; }',
+      "  outcome = parts.join(' | ');",
+      '}',
+      "process.stdout.write('WTDG_RESULT ' + JSON.stringify(outcome) + String.fromCharCode(10));",
+      'process.exit(0);',
+    ].join(String.fromCharCode(10));
+    const env: NodeJS.ProcessEnv = {};
+    for (const key of [
+      'PATH',
+      'Path',
+      'SystemRoot',
+      'SYSTEMROOT',
+      'windir',
+      'TEMP',
+      'TMP',
+      'TMPDIR',
+      'HOME',
+      'USERPROFILE',
+    ]) {
+      if (process.env[key] !== undefined) env[key] = process.env[key];
+    }
+    env.NODE_ENV = 'test';
+    env.DATABASE_URL = 'postgresql://wtdg:wtdg@127.0.0.1:1/miljobeslut';
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ['--import', TSX_LOADER_URL, '--input-type=module', '-e', childCode],
+        { cwd, env, encoding: 'utf8', timeout: 90_000 },
+      );
+      const line = (result.stdout ?? '').split(/\r?\n/).find((l) => l.startsWith('WTDG_RESULT '));
+      expect(line, String(result.stderr ?? '').slice(0, 2000)).toBeDefined();
+      const outcome = JSON.parse(String(line).slice('WTDG_RESULT '.length)) as string;
+      expect(outcome).toMatch(/TEST-DB-GUARD/);
+      expect(outcome).not.toMatch(SOCKET_SENTINEL);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
     }
   });
 });
