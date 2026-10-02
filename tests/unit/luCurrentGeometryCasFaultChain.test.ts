@@ -160,7 +160,6 @@ vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => ({
 vi.mock('@miljobeslut/mps-lu', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   LU_SPATIAL_CAPABILITY_KEY: 'lu.spatial',
-  orchestrator: { generateDocumentEvidence: vi.fn(async () => []) },
   runLuAssessmentViaKernel: (...args: unknown[]) => kernelMock(...args),
   runCanonicalLuProductAssessment: (...args: unknown[]) => kernelMock(...args),
   deriveLuExecutionSeed: vi.fn(() => 'canonical-seed'),
