@@ -485,7 +485,13 @@ describe('K0b: computeGovernedDocumentCheck (pure)', () => {
     ['document evidence + verified fact', [DE('d2'), VF('f1'), DE('d1')], 'CHECKED_HIT', null, 'd1'],
     ['refs not an array', undefined, 'NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null],
     ['refs an object', { artifact_type: 'DOCUMENT_EVIDENCE' }, 'NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null],
-    ['malformed entries are ignored, never counted', [null, 7, { artifact_type: 'DOCUMENT_EVIDENCE' }, { artifact_id: '', artifact_type: 'DOCUMENT_EVIDENCE' }], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
+    // U20CDF (K0-FIX-1 c): malformed entries are still never counted, but the reason now says so
+    // exactly (was NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED); the status stays NOT_CHECKED.
+    ['malformed entries are never counted; the reason says they are malformed', [null, 7, { artifact_type: 'DOCUMENT_EVIDENCE' }, { artifact_id: '', artifact_type: 'DOCUMENT_EVIDENCE' }], 'NOT_CHECKED', 'MALFORMED_DOCUMENT_REFS', null],
+    ['a document type in the wrong spelling is malformed', [SE('s1'), { artifact_id: 'd1', artifact_type: 'document_evidence' }], 'NOT_CHECKED', 'MALFORMED_DOCUMENT_REFS', null],
+    ['a document ref with a numeric id is malformed', [DE('d1'), { artifact_id: 42, artifact_type: 'VERIFIED_DOCUMENT_FACT' }], 'NOT_CHECKED', 'MALFORMED_DOCUMENT_REFS', 'd1'],
+    ['an entry without a type is malformed', [{ artifact_id: 'x' }], 'NOT_CHECKED', 'MALFORMED_DOCUMENT_REFS', null],
+    ['a malformed non-document ref is not a document problem', [{ artifact_id: '', artifact_type: 'SPATIAL_EVIDENCE' }], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
   ])('%s', (_label, refs, status, reason, evidenceId) => {
     const check = computeGovernedDocumentCheck(refs);
     expect(check).toMatchObject({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status, reason, evidence_artifact_id: evidenceId });

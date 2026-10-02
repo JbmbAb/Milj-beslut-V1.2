@@ -77,7 +77,14 @@ export type GovernedDocumentCheckReason =
    * not be read from CAS at read-back. The same reason (and coverage_state TECHNICAL_ERROR) as an
    * unreadable pinned spatial evidence; never CHECKED_HIT, never a plain "not checked".
    */
-  | 'PINNED_EVIDENCE_UNREADABLE';
+  | 'PINNED_EVIDENCE_UNREADABLE'
+  /**
+   * U20CDF (K0 verification finding 5, K0-FIX-1 c): the pinned refs contain an entry that may be a
+   * document ref but cannot be interpreted (not an object, no type, a document type in the wrong
+   * spelling, or a document type without a string id). Status stays NOT_CHECKED; the reason says
+   * exactly why instead of the misleading "no verified document evidence pinned".
+   */
+  | 'MALFORMED_DOCUMENT_REFS';
 
 export interface GovernedDocumentCheck extends GovernedLayerCheck {
   readonly layer: typeof GOVERNED_DOCUMENT_CHECK_LAYER;
@@ -104,7 +111,25 @@ const DOCUMENT_CHECK_MESSAGE_SV: Readonly<Record<GovernedDocumentCheckReason | '
     'Dokument och tidigare beslut: tekniskt fel. Dokumentunderlaget som bedömningen är bunden till kunde ' +
     'inte läsas ur CAS och kan därför inte verifieras. Kontrollen redovisas inte som genomförd, och ingen ' +
     'slutsats dras om dokument eller tidigare beslut.',
+  MALFORMED_DOCUMENT_REFS:
+    'Dokument och tidigare beslut: inte kontrollerat. Bedömningens evidensreferenser innehåller felformade ' +
+    'poster som inte kan tolkas, så det går inte att avgöra vilket dokumentunderlag som ingår.',
 };
+
+const DOCUMENT_REF_TYPES = ['DOCUMENT_EVIDENCE', 'VERIFIED_DOCUMENT_FACT'] as const;
+
+/**
+ * U20CDF (K0-FIX-1 c): an entry that may be a document ref but cannot be read as one. A well-formed
+ * ref of another family (e.g. SPATIAL_EVIDENCE) is not a document ref and does not count here.
+ */
+function isMalformedDocumentRef(ref: unknown): boolean {
+  if (!ref || typeof ref !== 'object') return true;
+  const { artifact_id: id, artifact_type: type } = ref as { artifact_id?: unknown; artifact_type?: unknown };
+  if (typeof type !== 'string' || type.trim().length === 0) return true;
+  const normalized = type.trim().toUpperCase();
+  if (!(DOCUMENT_REF_TYPES as readonly string[]).includes(normalized)) return false;
+  return type !== normalized || typeof id !== 'string' || id.length === 0;
+}
 
 function pinnedIdsOfType(refs: readonly unknown[], artifactType: string): string[] {
   const ids: string[] = [];
@@ -140,6 +165,7 @@ export function computeGovernedDocumentCheck(
   });
 
   if (!Array.isArray(pinnedEvidenceRefs)) return make('NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null);
+  const hasMalformedDocumentRef = pinnedEvidenceRefs.some(isMalformedDocumentRef);
   const unreadable = new Set(options.unreadableArtifactIds ?? []);
   const unreadableDocumentIds = [
     ...pinnedIdsOfType(pinnedEvidenceRefs, 'DOCUMENT_EVIDENCE'),
@@ -152,10 +178,20 @@ export function computeGovernedDocumentCheck(
     return make('NOT_CHECKED', 'PINNED_EVIDENCE_UNREADABLE', unreadableDocumentIds[0]!);
   }
   const documentEvidenceIds = pinnedIdsOfType(pinnedEvidenceRefs, 'DOCUMENT_EVIDENCE');
-  if (documentEvidenceIds.length === 0) return make('NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null);
-  if (pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT').length === 0) {
-    return make('NOT_CHECKED', 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED', documentEvidenceIds[0]!);
+  // K0-FIX-1 c: where the result is NOT_CHECKED, a malformed entry is the exact reason -- never the
+  // misleading "nothing pinned". (A CHECKED_HIT from well-formed refs is left as K0 defines it.)
+  if (documentEvidenceIds.length === 0) {
+    return make('NOT_CHECKED', hasMalformedDocumentRef ? 'MALFORMED_DOCUMENT_REFS' : 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null);
   }
+  if (pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT').length === 0) {
+    return make(
+      'NOT_CHECKED',
+      hasMalformedDocumentRef ? 'MALFORMED_DOCUMENT_REFS' : 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED',
+      documentEvidenceIds[0]!,
+    );
+  }
+  // OD-K0-3 (open owner question, not changed here): CHECKED_HIT follows from the pinned ref TYPES
+  // (DE + VF), not from LU-DOC-BESLUT-001 actually having produced a finding for them.
   return make('CHECKED_HIT', null, documentEvidenceIds[0]!);
 }
 
