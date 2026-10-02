@@ -1,6 +1,11 @@
 import { execSync } from 'child_process';
 import { readdirSync, statSync } from 'fs';
 import { join, basename, extname } from 'path';
+import { assertOgr2ogrCommandAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+// U30F F1: the target schema comes from the command line; the protected relation gate refuses lm_staging (and
+// any protected relation) before ogr2ogr runs.
+const GATE_CALLER = 'scripts/db/mass-import-lm.ts';
 
 const DB_URL = process.env.DATABASE_URL || 'postgresql://miljobeslut:password@localhost:5432/miljobeslut';
 const GDAL_PATH = 'C:\\Program Files\\GDAL';
@@ -49,7 +54,7 @@ async function importFile(filePath: string, schema: string, overwrite: boolean) 
   const cmd = `"${OGR2OGR}" -f PostgreSQL "PG:dbname='${dbname}' host='${host}' user='${user}' password='${password}' port='${port}'" "${filePath}" -nln ${fullTableName} -lco SCHEMA=${schema} ${mode} -skipfailures -nlt PROMOTE_TO_MULTI --config GML_SKIP_RESOLVE_ELEMS ALL`;
 
   try {
-    execSync(cmd, { stdio: 'inherit' });
+    execSync(assertOgr2ogrCommandAllowed({ caller: GATE_CALLER, command: cmd }), { stdio: 'inherit' });
     console.log(`Successfully imported ${fileName}`);
     importedTables.add(fullTableName);
   } catch (error) {

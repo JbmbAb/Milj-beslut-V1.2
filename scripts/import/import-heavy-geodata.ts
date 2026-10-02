@@ -5,9 +5,11 @@
 import { spawnSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
 
+const GATE_CALLER = 'scripts/import/import-heavy-geodata.ts';
 const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
@@ -104,7 +106,8 @@ async function runBulkImport() {
       }
 
       console.log(`   - Running ogr2ogr import...`);
-      const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+      // U30F F1: env.sgu_soil_type_25k_100k (lu.soil_type) is refused here; the item fails, nothing is written.
+      const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), { stdio: 'inherit' });
       
       if (result.status !== 0) {
         throw new Error(`ogr2ogr failed with status ${result.status}`);

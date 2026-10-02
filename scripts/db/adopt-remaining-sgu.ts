@@ -1,6 +1,11 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import { PrismaClient } from '@prisma/client';
+import { gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+// U30F F1: the TRUNCATE and INSERT go through the protected relation gate (it reads lm_staging; a protected
+// target, should one be added to REMAINING_MAPPINGS, is refused before the transaction).
+const GATE_CALLER = 'scripts/db/adopt-remaining-sgu.ts';
 
 const p = new PrismaClient();
 
@@ -97,8 +102,8 @@ async function main() {
       if (EXECUTE) {
         console.log(`  📡 Copying rows...`);
         await p.$transaction([
-          p.$executeRawUnsafe(`TRUNCATE ${fullProd} CASCADE`),
-          p.$executeRawUnsafe(`INSERT INTO ${fullProd} (${colString}) SELECT ${colString} FROM ${fullStg}`),
+          p.$executeRawUnsafe(gatedSql(GATE_CALLER, `TRUNCATE ${fullProd} CASCADE`)),
+          p.$executeRawUnsafe(gatedSql(GATE_CALLER, `INSERT INTO ${fullProd} (${colString}) SELECT ${colString} FROM ${fullStg}`)),
         ]);
         console.log('  ✓ Rows copied.');
 

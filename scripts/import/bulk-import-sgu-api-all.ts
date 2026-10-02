@@ -5,9 +5,11 @@
 import { execSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
+import { assertOgr2ogrCommandAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
 
+const GATE_CALLER = 'scripts/import/bulk-import-sgu-api-all.ts';
 const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const OGR2OGR_PATH = 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
@@ -50,7 +52,9 @@ async function runImport() {
                      `--config OAPIF_PAGE_SIZE 5000`;
 
       console.log(`   - Running ogr2ogr stream (this may take a long time)...`);
-      execSync(ogrCmd, { stdio: 'inherit' });
+      // U30F F1: a protected LU target (env.sgu_well, env.sgu_landslide_feature, env.sgu_soil_type_25k_100k)
+      // is refused here; the item fails and nothing is written to it.
+      execSync(assertOgr2ogrCommandAllowed({ caller: GATE_CALLER, command: ogrCmd }), { stdio: 'inherit' });
 
       console.log(`   - Rebuilding spatial index...`);
       const idxName = `${item.table.replace('.', '_')}_geom_idx`;

@@ -8,6 +8,9 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { PLATFORM_COLLECTIONS } from './platform-datasources';
+import { assertOgr2ogrWriteAllowed, gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+const GATE_CALLER = 'scripts/import/bulk-import-platform-all.ts';
 
 dotenv.config();
 
@@ -232,7 +235,9 @@ async function runImport() {
   ) => {
     return new Promise<void>((resolve, reject) => {
       const env = extraEnv ? { ...process.env, ...extraEnv } : process.env;
-      const childProcess = spawn(OGR2OGR_PATH, args, { stdio: 'pipe', shell: false, env });
+      // U30F F1: a protected LU target (env.sgu_well, env.sgu_landslide_feature, env.registerenhetsomradesytor, ...)
+      // is refused here; the promise rejects and nothing is written to it.
+      const childProcess = spawn(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), { stdio: 'pipe', shell: false, env });
       let stderr = '';
       let timedOut = false;
       let timeoutHandle: NodeJS.Timeout | undefined;
@@ -523,7 +528,7 @@ async function runImport() {
     // Convert UNLOGGED -> LOGGED immediately after this table finishes
     // (defers durability cost but preserves data once WAL-logged)
     console.log(`   - Converting ${item.table} to LOGGED...`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE ${item.table} SET LOGGED;`);
+    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `ALTER TABLE ${item.table} SET LOGGED;`));
 
     // Clean up raw GPKG unless user passed --keep-downloads
     if (DOWNLOAD_FIRST && !KEEP_DOWNLOADS && 'url' in item) {

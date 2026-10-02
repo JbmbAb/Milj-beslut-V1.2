@@ -2,6 +2,10 @@ import { spawnSync } from 'child_process';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import fs from 'fs';
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+// U30F F1: every ogr2ogr write goes through the protected relation gate.
+const GATE_CALLER = 'scripts/import/import-lm-manual.ts';
 
 dotenv.config();
 const DATABASE_URL = process.env.DATABASE_URL || '';
@@ -130,7 +134,7 @@ async function runImport() {
       ];
 
       console.log(`   - Running ogr2ogr import to PostGIS...`);
-      const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+      const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), { stdio: 'inherit' });
       if (result.status !== 0) {
         throw new Error(`ogr2ogr import failed with status ${result.status}`);
       }

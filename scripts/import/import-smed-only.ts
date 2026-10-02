@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import { PLATFORM_COLLECTIONS } from './platform-datasources';
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
 
@@ -77,7 +78,8 @@ async function runSmedImport() {
     }
 
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(OGR2OGR_PATH, pgArgs, { stdio: 'inherit', shell: false, env });
+      // U30F F1: through the protected relation gate; a protected target rejects before the spawn.
+      const child = spawn(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/import-smed-only.ts', args: pgArgs }), { stdio: 'inherit', shell: false, env });
       child.on('close', (code) => {
         if (code === 0) resolve();
         else reject(new Error(`ogr2ogr failed with code ${code}`));

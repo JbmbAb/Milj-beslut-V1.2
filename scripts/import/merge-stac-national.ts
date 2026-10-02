@@ -25,6 +25,7 @@ import {
 } from './config/importRegistry';
 import { buildArchiveManifestV2, type ArchiveManifestV2 } from './types/manifestSchema';
 import { canOpenOgrSource, listOgrLayerNames, resolveGpkgSource } from './lastkajenImportEngine';
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
 
@@ -203,6 +204,8 @@ function mergeZipIntoGpkg(
       '-gt',
       '65536',
     ];
+    // U30F F1: through the protected relation gate (the GPKG archive output passes; a PostgreSQL target would be checked).
+    assertOgr2ogrWriteAllowed({ caller: 'scripts/import/merge-stac-national.ts', args: args.slice(1) });
     const result = spawnSync(args[0], args.slice(1), { encoding: 'utf8', stdio: 'pipe', maxBuffer: 50 * 1024 * 1024 });
     if (result.status !== 0) {
       throw new Error(

@@ -6,8 +6,15 @@ import { execSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import {
+  assertOgr2ogrCommandAllowed,
+  assertUngovernedDestructiveWriteAllowed,
+  gatedSql,
+} from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
+
+const GATE_CALLER = 'scripts/import/bulk-import-sgu.ts';
 
 const prisma = new PrismaClient();
 const DATABASE_URL = process.env.DATABASE_URL || '';
@@ -29,6 +36,8 @@ const TARGETS = {
 async function runBulkImport(filePath: string, targetKey: keyof typeof TARGETS) {
   const config = TARGETS[targetKey];
   if (!config) throw new Error(`Invalid target: ${targetKey}`);
+  // U30F F1: refused before any statement when the target is a protected LU layer (landslide is).
+  assertUngovernedDestructiveWriteAllowed({ caller: GATE_CALLER, operation: 'OGR2OGR_WRITE', relation: config.table });
 
   console.log(`\n🚀 STARTING BULK IMPORT: ${filePath} -> ${config.table}`);
 
@@ -41,7 +50,7 @@ async function runBulkImport(filePath: string, targetKey: keyof typeof TARGETS) 
     // 1. Pre-optimization: Drop index and disable autovacuum
     console.log(`Step 1/4: Optimizing database for write speed...`);
     await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS ${config.table}_${config.geomCol}_idx;`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE ${config.table} SET (autovacuum_enabled = false);`);
+    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `ALTER TABLE ${config.table} SET (autovacuum_enabled = false);`));
 
     // 2. Build ogr2ogr command
     // We parse the DATABASE_URL to get individual components for the PG: connection string
@@ -68,11 +77,11 @@ async function runBulkImport(filePath: string, targetKey: keyof typeof TARGETS) 
     console.log(`Step 2/4: Running ogr2ogr bulk stream...`);
     console.log(`Command: ${ogrCmd.replace(password, '****')}`);
 
-    execSync(ogrCmd, { stdio: 'inherit' });
+    execSync(assertOgr2ogrCommandAllowed({ caller: GATE_CALLER, command: ogrCmd }), { stdio: 'inherit' });
 
     // 3. Post-optimization: Re-enable autovacuum and REBUILD INDEX
     console.log(`Step 3/4: Re-enabling autovacuum...`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE ${config.table} SET (autovacuum_enabled = true);`);
+    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `ALTER TABLE ${config.table} SET (autovacuum_enabled = true);`));
 
     console.log(`Step 4/4: Rebuilding spatial index (this might take a while for 93M rows)...`);
     await prisma.$executeRawUnsafe(
@@ -99,4 +108,8 @@ if (!filePath || !targetKey) {
   process.exit(1);
 }
 
-runBulkImport(filePath, targetKey as any);
+runBulkImport(filePath, targetKey as any).catch((error: unknown) => {
+  // A protected target is refused before any statement (U30F F1): report it and fail the process.
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

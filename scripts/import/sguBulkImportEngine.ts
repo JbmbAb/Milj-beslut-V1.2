@@ -7,6 +7,15 @@ import fs from 'fs';
 import path from 'path';
 import type { PrismaClient } from '@prisma/client';
 import type { SguBulkImportJob, SguGeometryHint } from '../../server/datasources/sguBulkImportManifest';
+import {
+  assertOgr2ogrWriteAllowed,
+  assertUngovernedDestructiveWriteAllowed,
+  gatedSql,
+} from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+// U30F F1: every DROP, ALTER and ogr2ogr write of the engine goes through the protected relation gate; the manifest
+// targets env.sgu_soil_type_25k_100k and env.sgu_landslide_feature (protected LU layers), which are refused.
+const GATE_CALLER = 'scripts/import/sguBulkImportEngine.ts';
 
 export const OGR2OGR_PATH = process.env.OGR2OGR_PATH ?? 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
 
@@ -81,15 +90,17 @@ async function dropTableIndexes(prisma: PrismaClient, tableRef: string): Promise
 }
 
 export async function prepareTableForBulkLoad(prisma: PrismaClient, tableRef: string): Promise<void> {
+  // Refused before its indexes are dropped, not only at the DROP TABLE.
+  assertUngovernedDestructiveWriteAllowed({ caller: GATE_CALLER, operation: 'DROP', relation: tableRef });
   const schema = tableRef.split('.')[0];
   await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
   await dropTableIndexes(prisma, tableRef);
-  await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${tableRef} CASCADE`);
+  await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${tableRef} CASCADE`));
 }
 
 export function runOgr2ogr(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(OGR2OGR_PATH, args, {
+    const child = spawn(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), {
       stdio: 'inherit',
       shell: false,
       env: buildOgr2ogrEnv(),
@@ -132,7 +143,7 @@ export async function dropInterruptedSguTables(prisma: PrismaClient): Promise<st
   for (const table of tables) {
     const relname = table.split('.').pop() ?? '';
     if (relname.endsWith('_seq')) continue;
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);
+    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${table} CASCADE`));
     dropped.push(table);
   }
   return dropped;
@@ -152,7 +163,7 @@ export async function dropSuspectPartialTables(prisma: PrismaClient): Promise<st
       );
       const n = rows[0]?.n ?? 0n;
       if (n > 0n && n < minRows) {
-        await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);
+        await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${table} CASCADE`));
         dropped.push(`${table} (${n.toLocaleString('sv-SE')} rader)`);
       }
     } catch {
@@ -216,8 +227,8 @@ export async function importSguJob(
 
   await runOgr2ogr(args);
 
-  await prisma.$executeRawUnsafe(`ALTER TABLE ${job.table} SET LOGGED`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE ${job.table} SET (autovacuum_enabled = true)`);
+  await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `ALTER TABLE ${job.table} SET LOGGED`));
+  await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `ALTER TABLE ${job.table} SET (autovacuum_enabled = true)`));
 
   const rows = await prisma.$queryRawUnsafe<{ n: bigint }[]>(
     `SELECT COUNT(*)::bigint AS n FROM ${job.table}`,

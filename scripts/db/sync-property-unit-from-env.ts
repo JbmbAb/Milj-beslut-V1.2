@@ -15,6 +15,7 @@ import { Pool } from 'pg';
 import dotenv from 'dotenv';
 import type { PrismaClient } from '@prisma/client';
 import { PrismaClient as DefaultPrismaClient } from '@prisma/client';
+import { assertSanctionedDerivedRebuild } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
 
@@ -290,6 +291,11 @@ export async function syncPropertyUnitFromEnv(
       spotChecks: spotChecks.map((designation) => ({ designation, found: false })),
     };
   }
+
+  // U30F F1: core.property_unit is a protected LU_DERIVED relation; this module is its one registered
+  // derivation (protected-relations.v1.json sanctioned_rebuild). The TRUNCATE/DELETE below re-derive it from
+  // the governed source env.registerenhetsomradesytor; any other caller is refused by the gate.
+  assertSanctionedDerivedRebuild({ caller: 'scripts/db/sync-property-unit-from-env.ts', relation: 'core.property_unit', operation: 'TRUNCATE' });
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const recreateTable = phase === 'all' || phase === 'individual';

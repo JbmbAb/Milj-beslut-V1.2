@@ -8,6 +8,7 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 import { MASTER_ARCHIVE_ROOT } from './config/mimersBrunn';
 import { buildArchiveManifestV2 } from './types/manifestSchema';
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 const OGR2OGR_PATH = process.env.OGR2OGR_PATH || 'C:\\Program Files\\GDAL\\ogr2ogr.exe';
 const VERSION = new Date().toISOString().split('T')[0];
@@ -81,9 +82,10 @@ function main(): void {
   try {
     extractZip(zipPath, temp);
     const shp = findShapefile(temp);
+    // U30F F1: through the protected relation gate (a GPKG file output passes; a PostgreSQL target would be checked).
     const result = spawnSync(
       OGR2OGR_PATH,
-      [
+      assertOgr2ogrWriteAllowed({ caller: 'scripts/import/prepare-ebh-gpkg.ts', args: [
         '--config',
         'SHAPE_ENCODING',
         'CP1252',
@@ -98,7 +100,7 @@ function main(): void {
         'EPSG:3006',
         '-lco',
         'GEOMETRY_NAME=geom',
-      ],
+      ] }),
       { encoding: 'utf8', stdio: 'pipe' },
     );
     if (result.status !== 0) {

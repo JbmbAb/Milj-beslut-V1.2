@@ -3,6 +3,11 @@ import pg from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { assertUngovernedDestructiveWriteAllowed, gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+// U30F F1: the stage DROP/TRUNCATE and every INSERT into a target go through the protected relation gate;
+// env.sgu_landslide_feature and env.sgu_well are protected LU layers and are refused before anything is fetched.
+const GATE_CALLER = 'scripts/import/import-sgu-risk-layers.ts';
 
 const prisma = new PrismaClient();
 
@@ -204,7 +209,7 @@ async function ensurePipelineTables(): Promise<void> {
 
   console.log('Ensuring staging tables exist in schema "stage"...');
   for (const table of tables) {
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS stage.${table.name} CASCADE;`);
+    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS stage.${table.name} CASCADE;`));
     await prisma.$executeRawUnsafe(`CREATE TABLE stage.${table.name} (${table.cols});`);
   }
   console.log('Ensuring production tables exist in schema "env"...');
@@ -238,6 +243,7 @@ async function genericImport(
   mapper: (f: GeoJsonFeature) => any,
   targetInsertSql: string,
 ) {
+  assertUngovernedDestructiveWriteAllowed({ caller: GATE_CALLER, operation: 'INSERT', relation: targetTable });
   let imported = 0;
   let startIndex = 0;
 
@@ -260,8 +266,8 @@ async function genericImport(
     await copyToPostgres(client, `stage.${stageTable}`, copyRows);
 
     if (!options.stageOnly) {
-      await prisma.$executeRawUnsafe(targetInsertSql);
-      await prisma.$executeRawUnsafe(`TRUNCATE stage.${stageTable};`);
+      await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, targetInsertSql));
+      await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `TRUNCATE stage.${stageTable};`));
     }
 
     imported += page.features.length;

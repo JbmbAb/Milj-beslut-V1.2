@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+
+// U30F F1: every ogr2ogr write goes through the protected relation gate.
+const GATE_CALLER = 'scripts/import/import-lantmateriet.ts';
 
 dotenv.config();
 
@@ -104,7 +108,7 @@ async function runImport() {
         ];
 
         console.log(`   - Running ogr2ogr download...`);
-        const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+        const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), { stdio: 'inherit' });
         if (result.status !== 0) {
           throw new Error(`ogr2ogr download failed with status ${result.status}`);
         }
@@ -135,7 +139,7 @@ async function runImport() {
       ];
 
       console.log(`   - Running ogr2ogr import...`);
-      const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+      const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), { stdio: 'inherit' });
       if (result.status !== 0) {
         throw new Error(`ogr2ogr import failed with status ${result.status}`);
       }
