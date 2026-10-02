@@ -1575,6 +1575,30 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(assessmentReads()).toBeGreaterThan(readsBefore);
   });
 
+  it('M2c item 3: a governance refusal reads "Ofullständigt underlag" in the panel AND on the map -- one word per state', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () =>
+        apiError(409, 'Projektet har flera möjliga aktuella lokaliseringspunkter. Ingen bedömning görs förrän det är utrett vilken punkt som gäller.', {
+          code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+          failureClass: 'AMBIGUOUS_CURRENT_GEOMETRY',
+        }),
+    });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'UNCERTAIN'));
+    expect(screen.getByTestId('lu-check-state-water')).toHaveTextContent('Ofullständigt underlag');
+    expect(lastCesiumMapViewProps.productEvidence.status).toBe('error');
+    expect(lastCesiumMapViewProps.productEvidence.stateLabel).toBe('Ofullständigt underlag');
+  });
+
+  it('M2c item 3: a technical failure reads "Tekniskt fel" in the panel and on the map', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => persisted('assessment-shown'), evidence: () => apiError(503, 'upstream down') });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
+    expect(lastCesiumMapViewProps.productEvidence.stateLabel).toBe('Tekniskt fel');
+  });
+
   it('item 2: "Kör bedömning" is disabled while the saved assessment is still being read', async () => {
     const user = userEvent.setup();
     let release: (v: unknown) => void = () => {};

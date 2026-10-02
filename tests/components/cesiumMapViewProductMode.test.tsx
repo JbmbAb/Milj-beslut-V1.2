@@ -114,6 +114,22 @@ describe('DEMO M2a item 4 / M2b: CesiumMapView in product mode', () => {
     expect(screen.queryByTestId('cesium-search-radius-legend')).not.toBeInTheDocument();
   });
 
+  it('M2c item 3: the map heads an error with the SAME state word the control panel uses (e.g. "Ofullständigt underlag" for a refusal)', async () => {
+    const view = render(
+      <CesiumMapView
+        {...baseProps}
+        productEvidence={{ status: 'error', messageSv: 'Åtgärden nekades eftersom underlaget är motstridigt.', retryable: false, stateLabel: 'Ofullständigt underlag' }}
+      />,
+    );
+    const box = await screen.findByTestId('cesium-evidence-error');
+    expect(box).toHaveTextContent('Ofullständigt underlag – kontrollresultat kan inte visas');
+    expect(box).not.toHaveTextContent('Tekniskt fel');
+    view.rerender(
+      <CesiumMapView {...baseProps} productEvidence={{ status: 'error', messageSv: 'Servern kunde inte nås.', retryable: true, stateLabel: 'Tekniskt fel' }} />,
+    );
+    expect(await screen.findByTestId('cesium-evidence-error')).toHaveTextContent('Tekniskt fel – kontrollresultat kan inte visas');
+  });
+
   it('M2b items 1+3: an evidence error shows the workspace\'s Swedish text, offers retry through the workspace, never the fixture fallback', async () => {
     const user = userEvent.setup();
     const onRetry = vi.fn();

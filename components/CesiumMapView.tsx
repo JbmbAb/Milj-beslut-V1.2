@@ -20,7 +20,16 @@ export type CesiumProductEvidence =
   | { readonly status: 'none' }
   | { readonly status: 'loading' }
   | { readonly status: 'loaded'; readonly geojson: unknown }
-  | { readonly status: 'error'; readonly messageSv: string; readonly retryable: boolean };
+  | {
+      readonly status: 'error';
+      readonly messageSv: string;
+      readonly retryable: boolean;
+      /**
+       * DEMO M2c item 3: the knowledge-state word the control panel shows for the same failure
+       * (e.g. "Ofullständigt underlag" for a governance refusal); defaults to "Tekniskt fel".
+       */
+      readonly stateLabel?: string;
+    };
 
 /** True when the property lookup gave a real boundary (polygon), not just a point or nothing. */
 export function hasPolygonBoundary(geojson: unknown): boolean {
@@ -604,7 +613,9 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
           className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-rose-950/95 text-white px-4 py-3 rounded-xl shadow border border-rose-700/50 max-w-lg w-[min(92%,28rem)]"
         >
           <p className="text-[11px] font-black uppercase tracking-wider text-rose-200">
-            {productMode ? 'Tekniskt fel – kontrollresultat kan inte visas' : 'Evidensfel'}
+            {productMode
+              ? `${(productEvidence?.status === 'error' && productEvidence.stateLabel) || 'Tekniskt fel'} – kontrollresultat kan inte visas`
+              : 'Evidensfel'}
           </p>
           {/* productMode: always the workspace's plain-Swedish text, never a raw server message. */}
           <p data-testid="cesium-evidence-error-message" className="text-[10px] text-rose-100/90 mt-1">{evidenceError}</p>

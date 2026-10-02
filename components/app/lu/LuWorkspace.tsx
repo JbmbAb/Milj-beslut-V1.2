@@ -9,8 +9,10 @@ import {
   checkDefinitionForRule,
   checkEvidenceBinding,
   deriveLuControlChecks,
+  knowledgeStateForError,
   parseServerLayerChecks,
   parseViewerEvidence,
+  LU_KNOWLEDGE_STATE_LABEL,
   LU_V1_LAYER_COUNT,
   type LuAssessmentPresence,
   type LuCheckRowKey,
@@ -771,7 +773,13 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       case 'not_assessed':
         return { status: 'none' };
       case 'error':
-        return { status: 'error', messageSv: assessmentPresence.error.messageSv, retryable: assessmentPresence.error.retryable };
+        return {
+          status: 'error',
+          messageSv: assessmentPresence.error.messageSv,
+          retryable: assessmentPresence.error.retryable,
+          // DEMO M2c item 3: the same state word the control panel shows for this failure.
+          stateLabel: LU_KNOWLEDGE_STATE_LABEL[knowledgeStateForError(assessmentPresence.error)],
+        };
       case 'present':
         break;
     }
@@ -780,7 +788,12 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       case 'loading':
         return { status: 'loading' };
       case 'error':
-        return { status: 'error', messageSv: evidence.load.error.messageSv, retryable: evidence.load.error.retryable };
+        return {
+          status: 'error',
+          messageSv: evidence.load.error.messageSv,
+          retryable: evidence.load.error.retryable,
+          stateLabel: LU_KNOWLEDGE_STATE_LABEL[knowledgeStateForError(evidence.load.error)],
+        };
       case 'loaded':
         return { status: 'loaded', geojson: evidence.geojson };
     }

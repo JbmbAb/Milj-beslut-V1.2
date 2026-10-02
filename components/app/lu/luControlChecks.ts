@@ -392,10 +392,14 @@ function featureLayer(props: LuViewerEvidenceProps): string | null {
   return str(props.layer_id) ?? str(props.dataset);
 }
 
-/** A failure the model must show: a governance refusal reads "ofullständigt underlag", anything else "tekniskt fel". */
-function stateForError(error: LuErrorPresentation): LuKnowledgeState {
+/**
+ * A failure the model must show: a governance refusal reads "ofullständigt underlag", anything else
+ * "tekniskt fel". Exported (DEMO M2c item 3) so the map heads the same failure with the same word.
+ */
+export function knowledgeStateForError(error: LuErrorPresentation): LuKnowledgeState {
   return error.kind === 'REFUSED' ? 'UNCERTAIN' : 'TECHNICAL_ERROR';
 }
+const stateForError = knowledgeStateForError;
 
 function errorTechnical(error: LuErrorPresentation): LuCheckDetailRow[] {
   return error.technical.map((row: LuErrorDetailRow) => ({ label: row.label, value: row.value }));
