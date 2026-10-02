@@ -2000,6 +2000,66 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-results')).not.toHaveTextContent(/identisk/i);
   });
 
+  it('item 5: a configuration error the server marks not retryable gets no "Försök igen"; a transient one does', async () => {
+    const user = userEvent.setup();
+    const failure = (failureClass: string, retryable: boolean) =>
+      apiError(503, 'serverns text', {
+        code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+        failureClass,
+        reasonCode: `LOCALIZATION_GEOMETRY_${failureClass}`,
+        retryable,
+      });
+    mockM2b({ currentAssessment: () => failure('VERIFIER_CONFIGURATION', false) });
+    const view = render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'UPPSALA SVIA 1:111');
+    await user.click(screen.getByTestId('lu-lookup'));
+    const message = await screen.findByTestId('lu-persisted-assessment-error-message');
+    expect(message).toHaveTextContent('konfigurationsfel');
+    expect(message).not.toHaveTextContent(/VERIFIER_CONFIGURATION|serverns text/);
+    expect(screen.queryByTestId('lu-persisted-assessment-error-retry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lu-control-retry')).not.toBeInTheDocument();
+    expect(lastCesiumMapViewProps.productEvidence.retryable).toBe(false);
+    view.unmount();
+
+    callApi.mockReset();
+    mockM2b({ currentAssessment: () => failure('CURRENTNESS_RESOLUTION_ERROR', true) });
+    await openM2b(userEvent.setup());
+    expect(await screen.findByTestId('lu-persisted-assessment-error-retry')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-control-retry')).toBeInTheDocument();
+  });
+
+  it('item 5 / item 9: a run that fails closed is described per failure class -- never "aldrig" -- and says when a new run cannot help', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => 'missing',
+      run: () => ({
+        ok: true,
+        siteAnalyses: [
+          {
+            executionMotor: {
+              admitted: false,
+              assessment_status: 'GOVERNANCE_DENIED',
+              findings: [],
+              localization_geometry: {
+                status: 'FAILED_CLOSED',
+                failure_class: 'CURRENT_GEOMETRY_UNVERIFIED',
+                reason_code: 'LOCALIZATION_GEOMETRY_CURRENT_GEOMETRY_UNVERIFIED',
+                message_sv: 'Projektets aktuella lokaliseringspunkt kunde inte verifieras. En äldre punkt används aldrig i stället.',
+                retryable: false,
+              },
+            },
+          },
+        ],
+      }),
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-run'));
+    const message = await screen.findByTestId('lu-run-outcome-message');
+    expect(message).toHaveTextContent('Projektets aktuella kontrollpunkt kunde inte bekräftas');
+    expect(message).not.toHaveTextContent(/aldrig/);
+    expect(screen.getByTestId('lu-run-outcome')).toHaveTextContent('Ett nytt försök ger samma utfall så länge orsaken finns kvar.');
+  });
+
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
     const user = userEvent.setup();
     mockM2b({ currentAssessment: () => persistedWithoutServerChecks('assessment-old-server') });

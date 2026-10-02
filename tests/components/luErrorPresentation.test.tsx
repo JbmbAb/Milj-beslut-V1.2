@@ -34,7 +34,7 @@ describe('DEMO M2b presentLuError', () => {
     expect(p.technical.map((r) => r.value)).toContain((err as Error).message);
   });
 
-  it('a currentness failure shows the server\'s own Swedish user message (contract), keeping class and reason as codes', () => {
+  it('a currentness failure is shown per failure class in this UI\'s Swedish (W-M2d item 5); the server\'s text and codes stay technical', () => {
     const err = httpError(409, 'Projektet har flera möjliga aktuella lokaliseringspunkter. Ingen bedömning görs förrän det är utrett vilken punkt som gäller.', {
       code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
       failureClass: 'AMBIGUOUS_CURRENT_GEOMETRY',
@@ -43,11 +43,14 @@ describe('DEMO M2b presentLuError', () => {
     const p = presentLuError(err, 'run');
     expect(p.kind).toBe('REFUSED');
     expect(p.retryable).toBe(false);
-    expect(p.messageSv).toBe(err.message);
+    expect(p.messageSv).toBe('Projektet har flera möjliga aktuella kontrollpunkter. Ingen bedömning görs förrän det är utrett vilken punkt som gäller.');
+    expect(p.technical).toContainEqual({ label: 'Serverns meddelande', value: err.message });
     expect(p.technical).toContainEqual({ label: 'Felklass', value: 'AMBIGUOUS_CURRENT_GEOMETRY' });
     expect(p.technical).toContainEqual({ label: 'Orsakskod', value: 'LOCALIZATION_GEOMETRY_AMBIGUOUS_CURRENT_GEOMETRY' });
-    const technical = presentLuError({ ...err, message: err.message, status: 503 } as unknown, 'run');
+    // A class this UI does not know falls back to the status: a 503 is never a refusal.
+    const technical = presentLuError({ ...err, message: err.message, failureClass: 'SOME_NEW_CLASS', status: 503 } as unknown, 'run');
     expect(technical.kind).not.toBe('REFUSED');
+    expect(technical.messageSv).toBe('Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.');
   });
 
   it('only the server\'s exact 404 text means "no current assessment"; any other 404 is not read as absence', () => {
@@ -84,6 +87,114 @@ describe('DEMO M2b presentLuError', () => {
     expect(p.messageSv).toBe('Kontrollresultaten kunde inte hämtas till kartan. Servern svarade med ett oväntat fel.');
     expect(p.messageSv).not.toMatch(/kunde inte nås/);
     expect(p.technical).toContainEqual({ label: 'HTTP-status', value: '422' });
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // W-M2d item 5: whether "Försök igen" is offered is the SERVER's `retryable` flag (never the HTTP
+  // status); configuration errors, lasting integrity errors and refusals never offer it. Every code the
+  // server can send has a Swedish main text -- no raw code, no English.
+  // -----------------------------------------------------------------------------------------------
+  const currentness = (failureClass: string, status: number, retryable: boolean, message = 'serverns egen text') =>
+    httpError(status, message, {
+      code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+      failureClass,
+      reasonCode: `LOCALIZATION_GEOMETRY_${failureClass}`,
+      retryable,
+    });
+
+  it.each([
+    // [error, context, kind, retryable, Swedish text]
+    [currentness('VERIFIER_CONFIGURATION', 503, false), 'current-assessment', 'TECHNICAL', false, 'konfigurationsfel'],
+    [currentness('CURRENTNESS_STORAGE_INTEGRITY_FAULT', 503, false), 'run', 'INTEGRITY', false, 'bestående lagringsfel'],
+    [currentness('CURRENTNESS_RESOLUTION_ERROR', 503, true), 'geometry-load', 'TECHNICAL', true, 'tekniskt fel'],
+    [currentness('DERIVED_GEOMETRY_PERSISTENCE_FAILED', 503, true), 'geometry-load', 'TECHNICAL', true, 'kunde inte sparas'],
+    [currentness('AMBIGUOUS_CURRENT_GEOMETRY', 409, false), 'run', 'REFUSED', false, 'flera möjliga aktuella kontrollpunkter'],
+    [currentness('INVALID_SUPERSESSION_GRAPH', 409, false), 'run', 'REFUSED', false, 'inkonsekvent'],
+    [currentness('NO_VERIFIED_GEOMETRY_CANDIDATE', 409, false), 'run', 'REFUSED', false, 'kunde inte bekräftas mot arkivet'],
+    [currentness('CURRENT_GEOMETRY_UNVERIFIED', 409, false), 'current-assessment', 'REFUSED', false, 'kunde inte bekräftas'],
+    [currentness('INVALID_GEOMETRY_HEAD', 409, false), 'run', 'REFUSED', false, 'ogiltig'],
+    [
+      httpError(424, 'Bedömningens lokaliseringspunkt (x) kunde inte verifieras (LOCALIZATION_GEOMETRY_MISSING). Bedömningen visas inte.', {
+        code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
+        failureClass: 'LOCALIZATION_GEOMETRY_MISSING',
+      }),
+      'current-assessment',
+      'INTEGRITY',
+      false,
+      'Bedömningens kontrollpunkt saknas i arkivet',
+    ],
+    [
+      httpError(503, 'Bedömningens lokaliseringspunkt (x) kunde inte verifieras (LOCALIZATION_GEOMETRY_READ_ERROR). Bedömningen visas inte.', {
+        code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
+        failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR',
+      }),
+      'current-assessment',
+      'TECHNICAL',
+      true,
+      'kunde inte läsas',
+    ],
+    [
+      httpError(424, 'Bedömningens underlag klarade inte integritetskontrollen (EVIDENCE_TAMPERED: e1). Bedömningen visas inte.', {
+        code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
+        failureClass: 'EVIDENCE_TAMPERED',
+      }),
+      'current-assessment',
+      'INTEGRITY',
+      false,
+      'Bedömningens underlag klarade inte integritetskontrollen',
+    ],
+    [
+      httpError(409, 'Den begärda bedömningen är inte projektets aktuella styrda bedömning.', {
+        code: 'ASSESSMENT_ID_MISMATCH',
+        failureClass: 'ASSESSMENT_NOT_CURRENT',
+      }),
+      'export',
+      'INCOHERENT',
+      false,
+      'inte längre projektets aktuella bedömning',
+    ],
+    [httpError(400, 'assessmentArtifactId must be a single artifact id.', { code: 'INVALID_ASSESSMENT_ARTIFACT_ID' }), 'verify', 'TECHNICAL', false, 'ogiltigt bedömnings-id'],
+    [httpError(503, 'storage', { code: 'LU_REEXECUTION_STORAGE_FAULT', stage: 'execution_outcome' }), 'verify', 'TECHNICAL', true, 'lagrade artefakter'],
+    [httpError(503, 'Live Lantmäteriet-uppslag är avstängt.', { code: 'LIVE_LANTMATERIET_DISABLED' }), 'property-lookup', 'TECHNICAL', false, 'lokala fastighetsunderlaget'],
+    [httpError(404, 'Fastighet hittades inte i lokalt PostGIS-arkiv.', { code: 'LOCAL_PROPERTY_NOT_FOUND' }), 'property-lookup', 'NOT_FOUND', false, 'hittades inte i fastighetsunderlaget'],
+  ] as const)('%s (%s) -> %s, retryable %s', (err, context, kind, retryable, text) => {
+    const p = presentLuError(err, context);
+    expect(p.kind).toBe(kind);
+    expect(p.retryable).toBe(retryable);
+    expect(p.messageSv).toContain(text);
+    // No raw code or server text in the main text; the codes stay in the technical rows.
+    expect(p.messageSv).not.toContain((err as Error).message);
+    expect(p.messageSv).not.toMatch(/[A-Z]{3,}_[A-Z_]{3,}/);
+    expect(p.technical.map((r) => r.value)).toContain((err as { code: string }).code);
+  });
+
+  it('item 5: the server\'s `retryable` decides -- a 503 it marks not retryable never offers "Försök igen"; a refusal never does', () => {
+    expect(presentLuError(httpError(503, 'x', { retryable: false }), 'current-assessment').retryable).toBe(false);
+    expect(presentLuError(httpError(500, 'x'), 'current-assessment').retryable).toBe(true);
+    // A refusal is never retryable, whatever a flag says.
+    expect(presentLuError(currentness('AMBIGUOUS_CURRENT_GEOMETRY', 409, true), 'run').retryable).toBe(false);
+    // The server's retryable is shown in the technical rows.
+    expect(presentLuError(currentness('VERIFIER_CONFIGURATION', 503, false), 'run').technical).toContainEqual({ label: 'Nytt försök kan lyckas', value: 'nej' });
+  });
+
+  it('item 9 (M1a KNOWN_LIMITATION): no currentness text claims a global guarantee about older points', () => {
+    for (const failureClass of [
+      'CURRENT_GEOMETRY_UNVERIFIED',
+      'AMBIGUOUS_CURRENT_GEOMETRY',
+      'INVALID_SUPERSESSION_GRAPH',
+      'NO_VERIFIED_GEOMETRY_CANDIDATE',
+      'INVALID_GEOMETRY_HEAD',
+      'VERIFIER_CONFIGURATION',
+      'CURRENTNESS_STORAGE_INTEGRITY_FAULT',
+      'CURRENTNESS_RESOLUTION_ERROR',
+      'DERIVED_GEOMETRY_PERSISTENCE_FAILED',
+    ]) {
+      const message = presentLuError(
+        currentness(failureClass, 409, false, 'Projektets aktuella lokaliseringspunkt kunde inte verifieras. En äldre punkt används aldrig i stället.'),
+        'run',
+      ).messageSv;
+      expect(message).not.toMatch(/aldrig|garanter|alltid/i);
+    }
   });
 
   it('a client-side Swedish error is shown as written', () => {

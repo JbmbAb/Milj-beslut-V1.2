@@ -23,6 +23,7 @@ import {
 import {
   LuClientError,
   isNoCurrentAssessmentError,
+  presentCurrentnessFailureClass,
   presentLuError,
   presentLuIncoherence,
   type LuErrorPresentation,
@@ -105,7 +106,7 @@ type ExecutionMotorMeta = {
   assessment_projection_registered?: boolean | null;
   assessment_status?: string;
   findings?: LuFindingView[];
-  localization_geometry?: { status?: string; message_sv?: string | null } | null;
+  localization_geometry?: { status?: string; message_sv?: string | null; failure_class?: string | null; retryable?: boolean } | null;
   governed_layer_checks?: unknown;
 };
 
@@ -180,8 +181,13 @@ type GovernedResult = {
  */
 type RunOutcome = {
   status: string;
-  /** The server's own Swedish reason (executionMotor.localization_geometry.message_sv). */
+  /**
+   * The reason in Swedish: for a known currentness failure class this UI's text for it (W-M2d items
+   * 5 and 9), otherwise the server's own message_sv (executionMotor.localization_geometry).
+   */
   messageSv: string | null;
+  /** W-M2d item 5: the server's `retryable` of a FAILED_CLOSED record; null when it says nothing. */
+  retryable: boolean | null;
 };
 
 /** W-M2d item 4: one machine notice of a verification (LuReExecutionResult.notices). */
@@ -663,9 +669,12 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         // DEMO M2c item 3: no assessment was produced. Say so (governed status + the server's
         // Swedish reason) -- and read back what IS current, so a still-current older assessment is
         // shown as such instead of being hidden until the next reload.
+        const geometryRecord = motor.localization_geometry ?? null;
+        const classText = presentCurrentnessFailureClass(geometryRecord?.failure_class, geometryRecord?.retryable);
         setRunOutcome({
           status: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
-          messageSv: motor.localization_geometry?.message_sv ?? null,
+          messageSv: classText?.messageSv ?? geometryRecord?.message_sv ?? null,
+          retryable: classText ? classText.retryable : typeof geometryRecord?.retryable === 'boolean' ? geometryRecord.retryable : null,
         });
         await loadCurrentAssessment();
       }
@@ -1090,6 +1099,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </span>
             </p>
             {runOutcome.messageSv ? <p data-testid="lu-run-outcome-message">{runOutcome.messageSv}</p> : null}
+            {runOutcome.retryable === false ? (
+              <p data-testid="lu-run-outcome-not-retryable">Ett nytt försök ger samma utfall så länge orsaken finns kvar.</p>
+            ) : null}
             <p>
               Körningen gav ingen ny bedömning.
               {governed ? ' Bedömningen som visas nedan är projektets aktuella sparade bedömning från en annan körning.' : ''}

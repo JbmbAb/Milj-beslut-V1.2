@@ -272,4 +272,32 @@ describe('callCore', () => {
     expect(err.failureClass).toBe('INVALID_GEOMETRY_HEAD');
     expect(err.reasonCode).toBe('LOCALIZATION_GEOMETRY_INVALID_GEOMETRY_HEAD');
   });
+
+  it('W-M2d item 5: the thrown error carries the server\'s own `retryable` flag (only when it is a boolean)', async () => {
+    vi.stubGlobal('window', { localStorage: mockLocalStorage(null) });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-123' }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            ok: false,
+            error: 'Projektets lokaliseringsbyten kunde inte verifieras med systemets verifieringsnyckel.',
+            code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+            failureClass: 'VERIFIER_CONFIGURATION',
+            reasonCode: 'LOCALIZATION_GEOMETRY_VERIFIER_CONFIGURATION',
+            retryable: false,
+          },
+          503,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ ok: false, error: 'x', retryable: 'yes' }, 503));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const err = (await callCore('/api/localization/p/current-assessment').catch((e: unknown) => e)) as Error & Record<string, unknown>;
+    expect(err.status).toBe(503);
+    expect(err.retryable).toBe(false);
+    const other = (await callCore('/api/localization/p/current-assessment').catch((e: unknown) => e)) as Error & Record<string, unknown>;
+    expect('retryable' in other).toBe(false);
+  });
 });

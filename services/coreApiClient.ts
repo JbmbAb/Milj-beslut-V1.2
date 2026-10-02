@@ -130,6 +130,7 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
       code?: unknown;
       failureClass?: unknown;
       reasonCode?: unknown;
+      retryable?: unknown;
     };
     const raw = err.error;
     const fromError =
@@ -138,11 +139,14 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
     // DEMO M2b: the message stays exactly as before; the HTTP status and the machine-readable codes
     // the server sends (code / failureClass / reasonCode) are attached so the UI can show plain
     // Swedish text and keep the codes for "Teknisk information" instead of the raw server text.
+    // W-M2d item 5: so is the server's own `retryable` flag (OD-R3, M1a-F1), when it is a boolean --
+    // whether a retry is offered is the server's statement, not a guess from the HTTP status.
     throw Object.assign(new Error(msg), {
       status: response.status,
       ...(typeof err.code === 'string' ? { code: err.code } : {}),
       ...(typeof err.failureClass === 'string' ? { failureClass: err.failureClass } : {}),
       ...(typeof err.reasonCode === 'string' ? { reasonCode: err.reasonCode } : {}),
+      ...(typeof err.retryable === 'boolean' ? { retryable: err.retryable } : {}),
     });
   }
 

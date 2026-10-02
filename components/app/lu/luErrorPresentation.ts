@@ -13,9 +13,13 @@
  *      resolveGovernedLocalizationPresentation.ts; a server-side code would be the better contract);
  *   3. the HTTP status class.
  *
- * Exception: a LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED body carries the server's own Swedish
- * user message by contract (localizationGeometryCurrentness.ts FAILURE_POLICY.messageSv), so that
- * message is shown as is.
+ * W-M2d item 5: every machine code the LU server can send (localization routes, orchestrator,
+ * currentness classes, read-back integrity, verify, property lookup) has its own Swedish text and
+ * kind below -- including LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED per failure class, whose server
+ * message (FAILURE_POLICY.messageSv) is kept under "Teknisk information" only, because one of them
+ * claims more than M1a's KNOWN_LIMITATION allows ("En äldre punkt används aldrig i stället").
+ * Whether "Försök igen" is offered is the SERVER's `retryable` flag when it sends one (OD-R3,
+ * M1a-F1) -- never inferred from the HTTP status alone; a refusal is never retryable.
  */
 
 export type LuErrorContext =
@@ -114,6 +118,8 @@ interface ErrorFields {
   readonly code: string | null;
   readonly failureClass: string | null;
   readonly reasonCode: string | null;
+  /** W-M2d item 5: the server's own `retryable` flag, when the answer carries one. */
+  readonly retryable: boolean | null;
   readonly message: string;
   readonly isClientError: boolean;
 }
@@ -126,6 +132,7 @@ function readFields(err: unknown): ErrorFields {
     code: s(e.code),
     failureClass: s(e.failureClass),
     reasonCode: s(e.reasonCode),
+    retryable: typeof e.retryable === 'boolean' ? e.retryable : null,
     message: typeof err === 'string' ? err : typeof e.message === 'string' ? e.message : '',
     isClientError: e.luClientError === true,
   };
@@ -137,27 +144,187 @@ function technicalRows(f: ErrorFields): LuErrorDetailRow[] {
   if (f.code) rows.push({ label: 'Felkod', value: f.code });
   if (f.failureClass) rows.push({ label: 'Felklass', value: f.failureClass });
   if (f.reasonCode) rows.push({ label: 'Orsakskod', value: f.reasonCode });
+  if (f.retryable !== null) rows.push({ label: 'Nytt försök kan lyckas', value: f.retryable ? 'ja' : 'nej' });
   if (f.message) rows.push({ label: f.status !== null ? 'Serverns meddelande' : 'Felmeddelande', value: f.message });
   return rows;
 }
+
+type CodeText = { readonly kind: LuErrorKind; readonly messageSv: string; readonly retryable: boolean };
+
+/**
+ * W-M2d item 5 / item 9: LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED per failure class
+ * (server/modules/localization/localizationGeometryCurrentness.ts FAILURE_POLICY). Same meaning as the
+ * server's text, in this UI's words ("kontrollpunkt"), and without claims stronger than M1a's
+ * KNOWN_LIMITATION (currentness is fail-closed for detectable faults only). `retryable` is the
+ * fallback when the answer carries no flag; the server's own flag wins.
+ */
+const CURRENTNESS_TEXT: Readonly<Record<string, CodeText>> = {
+  AMBIGUOUS_CURRENT_GEOMETRY: {
+    kind: 'REFUSED',
+    messageSv: 'Projektet har flera möjliga aktuella kontrollpunkter. Ingen bedömning görs förrän det är utrett vilken punkt som gäller.',
+    retryable: false,
+  },
+  INVALID_SUPERSESSION_GRAPH: {
+    kind: 'REFUSED',
+    messageSv: 'Projektets historik över kontrollpunkter är inkonsekvent (ogiltig ersättningskedja). Ingen bedömning görs.',
+    retryable: false,
+  },
+  NO_VERIFIED_GEOMETRY_CANDIDATE: {
+    kind: 'REFUSED',
+    messageSv: 'Projektets sparade kontrollpunkt kunde inte bekräftas mot arkivet. Ingen punkt härleds automatiskt och ingen bedömning görs.',
+    retryable: false,
+  },
+  CURRENT_GEOMETRY_UNVERIFIED: {
+    kind: 'REFUSED',
+    messageSv:
+      'Projektets aktuella kontrollpunkt kunde inte bekräftas: den saknas eller är skadad i arkivet, har ändrats i efterhand eller ' +
+      'stämmer inte med projektets fastighet. En äldre punkt används inte i stället och ingen punkt härleds automatiskt. Ingen bedömning görs.',
+    retryable: false,
+  },
+  INVALID_GEOMETRY_HEAD: {
+    kind: 'REFUSED',
+    messageSv: 'Projektets kontrollpunkt är ogiltig och kan inte användas. Ingen bedömning görs.',
+    retryable: false,
+  },
+  VERIFIER_CONFIGURATION: {
+    kind: 'TECHNICAL',
+    messageSv:
+      'Projektets byten av kontrollpunkt kunde inte bekräftas med systemets verifieringsnyckel. Det är antingen ett konfigurationsfel i ' +
+      'systemet eller en utfärdare som inte är betrodd; systemet kan inte avgöra vilket. Felet försvinner inte vid ett nytt försök. ' +
+      'Ingen bedömning görs – kontakta systemets administratör.',
+    retryable: false,
+  },
+  DERIVED_GEOMETRY_PERSISTENCE_FAILED: {
+    kind: 'TECHNICAL',
+    messageSv: 'Den automatiskt beräknade kontrollpunkten kunde inte sparas. Ingen bedömning görs. Ett nytt försök kan lyckas om felet var tillfälligt.',
+    retryable: true,
+  },
+  CURRENTNESS_STORAGE_INTEGRITY_FAULT: {
+    kind: 'INTEGRITY',
+    messageSv:
+      'Aktuell kontrollpunkt kunde inte fastställas: ett sparat objekt som kontrollpunkten bygger på saknas i arkivet eller har en skadad ' +
+      'indexpost. Det är ett bestående lagringsfel som inte försvinner vid ett nytt försök. Ingen bedömning görs – kontakta systemets administratör.',
+    retryable: false,
+  },
+  CURRENTNESS_RESOLUTION_ERROR: {
+    kind: 'TECHNICAL',
+    messageSv: 'Aktuell kontrollpunkt kunde inte fastställas på grund av ett tekniskt fel. Ingen bedömning görs. Ett nytt försök kan lyckas.',
+    retryable: true,
+  },
+};
+
+/**
+ * W-M2d item 5: the Swedish text of a currentness failure CLASS, for answers that carry it outside an
+ * HTTP error -- generate-report's executionMotor.localization_geometry { failure_class, retryable }
+ * (a FAILED_CLOSED provenance record). null for a class this UI does not know.
+ */
+export function presentCurrentnessFailureClass(
+  failureClass: unknown,
+  serverRetryable: unknown,
+): { readonly messageSv: string; readonly retryable: boolean } | null {
+  const entry = typeof failureClass === 'string' ? CURRENTNESS_TEXT[failureClass] : undefined;
+  if (!entry) return null;
+  return {
+    messageSv: entry.messageSv,
+    retryable: entry.kind === 'REFUSED' ? false : typeof serverRetryable === 'boolean' ? serverRetryable : entry.retryable,
+  };
+}
+
+/** U20-D/U20CDF: the read-back's own bound point could not be verified (ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED). */
+const ASSESSED_POINT_TEXT: Readonly<Record<string, CodeText>> = {
+  LOCALIZATION_GEOMETRY_MISSING: {
+    kind: 'INTEGRITY',
+    messageSv: 'Bedömningens kontrollpunkt saknas i arkivet och kan inte bekräftas. Bedömningen visas därför inte.',
+    retryable: false,
+  },
+  LOCALIZATION_GEOMETRY_TAMPERED: {
+    kind: 'INTEGRITY',
+    messageSv: 'Bedömningens kontrollpunkt stämmer inte med sin lagrade identitet. Bedömningen visas därför inte.',
+    retryable: false,
+  },
+  LOCALIZATION_GEOMETRY_NOT_BOUND: {
+    kind: 'INTEGRITY',
+    messageSv: 'Bedömningens kontrollpunkt hör inte till det här projektet eller den här fastigheten. Bedömningen visas därför inte.',
+    retryable: false,
+  },
+  LOCALIZATION_GEOMETRY_READ_ERROR: {
+    kind: 'TECHNICAL',
+    messageSv: 'Bedömningens kontrollpunkt kunde inte läsas på grund av ett tekniskt fel. Bedömningen visas inte just nu; ett nytt försök kan lyckas.',
+    retryable: true,
+  },
+};
+
+/** U20-D: content read for the evidence/root details failed its own identity (GOVERNED_EVIDENCE_INTEGRITY_FAILED). */
+const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, string>> = {
+  EVIDENCE_TAMPERED: 'Bedömningens underlag klarade inte integritetskontrollen: en evidens stämmer inte med sin egen identitet. Bedömningen visas därför inte.',
+  EVIDENCE_CORRUPTED:
+    'Bedömningens underlag klarade inte integritetskontrollen: en evidens lagrade innehåll stämmer inte med sin innehållshash. Bedömningen visas därför inte.',
+  ROOT_PROVENANCE_TAMPERED:
+    'Bedömningens underlag klarade inte integritetskontrollen: fastighetsrotens artefakter stämmer inte med sin identitet. Bedömningen visas därför inte.',
+};
 
 export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPresentation {
   const f = readFields(err);
   const lead = CONTEXT_LEAD[context];
   const technical = technicalRows(f);
-  const make = (kind: LuErrorKind, messageSv: string, retryable: boolean): LuErrorPresentation => ({
+  // W-M2d item 5: the server's own `retryable` decides when it sends one; a refusal never is.
+  const make = (kind: LuErrorKind, messageSv: string, fallbackRetryable: boolean): LuErrorPresentation => ({
     kind,
     messageSv,
-    retryable,
+    retryable: kind === 'REFUSED' ? false : (f.retryable ?? fallbackRetryable),
     technical,
   });
+  const fromTable = (entry: CodeText) => make(entry.kind, entry.messageSv, entry.retryable);
 
   // A Swedish message written by this UI itself.
   if (f.isClientError && f.message) return make('TECHNICAL', f.message, true);
 
   if (f.code === 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED') {
+    const entry = f.failureClass ? CURRENTNESS_TEXT[f.failureClass] : undefined;
+    if (entry) return fromTable(entry);
     const refused = f.status === 409;
-    return make(refused ? 'REFUSED' : 'TECHNICAL', f.message || `${lead} Lokaliseringen kunde inte fastställas.`, !refused);
+    return make(refused ? 'REFUSED' : 'TECHNICAL', 'Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.', !refused);
+  }
+  if (f.code === 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED') {
+    const entry = f.failureClass ? ASSESSED_POINT_TEXT[f.failureClass] : undefined;
+    return entry
+      ? fromTable(entry)
+      : make('INTEGRITY', 'Bedömningens kontrollpunkt kunde inte bekräftas. Bedömningen visas därför inte.', false);
+  }
+  if (f.code === 'GOVERNED_EVIDENCE_INTEGRITY_FAILED') {
+    return make(
+      'INTEGRITY',
+      (f.failureClass && EVIDENCE_INTEGRITY_TEXT[f.failureClass]) ||
+        'Bedömningens underlag klarade inte integritetskontrollen. Bedömningen visas därför inte.',
+      false,
+    );
+  }
+  if (f.code === 'ASSESSMENT_ID_MISMATCH') {
+    return make(
+      'INCOHERENT',
+      `${lead} Den visade bedömningen är inte längre projektets aktuella bedömning, och ingen annan bedömning används i dess ställe. Läs in bedömningen på nytt.`,
+      false,
+    );
+  }
+  if (f.code === 'INVALID_ASSESSMENT_ARTIFACT_ID') {
+    return make('TECHNICAL', `${lead} Begäran innehöll ett ogiltigt bedömnings-id.`, false);
+  }
+  if (f.code === 'LU_REEXECUTION_STORAGE_FAULT') {
+    return make(
+      'TECHNICAL',
+      'Reproducerbarheten kunde inte kontrolleras just nu: ett tekniskt fel uppstod vid läsning av lagrade artefakter.',
+      true,
+    );
+  }
+  if (f.code === 'LIVE_LANTMATERIET_DISABLED' || f.code === 'LIVE_LANTMATERIET_REQUIRED') {
+    return make(
+      'TECHNICAL',
+      `${lead} Fastighetsuppslag mot Lantmäteriet är avstängt i den här miljön; endast det lokala fastighetsunderlaget används.`,
+      false,
+    );
+  }
+  if (f.code === 'LOCAL_PROPERTY_NOT_FOUND' || f.code === 'PROPERTY_NOT_FOUND') {
+    return make('NOT_FOUND', `${lead} Fastigheten hittades inte i fastighetsunderlaget. Kontrollera beteckningen.`, false);
   }
   if (f.code === 'LOCALIZATION_DATA_UNAVAILABLE') {
     return make('TECHNICAL', `${lead} För många datakällor var otillgängliga. Försök igen senare.`, true);
