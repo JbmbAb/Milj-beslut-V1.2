@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { URL as NodeURL, fileURLToPath } from 'node:url';
 
 import { TEST_DB_GUARD_LABEL } from './testDatabaseTargetPolicy';
 
@@ -311,18 +311,27 @@ export const TEST_DATA_ROOT_WRITE_EXCEPTIONS: readonly TestDataRootWriteExceptio
 
 export const TEST_DATA_ROOT_WRITE_REFUSED = 'TEST_DATA_ROOT_WRITE_REFUSED';
 
+/** TDG-6: the `protectedRoot` of a refusal the guard could not decide (fail-closed). */
+export const UNDECIDABLE_TARGET = '(undecidable)';
+
 export class TestDataRootWriteRefusedError extends Error {
   readonly code = TEST_DATA_ROOT_WRITE_REFUSED;
   constructor(
     readonly operation: string,
     readonly target: string,
     readonly protectedRoot: string,
+    /** TDG-6: why the guard could not decide where the write lands (then it is refused, fail-closed). */
+    readonly undecidable?: string,
   ) {
     super(
-      `[${TEST_DB_GUARD_LABEL}] TDG-4 refused ${operation} of ${target}: it is inside the live data root ` +
-        `${protectedRoot}. A test never writes into a live data root of a product tree -- nothing was written. ` +
-        'Use a temp directory (fs.mkdtempSync(os.tmpdir())) or the module root setting; reviewed exceptions: ' +
-        'TEST_DATA_ROOT_WRITE_EXCEPTIONS in server/modules/test-db-guard/installTestDataRootWriteGuard.ts.',
+      undecidable
+        ? `[${TEST_DB_GUARD_LABEL}] TDG-6 refused ${operation} of ${target}: the guard cannot decide where it ` +
+            `would land (${undecidable}), and a test write it cannot judge is refused (fail-closed) -- nothing ` +
+            'was written. Use a plain path in a temp directory (fs.mkdtempSync(os.tmpdir())).'
+        : `[${TEST_DB_GUARD_LABEL}] TDG-4 refused ${operation} of ${target}: it is inside the live data root ` +
+            `${protectedRoot}. A test never writes into a live data root of a product tree -- nothing was written. ` +
+            'Use a temp directory (fs.mkdtempSync(os.tmpdir())) or the module root setting; reviewed exceptions: ' +
+            'TEST_DATA_ROOT_WRITE_EXCEPTIONS in server/modules/test-db-guard/installTestDataRootWriteGuard.ts.',
     );
     this.name = 'TestDataRootWriteRefusedError';
   }
@@ -487,7 +496,16 @@ export type WriteRefusal = {
   readonly operation: string;
   readonly target: string;
   readonly protectedRoot: string;
+  /** TDG-6: set when the guard could not decide where the write lands -- it is refused (fail-closed). */
+  readonly undecidable?: string;
 };
+
+const undecidableRefusal = (operation: string, target: string, why: string): WriteRefusal => ({
+  operation,
+  target,
+  protectedRoot: UNDECIDABLE_TARGET,
+  undecidable: why,
+});
 
 const reachesAncestors = (kind: WriteKind) => kind === 'remove' || kind === 'tree';
 
@@ -587,18 +605,74 @@ function isExcepted(
 type AnyFn = (...args: unknown[]) => unknown;
 const GUARD_MARK = Symbol.for('mimer.testDbGuard.dataRootWriteGuard');
 
-/** A path argument: a string, a Buffer or a file: URL (also a URL-shaped object, as Node accepts). */
-function pathArg(value: unknown): string | null {
-  if (typeof value === 'string') return value;
-  if (Buffer.isBuffer(value)) return value.toString();
-  if (value !== null && typeof value === 'object') {
-    const { href, protocol } = value as { href?: unknown; protocol?: unknown };
-    if (typeof href === 'string' && typeof protocol === 'string') {
-      // a non-file URL is refused by Node itself; a file: URL is the path it names
-      return protocol === 'file:' ? safe(() => fileURLToPath(href)) : null;
+/** How a call names a target: no path (a descriptor, a FileHandle -- or a value Node itself refuses), a path, or undecidable. */
+type PathArgument =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'path'; readonly path: string; readonly substitute: boolean }
+  | { readonly kind: 'undecidable'; readonly why: string };
+
+const NO_PATH: PathArgument = Object.freeze({ kind: 'none' });
+
+/** Node's own test (internal/url isURL): such an object is turned into a path with fileURLToPath, never read as bytes. */
+function isUrlLike(value: object): boolean {
+  const v = value as { href?: unknown; protocol?: unknown; auth?: unknown; path?: unknown };
+  return Boolean(v.href && v.protocol && v.auth === undefined && v.path === undefined);
+}
+
+/**
+ * TDG-6 (TDG5-VERIFICATION findings 2 and 6): the ONE normalizer of a path argument, in Node's order --
+ *   - a string;
+ *   - a URL or a URL-like object (what Node accepts as one): the path Node itself computes from it
+ *     (fileURLToPath reads hostname and pathname). Its href must name the same path, else it is undecidable;
+ *     an object that is not a plain node:url URL is handed to Node as the judged string (`substitute`), so a
+ *     getter cannot answer differently after the decision;
+ *   - any byte view (Buffer, Uint8Array -- Node takes these -- and every other TypedArray or DataView, which
+ *     Node refuses): its bytes as UTF-8; bytes that are not valid UTF-8 are undecidable;
+ *   - anything else (a descriptor, a FileHandle): no path -- already opened, nothing new is reached.
+ * A path with a NUL is no path either: Node refuses it before any file-system call.
+ */
+function pathArgument(value: unknown): PathArgument {
+  if (typeof value === 'string') return value.includes('\u0000') ? NO_PATH : { kind: 'path', path: value, substitute: false };
+  if (value === null || typeof value !== 'object') return NO_PATH;
+  try {
+    if (isUrlLike(value)) {
+      const plainUrl = Object.getPrototypeOf(value) === NodeURL.prototype && Reflect.ownKeys(value).length === 0;
+      let viaNode: string;
+      try {
+        viaNode = fileURLToPath(value as URL);
+      } catch {
+        // Node refuses the same plain URL the same way (a non-file: URL); any other object is not trusted to
+        return plainUrl
+          ? NO_PATH
+          : { kind: 'undecidable', why: 'a URL-like object Node cannot turn into a path' };
+      }
+      let viaHref: string | null;
+      try {
+        viaHref = fileURLToPath(String((value as { href: unknown }).href));
+      } catch {
+        viaHref = null;
+      }
+      if (viaHref === null || norm(viaHref) !== norm(viaNode))
+        return { kind: 'undecidable', why: 'a URL-like object whose href and hostname/pathname name different paths' };
+      return viaNode.includes('\u0000') ? NO_PATH : { kind: 'path', path: viaNode, substitute: !plainUrl };
     }
+  } catch {
+    return { kind: 'undecidable', why: 'a path object whose properties cannot be read' };
   }
-  return null; // a file descriptor or a FileHandle: already opened, nothing new is reached
+  if (ArrayBuffer.isView(value)) {
+    const bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    const text = bytes.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(bytes)) return { kind: 'undecidable', why: 'a byte path that is not UTF-8' };
+    return text.includes('\u0000') ? NO_PATH : { kind: 'path', path: text, substitute: false };
+  }
+  return NO_PATH;
+}
+
+/** A path argument for a message: never an object dump. */
+function describePathArgument(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (ArrayBuffer.isView(value)) return `<${value.constructor.name} path>`;
+  return '<URL-like path object>';
 }
 
 function isWriteFlag(flags: unknown): boolean {
@@ -609,6 +683,10 @@ function isWriteFlag(flags: unknown): boolean {
   }
   return false;
 }
+
+/** The `flag` (readFile) or `flags` (createReadStream) of an options object; a string option is an encoding. */
+const optionFlag = (options: unknown, key: 'flag' | 'flags'): unknown =>
+  options !== null && typeof options === 'object' ? (options as Record<string, unknown>)[key] : undefined;
 
 type Check = {
   readonly index: number;
@@ -621,16 +699,26 @@ type Check = {
   readonly relativeToDirOf?: number;
 };
 
+const writesByFlag = (at: number, key?: 'flag' | 'flags') => (args: unknown[]) =>
+  isWriteFlag(key ? optionFlag(args[at], key) : args[at]);
+
 /** Which argument of which function is a target, and how it is written. */
 const CHECKS: Record<string, readonly Check[]> = {
   writeFile: [{ index: 0, kind: 'write' }],
   appendFile: [{ index: 0, kind: 'write' }],
   truncate: [{ index: 0, kind: 'write' }],
+  // TDG-6 (TDG5-VERIFICATION finding 1): readFile with flag w/w+/a/a+/r+ creates or truncates -- Node opens
+  // it through the binding, past the guarded fs.open
+  readFile: [{ index: 0, kind: 'write', when: writesByFlag(1, 'flag') }],
   mkdir: [{ index: 0, kind: 'mkdir' }],
   mkdtemp: [{ index: 0, kind: 'mkdtemp' }],
+  // TDG-6 (finding 5): Node 24's disposable variants make the same uniquely named directory
+  mkdtempDisposable: [{ index: 0, kind: 'mkdtemp' }],
   copyFile: [{ index: 1, kind: 'write' }],
   // TDG-5 (finding 3): a recursive copy onto an ANCESTOR of a root lands in it (Node's cpSync copies a
-  // directory natively, past every JS-level function)
+  // directory natively, past every JS-level function). TDG-6 (TDG5-VERIFICATION finding 3): and every path a
+  // recursive copy writes is judged too (recursiveCopyRefusal) -- a destination that CONTAINS a link to an
+  // ancestor of a root is written through that link.
   cp: [{ index: 1, kind: 'tree' }],
   rename: [
     { index: 0, kind: 'remove' },
@@ -641,7 +729,10 @@ const CHECKS: Record<string, readonly Check[]> = {
     { index: 0, kind: 'write' },
     { index: 1, kind: 'write' },
   ],
-  // a symbolic link or junction INTO a root is an alias for writing it; a link placed in a root changes it
+  // A symbolic link or junction INTO a root is an alias for writing it; a link placed in a root changes it.
+  // TDG-6: a link to an ANCESTOR of a root (the tree root, D:\) is NOT refused when it is made -- a test makes
+  // one (scripts/audit/devgovPathBranchLock.test.ts: a junction to process.cwd()); every write THROUGH it is
+  // judged by its real path instead, and a recursive copy by every path it writes.
   symlink: [
     { index: 0, kind: 'write', relativeToDirOf: 1 },
     { index: 1, kind: 'tree' },
@@ -649,8 +740,10 @@ const CHECKS: Record<string, readonly Check[]> = {
   rm: [{ index: 0, kind: 'remove' }],
   rmdir: [{ index: 0, kind: 'remove' }],
   unlink: [{ index: 0, kind: 'remove' }],
-  open: [{ index: 0, kind: 'write', when: (args) => isWriteFlag(args[1]) }],
+  open: [{ index: 0, kind: 'write', when: writesByFlag(1) }],
   createWriteStream: [{ index: 0, kind: 'write' }],
+  // TDG-6 (finding 1): a read stream opened with a write flag (it also opens through fs.open, guarded too)
+  createReadStream: [{ index: 0, kind: 'write', when: writesByFlag(1, 'flags') }],
   // TDG-5 (finding 9): metadata of a live file
   utimes: [{ index: 0, kind: 'write' }],
   lutimes: [{ index: 0, kind: 'write' }],
@@ -660,24 +753,235 @@ const CHECKS: Record<string, readonly Check[]> = {
   lchown: [{ index: 0, kind: 'write' }],
 };
 
-function refusalFor(name: string, args: unknown[]): TestDataRootWriteRefusedError | null {
-  const base = name.replace(/Sync$/, '');
-  for (const check of CHECKS[base] ?? []) {
-    if (check.when && !check.when(args)) continue;
-    const target = pathArg(args[check.index]);
-    if (target === null) continue;
-    const targets = [target];
-    if (check.relativeToDirOf !== undefined && !path.isAbsolute(target)) {
-      const link = pathArg(args[check.relativeToDirOf]);
-      if (link !== null) targets.push(path.resolve(path.dirname(path.resolve(link)), target));
+/** TDG-6: the guarded functions -- base name -> how each argument is judged (sync, callback and promise forms alike). Locked by the write-guard test. */
+export const TEST_DATA_ROOT_GUARDED_FS_CALLS: Readonly<Record<string, readonly string[]>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(CHECKS).map(([name, checks]) => [
+      name,
+      Object.freeze([
+        ...checks.map(
+          (c) =>
+            `${c.index}:${c.kind}` +
+            (c.when ? ' if its flag writes' : '') +
+            (c.relativeToDirOf !== undefined ? ' (a relative target also against the link)' : ''),
+        ),
+        ...(name === 'cp' ? ['1:tree for every path a recursive copy writes'] : []),
+      ]),
+    ]),
+  ),
+);
+
+/**
+ * REVIEWED (TDG-6, TDG5-VERIFICATION finding 1): every function of node:fs, node:fs/promises and a FileHandle
+ * that the guard does NOT wrap, with the reason it cannot create, change or remove a file by a path. The
+ * write-guard test enumerates the three surfaces of the INSTALLED Node and fails on a function that is on
+ * neither side -- a new Node API (as mkdtempDisposable in Node 24) is a decision, never a silent pass. An entry
+ * that this Node does not have is kept (another Node version may have it).
+ */
+const READS = 'reads by its path: opens nothing for writing, creates, changes or removes nothing';
+const BY_FD =
+  'works on a descriptor or handle that is already open: no path, nothing new is reached (the open itself is guarded) -- KNOWN LIMITATION 2: metadata through a read-only descriptor is not seen';
+const STREAM_CLASS =
+  'a stream class: it opens its path through fs.open/fs.openSync (and fs.mkdir) looked up on node:fs when it is made, i.e. the guarded ones (pinned by the TDG-6 stream test)';
+const DATA_CLASS = 'a data class (an entry, a stat result, an open directory): no file-system call by a path of its own';
+const HANDLE_METHOD =
+  'a FileHandle method: works on the handle the guarded fs.promises.open opened (a write handle into a root was refused there) -- KNOWN LIMITATION 2 for metadata through a read handle';
+export const TEST_FS_FUNCTIONS_NOT_GUARDED: Readonly<Record<string, string>> = Object.freeze({
+  // node:fs -- by path, reading only
+  'fs.access': READS,
+  'fs.accessSync': READS,
+  'fs.exists': READS,
+  'fs.existsSync': READS,
+  'fs.lstat': READS,
+  'fs.lstatSync': READS,
+  'fs.stat': READS,
+  'fs.statSync': READS,
+  'fs.statfs': READS,
+  'fs.statfsSync': READS,
+  'fs.readdir': READS,
+  'fs.readdirSync': READS,
+  'fs.opendir': READS,
+  'fs.opendirSync': READS,
+  'fs.readlink': READS,
+  'fs.readlinkSync': READS,
+  'fs.realpath': READS,
+  'fs.realpathSync': READS,
+  'fs.realpath.native': READS,
+  'fs.realpathSync.native': READS,
+  'fs.glob': READS,
+  'fs.globSync': READS,
+  'fs.watch': READS,
+  'fs.watchFile': READS,
+  'fs.unwatchFile': 'stops a watcher: no file-system write',
+  'fs.openAsBlob': 'reads a file into a Blob: opens it for reading only',
+  // node:fs -- by descriptor
+  'fs.close': BY_FD,
+  'fs.closeSync': BY_FD,
+  'fs.fchmod': BY_FD,
+  'fs.fchmodSync': BY_FD,
+  'fs.fchown': BY_FD,
+  'fs.fchownSync': BY_FD,
+  'fs.fdatasync': BY_FD,
+  'fs.fdatasyncSync': BY_FD,
+  'fs.fstat': BY_FD,
+  'fs.fstatSync': BY_FD,
+  'fs.fsync': BY_FD,
+  'fs.fsyncSync': BY_FD,
+  'fs.ftruncate': BY_FD,
+  'fs.ftruncateSync': BY_FD,
+  'fs.futimes': BY_FD,
+  'fs.futimesSync': BY_FD,
+  'fs.read': BY_FD,
+  'fs.readSync': BY_FD,
+  'fs.readv': BY_FD,
+  'fs.readvSync': BY_FD,
+  'fs.write': BY_FD,
+  'fs.writeSync': BY_FD,
+  'fs.writev': BY_FD,
+  'fs.writevSync': BY_FD,
+  // node:fs -- classes and helpers
+  'fs.ReadStream': STREAM_CLASS,
+  'fs.FileReadStream': STREAM_CLASS,
+  'fs.WriteStream': STREAM_CLASS,
+  'fs.FileWriteStream': STREAM_CLASS,
+  'fs.Utf8Stream': STREAM_CLASS,
+  'fs.Dir': DATA_CLASS,
+  'fs.Dirent': DATA_CLASS,
+  'fs.Stats': DATA_CLASS,
+  'fs._toUnixTimestamp': 'converts a date to seconds: no file-system call at all',
+  // node:fs/promises -- by path, reading only
+  'fs.promises.access': READS,
+  'fs.promises.lstat': READS,
+  'fs.promises.stat': READS,
+  'fs.promises.statfs': READS,
+  'fs.promises.readdir': READS,
+  'fs.promises.opendir': READS,
+  'fs.promises.readlink': READS,
+  'fs.promises.realpath': READS,
+  'fs.promises.glob': READS,
+  'fs.promises.watch': READS,
+  // a FileHandle (fs.promises.open)
+  'FileHandle.constructor': 'the FileHandle class: made by the guarded fs.promises.open only, it names no new path',
+  'FileHandle.getAsyncId': 'an id for async hooks: no file-system call at all',
+  'FileHandle.close': HANDLE_METHOD,
+  'FileHandle.appendFile': HANDLE_METHOD,
+  'FileHandle.chmod': HANDLE_METHOD,
+  'FileHandle.chown': HANDLE_METHOD,
+  'FileHandle.datasync': HANDLE_METHOD,
+  'FileHandle.sync': HANDLE_METHOD,
+  'FileHandle.read': HANDLE_METHOD,
+  'FileHandle.readv': HANDLE_METHOD,
+  'FileHandle.readFile': HANDLE_METHOD,
+  'FileHandle.readLines': HANDLE_METHOD,
+  'FileHandle.readableWebStream': HANDLE_METHOD,
+  'FileHandle.createReadStream': HANDLE_METHOD,
+  'FileHandle.createWriteStream': HANDLE_METHOD,
+  'FileHandle.stat': HANDLE_METHOD,
+  'FileHandle.truncate': HANDLE_METHOD,
+  'FileHandle.utimes': HANDLE_METHOD,
+  'FileHandle.write': HANDLE_METHOD,
+  'FileHandle.writev': HANDLE_METHOD,
+  'FileHandle.writeFile': HANDLE_METHOD,
+});
+
+const readdirOriginal = fs.readdirSync;
+const statOriginal = fs.statSync;
+/** More entries than this in one recursive copy: undecidable (fail-closed). */
+const RECURSIVE_COPY_ENTRY_LIMIT = 50_000;
+
+/**
+ * TDG-6 (TDG5-VERIFICATION finding 3): a recursive copy of a directory writes `dest/<rel>` for every entry
+ * `<rel>` under the source -- through any link that already exists in the destination (Node's copy follows a
+ * junction there: a link in `dest` to an ancestor of a root lands the copy in the root). Each of those paths
+ * is judged like a destination of its own (kind `tree`, real path included). The source is only listed, with
+ * the unguarded originals; its links are followed only with `dereference`, as Node does.
+ */
+function recursiveCopyRefusal(operation: string, args: unknown[]): WriteRefusal | null {
+  const src = pathArgument(args[0]);
+  const dest = pathArgument(args[1]);
+  if (src.kind !== 'path' || dest.kind !== 'path') return null; // judged above, or Node refuses it
+  const options = (args[2] !== null && typeof args[2] === 'object' ? args[2] : {}) as { dereference?: unknown };
+  const dereference = options.dereference === true;
+  const top = safe(() => (dereference ? statOriginal(src.path) : lstatOriginal(src.path)));
+  if (!top?.isDirectory()) return null; // a file (its destination is judged above) or nothing (Node fails)
+  const seen = new Set<string>();
+  const stack: Array<readonly [string, string]> = [[src.path, dest.path]];
+  let entries = 0;
+  while (stack.length > 0) {
+    const [fromDir, toDir] = stack.pop() as readonly [string, string];
+    if (dereference) {
+      const real = safe(() => norm(realpathNative(fromDir)));
+      if (real === null) return undecidableRefusal(operation, toDir, `the copy's source ${fromDir} has no real path`);
+      if (seen.has(real)) continue;
+      seen.add(real);
     }
-    for (const candidate of targets) {
-      const refusal = testDataRootWriteRefusal(`fs.${name}`, check.kind, candidate);
-      if (refusal)
-        return new TestDataRootWriteRefusedError(refusal.operation, refusal.target, refusal.protectedRoot);
+    let listed: fs.Dirent[];
+    try {
+      listed = readdirOriginal(fromDir, { withFileTypes: true });
+    } catch (error) {
+      return undecidableRefusal(operation, toDir, `the copy's source ${fromDir} cannot be listed (${errorCode(error)})`);
+    }
+    for (const entry of listed) {
+      entries += 1;
+      if (entries > RECURSIVE_COPY_ENTRY_LIMIT)
+        return undecidableRefusal(operation, dest.path, `more than ${RECURSIVE_COPY_ENTRY_LIMIT} entries to copy`);
+      const from = path.join(fromDir, entry.name);
+      const to = path.join(toDir, entry.name);
+      const refusal = testDataRootWriteRefusal(operation, 'tree', to);
+      if (refusal) return refusal;
+      const isDirectory =
+        entry.isDirectory() ||
+        (dereference && entry.isSymbolicLink() && Boolean(safe(() => statOriginal(from))?.isDirectory()));
+      if (isDirectory) stack.push([from, to]);
     }
   }
   return null;
+}
+
+const errorCode = (error: unknown): string => {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? code : 'an unknown error';
+};
+
+const toError = (refusal: WriteRefusal) =>
+  new TestDataRootWriteRefusedError(refusal.operation, refusal.target, refusal.protectedRoot, refusal.undecidable);
+
+/**
+ * The decision for one call: the refusal, or the arguments to call Node with (a URL-like object that is not a
+ * plain URL is replaced by the path it was judged as, so Node writes exactly what was judged).
+ */
+function judgeCall(name: string, args: unknown[]): { readonly error: Error | null; readonly args: unknown[] } {
+  const base = name.replace(/Sync$/, '');
+  const operation = `fs.${name}`;
+  let callArgs = args;
+  for (const check of CHECKS[base] ?? []) {
+    if (check.when && !check.when(args)) continue;
+    const target = pathArgument(args[check.index]);
+    if (target.kind === 'none') continue;
+    if (target.kind === 'undecidable')
+      return {
+        error: toError(undecidableRefusal(operation, describePathArgument(args[check.index]), target.why)),
+        args,
+      };
+    if (target.substitute) {
+      if (callArgs === args) callArgs = [...args];
+      callArgs[check.index] = target.path;
+    }
+    const targets = [target.path];
+    if (check.relativeToDirOf !== undefined && !path.isAbsolute(target.path)) {
+      const link = pathArgument(args[check.relativeToDirOf]);
+      if (link.kind === 'path') targets.push(path.resolve(path.dirname(path.resolve(link.path)), target.path));
+    }
+    for (const candidate of targets) {
+      const refusal = testDataRootWriteRefusal(operation, check.kind, candidate);
+      if (refusal) return { error: toError(refusal), args };
+    }
+  }
+  if (base === 'cp') {
+    const refusal = recursiveCopyRefusal(operation, callArgs);
+    if (refusal) return { error: toError(refusal), args };
+  }
+  return { error: null, args: callArgs };
 }
 
 function wrap(
@@ -688,7 +992,7 @@ function wrap(
   const original = target[name];
   if (typeof original !== 'function') return;
   const guarded = function guardedFsCall(this: unknown, ...args: unknown[]): unknown {
-    const error = refusalFor(name, args);
+    const { error, args: callArgs } = judgeCall(name, args);
     if (error) {
       if (style === 'promise') return Promise.reject(error);
       if (style === 'callback') {
@@ -700,13 +1004,16 @@ function wrap(
       }
       throw error;
     }
-    return (original as AnyFn).apply(this, args);
+    return (original as AnyFn).apply(this, callArgs);
   };
   Object.defineProperty(guarded, 'name', { value: (original as AnyFn).name });
+  // TDG-6: the mark the enumeration test reads (a wrapped function is guarded, every other one is reviewed)
+  Object.defineProperty(guarded, GUARD_MARK, { value: true });
   target[name] = guarded;
 }
 
 const BASES = Object.keys(CHECKS);
+const STREAM_BASES = new Set(['createWriteStream', 'createReadStream']);
 
 /**
  * Idempotent. Installs the write guard on node:fs and node:fs/promises in this process.
@@ -719,7 +1026,7 @@ export function installTestDataRootWriteGuard(): void {
   const fsObj = fs as unknown as Record<string | symbol, unknown>;
   if (fsObj[GUARD_MARK]) return;
   for (const base of BASES) {
-    if (base === 'createWriteStream') {
+    if (STREAM_BASES.has(base)) {
       wrap(fsObj as Record<string, unknown>, base, 'stream');
       continue;
     }
