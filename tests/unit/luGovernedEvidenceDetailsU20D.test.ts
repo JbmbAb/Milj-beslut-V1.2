@@ -755,6 +755,54 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     expect(capturedPdfData).toBeUndefined();
   });
 
+  // U20CDF (U20CD verification F10): the two remaining failure branches of the bound point.
+  it('a bound localization geometry of ANOTHER project fails the read-back and the PDF closed (424 LOCALIZATION_GEOMETRY_NOT_BOUND)', async () => {
+    const s = await setup();
+    // A valid, self-consistent geometry artifact -- but issued for another project.
+    const foreign = createLocalizationGeometryArtifact({
+      project_id: 'another-project-u20cdf',
+      property_context_ref: s.propertyContextRef,
+      wgs84LngLat: [17.63, 59.85],
+      sweref99NorthingEasting: [6640000, 648000],
+      provenance: 'user_defined',
+      label: 'U20CDF främmande punkt',
+      created_by: AUTH_USER.id,
+    });
+    await s.repository.put({ artifact_id: foreign.artifact_id, body: foreign });
+    state.geometry = foreign;
+    const fresh = await s.runFresh();
+    expect(fresh.executionMotor?.assessment_status).toBe('ASSESSED');
+
+    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
+      ok: false, status: 424, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass: 'LOCALIZATION_GEOMETRY_NOT_BOUND',
+    });
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, failureClass: 'LOCALIZATION_GEOMETRY_NOT_BOUND' });
+    expect(await exportCurrentLuAssessmentPdf(s.deps())).toMatchObject({ ok: false, status: 424 });
+    expect(capturedPdfData).toBeUndefined();
+  });
+
+  it('an unknown read failure of the bound localization geometry is a retryable technical error (503 LOCALIZATION_GEOMETRY_READ_ERROR), never the current point', async () => {
+    const s = await setup();
+    await s.runFresh();
+    const realResolve = s.repository.resolve.bind(s.repository);
+    s.repository.resolve = async <T,>(ref: ArtifactReference): Promise<T> => {
+      if (ref.artifact_id === s.locationRef.artifact_id) throw new Error('EIO: i/o error, read');
+      return realResolve<T>(ref);
+    };
+
+    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
+      ok: false, status: 503, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR',
+    });
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR' });
+    expect(JSON.stringify(res.body)).not.toContain('EIO');
+    expect(await exportCurrentLuAssessmentPdf(s.deps())).toMatchObject({ ok: false, status: 503 });
+    expect(capturedPdfData).toBeUndefined();
+  });
+
   it('an older assessment without details gets honest text in the read-back and the PDF, not empty fields', async () => {
     const s = await setup({ legacyContext: true });
     await s.persistBareAssessment();
