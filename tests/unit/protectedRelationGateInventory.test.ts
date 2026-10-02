@@ -72,6 +72,9 @@ const LOCKS = {
   unscannedSha256: 'aed544c662b858165e67e296b7c2fad17250d2dc1dc766b9409058498c2eb438',
   testSourcesSha256: '0caaf043853efef0e3185bfc91cc7cae86c9f0621f4f07e7cafeb3caa753ebac',
   retiredCount: 18,
+  // U30F2 LOW (verifier L3): the retired list is pinned by content too -- an entry swapped for another
+  // with the same count, or an entry's relations, justification or replacement changed, fails here.
+  retiredSha256: '95a7f253f4e39e1c8d3aed638ab5b71abda678a44d4a1f6bfe56c8793381b645',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -326,6 +329,8 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
 
   it('the retired list is pinned, justified, and every entry refuses first', () => {
     expect(RETIRED_DESTRUCTIVE_SCRIPTS.length).toBe(LOCKS.retiredCount);
+    expect(sha256Of(RETIRED_DESTRUCTIVE_SCRIPTS)).toBe(LOCKS.retiredSha256);
+    expect(new Set(RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script)).size).toBe(RETIRED_DESTRUCTIVE_SCRIPTS.length);
     for (const entry of RETIRED_DESTRUCTIVE_SCRIPTS) {
       expect(fs.existsSync(path.join(REPO_ROOT, entry.script)), entry.script).toBe(true);
       expect(entry.justification.trim().length, entry.script).toBeGreaterThanOrEqual(40);
