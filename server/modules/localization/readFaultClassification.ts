@@ -287,6 +287,12 @@ export function assertReadUnderItsOwnId(subject: string, value: unknown, request
  * names. Its content without the attestation must equal the freshly built bare artifact field for field
  * (compared with keys sorted, so storage key order never matters); a valid CAS object whose content was
  * edited under the same id -- even with the content_hash field left untouched -- is not it.
+ *
+ * W-CATCH3 (CATCH2 verifier finding 3): this says NOTHING about the attestation (a garbled signature
+ * passes it). A caller verifies the attestation against the trusted key before it uses the object or
+ * writes anything that rests on it (the viewer-capability and geometry-supersession workers verify an
+ * existing issuer right after this check, and their new issuers, capabilities and relations before they
+ * are written).
  */
 export function isExactlyTheDeterministicArtifact(existing: unknown, bare: object): boolean {
   if (typeof existing !== 'object' || existing === null) return false;

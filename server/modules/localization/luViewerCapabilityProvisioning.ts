@@ -29,6 +29,7 @@ import {
   attestViewerCapabilityIssuerArtifact,
   attestProductViewerCapability,
   verifyProductViewerCapability,
+  verifyViewerCapabilityIssuerArtifact,
 } from './productViewerCapabilityAuthority';
 import { installOwnerIssuedLocalizationViewerCapability } from './installLocalizationViewerCapability';
 import { getViewerCapabilitySigningProvider } from '../../security/viewerCapabilitySigningKey';
@@ -49,7 +50,7 @@ import {
   readExistingOrProvenAbsent,
   toReadFaultError,
 } from './readFaultClassification';
-import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
+import { provisioningFailure, provisioningReadFaultDetailSv, trackArtifactWrites, type ProvisioningWrites } from './provisioningFailure';
 
 const PRIVATE_KEY_ENV = 'VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM';
 /** Deterministic, automated-issuance owner authority ref -- distinct from the manual-install one
@@ -124,11 +125,24 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<ViewerCapa
     assertReadUnderItsOwnId('viewer-capability-issuer', existing, bareIssuer.artifact_id);
     // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
     // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
-    if (isExactlyTheDeterministicArtifact(existing, bareIssuer)) return existing;
-    throw new LuReadFaultError('viewer-capability-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
+    if (!isExactlyTheDeterministicArtifact(existing, bareIssuer)) {
+      throw new LuReadFaultError('viewer-capability-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
+    }
+    // W-CATCH3 (CATCH2 verifier finding 3): the field-for-field comparison leaves out the attestation, so
+    // the existing issuer is verified against the trusted key before it is used for anything -- a damaged
+    // signature is EXISTING_ARTIFACT_REFUSED here, before any write that would rest on it.
+    try {
+      await verifyViewerCapabilityIssuerArtifact({ issuer: existing, verification: getViewerCapabilityVerifier() });
+    } catch (error) {
+      throw toReadFaultError('viewer-capability-issuer', error, 'verify');
+    }
+    return existing;
   }
   const attestation = await attestViewerCapabilityIssuerArtifact({ issuer: bareIssuer, signing });
   const issuer: ViewerCapabilityIssuerArtifact = { ...bareIssuer, attestation };
+  // W-CATCH3: a new issuer is verified BEFORE it is written -- a verification key that does not verify it
+  // (a configuration error) writes nothing.
+  await verifyViewerCapabilityIssuerArtifact({ issuer, verification: getViewerCapabilityVerifier() });
   await repo.put({ artifact_id: issuer.artifact_id, content_hash: issuer.content_hash, body: issuer });
   return issuer;
 }
@@ -155,6 +169,9 @@ export async function executeViewerCapabilityProvisioning(input: {
   readonly capabilityValidFrom: Date;
   readonly capabilityValidUntil: Date;
 }): Promise<ViewerCapabilityProvisioningOutcome> {
+  // W-CATCH3 (CATCH2 verifier finding 3): what this run has written, so the stored text never says
+  // "Inget utfärdades." after a write was attempted.
+  const writes: ProvisioningWrites = { written: false };
   try {
     const requester = await prisma.user.findUnique({
       where: { id: input.requestedByUserId },
@@ -175,7 +192,7 @@ export async function executeViewerCapabilityProvisioning(input: {
     }
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
-    const repo = mimers.artifactRepository;
+    const repo = trackArtifactWrites(mimers.artifactRepository, writes);
     const currentBindingProvider = new ProjectContextBindingProvider(
       repo,
       new PrismaProjectContextBindingIndex(),
@@ -293,7 +310,7 @@ export async function executeViewerCapabilityProvisioning(input: {
     return { ok: true, capabilityArtifactId: capability.artifact_id, reused: false };
   } catch (error) {
     // W-CATCH2: a stable code by class and a neutral text (provisioningFailure.ts); never the raw message.
-    return { ok: false, superseded: false, ...provisioningFailure(error) };
+    return { ok: false, superseded: false, ...provisioningFailure(error, writes) };
   }
 }
 

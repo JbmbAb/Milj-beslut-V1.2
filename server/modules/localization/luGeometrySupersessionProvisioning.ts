@@ -30,6 +30,7 @@ import {
   attestLocalizationGeometrySupersessionIssuerArtifact,
   attestLocalizationGeometrySupersessionArtifact,
   verifyLocalizationGeometrySupersessionArtifact,
+  verifyLocalizationGeometrySupersessionIssuerArtifact,
 } from './localizationGeometrySupersessionAuthority';
 import { getLocalizationGeometrySupersessionSigningProvider } from '../../security/localizationGeometrySupersessionSigningKey';
 import { getLocalizationGeometrySupersessionVerifier } from '../../security/localizationGeometrySupersessionVerifier';
@@ -47,7 +48,7 @@ import {
   readExistingOrProvenAbsent,
   toReadFaultError,
 } from './readFaultClassification';
-import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
+import { provisioningFailure, provisioningReadFaultDetailSv, trackArtifactWrites, type ProvisioningWrites } from './provisioningFailure';
 import { classifyLocalizationGeometryCurrentnessError, LocalizationGeometryCurrentnessError } from './localizationGeometryCurrentness';
 
 /** Real user-action reason code -- distinct from LEGACY_CURRENTNESS_MIGRATION_REASON_CODE, which
@@ -76,7 +77,10 @@ function fail(code: string, detail: string): never {
   throw error;
 }
 
-async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<LocalizationGeometrySupersessionIssuerArtifact> {
+async function getOrMintIssuer(
+  repo: ArtifactRepositoryPort,
+  verification: Parameters<typeof verifyLocalizationGeometrySupersessionIssuerArtifact>[0]['verification'],
+): Promise<LocalizationGeometrySupersessionIssuerArtifact> {
   const signing = getLocalizationGeometrySupersessionSigningProvider();
   const bareIssuer = createLocalizationGeometrySupersessionIssuerArtifact({
     issuer_key_id: signing.keyId,
@@ -96,11 +100,24 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<Localizati
     assertReadUnderItsOwnId('geometry-supersession-issuer', existing, bareIssuer.artifact_id);
     // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
     // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
-    if (isExactlyTheDeterministicArtifact(existing, bareIssuer)) return existing;
-    throw new LuReadFaultError('geometry-supersession-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
+    if (!isExactlyTheDeterministicArtifact(existing, bareIssuer)) {
+      throw new LuReadFaultError('geometry-supersession-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
+    }
+    // W-CATCH3 (CATCH2 verifier finding 3, probe S1b): the field-for-field comparison leaves out the
+    // attestation, so the existing (global) issuer is verified against the trusted key before it is used
+    // for anything -- a damaged signature is EXISTING_ARTIFACT_REFUSED here, before any write.
+    try {
+      await verifyLocalizationGeometrySupersessionIssuerArtifact({ issuer: existing, verification });
+    } catch (error) {
+      throw toReadFaultError('geometry-supersession-issuer', error, 'verify');
+    }
+    return existing;
   }
   const attestation = await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bareIssuer, signing });
   const issuer: LocalizationGeometrySupersessionIssuerArtifact = { ...bareIssuer, attestation };
+  // W-CATCH3: a new issuer is verified BEFORE it is written -- a verification key that does not verify it
+  // (a configuration error) writes nothing.
+  await verifyLocalizationGeometrySupersessionIssuerArtifact({ issuer, verification });
   await repo.put({ artifact_id: issuer.artifact_id, content_hash: issuer.content_hash, body: issuer });
   return issuer;
 }
@@ -121,6 +138,9 @@ export async function executeGeometrySupersessionProvisioning(input: {
   readonly successorGeometryArtifactId: string;
   readonly requestedByUserId: string;
 }): Promise<GeometrySupersessionProvisioningOutcome> {
+  // W-CATCH3 (CATCH2 verifier finding 3): what this run has written, so the stored text never says
+  // "Inget utfärdades." after a write was attempted.
+  const writes: ProvisioningWrites = { written: false };
   try {
     const requester = await prisma.user.findUnique({
       where: { id: input.requestedByUserId },
@@ -140,7 +160,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
     }
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
-    const repo = mimers.artifactRepository;
+    const repo = trackArtifactWrites(mimers.artifactRepository, writes);
     const verification = getLocalizationGeometrySupersessionVerifier();
     const currentProvider = new LocalizationGeometryCurrentProvider(
       repo,
@@ -177,7 +197,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
     }
     if (successor!.payload.project_id !== input.projectId) fail('SUCCESSOR_GEOMETRY_PROJECT_MISMATCH', 'successor geometry does not belong to this project');
 
-    const issuer = await getOrMintIssuer(repo);
+    const issuer = await getOrMintIssuer(repo, verification);
     const signing = getLocalizationGeometrySupersessionSigningProvider();
 
     const barePayloadInput = {
@@ -201,6 +221,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
     // of an already-completed transition always reports success, never a false SUPERSEDED.
     const reused = await tryReuseExistingSupersession({ repo, bareArtifact, issuer, verification });
     if (reused) {
+      writes.written = true; // W-CATCH3: the projection and edge rows are writes too.
       await registerLocalizationGeometry({ projectId: input.projectId, geometry: successor! });
       await registerEdge(input.projectId, reused, input.predecessorGeometryArtifactId, input.successorGeometryArtifactId);
       return { ok: true, supersessionArtifactId: reused, reused: true };
@@ -230,21 +251,24 @@ export async function executeGeometrySupersessionProvisioning(input: {
 
     const attestation = await attestLocalizationGeometrySupersessionArtifact({ artifact: bareArtifact, issuer, signing });
     const artifact: LocalizationGeometrySupersessionArtifact = { ...bareArtifact, attestation };
-    await repo.put({ artifact_id: artifact.artifact_id, content_hash: artifact.content_hash, body: artifact });
 
     // Independent re-verification before ever trusting the just-minted artifact -- structurally
-    // cannot pass unless the signature genuinely verifies against the trusted public key.
+    // cannot pass unless the signature genuinely verifies against the trusted public key. W-CATCH3
+    // (CATCH2 verifier finding 3): BEFORE it is written (it verified only after the write before), so
+    // an artifact -- or an issuer -- that does not verify never reaches the CAS.
     await verifyLocalizationGeometrySupersessionArtifact({ artifact, issuer, verification });
+    await repo.put({ artifact_id: artifact.artifact_id, content_hash: artifact.content_hash, body: artifact });
 
     // The successor becomes a discoverable graph candidate ONLY together with its verified edge
     // -- never before -- so a partially-completed transition can never appear ambiguous (two
     // unconnected heads) to a concurrent reader.
+    writes.written = true; // W-CATCH3: the projection and edge rows are writes too.
     await registerLocalizationGeometry({ projectId: input.projectId, geometry: successor! });
     await registerEdge(input.projectId, artifact.artifact_id, input.predecessorGeometryArtifactId, input.successorGeometryArtifactId);
     return { ok: true, supersessionArtifactId: artifact.artifact_id, reused: false };
   } catch (error) {
     // W-CATCH2: a stable code by class and a neutral text (provisioningFailure.ts); never the raw message.
-    return { ok: false, superseded: false, ...provisioningFailure(error) };
+    return { ok: false, superseded: false, ...provisioningFailure(error, writes) };
   }
 }
 
@@ -303,9 +327,9 @@ export async function mintLegacyBackfillSupersession(args: {
   readonly successorGeometryArtifactId: string;
   readonly issuedAt: string;
 }): Promise<{ readonly supersessionArtifactId: string; readonly reused: boolean }> {
-  const issuer = await getOrMintIssuer(args.repo);
-  const signing = getLocalizationGeometrySupersessionSigningProvider();
   const verification = getLocalizationGeometrySupersessionVerifier();
+  const issuer = await getOrMintIssuer(args.repo, verification);
+  const signing = getLocalizationGeometrySupersessionSigningProvider();
   const successor = validateLocalizationGeometryArtifact(
     await args.repo.resolve<LocalizationGeometryArtifact>({ artifact_id: args.successorGeometryArtifactId, artifact_type: 'localization_geometry' }),
   );
@@ -326,8 +350,9 @@ export async function mintLegacyBackfillSupersession(args: {
   }
   const attestation = await attestLocalizationGeometrySupersessionArtifact({ artifact: bareArtifact, issuer, signing });
   const artifact: LocalizationGeometrySupersessionArtifact = { ...bareArtifact, attestation };
-  await args.repo.put({ artifact_id: artifact.artifact_id, content_hash: artifact.content_hash, body: artifact });
+  // W-CATCH3 (CATCH2 verifier finding 3): verified BEFORE it is written, as on the live path.
   await verifyLocalizationGeometrySupersessionArtifact({ artifact, issuer, verification });
+  await args.repo.put({ artifact_id: artifact.artifact_id, content_hash: artifact.content_hash, body: artifact });
   await registerLocalizationGeometry({ projectId: args.projectId, geometry: successor });
   await registerEdge(args.projectId, artifact.artifact_id, args.predecessorGeometryArtifactId, args.successorGeometryArtifactId);
   return { supersessionArtifactId: artifact.artifact_id, reused: false };

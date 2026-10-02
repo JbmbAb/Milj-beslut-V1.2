@@ -13,8 +13,72 @@
  *   error or an unknown error, as before; PROVISIONING_STORAGE_INTEGRITY_FAULT; PROVISIONING_REFUSED)
  *   and a neutral Swedish text, never the raw message; the raw text is only the internal `diagnostic`
  *   the workers log.
+ *
+ * W-CATCH3 (CATCH2 verifier finding 3): a text never claims "Inget utfärdades." after a write was
+ * attempted. Every worker wraps its repository with trackArtifactWrites before its first read and hands
+ * the record to provisioningFailure: a failure after a write says that an object may have been saved and
+ * the request was not completed, and its class without claiming a read (it may have been a write).
  */
-import { classifyReadFault, LuReadFaultError, readFaultSentenceSv, type ReadFault } from './readFaultClassification';
+import type { ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
+import { classifyReadFault, LuReadFaultError, readFaultSentenceSv, type ReadFault, type ReadFaultClass } from './readFaultClassification';
+import { retrySentenceSv } from './storageFaultClassification';
+
+/**
+ * W-CATCH3: whether this worker run has attempted any write -- a CAS put (trackArtifactWrites) or an
+ * index row the worker registers itself (it sets the flag before the registration) -- set before the
+ * write is awaited.
+ */
+export interface ProvisioningWrites {
+  written: boolean;
+}
+
+/**
+ * W-CATCH3: the same repository, recording in `writes` that a put was ATTEMPTED (before it is awaited, so
+ * a put that fails half-way counts too). Every other member is the repository's own.
+ */
+export function trackArtifactWrites<R extends ArtifactRepositoryPort>(repository: R, writes: ProvisioningWrites): R {
+  return new Proxy(repository, {
+    get(target, property) {
+      if (property === 'put') {
+        return (artifact: Parameters<ArtifactRepositoryPort['put']>[0]) => {
+          writes.written = true;
+          return target.put(artifact);
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+
+const NOTHING_ISSUED_SV = 'Inget utfärdades.';
+const MAY_HAVE_WRITTEN_SV = 'Ett eller flera objekt kan ha sparats innan felet uppstod, men begäran slutfördes inte.';
+
+/** W-CATCH3: a failure that came after a write was attempted, by its class -- never "could not be read". */
+const AFTER_WRITE_CAUSE_SV: Readonly<Record<ReadFaultClass, string>> = {
+  READ_ERROR: 'ett tekniskt fel',
+  STORAGE_INTEGRITY_FAULT: 'ett bestående lagrings- eller integritetsfel',
+  MISSING_FROM_CAS: 'ett bestående lagrings- eller integritetsfel',
+  BINDING_INDEX_INCONSISTENT: 'ett bestående integritetsfel',
+  REFUSED: 'att ett steg underkändes vid verifieringen',
+};
+
+/**
+ * W-CATCH3: whether a write may have happened. Fail-closed: a caller that hands over no record (not
+ * possible from TypeScript) is treated as "may have written", so "Inget utfärdades." is never claimed
+ * without the record that proves it.
+ */
+function mayHaveWritten(writes: ProvisioningWrites | undefined): boolean {
+  return writes?.written !== false;
+}
+
+/** W-CATCH3: the closing sentence about writes -- "Inget utfärdades." only when no write was attempted. */
+function withWrites(detail: string, writes: ProvisioningWrites): string {
+  if (!mayHaveWritten(writes)) return detail;
+  const claim = ` ${NOTHING_ISSUED_SV}`;
+  const base = detail.endsWith(claim) ? detail.slice(0, -claim.length) : detail === NOTHING_ISSUED_SV ? '' : detail;
+  return base ? `${base} ${MAY_HAVE_WRITTEN_SV}` : MAY_HAVE_WRITTEN_SV;
+}
 
 /** Existing objects a provisioning worker reads before deciding to mint (stable lower-case subjects). */
 const EXISTING_SUBJECT_SV: Readonly<Record<string, string>> = {
@@ -52,33 +116,41 @@ export type ProvisioningFailureFields = {
   readonly diagnostic?: string;
 };
 
-export function provisioningFailure(error: unknown): ProvisioningFailureFields {
+export function provisioningFailure(error: unknown, writes: ProvisioningWrites): ProvisioningFailureFields {
   const diagnostic = error instanceof Error ? `${error.name}: ${error.message}${error.cause instanceof Error ? ` <- ${error.cause.name}: ${error.cause.message}` : ''}` : String(error);
   if (error instanceof LuReadFaultError) {
     const existing = EXISTING_SUBJECT_SV[error.subject];
     if (existing) {
       return {
         failureCode: codeFor('EXISTING', error),
-        failureDetail: `${readFaultSentenceSv(error, existing)} Inget utfärdades i dess ställe.`,
+        failureDetail: withWrites(`${readFaultSentenceSv(error, existing)} Inget utfärdades i dess ställe.`, writes),
         diagnostic,
       };
     }
     if (error.subject === 'current-binding') {
       return {
         failureCode: codeFor('BINDING', error),
-        failureDetail: `${readFaultSentenceSv(error, 'Projektets koppling till fastigheten')} Inget utfärdades.`,
+        failureDetail: withWrites(`${readFaultSentenceSv(error, 'Projektets koppling till fastigheten')} ${NOTHING_ISSUED_SV}`, writes),
         diagnostic,
       };
     }
   }
   const ownCode = (error as { failureCode?: unknown } | null)?.failureCode;
   if (typeof ownCode === 'string') {
-    return { failureCode: ownCode, failureDetail: error instanceof Error ? error.message : String(error) };
+    return { failureCode: ownCode, failureDetail: withWrites(error instanceof Error ? error.message : String(error), writes) };
   }
   const fault = classifyReadFault(error);
+  if (mayHaveWritten(writes)) {
+    const contact = fault.retryable ? '' : ' Kontakta systemets administratör.';
+    return {
+      failureCode: codeFor('OTHER', fault),
+      failureDetail: `Provisioneringen kunde inte slutföras på grund av ${AFTER_WRITE_CAUSE_SV[fault.faultClass]}. ${retrySentenceSv(fault.retryable)}${contact} ${MAY_HAVE_WRITTEN_SV}`,
+      diagnostic,
+    };
+  }
   return {
     failureCode: codeFor('OTHER', fault),
-    failureDetail: `Provisioneringen kunde inte slutföras. ${readFaultSentenceSv(fault, 'Ett underlag som behövs')} Inget utfärdades.`,
+    failureDetail: `Provisioneringen kunde inte slutföras. ${readFaultSentenceSv(fault, 'Ett underlag som behövs')} ${NOTHING_ISSUED_SV}`,
     diagnostic,
   };
 }

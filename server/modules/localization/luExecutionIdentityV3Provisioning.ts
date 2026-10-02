@@ -62,7 +62,7 @@ import {
   readExistingOrProvenAbsent,
   toReadFaultError,
 } from './readFaultClassification';
-import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
+import { provisioningFailure, provisioningReadFaultDetailSv, trackArtifactWrites, type ProvisioningWrites } from './provisioningFailure';
 
 const PRIVATE_KEY_ENV = 'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM';
 const ISSUER_ARTIFACT_ID_ENV = 'LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID';
@@ -221,6 +221,9 @@ export async function executeLocalizationIdentityProvisioning(input: {
   readonly geometryArtifactId: string;
   readonly requestedByUserId: string;
 }): Promise<ProvisioningOutcome> {
+  // W-CATCH3 (CATCH2 verifier finding 3, shared provisioningFailure.ts): what this run has written, so the
+  // stored text never says "Inget utfärdades." after a write was attempted.
+  const writes: ProvisioningWrites = { written: false };
   try {
     const issuerArtifactId = process.env[ISSUER_ARTIFACT_ID_ENV]?.trim();
     if (!issuerArtifactId) fail('ISSUER_CONFIGURATION_MISSING', `${ISSUER_ARTIFACT_ID_ENV} is required`);
@@ -244,7 +247,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
     }
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
-    const repo = mimers.artifactRepository;
+    const repo = trackArtifactWrites(mimers.artifactRepository, writes);
 
     let geometry: LocalizationGeometryArtifact;
     try {
@@ -355,7 +358,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
     return { ok: true, executionIdentityArtifactId: identity.artifact_id, reused: false };
   } catch (error) {
     // W-CATCH2: a stable code by class and a neutral text (provisioningFailure.ts); never the raw message.
-    return { ok: false, ...provisioningFailure(error) };
+    return { ok: false, ...provisioningFailure(error, writes) };
   }
 }
 
