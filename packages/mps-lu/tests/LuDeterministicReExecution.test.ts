@@ -1339,3 +1339,361 @@ describe("U30-R3 (owner 2026-10-02): a provider diagnostic never reaches an arti
     }
   });
 });
+
+// =================================================================================================
+// U30-R4 (owner 2026-10-03 (4) item 7; U30R3-VERIFICATION F1): the anti-downgrade binding. A canonical
+// V4 assessment rewritten to V1-V3 (authority_evidence_ref dropped) and/or pointed at another
+// assessment's outcome must not re-execute to PASS. Genuine V4 (25h), genuine historical V3 and the
+// R1/R2 goldens keep passing. What cannot be told apart is pinned at the end as KNOWN_LIMITATION.
+// =================================================================================================
+
+describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and redirected to another outcome", () => {
+  const ENV = [...LU_CANONICAL_AUTHORITY_ENV, "NODE_ENV", "APP_ENV"] as const;
+  const saved = new Map<string, string | undefined>();
+  beforeEach(() => { for (const name of ENV) saved.set(name, process.env[name]); });
+  afterEach(() => {
+    for (const name of ENV) {
+      const value = saved.get(name);
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    __resetLuExecutionAuthorityVerifierForTests(null);
+  });
+
+  /** The product configuration: the dev/test bootstrap flag is never set by the product runtime. */
+  function productConfig() {
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  }
+  /** Explicit dev/test bootstrap: the flag AND a test-classified process. */
+  function devTestBootstrap() {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    process.env.NODE_ENV = "test";
+    delete process.env.APP_ENV;
+  }
+  function setEnv(name: string, value: string | undefined) {
+    if (value === undefined) delete process.env[name]; else process.env[name] = value;
+  }
+
+  /** A: one ebh HIGH and nothing else. B: no hit, ebh unavailable. Both genuine canonical V4 runs. */
+  async function twoCanonical() {
+    const repo = new InMemoryArtifactRepository();
+    const authority = await createLuCanonicalAuthority(repo);
+    const runA = await runLuCanonicalSubject(authority, await provisionLuCanonicalSubject(authority, "u30r4-a"), { evidence: [spatialEvidence("u30r4-a", "ebh")] });
+    const runB = await runLuCanonicalSubject(authority, await provisionLuCanonicalSubject(authority, "u30r4-b"), {
+      evidence: [],
+      unavailable_layers: [{ dataset: "ebh", reason: "SOURCE_UNAVAILABLE" }],
+    });
+    expect(runA.assessment?.payload.assessment_contract_version).toBe("localization-assessment-v4"); // precondition
+    expect(runB.assessment?.payload.assessment_contract_version).toBe("localization-assessment-v4");
+    return { repo, authority, A: runA.assessment!, B: runB.assessment! };
+  }
+
+  type Payload = LocalizationAssessmentArtifact["payload"];
+  /** The payload relabelled to an older contract: authority evidence dropped, version (and canonicalizer) rewritten. */
+  function relabelled(payload: Payload, to: "v3" | "v2" | "v1"): Payload {
+    const { authority_evidence_ref: _authority, assessment_contract_version: _version, canonicalizer_id: _canonicalizer, ...rest } = payload;
+    if (to === "v1") return rest as Payload;
+    return {
+      ...rest,
+      assessment_contract_version: to === "v3" ? "localization-assessment-v3" : "localization-assessment-v2",
+      canonicalizer_id: "rfc8785-sha256-v1",
+    } as Payload;
+  }
+  /** B's outcome, attestation and findings under A's payload (A's point, project and property kept). */
+  function redirectedTo(A: LocalizationAssessmentArtifact, B: LocalizationAssessmentArtifact, overrides: Partial<Payload> = {}): Payload {
+    return withFindings(
+      { ...A.payload, execution_outcome_ref: B.payload.execution_outcome_ref, outcome_attestation_ref: B.payload.outcome_attestation_ref, evidence_refs: [], ...overrides },
+      B.payload.findings,
+    );
+  }
+
+  /**
+   * The shape a V3 assessment had while V3 was the canonical product contract (2026-08-24 .. 2026-09-16):
+   * a V3-subject execution whose execution identity was issued (it is in CAS), a v2 outcome, and an
+   * assessment carrying the subject's localization point but no authority evidence. Today only the
+   * general engine can still produce it; bootstrap admission is used to RUN it, never to verify it.
+   */
+  async function historicalCanonicalV3(name: string, repo = new InMemoryArtifactRepository()) {
+    const authority = await createLuCanonicalAuthority(repo);
+    const provisioned = await provisionLuCanonicalSubject(authority, name);
+    const ev = spatialEvidence(name, "ebh");
+    await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
+    const { subject } = provisioned;
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const run = await runLuAssessmentViaKernel({
+      site_id: subject.site_id,
+      deterministic_seed: provisioned.seed,
+      evidence: [ev],
+      artifact_repository: repo,
+      registry: authority.registry,
+      identity_subject_v3: {
+        project_context_binding_ref: subject.project_context_binding_ref,
+        product_release_ref: subject.product_release_ref,
+        execution_contract_version: subject.execution_contract_version,
+        localization_geometry_ref: subject.localization_geometry_ref,
+      },
+      assessment_draft: {
+        site_id: subject.site_id,
+        project_context_ref: { artifact_id: `project-${subject.site_id}`, artifact_type: "LU_PROJECT_CONTEXT" },
+        property_ref: { artifact_id: subject.site_id, artifact_type: "LU_PROPERTY_CONTEXT" },
+        evidence_refs: [{ artifact_id: ev.artifact_id, artifact_type: ev.artifact_type }],
+        system_summary: "U30-R4 historical canonical V3",
+        localization_geometry_ref: subject.localization_geometry_ref,
+      },
+    });
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    expect(run.assessment?.payload.assessment_contract_version).toBe("localization-assessment-v3"); // precondition
+    expect(run.manifest_id.startsWith("lu-manifest-v3-")).toBe(true);
+    return { repo, authority, provisioned, H: run.assessment! };
+  }
+
+  /** A V3-subject execution run under bootstrap admission with NO issued identity (dev/test only). */
+  async function bootstrapV3SubjectRun(name: string) {
+    const repo = new InMemoryArtifactRepository();
+    const ev = spatialEvidence(name, "water");
+    await repo.put({ artifact_id: ev.artifact_id, content_hash: ev.content_hash, body: ev });
+    const point = { artifact_id: `geometry-${name}`, artifact_type: "localization_geometry" };
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const run = await runLuAssessmentViaKernel({
+      site_id: `property-${name}`,
+      deterministic_seed: `seed-${name}`,
+      evidence: [ev],
+      artifact_repository: repo,
+      identity_subject_v3: {
+        project_context_binding_ref: { artifact_id: `binding-${name}`, artifact_type: "project_context_binding" },
+        product_release_ref: { artifact_id: "release-u30r4", artifact_type: "product_release_manifest" },
+        execution_contract_version: "lu-execution-identity-v1",
+        localization_geometry_ref: point,
+      },
+      assessment_draft: { ...draft(), site_id: `property-${name}`, evidence_refs: [{ artifact_id: ev.artifact_id, artifact_type: ev.artifact_type }], localization_geometry_ref: point },
+    });
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    expect(run.manifest_id.startsWith("lu-manifest-v3-")).toBe(true); // precondition
+    return { repo, assessment: run.assessment! };
+  }
+
+  async function verify(repo: ArtifactRepositoryPort, assessment: { artifact_id: string }) {
+    return reExecuteLocalizationAssessment({ assessmentArtifactId: assessment.artifact_id, artifactRepository: repo });
+  }
+
+  it("27a (F1, exact): A rewritten to V3 (authority dropped) and pointed at B's outcome, A's point kept -> DENY EXECUTION_SUBJECT_MISMATCH", async () => {
+    const { repo, A, B } = await twoCanonical();
+    productConfig();
+    const forged = await storeUnderNewId(repo, A, relabelled(redirectedTo(A, B), "v3"));
+    expect(forged.payload.findings.map((f) => f.finding_id)).toEqual(["finding-notchecked-ebh"]); // B's execution produced exactly this
+
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_MISMATCH"]);
+    expect(r.notices).toEqual([]);
+  });
+
+  for (const to of ["v2", "v1"] as const) {
+    it(`27b (F1 to ${to.toUpperCase()}): A rewritten to ${to.toUpperCase()} and pointed at B's outcome -> DENY CONTRACT_DOWNGRADE_REFUSED`, async () => {
+      const { repo, A, B } = await twoCanonical();
+      productConfig();
+      const forged = await storeUnderNewId(repo, A, relabelled(redirectedTo(A, B), to));
+
+      const r = await verify(repo, forged);
+      expect(r.outcome).toBe("DENY");
+      expect(r.mismatches.map((m) => m.code)).toEqual(["CONTRACT_DOWNGRADE_REFUSED"]);
+    });
+
+    it(`27c (downgrade alone to ${to.toUpperCase()}): A relabelled ${to.toUpperCase()} over its OWN outcome -> DENY CONTRACT_DOWNGRADE_REFUSED (a v2 outcome postdates every V1/V2 assessment)`, async () => {
+      const { repo, A } = await twoCanonical();
+      productConfig();
+      const forged = await storeUnderNewId(repo, A, relabelled(A.payload, to));
+
+      const r = await verify(repo, forged);
+      expect(r.outcome).toBe("DENY");
+      expect(r.mismatches.map((m) => m.code)).toEqual(["CONTRACT_DOWNGRADE_REFUSED"]);
+    });
+  }
+
+  it("27d: the dev/test bootstrap flag never excuses a bound mismatch or a downgrade", async () => {
+    const { repo, A, B } = await twoCanonical();
+    devTestBootstrap();
+    const toV3 = await storeUnderNewId(repo, A, relabelled(redirectedTo(A, B), "v3"));
+    const toV2 = await storeUnderNewId(repo, A, relabelled(A.payload, "v2"));
+
+    expect((await verify(repo, toV3)).mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_MISMATCH"]);
+    expect((await verify(repo, toV2)).mismatches.map((m) => m.code)).toEqual(["CONTRACT_DOWNGRADE_REFUSED"]);
+  });
+
+  it("27e: A rewritten to V3 and pointed at a BOOTSTRAP (non-canonical) execution whose outputs match -> DENY EXECUTION_SUBJECT_UNBOUND in the product configuration", async () => {
+    const { repo, A } = await twoCanonical();
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const bootstrap = (await runLuAssessmentViaKernel({
+      site_id: "reexec-u30r4-bootstrap-target",
+      deterministic_seed: "seed:reexec-u30r4-bootstrap-target",
+      evidence: [],
+      unavailable_layers: [{ dataset: "ebh", reason: "SOURCE_UNAVAILABLE" }],
+      artifact_repository: repo,
+      assessment_draft: { ...draft(), site_id: "reexec-u30r4-bootstrap-target" },
+    })).assessment!;
+    productConfig();
+    const forged = await storeUnderNewId(repo, A, relabelled(redirectedTo(A, bootstrap), "v3"));
+
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+  });
+
+  it("25h/R1/R2 neighbours: genuine V4 assessments still PASS in the product configuration", async () => {
+    const { repo, A, B } = await twoCanonical();
+    productConfig();
+    for (const assessment of [A, B]) {
+      const r = await verify(repo, assessment);
+      expect(r.mismatches).toEqual([]);
+      expect(r.outcome).toBe("PASS");
+    }
+  });
+
+  it("27f: a genuine historical V3 (V3-subject execution, issued identity, the subject's point) still PASSes in the product configuration", async () => {
+    const { repo, H } = await historicalCanonicalV3("u30r4-h");
+    productConfig();
+    const r = await verify(repo, H);
+    expect(r.mismatches).toEqual([]);
+    expect(r.outcome).toBe("PASS");
+  });
+
+  for (const [label, point] of [
+    ["another localization point", { artifact_id: "geometry-u30r4-elsewhere", artifact_type: "localization_geometry" }],
+    ["no localization point", undefined],
+  ] as const) {
+    it(`27g: that historical V3 rewritten (new id) to carry ${label} -> DENY EXECUTION_SUBJECT_MISMATCH`, async () => {
+      const { repo, H } = await historicalCanonicalV3("u30r4-h");
+      productConfig();
+      const { localization_geometry_ref: _point, ...withoutPoint } = H.payload;
+      const forged = await storeUnderNewId(repo, H, (point ? { ...withoutPoint, localization_geometry_ref: point } : withoutPoint) as Payload);
+
+      const r = await verify(repo, forged);
+      expect(r.outcome).toBe("DENY");
+      expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_MISMATCH"]);
+    });
+  }
+
+  it("27h: the manifest rewritten in place to name ANOTHER subject's issued identity (WORM bypass), the assessment carrying that subject's point -> DENY: the identity's subject does not derive this manifest", async () => {
+    const { repo, authority, H } = await historicalCanonicalV3("u30r4-h");
+    const other = await provisionLuCanonicalSubject(authority, "u30r4-other");
+    productConfig();
+    const outcome = await repo.resolve<{ attempt_ref: Ref }>(H.payload.execution_outcome_ref);
+    const attempt = await repo.resolve<{ manifest_ref: Ref }>(outcome.attempt_ref);
+    const store = (repo as unknown as { store: Map<string, { content_hash: unknown; body: Record<string, unknown> }> }).store;
+    const manifestEntry = store.get(attempt.manifest_ref.artifact_id)!;
+    store.set(attempt.manifest_ref.artifact_id, {
+      content_hash: manifestEntry.content_hash,
+      body: { ...manifestEntry.body, execution_identity_ref: { artifact_id: other.identity.artifact_id, artifact_type: "execution_identity" } },
+    });
+    const forged = await storeUnderNewId(repo, H, { ...H.payload, localization_geometry_ref: other.subject.localization_geometry_ref });
+
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_MISMATCH"]);
+  });
+
+  it("27i: a storage fault reading the execution identity of a V3-subject execution is the typed technical error (OD-R2)", async () => {
+    const { repo, provisioned, H } = await historicalCanonicalV3("u30r4-h");
+    productConfig();
+    const fault = new MimersArtifactObjectMissingError(provisioned.identity.artifact_id, "e".repeat(64), "get");
+    const faulty = faultingRepository(repo, { resolve: (ref) => (ref.artifact_id === provisioned.identity.artifact_id ? fault : null) });
+
+    expectStorageFault(await settle(verify(faulty, H)), "execution_identity", fault);
+  });
+
+  /** Faults (or answers not-found for) the manifest read that comes after the category-A replay wrote its REPLAY record. */
+  function afterReplayManifestRepository(inner: ArtifactRepositoryPort, answer: (id: string) => unknown) {
+    let replayWritten = false;
+    return {
+      put: async (artifact: Parameters<ArtifactRepositoryPort["put"]>[0]) => {
+        replayWritten = true;
+        return inner.put(artifact);
+      },
+      resolve: async <T,>(ref: Ref): Promise<T> => {
+        if (replayWritten && ref.artifact_type === "execution_manifest") throw answer(ref.artifact_id);
+        return inner.resolve<T>(ref as never);
+      },
+    } as ArtifactRepositoryPort;
+  }
+
+  it("27j: a storage fault on the binding's own manifest read is the typed technical error; a genuinely absent manifest there is DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
+    const { repo, H } = await historicalCanonicalV3("u30r4-h");
+    productConfig();
+    let fault: unknown = null;
+    const faulty = afterReplayManifestRepository(repo, (id) => (fault ??= new MimersArtifactIndexReadError(id, `index/${id}.json`, "IO", "EIO: i/o error")));
+    expectStorageFault(await settle(verify(faulty, H)), "execution_manifest", fault ?? Symbol("no fault raised"));
+
+    const absent = afterReplayManifestRepository(repo, (id) => new Error(`Artifact not found: ${id}`));
+    const r = await verify(absent, H);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  it("27k: a bootstrap V3 assessment over a legacy site-scoped execution (the R1 shape) PASSes only under the explicit dev/test flag; the product configuration refuses it", async () => {
+    devTestBootstrap();
+    const repo = new InMemoryArtifactRepository();
+    const result = await runAssessment(repo, "reexec-u30r4-legacy", [spatialEvidence("u30r4-legacy", "water")]);
+    expect((await verify(repo, result.assessment!)).outcome).toBe("PASS");
+
+    productConfig();
+    const r = await verify(repo, result.assessment!);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+  });
+
+  // MPS_LU_BOOTSTRAP_ADMIT / NODE_ENV / APP_ENV at verify time -> PASS (bootstrap execution allowed) or UNBOUND.
+  for (const [flag, nodeEnv, appEnv, allowed] of [
+    ["1", "test", undefined, true],
+    ["1", "development", undefined, true],
+    ["1", "test", "ci", true],
+    ["1", "test", "test", true],
+    ["1", "development", "development", true],
+    [undefined, "test", undefined, false],
+    ["0", "test", undefined, false],
+    ["true", "test", undefined, false],
+    ["1", undefined, undefined, false],
+    ["1", "production", undefined, false],
+    ["1", "test", "demo", false],
+    ["1", "test", "production", false],
+    ["1", "test", "staging", false],
+    ["1", "test", "stage", false],
+    ["1", "test", "preprod", false],
+    ["1", "development", "prod", false],
+    ["1", "test", "TEST", false],
+  ] as const) {
+    it(`27l: bootstrap V3-subject execution (no issued identity), MPS_LU_BOOTSTRAP_ADMIT=${flag} NODE_ENV=${nodeEnv} APP_ENV=${appEnv} -> ${allowed ? "PASS" : "DENY EXECUTION_SUBJECT_UNBOUND"}`, async () => {
+      const { repo, assessment } = await bootstrapV3SubjectRun("u30r4-boot");
+      setEnv("MPS_LU_BOOTSTRAP_ADMIT", flag);
+      setEnv("NODE_ENV", nodeEnv);
+      setEnv("APP_ENV", appEnv);
+
+      const r = await verify(repo, assessment);
+      if (allowed) {
+        expect(r.mismatches).toEqual([]);
+        expect(r.outcome).toBe("PASS");
+      } else {
+        expect(r.outcome).toBe("DENY");
+        expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+      }
+    });
+  }
+
+  // KNOWN_LIMITATION (U30R4-REPORT): verify is consistency, not authenticity; it needs write access to
+  // CAS + DB. These two forgeries PASS and are pinned so that closing them is a deliberate change.
+  it("KNOWN_LIMITATION 27m: A rewritten to V3 over its OWN outcome with its own point PASSes -- indistinguishable from a genuine V3 made while V3 was canonical", async () => {
+    const { repo, A } = await twoCanonical();
+    productConfig();
+    const forged = await storeUnderNewId(repo, A, relabelled(A.payload, "v3"));
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("PASS");
+    expect(forged.payload.findings).toEqual(A.payload.findings); // nothing it claims differs from A
+  });
+
+  it("KNOWN_LIMITATION 27n (R-2): B's whole result incl. B's point, relabelled V3 under A's project and property, PASSes -- the same residual as V4 itself", async () => {
+    const { repo, A, B } = await twoCanonical();
+    productConfig();
+    const forged = await storeUnderNewId(repo, A, relabelled(redirectedTo(A, B, { localization_geometry_ref: B.payload.localization_geometry_ref }), "v3"));
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("PASS");
+    expect(forged.payload.project_context_ref).toEqual(A.payload.project_context_ref);
+  });
+});
