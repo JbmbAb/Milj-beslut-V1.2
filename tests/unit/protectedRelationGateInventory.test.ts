@@ -72,10 +72,17 @@ const SEPARATELY_GUARDED: readonly { readonly file: string; readonly marker: Reg
       'Provisions the disposable GIS test database (INSERT/DELETE of a probe row in env.sgu_well there). It refuses any ' +
       'target that is not the configured test database (assertDisposableGisTestDatabase, TEST-DB-GUARD lane W-TDG).',
   },
+  {
+    file: 'scripts/db/spatial-bootstrap.ts',
+    marker: /assertPendingFilesMayRun\(pool, files, process\.argv\)/,
+    justification:
+      'U30F2 H2: applies prisma/spatial/*.sql (deploy release step). Every pending file is classified by the gate classifier; one that ' +
+      'writes a protected relation runs only with --init-new-database on a database holding no protected relation, else nothing is applied.',
+  },
 ];
 
 /** Pinned: the retired list MAY shrink, and growing it is a reviewed change of this number (U30F F1). */
-const RETIRED_COUNT = 13;
+const RETIRED_COUNT = 17;
 
 // ---------------------------------------------------------------------------------------------
 // Scanner
@@ -325,7 +332,11 @@ describe('protected relation gate inventory (U30F F1)', () => {
     for (const entry of RETIRED_DESTRUCTIVE_SCRIPTS) {
       expect(fs.existsSync(path.join(REPO_ROOT, entry.script)), entry.script).toBe(true);
       expect(entry.justification.trim().length, entry.script).toBeGreaterThanOrEqual(40);
-      expect(result.destructive, entry.script).toContain(entry.script);
+      // U30F2 H2: this keyword scan cannot see multi-line or ${...} statements (verifier H1); such an entry is held
+      // by its refusal call here and behaviourally by tests/unit/retiredDestructiveScripts.test.ts.
+      if (!result.destructive.includes(entry.script)) {
+        expect(fs.readFileSync(path.join(REPO_ROOT, entry.script), 'utf8'), entry.script).toContain(`refuseRetiredDestructiveScript('${entry.script}')`);
+      }
     }
     expect(() =>
       validateRetiredDestructiveScripts([

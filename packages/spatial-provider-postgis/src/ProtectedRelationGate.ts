@@ -499,6 +499,43 @@ export const RETIRED_DESTRUCTIVE_SCRIPTS: readonly RetiredDestructiveScript[] = 
     replacement: "an owner decision and a governed migration that admits the partitioned data as a new version",
     retired_by: "U30F F1",
   },
+  {
+    script: "scripts/db/repair-flood-staging-geometries.ts",
+    protected_relations: ["lm_staging.flood_risk_area_994bf11c"],
+    justification:
+      "UPDATE ... SET geom = ST_MakeValid(geom) on lm_staging.flood_risk_area_994bf11c, the retained-relation form of the LU layer " +
+      "climate.flood_risk_area: a retained materialisation changes after the fact, outside the ledger, and for a replaced version " +
+      "nothing would notice.",
+    replacement: "repair geometries in the governed import-staging (repairInvalidGeometries runs on the NEW staging relation before QA), then promote",
+    retired_by: "U30F2 H2",
+  },
+  {
+    script: "scripts/db/repair-flood-staging-geometries-fast.ts",
+    protected_relations: ["lm_staging.flood_risk_area_994bf11c"],
+    justification:
+      "UPDATE ... SET geom = ST_Buffer(geom, 0) / ST_MakeValid(geom) on lm_staging.flood_risk_area_994bf11c (retained-relation " +
+      "form of climate.flood_risk_area) outside the ledger; it also cancels other backends' repair queries.",
+    replacement: "repair geometries in the governed import-staging (repairInvalidGeometries runs on the NEW staging relation before QA), then promote",
+    retired_by: "U30F2 H2",
+  },
+  {
+    script: "scripts/db/repair-flood-staging-geometries-batched.ts",
+    protected_relations: ["lm_staging.flood_risk_area_994bf11c"],
+    justification:
+      "Batched UPDATE ... SET geom = ST_Multi(ST_CollectionExtract(ST_Buffer(ST_SnapToGrid(geom, 0.1), 0), 3)) on " +
+      "lm_staging.flood_risk_area_994bf11c (retained-relation form of climate.flood_risk_area): rewrites retained geometry outside the ledger.",
+    replacement: "repair geometries in the governed import-staging (repairInvalidGeometries runs on the NEW staging relation before QA), then promote",
+    retired_by: "U30F2 H2",
+  },
+  {
+    script: "scripts/db/repair-marktacke-staging.ts",
+    protected_relations: ["lm_staging.marktacke_07497f79"],
+    justification:
+      "UPDATE and ALTER TABLE ... ALTER COLUMN geom TYPE on lm_staging.marktacke_07497f79 and a ledger row forced to STAGING_IMPORTED " +
+      "outside the governed import: the staging relation and the ledger state are changed without a batch, so what is promoted is not what was staged.",
+    replacement: "re-run import-librarian-manifest --mode import-staging for the version (a new staging relation, QA and ledger in one governed path)",
+    retired_by: "U30F2 H2",
+  },
 ]);
 
 export function validateRetiredDestructiveScripts(list: readonly RetiredDestructiveScript[]): void {

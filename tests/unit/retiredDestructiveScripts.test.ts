@@ -39,6 +39,25 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock('@prisma/client', () => ({ PrismaClient: h.FakePrismaClient }));
+// U30F2 H2: the repair scripts talk to PostgreSQL through `pg`; a statement recorded here is the RED signal.
+vi.mock('pg', () => {
+  class FakePgClient {
+    async connect() {}
+    async query(sql: unknown) {
+      h.state.statements.push(`pg:${String(sql).replace(/\s+/g, ' ').trim()}`);
+      return { rows: [], rowCount: 0 };
+    }
+    async end() {}
+    release() {}
+  }
+  class FakePgPool extends FakePgClient {
+    async connect() {
+      return new FakePgClient();
+    }
+  }
+  const pg = { Client: FakePgClient, Pool: FakePgPool };
+  return { ...pg, default: pg };
+});
 vi.mock('dotenv', () => ({ default: { config: () => ({}) }, config: () => ({}) }));
 vi.mock('../../src/db.server', () => ({ prisma: h.prisma }));
 vi.mock('../../src/infrastructure/postgis-geo-adapter', () => ({ PostgisGeoAdapter: class {} }));
@@ -61,6 +80,11 @@ const RETIRED_TS = [
   'scripts/gis-performance-benchmark.ts',
   'scripts/verify-jordarter.ts',
   'scripts/import/import-n2k-gml.ts',
+  // U30F2 H2: write to retained relations in lm_staging outside the governed path.
+  'scripts/db/repair-flood-staging-geometries.ts',
+  'scripts/db/repair-flood-staging-geometries-fast.ts',
+  'scripts/db/repair-flood-staging-geometries-batched.ts',
+  'scripts/db/repair-marktacke-staging.ts',
 ] as const;
 
 const RETIRED_SQL = [

@@ -1,3 +1,8 @@
+// U30F2 H2 (PRES-05): RETIRED. This script writes a retained relation in lm_staging outside the governed
+// path; it is refused before it connects to anything. The reason and the replacement are recorded in
+// RETIRED_DESTRUCTIVE_SCRIPTS (packages/spatial-provider-postgis/src/ProtectedRelationGate.ts). No override.
+import { refuseRetiredDestructiveScript } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+refuseRetiredDestructiveScript('scripts/db/repair-flood-staging-geometries-fast.ts');
 import dotenv from 'dotenv';
 import pg from 'pg';
 
