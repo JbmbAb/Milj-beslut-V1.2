@@ -55,6 +55,7 @@ import { PrismaProjectContextBindingIndex } from '../../repositories/projectCont
 import { PrismaProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 import { PrismaLocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { countCompletedBootstrapBindingsForProject } from './projectContextBootstrapRequestQueue';
+import { classifyBootstrapFailure } from './bootstrapFailurePresentation';
 import {
   getProjectContextBindingIssuerSigner,
   getProjectContextBindingIssuerVerifier,
@@ -76,6 +77,11 @@ export type BootstrapOutcome =
       readonly retryable?: boolean;
       readonly reason?: BootstrapBindingFaultReason;
       readonly refusalCode?: string | null;
+      /**
+       * W-CATCH2 #4: present only for an error classified here (no failureCode of its own): the raw
+       * fault text for the server log. Never stored on the request, never sent to a client.
+       */
+      readonly diagnostic?: string;
     };
 
 type LookupPayload = {
@@ -307,12 +313,19 @@ export async function executeProjectContextBootstrap(input: {
 
     return { ok: true, contextBindingArtifactId: contextBinding.artifact_id, reused: false };
   } catch (error) {
-    const failureCode = (error as { failureCode?: string })?.failureCode ?? 'BOOTSTRAP_EXECUTION_ERROR';
-    const failureDetail = error instanceof Error ? error.message : String(error);
     if (error instanceof ProjectContextBootstrapBindingUnresolvedError) {
-      return { ok: false, failureCode, failureDetail, retryable: error.retryable, reason: error.reason, refusalCode: error.refusalCode };
+      return { ok: false, failureCode: error.failureCode, failureDetail: error.message, retryable: error.retryable, reason: error.reason, refusalCode: error.refusalCode };
     }
-    return { ok: false, failureCode, failureDetail };
+    const ownCode = (error as { failureCode?: unknown })?.failureCode;
+    if (typeof ownCode === 'string') {
+      // An error that names its own failure (fail(), the property lookup's typed refusals): unchanged.
+      return { ok: false, failureCode: ownCode, failureDetail: error instanceof Error ? error.message : String(error) };
+    }
+    // W-CATCH2 #4: any other error used to be stored as error.message (raw storage paths, SQL,
+    // provider text) under one code. Now: a stable code by its class and a neutral Swedish text; the
+    // raw text only as the internal diagnostic the worker logs.
+    const classified = classifyBootstrapFailure(error);
+    return { ok: false, failureCode: classified.failureCode, failureDetail: classified.failureDetail, retryable: classified.retryable, diagnostic: classified.diagnostic };
   }
 }
 

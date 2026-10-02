@@ -42,8 +42,10 @@ import { createLocalizationSpatialRuntime, type LocalizationSpatialRuntime } fro
 import {
   classifyReadFault,
   isProvenBindingAbsence,
+  projectAccessFailure,
   readFaultHttpStatus,
   readFaultSentenceSv,
+  type PROJECT_ACCESS_UNRESOLVED,
   type ReadFaultClass,
 } from './readFaultClassification';
 import {
@@ -202,7 +204,7 @@ export type LocalizationGeometryServiceResult<T> =
        * DEMO M1a: present for a fail-closed currentness failure. W-CATCH2 #8: also for a canonical
        * project context that could not be read or verified (PROJECT_CONTEXT_UNRESOLVED).
        */
-      readonly code?: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED' | typeof PROJECT_CONTEXT_UNRESOLVED;
+      readonly code?: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED' | typeof PROJECT_CONTEXT_UNRESOLVED | typeof PROJECT_ACCESS_UNRESOLVED;
       readonly failureClass?: LocalizationGeometryCurrentnessFailureClass | ReadFaultClass;
       readonly reasonCode?: string;
       /** OD-R3 / W-CATCH2: whether repeating the same request can help (sent with every coded failure). */
@@ -261,8 +263,9 @@ export async function getCurrentLocalizationGeometryForProject(args: {
 
   try {
     await assertProjectAccess(args.authUser, projectId, args.authUser.organisationId);
-  } catch {
-    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  } catch (error) {
+    // W-CATCH2 #14: 403 only for the access check's own denial; a failed access read is a typed 503.
+    return projectAccessFailure(error);
   }
 
   const repo = args.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
@@ -356,8 +359,9 @@ export async function saveUserLocalizationGeometry(args: {
 
   try {
     await assertProjectAccess(args.authUser, projectId, args.authUser.organisationId);
-  } catch {
-    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  } catch (error) {
+    // W-CATCH2 #14: 403 only for the access check's own denial; a failed access read is a typed 503.
+    return projectAccessFailure(error);
   }
 
   const repo = args.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
@@ -471,8 +475,9 @@ export async function retryLocalizationIdentityProvisioning(args: {
 
   try {
     await assertProjectAccess(args.authUser, projectId, args.authUser.organisationId);
-  } catch {
-    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  } catch (error) {
+    // W-CATCH2 #14: 403 only for the access check's own denial; a failed access read is a typed 503.
+    return projectAccessFailure(error);
   }
 
   const repo = (await MimersIntegration.create()).artifactRepository;

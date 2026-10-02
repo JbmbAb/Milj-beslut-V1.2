@@ -171,6 +171,44 @@ export function isProjectAccessDenied(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === PROJECT_ACCESS_DENIED;
 }
 
+/** The text every LU route has always answered a denial with (the UI keys on it: LU_SERVER_MESSAGE.NOT_AUTHORIZED). */
+export const NOT_AUTHORIZED_FOR_PROJECT = 'Not authorized for this project.' as const;
+
+/** W-CATCH2 #14: the access facts could not be read, so access is neither granted nor denied. */
+export const PROJECT_ACCESS_UNRESOLVED = 'PROJECT_ACCESS_UNRESOLVED' as const;
+
+export type ProjectAccessFailure =
+  | { readonly ok: false; readonly status: 403; readonly error: typeof NOT_AUTHORIZED_FOR_PROJECT }
+  | {
+      readonly ok: false;
+      readonly status: 409 | 503;
+      readonly error: string;
+      readonly code: typeof PROJECT_ACCESS_UNRESOLVED;
+      readonly failureClass: ReadFaultClass;
+      readonly reasonCode: string;
+      readonly retryable: boolean;
+    };
+
+/**
+ * W-CATCH2 #14 (OD-R2): the answer to a failed project-access check. 403 only for the check's own typed
+ * denial (isProjectAccessDenied); anything else -- a database that cannot answer above all -- is a
+ * failed READ of the access facts: 503 PROJECT_ACCESS_UNRESOLVED with the shared class and a Swedish
+ * text, never "not authorized". The fault stays server-side.
+ */
+export function projectAccessFailure(error: unknown): ProjectAccessFailure {
+  if (isProjectAccessDenied(error)) return { ok: false, status: 403, error: NOT_AUTHORIZED_FOR_PROJECT };
+  const fault = classifyReadFault(error);
+  return {
+    ok: false,
+    status: readFaultHttpStatus(fault),
+    error: `${readFaultSentenceSv(fault, 'Behörigheten till projektet')} Begäran utfördes inte.`,
+    code: PROJECT_ACCESS_UNRESOLVED,
+    failureClass: fault.faultClass,
+    reasonCode: fault.refusalCode ?? fault.faultClass,
+    retryable: fault.retryable,
+  };
+}
+
 export const LU_READ_FAULT = 'LU_READ_FAULT' as const;
 
 /**

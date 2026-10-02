@@ -6,10 +6,13 @@
  * LocalizationGeometryArtifact -- everything proven here is about that narrow, authority-bearing
  * contract, not about Cesium rendering (covered separately, out of unit-test scope).
  */
+// W-CATCH2 #14: the stand-in throws the access check's REAL denial shape (a stable code,
+// projectAccessRepository ProjectAccessDeniedError) -- the routes now answer 403 only for that denial,
+// and a failure to read the access facts 503. Before: a plain Error, which no longer reads as a denial.
 vi.mock('../../server/security/projectAccess', () => ({
   assertProjectAccess: vi.fn(async (user: { id: string }, projectId: string) => {
     if (!ALLOWED.has(`${user.id}:${projectId}`)) {
-      throw new Error('REJECT_PROJECT_ACCESS: not a member');
+      throw Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED', name: 'ProjectAccessDeniedError' });
     }
   }),
 }));

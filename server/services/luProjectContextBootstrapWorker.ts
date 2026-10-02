@@ -37,8 +37,13 @@ export async function processProjectContextBootstrapRequestsOnce(): Promise<numb
         `lu-bootstrap-worker: request ${request.id} COMPLETED (binding=${outcome.contextBindingArtifactId}, reused=${outcome.reused})`,
       );
     } else {
+      // W-CATCH2 #4: only the stable code and the neutral text are stored; the raw fault text of a
+      // classified failure (`diagnostic`) goes to the server log, never onto the request.
       await markBootstrapRequestFailed(request.id, outcome.failureCode, outcome.failureDetail);
-      logger.warn(`lu-bootstrap-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}`);
+      logger.warn(
+        `lu-bootstrap-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}` +
+          (outcome.diagnostic ? ` [diagnostic: ${outcome.diagnostic}]` : ''),
+      );
     }
     return 1;
   } finally {

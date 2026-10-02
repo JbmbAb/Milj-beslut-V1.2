@@ -32,7 +32,8 @@ import {
 } from '../modules/localization/public';
 import { logger } from '../logger';
 import { isPersistentStorageFault, retrySentenceSv } from '../modules/localization/storageFaultClassification';
-import { LuReadFaultError, readFaultHttpStatus, readFaultSentenceSv } from '../modules/localization/readFaultClassification';
+import { LuReadFaultError, projectAccessFailure, readFaultHttpStatus, readFaultSentenceSv } from '../modules/localization/readFaultClassification';
+import { presentBootstrapRequestStatus } from '../modules/localization/bootstrapFailurePresentation';
 
 const router = express.Router();
 
@@ -329,8 +330,11 @@ router.get(
       }
       try {
         await assertProjectAccess(req.authUser!, projectId, req.authUser!.organisationId);
-      } catch {
-        res.status(403).json({ ok: false, error: 'Not authorized for this project.' });
+      } catch (error) {
+        // W-CATCH2 #14: 403 only for the access check's own denial; a failed READ of the access facts
+        // (database down) is a technical 503, never "not authorized".
+        const { status: httpStatus, ...body } = projectAccessFailure(error);
+        res.status(httpStatus).json(body);
         return;
       }
       const status = await getBootstrapRequestStatusForProject(projectId);
@@ -354,7 +358,9 @@ router.get(
           );
         });
       }
-      res.status(200).json({ ok: true, status });
+      // W-CATCH2 #4: a FAILED request is shown by its stable code (Swedish text, derived retryable) --
+      // never its stored failureDetail, which on older rows can hold raw storage paths or SQL.
+      res.status(200).json({ ok: true, status: presentBootstrapRequestStatus(status) });
     } catch (error) {
       next(error);
     }
@@ -383,8 +389,10 @@ router.post(
       }
       try {
         await assertProjectAccess(req.authUser!, projectId, req.authUser!.organisationId);
-      } catch {
-        res.status(403).json({ ok: false, error: 'Not authorized for this project.' });
+      } catch (error) {
+        // W-CATCH2 #14: 403 only for a denial; a failed access read is a technical 503.
+        const { status: httpStatus, ...body } = projectAccessFailure(error);
+        res.status(httpStatus).json(body);
         return;
       }
       const project = await prisma.project.findUnique({ where: { id: projectId }, select: { propertyDesignation: true } });
