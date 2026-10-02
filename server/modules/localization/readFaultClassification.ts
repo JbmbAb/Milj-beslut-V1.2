@@ -269,6 +269,20 @@ export async function readExistingOrProvenAbsent<T>(
 }
 
 /**
+ * W-CATCH3 (CATCH2 verifier findings 1 and 2): the object a repository returned for `requestedId` names
+ * exactly that id. CasArtifactResolver hands back the stored body without comparing the envelope or the
+ * body with the id it was asked for, so an index entry pointing at another object's bytes would read as
+ * that other object. A reader that turns "the object under id X" into a decision (select, reuse,
+ * present) checks this first: a mismatch is a lasting integrity fault of the storage (a misdirected index
+ * entry or a misfiled object) -- never absence, never "not current" and never the other object.
+ */
+export function assertReadUnderItsOwnId(subject: string, value: unknown, requestedId: string): void {
+  const id = typeof value === 'object' && value !== null ? (value as { artifact_id?: unknown }).artifact_id : undefined;
+  if (typeof id === 'string' && id.length > 0 && id === requestedId) return;
+  throw new LuReadFaultError(subject, fault('STORAGE_INTEGRITY_FAULT'), new Error('the object read under an artifact id names another artifact id'));
+}
+
+/**
  * W-CATCH2 #10/#11: an existing artifact under a DETERMINISTIC id must be exactly the artifact that id
  * names. Its content without the attestation must equal the freshly built bare artifact field for field
  * (compared with keys sorted, so storage key order never matters); a valid CAS object whose content was

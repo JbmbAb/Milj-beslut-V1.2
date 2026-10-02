@@ -13,7 +13,14 @@ import {
 } from "./viewerCapabilityProvisioningQueue.js";
 import { resolveCanonicalProductRelease } from "../release/productReleaseRuntime.js";
 import { resolveCurrentViewerIdentity } from "../../../src/application/resolveCurrentViewerIdentity.js";
-import { classifyReadFault, isProvenBindingAbsence, toReadFaultError } from "./readFaultClassification.js";
+import {
+  assertReadUnderItsOwnId,
+  classifyReadFault,
+  isProvenBindingAbsence,
+  LuReadFaultError,
+  readFaultOfClass,
+  toReadFaultError,
+} from "./readFaultClassification.js";
 
 function defaultCurrentBindingProvider(artifactRepository: ArtifactRepositoryPort): ProjectContextBindingProvider {
   return new ProjectContextBindingProvider(
@@ -67,19 +74,17 @@ export interface ViewerCapabilityCurrentnessDependencies {
 }
 
 /**
- * W-CATCH2 #13: verifyProductViewerCapability's refusals that rest on the capability's OWN content
- * (validated against its id before these checks) and prove it is not the current capability: bound to
- * another project, binding, viewer identity or release, to a binding that is no longer current, or a
- * validity window that has not started or has ended. Exactly these, by the plain refusal itself (no
- * cause): every other refusal (tampered, forged, issuer, scope, release hash, malformed window, a
- * viewer identity or current binding that cannot be verified) and every read fault is not proof of
- * anything, so it fails the resolution closed.
+ * W-CATCH2 #13, narrowed by W-CATCH3 (CATCH2 verifier finding 1): verifyProductViewerCapability's
+ * refusals that rest on the capability's OWN content and prove it is no longer the current capability:
+ * the binding it names has been superseded since its row was selected, or its validity window has not
+ * started or has ended. Exactly these three, by the plain refusal itself (no cause). The content they
+ * rest on is bound to the requested id first: the object read is checked to BE the requested capability
+ * (assertReadUnderItsOwnId), and validateProductViewerCapabilityArtifact (the first step of the
+ * verification) rebuilds its id and content hash from its payload. Every other refusal (tampered,
+ * forged, issuer, scope, release hash, malformed window, a viewer identity or current binding that
+ * cannot be verified) and every read fault is not proof of anything, so it fails the resolution closed.
  */
 const PROVABLY_NOT_CURRENT_CAPABILITY: ReadonlySet<string> = new Set([
-  "REJECT_VIEWER_CAPABILITY_PROJECT",
-  "REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING",
-  "REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY",
-  "REJECT_VIEWER_CAPABILITY_RELEASE_REF",
   "REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING_SUPERSEDED",
   "REJECT_VIEWER_CAPABILITY_NOT_YET_VALID",
   "REJECT_VIEWER_CAPABILITY_EXPIRED",
@@ -87,6 +92,29 @@ const PROVABLY_NOT_CURRENT_CAPABILITY: ReadonlySet<string> = new Set([
 
 function isProvablyNotCurrentCapability(error: unknown): boolean {
   return error instanceof Error && error.cause === undefined && PROVABLY_NOT_CURRENT_CAPABILITY.has(error.message);
+}
+
+/**
+ * W-CATCH3 (CATCH2 verifier finding 1): the capability is of another project, binding, viewer identity
+ * or release than its row. The completed rows are selected on exactly these columns
+ * (listCompletedProvisioningRequestsForSubject) and the worker mints a capability for exactly its row's
+ * subject, so such a difference can only be damage -- a misfiled row or a misdirected object: a lasting
+ * integrity fault, never "not current". The refusal token stays as the reason.
+ */
+const ROW_SUBJECT_MISMATCH: ReadonlySet<string> = new Set([
+  "REJECT_VIEWER_CAPABILITY_PROJECT",
+  "REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING",
+  "REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY",
+  "REJECT_VIEWER_CAPABILITY_RELEASE_REF",
+]);
+
+function rowSubjectMismatch(error: unknown): string | null {
+  return error instanceof Error && error.cause === undefined && ROW_SUBJECT_MISMATCH.has(error.message) ? error.message : null;
+}
+
+/** W-CATCH3: a lasting integrity fault of the completed-request rows or of the capability under them. */
+function capabilityRecordIntegrityFault(cause: unknown, refusalCode: string | null = null): LuReadFaultError {
+  return new LuReadFaultError("viewer-capability", { ...readFaultOfClass("STORAGE_INTEGRITY_FAULT"), refusalCode }, cause);
 }
 
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -153,7 +181,22 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
 
   const capabilities = new Map<string, ProductViewerCapabilityArtifact>();
   for (const request of requests) {
-    if (!request.capabilityArtifactId) continue;
+    // W-CATCH3 (CATCH2 verifier finding 1): every row was selected on exactly this subject and records a
+    // capability that was minted. A row of another subject, or a COMPLETED row without a capability id
+    // (null or ''), is damage of the rows -- a typed integrity fault, never skipped.
+    if (
+      request.status !== 'COMPLETED' ||
+      request.projectId !== projectId ||
+      request.contextBindingArtifactId !== currentBinding.artifact_id ||
+      request.releaseArtifactId !== release.artifact_id ||
+      request.viewerIdentityArtifactId !== viewerIdentity.viewerIdentityRef.artifact_id
+    ) {
+      throw capabilityRecordIntegrityFault(new Error('a completed request listed for this subject is not of this subject'));
+    }
+    const capabilityArtifactId = request.capabilityArtifactId;
+    if (typeof capabilityArtifactId !== 'string' || capabilityArtifactId.length === 0) {
+      throw capabilityRecordIntegrityFault(new Error('a completed request records no capability'));
+    }
 
     // W-CATCH2 #13 (OD-R1/OD-R2, the pattern W-APR closed for assessments): a COMPLETED request records
     // a capability that was minted, so it must exist and verify. A capability whose own content proves
@@ -161,15 +204,18 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
     // read or verified MAY be the current one, so the whole resolution fails closed with a typed fault --
     // never null ("not configured") and never a silent win for another capability past the ambiguity
     // check below.
-    let capability: ProductViewerCapabilityArtifact;
+    let read: unknown;
     try {
-      capability = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
-        artifact_id: request.capabilityArtifactId,
+      read = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
+        artifact_id: capabilityArtifactId,
         artifact_type: 'viewer_capability',
       });
     } catch (error) {
       throw toReadFaultError("viewer-capability", error, "read");
     }
+    // W-CATCH3: the object read under the requested id must BE that capability (never another one).
+    assertReadUnderItsOwnId("viewer-capability", read, capabilityArtifactId);
+    const capability = read as ProductViewerCapabilityArtifact;
     try {
       await verifyProductViewerCapability({
         capability,
@@ -185,6 +231,8 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
       });
     } catch (error) {
       if (isProvablyNotCurrentCapability(error)) continue;
+      const mismatch = rowSubjectMismatch(error);
+      if (mismatch) throw capabilityRecordIntegrityFault(error, mismatch);
       throw toReadFaultError("viewer-capability", error, "verify");
     }
     capabilities.set(capability.artifact_id, capability);
@@ -243,6 +291,17 @@ export class LocalizationViewerCapabilityProvider {
       // W-CATCH2 #13: still the same refusal (its callers and the presentation path key on it), but the
       // original fault is kept as `cause` and classified (`faultClass`, `retryable`), so a read error is
       // never indistinguishable from a capability that is not there.
+      const fault = classifyReadFault(error);
+      throw Object.assign(new Error(`REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE: ${this.config.capabilityArtifactId}`, { cause: error }), {
+        faultClass: fault.faultClass,
+        retryable: fault.retryable,
+      });
+    }
+    try {
+      // W-CATCH3 (CATCH2 verifier finding 1): the object read under the configured id must BE that
+      // capability -- another valid capability of the same subject would pass every check below.
+      assertReadUnderItsOwnId("viewer-capability", capability, this.config.capabilityArtifactId);
+    } catch (error) {
       const fault = classifyReadFault(error);
       throw Object.assign(new Error(`REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE: ${this.config.capabilityArtifactId}`, { cause: error }), {
         faultClass: fault.faultClass,
