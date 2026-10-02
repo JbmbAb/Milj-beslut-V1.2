@@ -9,6 +9,10 @@ Kategorier: nvr | sgu | msb | vatten | natura2000 | nmd | vatmark |
 import os, sys, subprocess, pathlib, json, shutil, re
 from datetime import datetime
 
+# U30F F1 (PRES-05): every destructive write goes through the protected relation gate (Python binding).
+from protected_relation_gate import assert_ungoverned_write_allowed
+GATE_CALLER = 'scripts/data-pipeline/import_all_datasets.py'
+
 try:
     import psycopg2
 except ImportError:
@@ -443,6 +447,8 @@ def ogr_import(src_path, schema, table, src_srs='EPSG:3006', target_srs='EPSG:30
                extra_opts=None, mode=None, source_layer=None):
     """Kors ogr2ogr. Om mode ej anges bestams den av _TABLES_INITIALIZED state."""
     global _TABLES_INITIALIZED
+    # Refused (raises) before the schema or the table is touched when the target is protected.
+    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', f'{schema}.{table}')
     src_path = pathlib.Path(src_path)
     if not ensure_schema(schema):
         return False
@@ -630,6 +636,7 @@ def import_sgu():
         prepared_tables.add(full_table)
         if table.lower() not in reset_tables and full_table.lower() not in reset_tables:
             return True
+        assert_ungoverned_write_allowed(GATE_CALLER, 'TRUNCATE', full_table)
         log(f'  [RESET] {full_table} trunkeras innan SGU-import')
         if not run_sql(f'TRUNCATE TABLE {_quote_ident(schema)}.{_quote_ident(table)}'):
             log(f'  [FEL] Kunde inte trunkera {full_table}; hoppar over import')

@@ -6,6 +6,9 @@ param(
     [long]$MinEmptyTableBytes = 50MB
 )
 $ErrorActionPreference = 'Stop'
+# U30F F1 (PRES-05): every DROP goes through the protected relation gate (PowerShell binding).
+. (Join-Path $PSScriptRoot '..\lib\ProtectedRelationGate.ps1')
+$gateCaller = 'scripts/import/sanitize-postgis-failed-imports.ps1'
 $logDir = Join-Path $PSScriptRoot '..\..\logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $manifest = Join-Path $logDir ('sanitize-postgis-' + (Get-Date -Format 'yyyy-MM-dd-HHmmss') + '.json')
@@ -28,12 +31,14 @@ function Invoke-DbSql([string]$sql, [string]$reason) {
 
 # 1) transport — alla tabeller hade 0 rader men ~61 GB (avbruten Lastkajen-import)
 if (-not $KeepTransportSchema) {
+    Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP_SCHEMA' -Relation 'transport'
     Invoke-DbSql 'DROP SCHEMA IF EXISTS transport CASCADE;' 'transport-schema (0 rader, ~61 GB bloat)'
 } else {
     Write-Host 'KeepTransportSchema: hoppar över DROP SCHEMA transport' -ForegroundColor Yellow
 }
 
 # 2) stage — dataportal-ingest (överlappande ingest_*)
+Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP_SCHEMA' -Relation 'stage'
 Invoke-DbSql 'DROP SCHEMA IF EXISTS stage CASCADE;' 'stage-schema (ingest_* från 631 GPKG, ej produkt)'
 
 # 3) env/lm — tomma tabeller större än tröskel
@@ -50,6 +55,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Kunde inte lista tomma env/lm-tabeller' }
 foreach ($t in ($tables -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
     # Behåll registerenhetsomradesytor även om stat skulle vara fel
     if ($t -match 'registerenhetsomradesytor$') { continue }
+    # n_live_tup can be stale (e.g. right after a bulk load): a protected LU relation is never dropped on it.
+    try {
+        Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation $t
+    } catch {
+        Write-Warning $_.Exception.Message
+        $script:skipped += @{ sql = "DROP TABLE IF EXISTS $t CASCADE;"; reason = $_.Exception.Message }
+        continue
+    }
     Invoke-DbSql "DROP TABLE IF EXISTS $t CASCADE;" "tom stor tabell $t"
 }
 

@@ -14,6 +14,10 @@ Funktioner:
 import os, sys, subprocess, pathlib, json, zipfile, tempfile, time, urllib.request, urllib.parse
 from datetime import datetime
 
+# U30F F1 (PRES-05): every destructive write goes through the protected relation gate (Python binding).
+from protected_relation_gate import assert_ungoverned_write_allowed
+GATE_CALLER = 'scripts/data-pipeline/import_lm_stac_resume.py'
+
 # ── Konfiguration ─────────────────────────────────────────────────────────────
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OGR = r"C:\Program Files\GDAL\ogr2ogr.exe"
@@ -134,6 +138,8 @@ def run_import(dataset_key):
     coll = cfg["collection"]
     layer = cfg["layer"]
     table = cfg["table"]
+    # env.registerenhetsomradesytor (the property root) is refused here, before any download or ogr2ogr.
+    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', table)
     
     # Mimers Brunn: Archive path
     MASTER_ARCHIVE_ROOT = pathlib.Path(r"H:\Delade enheter\Miljöbeslut\GEO_Master_Archive")
