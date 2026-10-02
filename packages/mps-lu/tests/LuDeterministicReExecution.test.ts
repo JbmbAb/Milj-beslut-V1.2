@@ -1085,6 +1085,27 @@ describe("U30-R3 K2 on the canonical V4 chain: the assessment's authority subjec
     expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
   });
 
+  it("25o: the same in-place rewrite with B's localization point too -- only the evidence id, re-derived from its content, still tells -> DENY", async () => {
+    const { repo, A, B } = await twoCanonicalSubjects();
+    const evidenceA = await repo.resolve<Record<string, unknown> & { authority_path: { role: string }[] }>(A.payload.authority_evidence_ref!);
+    const evidenceB = await repo.resolve<{ authority_path: { role: string }[] }>(B.payload.authority_evidence_ref!);
+    const { content_hash: _ignored, ...bodyA } = evidenceA;
+    const rewrittenBody = {
+      ...bodyA,
+      authority_path: evidenceA.authority_path.map((entry) => (entry.role === "subject" ? evidenceB.authority_path.find((e) => e.role === "subject")! : entry)),
+    };
+    (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(A.payload.authority_evidence_ref!.artifact_id, {
+      content_hash: sha256ContentHash(rewrittenBody),
+      body: { ...rewrittenBody, content_hash: sha256ContentHash(rewrittenBody) },
+    });
+    const forged = await storeUnderNewId(repo, A, redirectedToB(A, B, { localization_geometry_ref: B.payload.localization_geometry_ref }));
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+    expect(r.mismatches[0]!.detail).toContain("does not match its own content");
+  });
+
   for (const [stage, pick] of [
     ["authority_evidence", (A: LocalizationAssessmentArtifact, _identityId: string) => A.payload.authority_evidence_ref!.artifact_id],
     ["execution_identity", (_A: LocalizationAssessmentArtifact, identityId: string) => identityId],
