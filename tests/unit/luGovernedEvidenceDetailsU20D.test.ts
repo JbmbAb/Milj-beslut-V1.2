@@ -709,7 +709,8 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     }
     // U20CDF (U20CD verification F2): with no completed check the text names no risk level at all
     // (the machine value risk_level stays what governedVerdictFromFindings derives).
-    expect(summary.overallStatement.statement_sv).toBe('Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras.');
+    expect(summary.overallStatement.statement_sv).toBe('Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.');
+    expect(summary.overallStatement.statement_sv).not.toMatch(/låg risk/i);
     expect(summary.overallStatement.risk_level).toBe('LOW');
     expect(summary.overall_summary.statement_sv).toBe(summary.overallStatement.statement_sv);
     expect(summary.localizationGeometry).toMatchObject({
@@ -720,9 +721,9 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     const data = capturedPdfData as PdfData;
     expect(data.helhetsbedomning).toMatchObject({
       kontroller_genomforda: 0,
-      text: 'Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras.',
+      text: 'Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.',
     });
-    expect(JSON.stringify(data.helhetsbedomning)).not.toMatch(/Låg risk/);
+    expect(JSON.stringify(data.helhetsbedomning)).not.toMatch(/låg risk/i);
     expect(data.evidensdetaljer).toEqual([]);
     expect(data.fastighetsrot).toMatchObject({ status: 'NOT_RECORDED', kalla: 'Saknas i underlaget', nyckel: 'Saknas i underlaget' });
     expect(String((data.fastighetsrot as { beskrivning: string }).beskrivning)).toMatch(/Rotens datasetbindning saknas/);

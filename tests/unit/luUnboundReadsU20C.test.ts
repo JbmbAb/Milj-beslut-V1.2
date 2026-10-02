@@ -304,7 +304,8 @@ describe('U20-C: unbound reads never steer the governed generate-report request'
 describe('U20CDF (U20CD verification F2): no check completed -> no risk level in any text', () => {
   // 0 of 6: the provider returned no evidence for any layer and the document check is NOT_CHECKED.
   // The machine verdict is unchanged (no findings -> LOW / 0.95), but no text may say "Låg risk".
-  const NONE_COMPLETED = 'Inga kontroller genomfördes (0 av 6): ingen riskbedömning kan göras.';
+  // Owner wording (2026-10-02): the word "låg risk" must not occur at all.
+  const NONE_COMPLETED = 'Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.';
   beforeEach(() => {
     queryMock.mockResolvedValue({ evidence: [], unavailable_layers: [] });
   });
@@ -319,7 +320,7 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
     const description = String(vi.mocked(auditTrail.logAction).mock.calls[0]![5]);
     for (const text of [site.complianceAnalysis.summary, res.body.summary.reasoning, description]) {
       expect(text).toContain(NONE_COMPLETED);
-      expect(text).not.toMatch(/Låg risk|Måttlig risk|Hög risk|i de kontroller som utfördes/);
+      expect(text).not.toMatch(/låg risk|måttlig risk|hög risk|i de kontroller som utfördes/i);
     }
     // Presentation only: the machine-readable values are exactly as before.
     expect(site.complianceAnalysis.overallRisk).toBe('LOW');
@@ -338,7 +339,7 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
     const site = res.body.pdfData.sites[0];
     expect(site.overall_statement_sv).toBe(NONE_COMPLETED);
     expect(res.body.pdfData.summary.reasoning).toContain(NONE_COMPLETED);
-    expect(JSON.stringify([site.overall_statement_sv, res.body.pdfData.summary.reasoning])).not.toMatch(/Låg risk/);
+    expect(JSON.stringify([site.overall_statement_sv, res.body.pdfData.summary.reasoning])).not.toMatch(/låg risk/i);
     expect(site.overallRisk).toBe('LOW');
   });
 });
