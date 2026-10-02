@@ -3,6 +3,17 @@ import { withAccelerate } from '@prisma/extension-accelerate';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { loadEnvFile } from '../loadEnv';
+import { installTestDatabaseConnectionGuard } from '../modules/test-db-guard/installTestDatabaseConnectionGuard';
+import {
+  isTestRuntime,
+  TestDatabaseTargetRefusedError,
+} from '../modules/test-db-guard/testDatabaseTargetPolicy';
+
+// TEST-DB-GUARD (OD-K0-5): in a test runtime every pg connection -- this client's pool included --
+// is checked against the test database policy before a socket is opened. No-op outside tests.
+if (isTestRuntime(process.env)) {
+  installTestDatabaseConnectionGuard();
+}
 
 // Bulletproof check: Ensure environment variables are loaded before client singleton evaluates
 if (!process.env.DATABASE_URL) {
@@ -31,6 +42,14 @@ const prismaClientSingleton = (): PrismaClient => {
   };
 
   if (isAccelerate) {
+    // TEST-DB-GUARD (OD-K0-5): a remote managed database is never a test target.
+    if (isTestRuntime(process.env)) {
+      throw new TestDatabaseTargetRefusedError(
+        'server/db/prisma (accelerateUrl)',
+        'a remote managed database (prisma://)',
+        'a test runtime never connects to a remote managed database',
+      );
+    }
     return new PrismaClient({ log: ['warn', 'error'], accelerateUrl: dbUrl } as any).$extends(
       withAccelerate(),
     ) as unknown as PrismaClient;

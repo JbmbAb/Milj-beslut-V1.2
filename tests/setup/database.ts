@@ -6,6 +6,7 @@ import {
   MissingSpatialExtensionsError,
 } from './requiredSpatialExtensions';
 import { applyGisTestStubs, ensureTestAdminUser } from './seedGisStubs';
+import { installTestDatabaseConnectionGuard } from '../../server/modules/test-db-guard/installTestDatabaseConnectionGuard';
 const { Client } = pkg;
 
 // DB-0-SAFETY: no dotenv.config() here either. This globalSetup drops six schemas below,
@@ -16,6 +17,9 @@ const { Client } = pkg;
 const TRUNCATE_EXCLUDE = new Set(['_prisma_migrations', 'spatial_ref_sys']);
 
 export default async () => {
+  // TEST-DB-GUARD (OD-K0-5): globalSetup runs in the main Vitest process, where no setup file
+  // runs, and connects from here -- so the connection guard is installed here too.
+  installTestDatabaseConnectionGuard();
   // DB-0-SAFETY: admission must succeed before prisma is imported or any client is connected.
   const admitted = admitDisposableGisTestDatabase();
 

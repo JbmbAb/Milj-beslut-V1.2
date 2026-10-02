@@ -33,11 +33,16 @@ vi.mock('pg', () => ({
   },
 }));
 
+// TEST-DB-GUARD (OD-K0-5): 5433 is the documented disposable test DB port; 5432 on this workstation
+// is the live `miljobeslut-postgres` container and is refused even for an allowlisted name.
+const ADMITTED_URL = 'postgresql://user:pw@localhost:5433/riskguard_test';
+
 const ADMITTED: DisposableGisTestDatabaseConfig = {
   envTestPresent: true,
-  databaseUrl: 'postgresql://user:pw@localhost:5432/riskguard_test',
+  databaseUrl: ADMITTED_URL,
   disposableFlag: '1',
   declaredDatabaseName: 'riskguard_test',
+  optInDatabaseName: 'riskguard_test',
 };
 
 describe('assertDisposableGisTestDatabase — rejection matrix', () => {
@@ -76,6 +81,20 @@ describe('assertDisposableGisTestDatabase — rejection matrix', () => {
     [
       'GIS_TEST_DB_NAME names a different database than DATABASE_URL',
       { ...ADMITTED, declaredDatabaseName: 'other_test' },
+    ],
+    // TEST-DB-GUARD (OD-K0-5): clause 7, the explicit opt-in and the live denylist.
+    ['TEST-DB-GUARD: no MIMER_TEST_DB_ALLOW opt-in', { ...ADMITTED, optInDatabaseName: undefined }],
+    [
+      'TEST-DB-GUARD: opt-in names a different database',
+      { ...ADMITTED, optInDatabaseName: 'miljobeslut_test' },
+    ],
+    [
+      'TEST-DB-GUARD: the live workstation port 5432, even fully admitted and opted in',
+      { ...ADMITTED, databaseUrl: 'postgresql://user:pw@localhost:5432/riskguard_test' },
+    ],
+    [
+      'TEST-DB-GUARD: the prod compose port 5434, even fully admitted and opted in',
+      { ...ADMITTED, databaseUrl: 'postgresql://user:pw@127.0.0.1:5434/riskguard_test' },
     ],
   ];
 
@@ -117,6 +136,7 @@ describe('destructive path control — zero connection, zero SQL on refusal', ()
     delete process.env.DATABASE_URL;
     delete process.env.GIS_TEST_DB_DISPOSABLE;
     delete process.env.GIS_TEST_DB_NAME;
+    delete process.env.MIMER_TEST_DB_ALLOW;
   });
 
   afterEach(() => {
@@ -142,23 +162,41 @@ describe('destructive path control — zero connection, zero SQL on refusal', ()
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('refuses and never connects when .env.test names a production database', async () => {
-    fs.writeFileSync(
-      path.join(workdir, '.env.test'),
-      'DATABASE_URL=postgresql://user:pw@localhost:5432/miljobeslut\n' +
-        'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=miljobeslut\n',
-    );
+  it('refuses and never connects when the environment names a production database', async () => {
+    process.env.DATABASE_URL = 'postgresql://user:pw@localhost:5432/miljobeslut';
+    process.env.MIMER_TEST_DB_ALLOW = 'miljobeslut';
+    fs.writeFileSync(path.join(workdir, '.env.test'), 'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=miljobeslut\n');
 
     await expect(runStubs()).rejects.toThrow(/known production database/);
     expect(connect).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('refuses and never connects when the disposable admission is missing', async () => {
+  it('TEST-DB-GUARD: ignores a DATABASE_URL line in .env.test -- the target comes from the environment only', async () => {
     fs.writeFileSync(
       path.join(workdir, '.env.test'),
-      'DATABASE_URL=postgresql://user:pw@localhost:5432/riskguard_test\n',
+      `DATABASE_URL=${ADMITTED_URL}\nGIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=riskguard_test\n`,
     );
+    process.env.MIMER_TEST_DB_ALLOW = 'riskguard_test';
+
+    await expect(runStubs()).rejects.toThrow(/DATABASE_URL is missing/);
+    expect(connect).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('TEST-DB-GUARD: refuses and never connects without the MIMER_TEST_DB_ALLOW opt-in', async () => {
+    process.env.DATABASE_URL = ADMITTED_URL;
+    fs.writeFileSync(path.join(workdir, '.env.test'), 'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=riskguard_test\n');
+
+    await expect(runStubs()).rejects.toThrow(/MIMER_TEST_DB_ALLOW is not set/);
+    expect(connect).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses and never connects when the disposable admission is missing', async () => {
+    process.env.DATABASE_URL = ADMITTED_URL;
+    process.env.MIMER_TEST_DB_ALLOW = 'riskguard_test';
+    fs.writeFileSync(path.join(workdir, '.env.test'), '\n');
 
     await expect(runStubs()).rejects.toThrow(/GIS_TEST_DB_DISPOSABLE=1 is not set/);
     expect(connect).not.toHaveBeenCalled();
@@ -166,11 +204,9 @@ describe('destructive path control — zero connection, zero SQL on refusal', ()
   });
 
   it('admits and publishes the checked URL so no other database can be reached', () => {
-    fs.writeFileSync(
-      path.join(workdir, '.env.test'),
-      'DATABASE_URL=postgresql://user:pw@localhost:5432/riskguard_test\n' +
-        'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=riskguard_test\n',
-    );
+    process.env.DATABASE_URL = ADMITTED_URL;
+    process.env.MIMER_TEST_DB_ALLOW = 'riskguard_test';
+    fs.writeFileSync(path.join(workdir, '.env.test'), 'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=riskguard_test\n');
 
     const admitted = admitDisposableGisTestDatabase();
     expect(admitted.databaseName).toBe('riskguard_test');

@@ -184,12 +184,15 @@ function fail(message: string): never {
 export function resolveProvisionedSpatialTestDatabaseTarget(
   testEnv: Record<string, string>,
   envTestPresent: boolean,
+  // TEST-DB-GUARD (OD-K0-5): the opt-in comes from the process environment, never from .env.test.
+  optInDatabaseName: string | undefined = process.env.MIMER_TEST_DB_ALLOW,
 ): AdmittedDisposableGisTestDatabase {
   return assertDisposableGisTestDatabase({
     envTestPresent,
     databaseUrl: testEnv.TEST_DATABASE_URL,
     disposableFlag: testEnv.GIS_TEST_DB_DISPOSABLE,
     declaredDatabaseName: testEnv.GIS_TEST_DB_NAME,
+    optInDatabaseName,
   });
 }
 

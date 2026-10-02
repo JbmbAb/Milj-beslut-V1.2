@@ -9,7 +9,18 @@ import path from 'node:path';
  */
 const WORKTREE_EXCLUDES = ['**/.claude/worktrees/**', '.claude/worktrees/**'];
 
+/**
+ * TEST-DB-GUARD (OD-K0-5): the FIRST setup file of every project, and no project lets Vite read
+ * `.env*` files (`envDir: false`): a test run never loads `.env.local`, never takes database
+ * settings from an env file, and refuses any database that is not explicitly dead or opted in.
+ *
+ * @see tests/setup/testDatabaseGuard.ts
+ * @see tests/unit/testDbGuardConnection.test.ts
+ */
+const TEST_DB_GUARD_SETUP = 'tests/setup/testDatabaseGuard.ts';
+
 export default defineConfig({
+  envDir: false,
   resolve: {
     alias: {
       '@miljobeslut/mimers-brunn-core': path.resolve(__dirname, 'packages/mimers-brunn-core/src/index.ts'),
@@ -72,7 +83,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    setupFiles: ['tests/setup/env.ts'],
+    setupFiles: [TEST_DB_GUARD_SETUP, 'tests/setup/env.ts'],
     /**
      * TEST_DISCOVERY_WORKTREE_ISOLATION-01 — proof runs must be hermetic.
      *
@@ -121,6 +132,7 @@ export default defineConfig({
     },
     projects: [
       {
+        envDir: false,
         plugins: [react()],
         // Explicit, not inherited: same root-level-does-not-reach-projects behavior noted in
         // the compliance project below. tests/unit/*.test.ts files that exercise server code
@@ -176,11 +188,12 @@ export default defineConfig({
           // merged: a second `exclude` key would override WORKTREE_EXCLUDES silently.
           exclude: [...WORKTREE_EXCLUDES, 'tests/unit/server.services.bankIdService.test.ts'],
           environment: 'jsdom',
-          setupFiles: ['tests/setup/env.ts'],
+          setupFiles: [TEST_DB_GUARD_SETUP, 'tests/setup/env.ts'],
           testTimeout: 20000,
         },
       },
       {
+        envDir: false,
         plugins: [react()],
         test: {
           name: 'component',
@@ -188,17 +201,18 @@ export default defineConfig({
           include: ['tests/components/**/*.test.tsx'],
           environment: 'jsdom',
           globals: true,
-          setupFiles: ['tests/setup/setupTests.ts'],
+          setupFiles: [TEST_DB_GUARD_SETUP, 'tests/setup/setupTests.ts'],
         },
       },
       {
+        envDir: false,
         test: {
           name: 'integration',
           globalSetup: 'tests/setup/database.ts',
           exclude: [...WORKTREE_EXCLUDES],
           include: ['tests/integration/**/*.test.ts', 'tests/smoke/**/*.test.ts'],
           environment: 'node',
-          setupFiles: ['tests/setup/env.ts', 'tests/setup/integrationCsrfBypass.ts'],
+          setupFiles: [TEST_DB_GUARD_SETUP, 'tests/setup/env.ts', 'tests/setup/integrationCsrfBypass.ts'],
           testTimeout: 30000,
           hookTimeout: 30000,
           fileParallelism: false,
@@ -206,6 +220,7 @@ export default defineConfig({
         },
       },
       {
+        envDir: false,
         resolve: {
           alias: {
             '@miljobeslut/spatial-provider-postgis': path.resolve(
@@ -306,7 +321,7 @@ export default defineConfig({
             'packages/mps-pattern-proof/**/*.test.ts',
           ],
           environment: 'node',
-          setupFiles: ['tests/setup/env.ts'],
+          setupFiles: [TEST_DB_GUARD_SETUP, 'tests/setup/env.ts'],
         },
       },
     ],

@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  isDatabaseConnectionEnvKey,
+  isLocalEnvFile,
+  isTestRuntime,
+  noteTestEnvFileGuard,
+} from './modules/test-db-guard/testDatabaseTargetPolicy';
+
 type LoadEnvOptions = {
   includePrefixes?: string[];
   overrideExisting?: boolean;
@@ -24,6 +31,13 @@ function unescapeNewlines(value: string): string {
 
 export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions = {}): void {
   const filePath = path.resolve(process.cwd(), fileName);
+  // TEST-DB-GUARD (OD-K0-5): in a test runtime (NODE_ENV=test or a Vitest worker) a `*.local` env
+  // file is never read at all -- in a developer worktree `.env.local` names the live database.
+  const testRuntime = isTestRuntime(process.env);
+  if (testRuntime && isLocalEnvFile(filePath)) {
+    noteTestEnvFileGuard(filePath, 'a *.local env file is never read in a test runtime');
+    return;
+  }
   if (!fs.existsSync(filePath)) {
     return;
   }
@@ -32,6 +46,7 @@ export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions =
   const overrideExisting = options.overrideExisting === true;
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split(/\r?\n/);
+  const droppedInTestRuntime: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -41,9 +56,22 @@ export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions =
     const key = trimmed.slice(0, eq).trim();
     if (!key) continue;
     if (includePrefixes.length > 0 && !includePrefixes.some((prefix) => key.startsWith(prefix))) continue;
-    if (!overrideExisting && process.env[key]) continue;
 
     const rawValue = trimmed.slice(eq + 1).trim();
+    // TEST-DB-GUARD (OD-K0-5): a test runtime never takes a database connection setting (or the
+    // MIMER_TEST_DB_ALLOW opt-in) from any env file; those come from the explicit environment only.
+    if (testRuntime && isDatabaseConnectionEnvKey(key, stripQuotes(rawValue))) {
+      droppedInTestRuntime.push(key);
+      continue;
+    }
+    if (!overrideExisting && process.env[key]) continue;
+
     process.env[key] = unescapeNewlines(stripQuotes(rawValue));
+  }
+  if (droppedInTestRuntime.length > 0) {
+    noteTestEnvFileGuard(
+      filePath,
+      `database connection keys not loaded in a test runtime: ${droppedInTestRuntime.join(', ')}`,
+    );
   }
 }

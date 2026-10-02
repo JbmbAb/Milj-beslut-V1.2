@@ -1,8 +1,16 @@
 import { loadEnvFile } from './loadEnv';
+import { isTestRuntime } from './modules/test-db-guard/testDatabaseTargetPolicy';
 
-// Force delete any system-level DATABASE_URL on startup to ensure 
+// TEST-DB-GUARD (OD-K0-5): decided once, before any env file is read.
+const testRuntime = isTestRuntime(process.env);
+
+// Force delete any system-level DATABASE_URL on startup to ensure
 // local .env and .env.local file settings take absolute precedence!
-delete process.env.DATABASE_URL;
+// Not in a test runtime: there an explicitly set DATABASE_URL is the only allowed source (and
+// loadEnvFile never reads .env.local nor takes database settings from any env file there).
+if (!testRuntime) {
+  delete process.env.DATABASE_URL;
+}
 
 // Säkra att miljövariabler laddas allra först innan några andra moduler importeras (för att undvika ES6 hoisting-problem).
 loadEnvFile();

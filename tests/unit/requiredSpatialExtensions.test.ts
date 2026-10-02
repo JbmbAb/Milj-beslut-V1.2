@@ -85,15 +85,17 @@ describe('destructive setup — extension lifecycle removed from runtime', () =>
     pgSpies.connect.mockReset();
     pgSpies.query.mockReset();
     pgSpies.end.mockReset();
-    delete process.env.DATABASE_URL;
     delete process.env.GIS_TEST_DB_DISPOSABLE;
     delete process.env.GIS_TEST_DB_NAME;
 
     // An admitted disposable database, so DB-0-SAFETY passes and this unit is what is proven.
+    // TEST-DB-GUARD (OD-K0-5): the target and the opt-in come from the environment, never from
+    // .env.test, and never on this workstation's live port 5432. pg is mocked: nothing connects.
+    process.env.DATABASE_URL = 'postgresql://riskguard:pw@127.0.0.1:5433/riskguard_test';
+    process.env.MIMER_TEST_DB_ALLOW = 'riskguard_test';
     fs.writeFileSync(
       path.join(workdir, '.env.test'),
-      'DATABASE_URL=postgresql://riskguard:pw@127.0.0.1:5432/riskguard_test\n' +
-        'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=riskguard_test\n',
+      'GIS_TEST_DB_DISPOSABLE=1\nGIS_TEST_DB_NAME=riskguard_test\n',
     );
   });
 

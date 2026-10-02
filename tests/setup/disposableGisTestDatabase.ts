@@ -2,6 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
 
+import {
+  evaluateTestDatabaseTarget,
+  KNOWN_LIVE_DATABASE_NAMES,
+  TEST_DATABASE_OPT_IN_ENV,
+} from '../../server/modules/test-db-guard/testDatabaseTargetPolicy';
+
 /**
  * DB-0-SAFETY — Prevent test GIS seeding from targeting production.
  *
@@ -36,11 +42,15 @@ export const DISPOSABLE_TEST_HOST_ALLOWLIST: readonly string[] = [
 /**
  * Defense in depth only. The authority is the allowlist plus the explicit admission above;
  * this list exists so a known production name fails loudly even if an allowlist is widened.
+ * TEST-DB-GUARD (OD-K0-5): one list, owned by the test database policy, not a second copy.
  */
-export const KNOWN_PRODUCTION_DATABASE_NAMES: readonly string[] = ['miljobeslut'];
+export const KNOWN_PRODUCTION_DATABASE_NAMES: readonly string[] = KNOWN_LIVE_DATABASE_NAMES;
 
 export type DisposableGisTestDatabaseConfig = {
-  /** Raw DATABASE_URL as resolved from the explicit test environment, if present at all. */
+  /**
+   * Raw DATABASE_URL as set explicitly in the process environment, if present at all.
+   * TEST-DB-GUARD (OD-K0-5): never taken from an env file.
+   */
   readonly databaseUrl: string | undefined;
   /** Value of GIS_TEST_DB_DISPOSABLE, if present at all. */
   readonly disposableFlag: string | undefined;
@@ -48,6 +58,11 @@ export type DisposableGisTestDatabaseConfig = {
   readonly declaredDatabaseName: string | undefined;
   /** Whether the explicit test environment file was found. */
   readonly envTestPresent: boolean;
+  /**
+   * TEST-DB-GUARD (OD-K0-5): value of MIMER_TEST_DB_ALLOW in the process environment, if any.
+   * Required, so every caller has to decide where the opt-in comes from (never an env file).
+   */
+  readonly optInDatabaseName: string | undefined;
 };
 
 export class DisposableGisTestDatabaseError extends Error {
@@ -55,9 +70,10 @@ export class DisposableGisTestDatabaseError extends Error {
     super(
       `DB-0-SAFETY refused destructive GIS test setup: ${reason}. ` +
         `No database connection was opened and no SQL was executed. ` +
-        `Destructive setup requires .env.test to declare a DATABASE_URL naming a database ` +
-        `that is on the repository allowlist (${DISPOSABLE_TEST_DATABASE_ALLOWLIST.join(', ')}), ` +
-        `together with GIS_TEST_DB_DISPOSABLE=1 and a matching GIS_TEST_DB_NAME.`,
+        `Destructive setup requires DATABASE_URL set explicitly in the environment, naming a database ` +
+        `that is on the repository allowlist (${DISPOSABLE_TEST_DATABASE_ALLOWLIST.join(', ')}) and not ` +
+        `on a live host/port, a present .env.test, GIS_TEST_DB_DISPOSABLE=1, a matching ` +
+        `GIS_TEST_DB_NAME and ${TEST_DATABASE_OPT_IN_ENV}=<the same database> (TEST-DB-GUARD, OD-K0-5).`,
     );
     this.name = 'DisposableGisTestDatabaseError';
   }
@@ -142,6 +158,17 @@ export function assertDisposableGisTestDatabase(
     );
   }
 
+  // Clause 7 (TEST-DB-GUARD, OD-K0-5): the general test database policy -- live denylist (names,
+  // hosts, this workstation's live ports) and the explicit MIMER_TEST_DB_ALLOW opt-in naming
+  // exactly this database. Same policy the connection guard enforces on every pg connection.
+  const verdict = evaluateTestDatabaseTarget(
+    { host, port: parsed.port ? Number(parsed.port) : 5432, database: databaseName },
+    { [TEST_DATABASE_OPT_IN_ENV]: config.optInDatabaseName },
+  );
+  if (!verdict.allowed) {
+    throw new DisposableGisTestDatabaseError(`TEST-DB-GUARD: ${verdict.reason}`);
+  }
+
   return { databaseUrl: rawUrl, databaseName, host };
 }
 
@@ -157,11 +184,14 @@ export function resolveDisposableGisTestConfig(
   const parsed = envTestPresent ? dotenv.parse(fs.readFileSync(envTestPath)) : {};
 
   // process.env wins only where the explicit file is silent, mirroring dotenv override:false.
+  // TEST-DB-GUARD (OD-K0-5): except for the database itself and the opt-in -- those come from the
+  // explicit process environment only; a DATABASE_URL line in .env.test is ignored.
   return {
     envTestPresent,
-    databaseUrl: process.env.DATABASE_URL ?? parsed.DATABASE_URL,
+    databaseUrl: process.env.DATABASE_URL,
     disposableFlag: process.env.GIS_TEST_DB_DISPOSABLE ?? parsed.GIS_TEST_DB_DISPOSABLE,
     declaredDatabaseName: process.env.GIS_TEST_DB_NAME ?? parsed.GIS_TEST_DB_NAME,
+    optInDatabaseName: process.env[TEST_DATABASE_OPT_IN_ENV],
   };
 }
 
