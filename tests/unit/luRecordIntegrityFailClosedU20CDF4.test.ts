@@ -134,8 +134,10 @@ class MemoryRepository {
 class MemoryBindingIndex implements ProjectContextBindingIndex {
   private readonly byProjectAndContext = new Map<string, string>();
   private readonly bindingsByProject = new Map<string, ArtifactReference[]>();
+  private readonly contextsByProject = new Map<string, ArtifactReference[]>();
   async register(binding: ReturnType<typeof createProjectContextBindingArtifact>): Promise<void> {
     this.byProjectAndContext.set(`${binding.payload.project_id}:${binding.payload.project_context_ref.artifact_id}`, binding.artifact_id);
+    this.contextsByProject.set(binding.payload.project_id, [...(this.contextsByProject.get(binding.payload.project_id) ?? []), binding.payload.project_context_ref]);
     const list = this.bindingsByProject.get(binding.payload.project_id) ?? [];
     list.push({ artifact_id: binding.artifact_id, artifact_type: binding.artifact_type });
     this.bindingsByProject.set(binding.payload.project_id, list);
@@ -152,6 +154,11 @@ class MemoryBindingIndex implements ProjectContextBindingIndex {
   async listSupersessionRefs(): Promise<readonly ArtifactReference[]> {
     return [];
   }
+  async findProjectContextRef(projectId: string): Promise<ArtifactReference> {
+    const refs = this.contextsByProject.get(projectId) ?? [];
+    if (refs.length !== 1) throw new Error('no unique binding');
+    return refs[0]!;
+  }
 }
 
 class MemoryProjectionIndex implements ProjectAssessmentProjectionIndex {
@@ -159,11 +166,13 @@ class MemoryProjectionIndex implements ProjectAssessmentProjectionIndex {
   async register(row: {
     projectId: string; assessmentArtifactId: string; assessmentArtifactType: string;
     projectContextRef: ArtifactReference; bindingArtifactId: string; releaseArtifactId: string;
+    localizationGeometryArtifactId?: string | null;
   }): Promise<void> {
     this.rows.push({
       projectId: row.projectId, assessmentArtifactId: row.assessmentArtifactId, assessmentArtifactType: row.assessmentArtifactType,
       projectContextRefId: row.projectContextRef.artifact_id, projectContextRefType: row.projectContextRef.artifact_type,
-      bindingArtifactId: row.bindingArtifactId, releaseArtifactId: row.releaseArtifactId, createdAt: new Date(1000 * (this.rows.length + 1)),
+      bindingArtifactId: row.bindingArtifactId, releaseArtifactId: row.releaseArtifactId,
+      localizationGeometryArtifactId: row.localizationGeometryArtifactId ?? null, createdAt: new Date(1000 * (this.rows.length + 1)),
     });
   }
   async listForProject(projectId: string): Promise<readonly ProjectAssessmentProjectionRow[]> {
