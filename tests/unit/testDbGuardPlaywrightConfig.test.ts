@@ -251,7 +251,8 @@ describe('TEST-DB-GUARD: an admitted local run gets fresh servers that keep the 
 
 describe('TEST-DB-GUARD: an external target never points at this workstation', () => {
   it('does not apply the local rules to a remote target (staging smoke)', () => {
-    const r = loadConfigInChild({ PLAYWRIGHT_BASE_URL: 'https://wtdg2-external.invalid' });
+    // A public IP literal (TEST-NET-3): judged without a lookup (TDG-3 N1 refuses a `.invalid` name).
+    const r = loadConfigInChild({ PLAYWRIGHT_BASE_URL: 'https://203.0.113.10' });
     expect(r).toMatchObject({ ok: true, error: null, webServer: [] });
   });
 
@@ -267,7 +268,7 @@ describe('TEST-DB-GUARD: an external target never points at this workstation', (
 
   it('refuses a local PLAYWRIGHT_API_BASE_URL next to a remote external target', () => {
     const r = loadConfigInChild({
-      PLAYWRIGHT_BASE_URL: 'https://wtdg2-external.invalid',
+      PLAYWRIGHT_BASE_URL: 'https://203.0.113.10',
       PLAYWRIGHT_API_BASE_URL: 'http://localhost:8787',
     });
     expect(r.ok).toBe(false);
@@ -305,6 +306,9 @@ describe('TEST-DB-GUARD: the local E2E policy itself (pure)', () => {
     expect(() => assertExternalE2eTargetsAreRemote({ STAGING_API_BASE_URL: 'http://0.0.0.0:8787' })).toThrow(
       /this workstation/,
     );
-    expect(() => assertExternalE2eTargetsAreRemote({ STAGING_URL: 'https://wtdg2.invalid' })).not.toThrow();
+    expect(() => assertExternalE2eTargetsAreRemote({ STAGING_URL: 'https://203.0.113.11' })).not.toThrow();
+    expect(() => assertExternalE2eTargetsAreRemote({ STAGING_URL: 'https://wtdg2.invalid' })).toThrow(
+      /\.invalid name/,
+    );
   });
 });

@@ -22,14 +22,22 @@ const isExternalTarget = Boolean(externalBaseUrl);
 // TEST-DB-GUARD (OD-K0-5): decided first -- before a directory is created, the process env is
 // changed or any server is started (server/modules/test-db-guard/localE2eServerPolicy.ts).
 //   - An external target must not be this workstation: it would reuse a running local server,
-//     e.g. the demonstrator on the live database.
+//     e.g. the demonstrator on the live database. Every external target key is judged, never on
+//     a demonstrator port, and its host must resolve to public addresses only (TDG-3 N1: an alias
+//     such as localtest.me resolves to 127.0.0.1). The runner and workers are guarded too.
 //   - A local run needs MIMER_TEST_DB_ALLOW=<db> naming the *_test database of
 //     PLAYWRIGHT_DATABASE_URL / DATABASE_URL, both from the process environment (no env file is
 //     read for E2E any more), and always gets fresh servers on ports of its own (never 8787).
 //   - Ports published by running non-test Docker containers (the live and staging databases)
 //     are denied before anything is decided: discovery runs first.
 ensureDockerDatabaseEndpointDiscovery();
-if (isExternalTarget) assertExternalE2eTargetsAreRemote(process.env);
+if (isExternalTarget) {
+  assertExternalE2eTargetsAreRemote(process.env);
+  // No server is started, but a worker (tests/e2e/prismaClient.ts) must not reach a database
+  // without the opt-in either.
+  process.env.MIMER_TEST_MODE = '1';
+  installTestDatabaseConnectionGuard();
+}
 const localPlan: LocalE2eServerPlan | null = isExternalTarget ? null : resolveLocalE2eServerPlan(process.env);
 
 const localApiPort = localPlan ? localPlan.apiPort : LOCAL_E2E_DEFAULT_API_PORT;

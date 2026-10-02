@@ -274,7 +274,7 @@ const { dockerDatabaseEndpointDiscoveryState } = await import(${JSON.stringify(D
 process.stdout.write('WTDG2_RESULT ' + dockerDatabaseEndpointDiscoveryState().status + String.fromCharCode(10));
 process.exit(0);
 `,
-      { PLAYWRIGHT_BASE_URL: 'https://wtdg2-external.invalid' },
+      { PLAYWRIGHT_BASE_URL: 'https://203.0.113.10' },
     );
     expect(['ok', 'unavailable']).toContain(status);
   });
