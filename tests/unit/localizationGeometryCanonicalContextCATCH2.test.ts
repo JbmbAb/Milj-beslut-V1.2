@@ -31,6 +31,7 @@ const state = vi.hoisted(() => ({
   geometryRows: [] as Array<{ projectId: string; geometryArtifactId: string; propertyContextRefId: string; propertyContextRefType: string; createdAt: Date }>,
   provisioningRequests: [] as Array<{ projectId: string; geometryArtifactId: string }>,
   accessError: null as Error | null,
+  provisioningEnqueueError: null as Error | null,
 }));
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
@@ -95,6 +96,7 @@ vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', 
 }));
 vi.mock('../../server/modules/localization/localizationIdentityProvisioningQueue', () => {
   const record = (input: { projectId: string; geometryArtifactId: string }) => {
+    if (state.provisioningEnqueueError) throw state.provisioningEnqueueError;
     state.provisioningRequests.push({ projectId: input.projectId, geometryArtifactId: input.geometryArtifactId });
     return { status: 'PENDING', failureDetail: null };
   };
@@ -271,6 +273,7 @@ beforeEach(async () => {
   state.geometryRows.length = 0;
   state.provisioningRequests.length = 0;
   state.accessError = null;
+  state.provisioningEnqueueError = null;
   puts.length = 0;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.keyId;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = issuerKey.publicKeyPem;
@@ -405,4 +408,37 @@ describe('W-CATCH2 #14 (same surface): the geometry routes answer 403 only for t
       expect(state.provisioningRequests).toEqual([]);
     });
   }
+});
+
+describe('W-CATCH2 (BOOT verifier finding 8, same surface): a request that could not be ENQUEUED is never shown as "no request"', () => {
+  const queueDown = () => Object.assign(new Error("Invalid `prisma.localizationIdentityProvisioningRequest.create()` invocation: Can't reach database server at 10.0.0.5"), { name: 'PrismaClientInitializationError' });
+
+  it('GET: the identity provisioning request cannot be enqueued -> the point is shown with provisioningStatus FAILED and a neutral, retryable text (before: null)', async () => {
+    await provisionProject();
+    state.provisioningEnqueueError = queueDown();
+    const result = await load();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.provisioningStatus).toBe('FAILED');
+    expect(result.data.provisioningFailureDetail).toBe('Förberedelsen av analysen för kontrollpunkten kunde inte begäras (tekniskt fel). Ett nytt försök kan lyckas.');
+    expect(result.data.provisioningFailureDetail).not.toMatch(/prisma|10\.0\.0\.5|database server/);
+  });
+
+  it('POST: the supersession of the previous point cannot be enqueued -> supersessionStatus FAILED with a neutral text (before: null, read as "no transition needed")', async () => {
+    await provisionProject();
+    const root = await save();
+    expect(root.ok && root.data.supersessionStatus).toBe(null);
+    const moved = await saveUserLocalizationGeometry({
+      authUser: USER,
+      projectId: PROJECT_ID,
+      input: { geometry_type: 'POINT', coordinates: [18.08, 59.34], srid: 4326 },
+      artifactRepository: repository(),
+      spatialRuntime,
+    });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+    expect(moved.data.supersessionStatus).toBe('FAILED');
+    expect(moved.data.supersessionFailureDetail).toMatch(/^Bytet till den nya kontrollpunkten kunde inte begäras/);
+    expect(moved.data.supersessionFailureDetail).not.toMatch(/no supersession request in this test/);
+  });
 });
