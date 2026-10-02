@@ -18,12 +18,31 @@ export class NullDocumentProvider implements DocumentProviderContract {
 }
 
 /**
- * Explicit test mode: NODE_ENV=test and APP_ENV is not a staging/production deployment.
- * Nothing else (no flag, no default) counts as test mode.
+ * K0-FIX-1 (a): the ONLY APP_ENV values under which the mock may be selected -- an explicit
+ * ALLOWLIST of test-classified environments, matched exactly (no trimming, no case folding).
+ * Unset/empty APP_ENV is not a test environment, and neither is "development". demo, stage,
+ * staging, preprod, prod, production, local, and every unknown, misspelt, partial, upper-case or
+ * padded value are refused. The K0 version used a denylist (only "staging"/"production"), which let
+ * NODE_ENV=test activate the mock in a deployment that calls itself prod, stage, demo or preprod --
+ * or that sets no APP_ENV at all.
  */
-function isExplicitTestMode(env: NodeJS.ProcessEnv): boolean {
-  const appEnv = String(env.APP_ENV ?? "").trim().toLowerCase();
-  return env.NODE_ENV === "test" && appEnv !== "staging" && appEnv !== "production";
+const MOCK_ALLOWED_APP_ENVS: ReadonlySet<string> = new Set(["test", "ci"]);
+
+/**
+ * Explicit test mode: NODE_ENV exactly "test" AND APP_ENV explicitly set to a value on the allowlist
+ * above. Nothing else (no flag, no default, no fallback) counts as test mode. A test that needs the
+ * mock sets APP_ENV itself. Returns why the mock is refused, or null when it is allowed.
+ */
+function mockRefusalReason(env: NodeJS.ProcessEnv): string | null {
+  if (env.NODE_ENV !== "test") return "NODE_ENV is not exactly 'test'";
+  const appEnv = env.APP_ENV;
+  if (typeof appEnv !== "string" || appEnv === "") {
+    return "APP_ENV is not set; the mock requires APP_ENV explicitly set to 'test' or 'ci'";
+  }
+  if (!MOCK_ALLOWED_APP_ENVS.has(appEnv)) {
+    return "APP_ENV is not a test-classified environment (allowlist, exact match: 'test', 'ci')";
+  }
+  return null;
 }
 
 /**
@@ -35,7 +54,8 @@ function isExplicitTestMode(env: NodeJS.ProcessEnv): boolean {
  *    every DocumentRecord of the resolved municipality; the LU product path no longer calls this
  *    orchestrator at all (governed DocumentEvidence comes only from explicit refs).
  *  - "postgis" -> explicit opt-in only.
- *  - "mock" -> ONLY in explicit test mode; in any other mode it fails closed
+ *  - "mock" -> ONLY in explicit test mode (NODE_ENV exactly "test" AND APP_ENV exactly "test" or
+ *    "ci", see MOCK_ALLOWED_APP_ENVS); in any other mode it fails closed
  *    (LU_DOC_PROVIDER_MOCK_FORBIDDEN) and never silently becomes a provider.
  *  - anything else -> fails closed (LU_DOC_PROVIDER_UNRECOGNIZED); it used to fall through to
  *    "postgis".
@@ -47,11 +67,13 @@ export function resolveDocumentProviderFromEnv(
   if (v === "" || v === "null") return "null";
   if (v === "postgis") return "postgis";
   if (v === "mock") {
-    if (!isExplicitTestMode(env)) {
+    const refusal = mockRefusalReason(env);
+    if (refusal !== null) {
       throw new Error(
         "LU_DOC_PROVIDER_MOCK_FORBIDDEN: LU_DOC_PROVIDER=mock is only allowed in explicit test mode " +
-          "(NODE_ENV=test, APP_ENV not staging/production). A mock document provider must never be " +
-          "selectable outside tests.",
+          "(NODE_ENV exactly 'test' AND APP_ENV explicitly set to a test-classified environment: exactly " +
+          "'test' or 'ci'). " +
+          `Refused: ${refusal}. A mock document provider must never be selectable outside tests.`,
       );
     }
     return "mock";
