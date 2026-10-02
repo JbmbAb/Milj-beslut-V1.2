@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { loadEnv } from 'vite';
 
@@ -46,6 +48,10 @@ const serverEnv = {
   TIMOCOM_API_KEY: 'mock-e2e-timocom-key',
   CORS_ALLOW_ORIGINS: localUiBaseUrl,
   START_WORKERS_IN_PROCESS: 'false',
+  // U30-A: the server refuses to start without the durable Mimers CAS root (no `.data/mimers`
+  // fallback any more). The E2E harness names an explicit test root instead.
+  MIMERS_ROOT:
+    trim(process.env.MIMERS_ROOT) || path.join(os.tmpdir(), `miljobeslut-e2e-mimers-${localApiPort}`),
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
