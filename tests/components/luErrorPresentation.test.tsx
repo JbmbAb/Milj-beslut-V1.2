@@ -165,7 +165,43 @@ describe('DEMO M2b presentLuError', () => {
     // No raw code or server text in the main text; the codes stay in the technical rows.
     expect(p.messageSv).not.toContain((err as Error).message);
     expect(p.messageSv).not.toMatch(/[A-Z]{3,}_[A-Z_]{3,}/);
-    expect(p.technical.map((r) => r.value)).toContain((err as { code: string }).code);
+    expect(p.technical.map((r) => r.value)).toContain((err as unknown as { code: string }).code);
+  });
+
+  it('items 2+5 (U20CDF2 add-ons 1-2, W-APR): an unreadable assessment is a technical/integrity state with the server\'s retry flag -- never "no assessment", never "aldrig"', () => {
+    const read = (failureClass: string, retryable: boolean, reasonCode = failureClass) =>
+      presentLuError(
+        httpError(503, 'Projektets aktuella bedömning kan inte fastställas ... En äldre bedömning visas aldrig i stället.', {
+          code: 'ASSESSMENT_READ_ERROR',
+          failureClass,
+          reasonCode,
+          retryable,
+        }),
+        'current-assessment',
+      );
+    const transient = read('ASSESSMENT_READ_ERROR', true, 'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR');
+    expect(transient.kind).toBe('TECHNICAL');
+    expect(transient.retryable).toBe(true);
+    expect(transient.messageSv).toContain('kunde inte läsas på grund av ett tekniskt fel');
+    const lasting = read('ASSESSMENT_STORAGE_INTEGRITY_FAULT', false, 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT');
+    expect(lasting.kind).toBe('INTEGRITY');
+    expect(lasting.retryable).toBe(false);
+    expect(lasting.messageSv).toContain('bestående');
+    const resolution = read('ASSESSMENT_RESOLUTION_ERROR', true);
+    expect(resolution.kind).toBe('TECHNICAL');
+    expect(resolution.retryable).toBe(true);
+    for (const p of [transient, lasting, resolution]) {
+      expect(p.messageSv).not.toMatch(/aldrig|ingen sparad bedömning|[A-Z]{3,}_[A-Z_]{3,}/);
+      expect(p.messageSv).toContain('En äldre bedömning visas inte i stället.');
+    }
+    // verify's storage fault: the route sends code LU_REEXECUTION_STORAGE_FAULT with an honest flag.
+    const lastingVerify = presentLuError(
+      httpError(503, 'Verifieringen kunde inte genomföras: ...', { code: 'LU_REEXECUTION_STORAGE_FAULT', failureClass: 'REEXECUTION_STORAGE_FAULT', reasonCode: 'EXECUTION_OUTCOME', retryable: false }),
+      'verify',
+    );
+    expect(lastingVerify.retryable).toBe(false);
+    expect(lastingVerify.messageSv).toContain('försvinner inte vid ett nytt försök');
+    expect(lastingVerify.messageSv).not.toMatch(/just nu|verifier/i);
   });
 
   it('item 6: PROPERTY_LOOKUP_AMBIGUOUS is a known limitation of the property data -- never "check your designation", never a retry', () => {

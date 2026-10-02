@@ -258,6 +258,35 @@ const ASSESSED_POINT_TEXT: Readonly<Record<string, CodeText>> = {
   },
 };
 
+/**
+ * U20CDF2 add-on 2 / W-APR (5b06336e): 503 ASSESSMENT_READ_ERROR per failure class. The server's own
+ * text says "En äldre bedömning visas aldrig i stället" -- a guarantee wider than this fault; the UI
+ * says only what holds for it.
+ */
+const ASSESSMENT_READ_TEXT: Readonly<Record<string, CodeText>> = {
+  ASSESSMENT_READ_ERROR: {
+    kind: 'TECHNICAL',
+    messageSv:
+      'Projektets sparade bedömning kunde inte läsas på grund av ett tekniskt fel. Den saknas inte, men kan inte visas just nu. ' +
+      'En äldre bedömning visas inte i stället. Ett nytt försök kan lyckas.',
+    retryable: true,
+  },
+  ASSESSMENT_STORAGE_INTEGRITY_FAULT: {
+    kind: 'INTEGRITY',
+    messageSv:
+      'Projektets aktuella bedömning kan inte fastställas: en sparad bedömning kunde inte läsas eller bekräftas ur arkivet ' +
+      '(bestående lagrings- eller integritetsfel). En äldre bedömning visas inte i stället. Felet försvinner inte vid ett nytt försök.',
+    retryable: false,
+  },
+  ASSESSMENT_RESOLUTION_ERROR: {
+    kind: 'TECHNICAL',
+    messageSv:
+      'Projektets aktuella bedömning kunde inte fastställas på grund av ett tekniskt fel. En äldre bedömning visas inte i stället. ' +
+      'Ett nytt försök kan lyckas.',
+    retryable: true,
+  },
+};
+
 /** U20-D: content read for the evidence/root details failed its own identity (GOVERNED_EVIDENCE_INTEGRITY_FAILED). */
 const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, string>> = {
   EVIDENCE_TAMPERED: 'Bedömningens underlag klarade inte integritetskontrollen: en evidens stämmer inte med sin egen identitet. Bedömningen visas därför inte.',
@@ -313,12 +342,27 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.code === 'INVALID_ASSESSMENT_ARTIFACT_ID') {
     return make('TECHNICAL', `${lead} Begäran innehöll ett ogiltigt bedömnings-id.`, false);
   }
+  if (f.code === 'ASSESSMENT_READ_ERROR') {
+    // U20CDF2 add-on 2 / W-APR: the (possibly current) assessment could not be read -- a technical
+    // or integrity fault, never "no assessment"; the server's flag says whether a retry can help.
+    const entry = f.failureClass ? ASSESSMENT_READ_TEXT[f.failureClass] : undefined;
+    return entry
+      ? fromTable(entry)
+      : make('TECHNICAL', `${lead} Projektets aktuella bedömning kunde inte fastställas på grund av ett tekniskt fel. En äldre bedömning visas inte i stället.`, true);
+  }
   if (f.code === 'LU_REEXECUTION_STORAGE_FAULT') {
-    return make(
-      'TECHNICAL',
-      'Reproducerbarheten kunde inte kontrolleras just nu: ett tekniskt fel uppstod vid läsning av lagrade artefakter.',
-      true,
-    );
+    // U20CDF2 add-on 1: a storage fault during re-execution is no verification verdict.
+    return f.retryable === false
+      ? make(
+          'INTEGRITY',
+          'Reproducerbarheten kunde inte kontrolleras: ett bestående lagringsfel uppstod vid läsning av lagrade artefakter. Det är inget kontrollutfall, och felet försvinner inte vid ett nytt försök.',
+          false,
+        )
+      : make(
+          'TECHNICAL',
+          'Reproducerbarheten kunde inte kontrolleras just nu: ett tekniskt fel uppstod vid läsning av lagrade artefakter. Det är inget kontrollutfall; ett nytt försök kan lyckas.',
+          true,
+        );
   }
   if (f.code === 'LIVE_LANTMATERIET_DISABLED' || f.code === 'LIVE_LANTMATERIET_REQUIRED') {
     return make(
