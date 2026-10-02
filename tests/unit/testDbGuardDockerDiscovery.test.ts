@@ -40,15 +40,20 @@ afterEach(() => {
   process.env = { ...savedEnv };
 });
 
-/** The shape `docker ps --format '{{.Names}}\t{{.Ports}}\t{{.Image}}'` prints (names/ports/images only). */
+/**
+ * The shape `docker ps --format '{{.Names}}\t{{.Ports}}\t{{.Image}}\t{{.Label "mimer.test-db"}}'`
+ * prints (names/ports/images and that one label only).
+ */
 const DOCKER_PS_SAMPLE = [
-  'miljobeslut-lu-proof-db\t127.0.0.1:55432->5432/tcp\tghcr.io/jbmbab/milj-beslut-postgres-test:16',
-  'i2dbprefneg-postgres\t5432/tcp\tghcr.io/jbmbab/milj-beslut-postgres-test:16',
-  'miljobeslut-postgres\t0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp\tmiljobeslut-platform-recovery-db:latest',
-  'wtdg2-unknown-new-db\t127.0.0.1:61234->5432/tcp\tpostgres:17',
-  'wtdg2-range-app\t0.0.0.0:41000-41002->8000-8002/tcp\twtdg2/app',
-  'wtdg2-pg-test\t127.0.0.1:5440->5432/tcp\tpostgres:16',
-  'naughty_matsumoto\t\te8cbb5c3ae86',
+  'miljobeslut-lu-proof-db\t127.0.0.1:55432->5432/tcp\tghcr.io/jbmbab/milj-beslut-postgres-test:16\t',
+  'i2dbprefneg-postgres\t5432/tcp\tghcr.io/jbmbab/milj-beslut-postgres-test:16\t',
+  'miljobeslut-postgres\t0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp\tmiljobeslut-platform-recovery-db:latest\t',
+  'wtdg2-unknown-new-db\t127.0.0.1:61234->5432/tcp\tpostgres:17\t',
+  'wtdg2-range-app\t0.0.0.0:41000-41002->8000-8002/tcp\twtdg2/app\t',
+  'wtdg2-pg-test\t127.0.0.1:5440->5432/tcp\tpostgres:16\tdisposable',
+  // TDG-3: named like a test DB, but not created as one (no label): a live copy can be renamed.
+  'wtdg3-renamed-test\t127.0.0.1:5441->5432/tcp\tpostgres:16\t',
+  'naughty_matsumoto\t\te8cbb5c3ae86\t',
 ].join('\n');
 
 const okRun = (stdout: string) => () => ({ status: 0, stdout, stderr: '' });
@@ -102,9 +107,14 @@ describe('docker ps: parsing and classification (faked output)', () => {
     const discovery = await loadDiscovery();
     const result = discovery.discoverDockerDatabaseEndpoints(okRun(DOCKER_PS_SAMPLE));
     expect(result.status).toBe('ok');
-    expect(result.deniedPorts).toEqual([5432, 41000, 41001, 41002, 55432, 61234]);
+    expect(result.deniedPorts).toEqual([5432, 5441, 41000, 41001, 41002, 55432, 61234]);
     expect(result.deniedNames).toEqual(
-      expect.arrayContaining(['miljobeslut-lu-proof-db', 'i2dbprefneg-postgres', 'wtdg2-unknown-new-db']),
+      expect.arrayContaining([
+        'miljobeslut-lu-proof-db',
+        'i2dbprefneg-postgres',
+        'wtdg2-unknown-new-db',
+        'wtdg3-renamed-test',
+      ]),
     );
     expect(result.deniedNames).not.toContain('wtdg2-pg-test');
   });
@@ -116,6 +126,90 @@ describe('docker ps: parsing and classification (faked output)', () => {
     expect(discovery.isDisposableTestContainerName('miljobeslut-lu-proof-db')).toBe(false);
     expect(discovery.isDisposableTestContainerName('staging-test-db')).toBe(false);
     expect(discovery.isDisposableTestContainerName('latest-db')).toBe(false);
+  });
+
+  it('TDG-3: a name alone never makes a test container -- the creation label mimer.test-db=disposable is required too', async () => {
+    const discovery = await loadDiscovery();
+    for (const name of [
+      'pg-test',
+      'miljobeslut-test',
+      'miljobeslut-db-test',
+      'riskguard_test',
+      'mimer-tests-pg',
+    ]) {
+      expect({ name, test: discovery.isDisposableTestContainer({ name, testDbLabel: '' }) }).toEqual({
+        name,
+        test: false,
+      });
+      expect({
+        name,
+        test: discovery.isDisposableTestContainer({ name, testDbLabel: 'disposable' }),
+      }).toEqual({
+        name,
+        test: true,
+      });
+    }
+    expect(discovery.isDisposableTestContainer({ name: 'pg-test', testDbLabel: 'true' })).toBe(false);
+    expect(discovery.isDisposableTestContainer({ name: 'staging-test-db', testDbLabel: 'disposable' })).toBe(
+      false,
+    );
+    expect(
+      discovery.isDisposableTestContainer({ name: 'miljobeslut-postgres', testDbLabel: 'disposable' }),
+    ).toBe(false);
+  });
+
+  it('TDG-3: output in an unexpected format is not trusted at all -- unavailable, with the reason, never a silent ok', async () => {
+    const discovery = await loadDiscovery();
+    const cases: Array<[string, string, RegExp]> = [
+      [
+        'spaces instead of tabs',
+        'miljobeslut-postgres 0.0.0.0:5432->5432/tcp postgres:16',
+        /line 1 has 1 field\(s\), expected 4/,
+      ],
+      [
+        'the old three-field format',
+        'miljobeslut-postgres\t0.0.0.0:5432->5432/tcp\tpostgres:16',
+        /has 3 field\(s\)/,
+      ],
+      [
+        'a garbled ports field',
+        'miljobeslut-postgres\t0.0.0.0:5432=>5432\tpostgres:16\t',
+        /not a published-port entry/,
+      ],
+      ['no container name', ' \t5432/tcp\tpostgres:16\t', /not a container name/],
+      ['no image', 'miljobeslut-postgres\t5432/tcp\t\t', /no image/],
+      ['one bad line among good ones', `${DOCKER_PS_SAMPLE}\ngarbage`, /line 9 has 1 field/],
+    ];
+    for (const [label, stdout, reason] of cases) {
+      const result = discovery.discoverDockerDatabaseEndpoints(okRun(stdout));
+      expect({ label, status: result.status, ports: result.deniedPorts }).toEqual({
+        label,
+        status: 'unavailable',
+        ports: [],
+      });
+      expect(result.detail).toMatch(/unexpected docker ps output format/);
+      expect(result.detail).toMatch(reason);
+    }
+    expect(discovery.parseDockerPsOutput('').problems).toEqual([]);
+    // A container listed under several names: every name is a live host.
+    const multi = discovery.discoverDockerDatabaseEndpoints(
+      okRun('wtdg3-live-a,wtdg3-live-b\t127.0.0.1:61237->5432/tcp\tpostgres:16\t'),
+    );
+    expect(multi).toMatchObject({ status: 'ok', deniedPorts: [61237] });
+    expect(multi.deniedNames).toEqual(['wtdg3-live-a', 'wtdg3-live-b']);
+  });
+
+  it('TDG-3: a hanging docker costs at most 1.5 s and says it timed out', async () => {
+    const discovery = await loadDiscovery();
+    expect(discovery.DOCKER_TIMEOUT_MS).toBeLessThanOrEqual(1500);
+    const hung = discovery.discoverDockerDatabaseEndpoints(() => ({
+      status: null,
+      stdout: '',
+      stderr: '',
+      error: { code: 'ETIMEDOUT' },
+    }));
+    expect(hung).toMatchObject({ status: 'unavailable', deniedPorts: [] });
+    expect(hung.detail).toMatch(/did not answer within 1500 ms \(timed out\)/);
   });
 
   it('without docker the discovery is unavailable and says why; the static list still applies', async () => {
@@ -255,13 +349,40 @@ const before = p.evaluateLiveEndpoint('127.0.0.1', 61235) !== null;
 // No discovery has run in this process yet: the static list alone names the proof staging DB.
 const staticProofDbPort = p.evaluateLiveEndpoint('127.0.0.1', 55432) !== null;
 d.ensureDockerDatabaseEndpointDiscovery(() => ({ status: 0, stderr: '',
-  stdout: 'wtdg2-fresh-live-db' + String.fromCharCode(9) + '127.0.0.1:61235->5432/tcp' + String.fromCharCode(9) + 'postgres:17' }));
+  stdout: 'wtdg2-fresh-live-db' + String.fromCharCode(9) + '127.0.0.1:61235->5432/tcp' + String.fromCharCode(9) + 'postgres:17' + String.fromCharCode(9) }));
 const after = p.evaluateLiveEndpoint('127.0.0.1', 61235) !== null;
 const byName = p.evaluateLiveEndpoint('wtdg2-fresh-live-db', 5433) !== null;
 process.stdout.write('WTDG2_RESULT ' + JSON.stringify({ staticProofDbPort, before, after, byName }) + String.fromCharCode(10));
 process.exit(0);
 `);
     expect(JSON.parse(out)).toEqual({ staticProofDbPort: true, before: false, after: true, byName: true });
+  });
+
+  it('TDG-3: unexpected docker ps output in a fresh process: a clear WARNING, and only the static list', () => {
+    const policyUrl = pathToFileURL(
+      path.join(REPO_ROOT, 'server/modules/test-db-guard/testDatabaseTargetPolicy.ts'),
+    ).href;
+    const out = runChild(`
+const d = await import(${JSON.stringify(DISCOVERY_URL)});
+const p = await import(${JSON.stringify(policyUrl)});
+const lines = [];
+const write = process.stderr.write.bind(process.stderr);
+process.stderr.write = (chunk, ...rest) => { lines.push(String(chunk)); return write(chunk, ...rest); };
+const r = d.ensureDockerDatabaseEndpointDiscovery(() => ({ status: 0, stderr: '',
+  stdout: 'miljobeslut-postgres 0.0.0.0:61236->5432/tcp postgres:16' }));
+const warned = lines.some((l) => l.includes('WARNING: Docker port discovery unavailable (unexpected docker ps output format')
+  && l.includes('only the static denylist applies'));
+process.stdout.write('WTDG2_RESULT ' + JSON.stringify({ status: r.status, warned,
+  port61236: p.evaluateLiveEndpoint('127.0.0.1', 61236) !== null,
+  static5432: p.evaluateLiveEndpoint('127.0.0.1', 5432) !== null }) + String.fromCharCode(10));
+process.exit(0);
+`);
+    expect(JSON.parse(out)).toEqual({
+      status: 'unavailable',
+      warned: true,
+      port61236: false,
+      static5432: true,
+    });
   });
 });
 

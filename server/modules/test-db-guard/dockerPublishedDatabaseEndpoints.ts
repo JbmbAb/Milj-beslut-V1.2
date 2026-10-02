@@ -1,6 +1,10 @@
 import { spawnSync } from 'node:child_process';
 
-import { registerLiveDatabaseEndpoints, TEST_DB_GUARD_LABEL } from './testDatabaseTargetPolicy';
+import {
+  registerLiveDatabaseEndpoints,
+  TEST_DB_GUARD_LABEL,
+  WORKSTATION_LIVE_DATABASE_PORTS,
+} from './testDatabaseTargetPolicy';
 
 /**
  * TEST-DB-GUARD (OD-K0-5), TDG-2 finding 4: a running staging database
@@ -17,13 +21,28 @@ import { registerLiveDatabaseEndpoints, TEST_DB_GUARD_LABEL } from './testDataba
  * before a local E2E run (playwright.config.ts) or a destructive GIS admission is decided.
  * A container started later in the same process is not seen; pg connections to it still need the
  * opt-in, and its name is not a known host.
+ *
+ * TDG-3 (low findings):
+ *   - the output is validated line by line (exactly the four requested fields, a container name,
+ *     the published-ports grammar, an image); anything else is not trusted at all: a clear warning
+ *     on stderr, and only the static denylist applies (never a silent `ok` with no ports);
+ *   - a container is a disposable test database only if it was CREATED as one -- the label
+ *     `mimer.test-db=disposable` -- AND its name says test and nothing live; a name alone (e.g. a
+ *     live copy called `pg-test`) is never enough;
+ *   - a hanging Docker costs at most 1.5 s per test process, with a warning that says so.
  */
+
+/** The label that marks a container as a disposable test database: `--label mimer.test-db=disposable`. */
+export const DISPOSABLE_TEST_DB_LABEL = 'mimer.test-db';
+export const DISPOSABLE_TEST_DB_LABEL_VALUE = 'disposable';
 
 export type DockerContainerPorts = {
   readonly name: string;
   readonly image: string;
   /** Host ports the container publishes (any bind address). */
   readonly hostPorts: readonly number[];
+  /** The value of the container's `mimer.test-db` label ('' when it has none). */
+  readonly testDbLabel: string;
 };
 
 export type DockerDatabaseEndpointDiscovery = {
@@ -43,9 +62,19 @@ export type DockerPsResult = {
   readonly error?: { readonly code?: string; readonly message?: string } | null;
 };
 
-const DOCKER_PS_ARGS = ['ps', '--format', '{{.Names}}\t{{.Ports}}\t{{.Image}}'];
-const DOCKER_TIMEOUT_MS = 4000;
+const DOCKER_PS_FIELDS = 4;
+const DOCKER_PS_ARGS = [
+  'ps',
+  '--format',
+  `{{.Names}}\t{{.Ports}}\t{{.Image}}\t{{.Label "${DISPOSABLE_TEST_DB_LABEL}"}}`,
+];
+export const DOCKER_TIMEOUT_MS = 1500;
 const MAX_RANGE = 1024;
+
+/** `name` or `name1,name2` (docker ps lists every name of a container). */
+const CONTAINER_NAMES = /^[A-Za-z0-9][A-Za-z0-9_.-]*(,[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
+/** One published/exposed port: `5432/tcp`, `0.0.0.0:5432->5432/tcp`, `[::]:80-82->80-82/udp`. */
+const PORT_ENTRY = /^(\S+:\d+(-\d+)?->)?\d+(-\d+)?\/(tcp|udp|sctp)$/;
 
 /** `0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp, 127.0.0.1:8000-8002->80-82/tcp` -> host ports. */
 export function parsePublishedHostPorts(ports: string): number[] {
@@ -60,21 +89,50 @@ export function parsePublishedHostPorts(ports: string): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
-export function parseDockerPsOutput(stdout: string): DockerContainerPorts[] {
+export type DockerPsParse = {
+  readonly containers: DockerContainerPorts[];
+  /** Every line that is not in the requested format (empty when the whole output is trusted). */
+  readonly problems: string[];
+};
+
+/** Parses AND validates `docker ps --format` output; a single unexpected line is a problem. */
+export function parseDockerPsOutput(stdout: string): DockerPsParse {
   const containers: DockerContainerPorts[] = [];
-  for (const line of String(stdout ?? '').split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const [name = '', ports = '', image = ''] = line.split('\t');
-    if (!name.trim()) continue;
-    containers.push({ name: name.trim(), image: image.trim(), hostPorts: parsePublishedHostPorts(ports) });
-  }
-  return containers;
+  const problems: string[] = [];
+  String(stdout ?? '')
+    .split(/\r?\n/)
+    .forEach((line, index) => {
+      if (!line.trim()) return;
+      const where = `line ${index + 1}`;
+      const fields = line.split('\t');
+      if (fields.length !== DOCKER_PS_FIELDS) {
+        problems.push(`${where} has ${fields.length} field(s), expected ${DOCKER_PS_FIELDS}`);
+        return;
+      }
+      const [name, ports, image, label] = fields.map((field) => field.trim());
+      if (!CONTAINER_NAMES.test(name)) {
+        problems.push(`${where}: ${JSON.stringify(name.slice(0, 60))} is not a container name`);
+        return;
+      }
+      const entries = ports ? ports.split(',').map((part) => part.trim()) : [];
+      const badPort = entries.find((entry) => !PORT_ENTRY.test(entry));
+      if (badPort !== undefined) {
+        problems.push(`${where}: ${JSON.stringify(badPort.slice(0, 60))} is not a published-port entry`);
+        return;
+      }
+      if (!image) {
+        problems.push(`${where}: no image`);
+        return;
+      }
+      containers.push({ name, image, hostPorts: parsePublishedHostPorts(ports), testDbLabel: label });
+    });
+  return { containers, problems };
 }
 
 /**
- * The only containers whose ports an opt-in may reach: the NAME says disposable test database
- * (`test`/`tests` as a whole word) and nothing in it says live, staging, proof, demo, recovery,
- * platform or production. The image is deliberately ignored: the staging proof database runs the
+ * The name half of the test-container rule: the NAME says disposable test database (`test`/`tests`
+ * as a whole word) and nothing in it says live, staging, proof, demo, recovery, platform or
+ * production. The image is deliberately ignored: the staging proof database runs the
  * `milj-beslut-postgres-test` image.
  */
 export function isDisposableTestContainerName(name: string): boolean {
@@ -83,12 +141,26 @@ export function isDisposableTestContainerName(name: string): boolean {
   return /(^|[-_.])tests?([-_.]|$)/.test(lower);
 }
 
+/**
+ * The only containers whose ports an opt-in may reach: created with the label
+ * `mimer.test-db=disposable` AND named as a test database (isDisposableTestContainerName). A
+ * container cannot become a test container by being renamed.
+ */
+export function isDisposableTestContainer(
+  container: Pick<DockerContainerPorts, 'name' | 'testDbLabel'>,
+): boolean {
+  return (
+    String(container.testDbLabel ?? '').trim() === DISPOSABLE_TEST_DB_LABEL_VALUE &&
+    isDisposableTestContainerName(container.name)
+  );
+}
+
 function denied(containers: readonly DockerContainerPorts[]): { ports: number[]; names: string[] } {
   const ports = new Set<number>();
   const names = new Set<string>();
   for (const container of containers) {
-    if (isDisposableTestContainerName(container.name)) continue;
-    names.add(container.name.toLowerCase());
+    if (isDisposableTestContainer(container)) continue;
+    for (const name of container.name.split(',')) names.add(name.toLowerCase());
     for (const port of container.hostPorts) ports.add(port);
   }
   return { ports: [...ports].sort((a, b) => a - b), names: [...names].sort() };
@@ -125,13 +197,22 @@ export function discoverDockerDatabaseEndpoints(
     );
   }
   if (result.error) {
+    if (result.error.code === 'ETIMEDOUT') {
+      return unavailable(`docker ps did not answer within ${DOCKER_TIMEOUT_MS} ms (timed out)`);
+    }
     return unavailable(`docker could not be run (${result.error.code ?? result.error.message ?? 'error'})`);
   }
   if (result.status !== 0) {
     const firstLine = result.stderr.split(/\r?\n/).find((line) => line.trim()) ?? '';
     return unavailable(`docker ps exited ${String(result.status)}: ${firstLine.trim().slice(0, 160)}`);
   }
-  const containers = parseDockerPsOutput(result.stdout);
+  const { containers, problems } = parseDockerPsOutput(result.stdout);
+  if (problems.length > 0) {
+    return unavailable(
+      `unexpected docker ps output format, nothing of it is used (${problems.slice(0, 3).join('; ')}` +
+        `${problems.length > 3 ? `; +${problems.length - 3} more` : ''})`,
+    );
+  }
   const { ports, names } = denied(containers);
   return {
     status: 'ok',
@@ -161,8 +242,8 @@ export function ensureDockerDatabaseEndpointDiscovery(
     registerLiveDatabaseEndpoints({ ports: discovery.deniedPorts, hosts: discovery.deniedNames });
   } else {
     process.stderr.write(
-      `[${TEST_DB_GUARD_LABEL}] Docker port discovery unavailable (${discovery.detail}); ` +
-        `the static denylist applies.\n`,
+      `[${TEST_DB_GUARD_LABEL}] WARNING: Docker port discovery unavailable (${discovery.detail}); ` +
+        `only the static denylist applies (ports ${WORKSTATION_LIVE_DATABASE_PORTS.join(', ')}).\n`,
     );
   }
   return discovery;
