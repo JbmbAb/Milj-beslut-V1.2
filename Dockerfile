@@ -22,14 +22,16 @@ COPY tsconfig.json ./
 # package.json beror på 21 file:packages/*-paket och låsfilen länkar 29;
 # npm ci kan bara länka dem om packages/ redan finns i bygget.
 COPY packages ./packages
-# Installera alla beroenden
-RUN npm ci --legacy-peer-deps
-
-COPY prisma ./prisma
-RUN mkdir -p /app/docs/architecture && DATABASE_URL=postgresql://localhost npx prisma generate
+# Installera alla beroenden. --ignore-scripts: rotens postinstall behöver
+# scripts/ och prisma/, som inte finns i bygget ännu. Den körs nedan.
+RUN npm ci --legacy-peer-deps --ignore-scripts
 
 # Kopiera källkod
 COPY . .
+
+# Rotens postinstall (prisma generate + Cesium-assets), nu när källorna finns.
+# Samma skript som package.json pekar ut, ingen egen variant.
+RUN npm run postinstall
 
 # Bygg frontend (Vite)
 RUN npm run build
