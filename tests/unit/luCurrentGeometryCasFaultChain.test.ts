@@ -17,10 +17,16 @@
  * re-reads through a COLD storage stack (a new FileCASRepository, so no in-process cache can hide
  * the damage):
  *
- *   B's CAS object missing (index entry intact)  -> MIMERS_ARTIFACT_OBJECT_MISSING -> 503 CURRENTNESS_RESOLUTION_ERROR
+ *   B's CAS object missing (index entry intact)  -> MIMERS_ARTIFACT_OBJECT_MISSING -> 503 CURRENTNESS_STORAGE_INTEGRITY_FAULT (M1a-F1: not retryable)
  *   B's index entry missing                       -> "Artifact not found" -> OD-R1  -> 409 CURRENT_GEOMETRY_UNVERIFIED
- *   B's index entry unreadable (a directory)      -> MIMERS_ARTIFACT_INDEX_READ_FAILED -> 503 CURRENTNESS_RESOLUTION_ERROR
+ *   B's index entry unreadable (a directory)      -> MIMERS_ARTIFACT_INDEX_READ_FAILED (IO) -> 503 CURRENTNESS_RESOLUTION_ERROR (retryable)
+ *   B's index entry torn (half-written)           -> MIMERS_ARTIFACT_INDEX_READ_FAILED (MALFORMED) -> 503 CURRENTNESS_STORAGE_INTEGRITY_FAULT
  *   B's CAS bytes corrupted                       -> CASIntegrityError -> OD-R1        -> 409 CURRENT_GEOMETRY_UNVERIFIED
+ *
+ * M1a-F1 adds, on the same real store: damage to the SUPERSEDED point A is skipped consistently (B
+ * stays current, also when A's object is gone); the double fault "edge B -> C unverifiable AND C's
+ * projection row lost" fails closed (never B); and the accepted KNOWN_LIMITATION (B's row AND the
+ * A -> B edge row both lost) is pinned with its label, not as approved behaviour.
  *
  * and asserts that every endpoint fails closed with that class, that the report run never reaches the
  * spatial query or the kernel, that no PDF is rendered, and that the old point-A assessment is never
@@ -247,6 +253,9 @@ interface Fixture {
   readonly b: LocalizationGeometryArtifact;
   readonly assessmentA: string;
   readonly assessmentB: string;
+  /** M1a-F1: the A -> B edge, and a way to move the point once more (B -> C) on the same store. */
+  readonly edgeAB: string;
+  readonly moveTo: (from: LocalizationGeometryArtifact, northing: number, issuedAt: string) => Promise<{ readonly point: LocalizationGeometryArtifact; readonly edgeId: string }>;
 }
 
 let root: string;
@@ -324,33 +333,44 @@ async function buildFixture(): Promise<Fixture> {
   });
   const a = point(6580743.0);
   const b = point(6580843.0);
-  for (const g of [a, b]) {
+  const project = async (g: LocalizationGeometryArtifact) => {
     await put(repo, g);
     state.geometryRows.push({
       projectId: PROJECT_ID, geometryArtifactId: g.artifact_id,
       propertyContextRefId: propertyContextRef.artifact_id, propertyContextRefType: propertyContextRef.artifact_type, createdAt: new Date(),
     });
-  }
+  };
+  for (const g of [a, b]) await project(g);
   const bareIssuer = createLocalizationGeometrySupersessionIssuerArtifact({
     issuer_key_id: geometryKey.provider.keyId,
     owner_authority_ref: { artifact_id: 'owner-authority-cas-fault-chain', artifact_type: 'owner_authority_attestation' },
   });
   const issuer = { ...bareIssuer, attestation: await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bareIssuer, signing: geometryKey.provider }) };
   await put(repo, issuer);
-  const bareEdge = createLocalizationGeometrySupersessionArtifact({
-    contract_version: LOCALIZATION_GEOMETRY_SUPERSESSION_VERSION, project_id: PROJECT_ID,
-    predecessor_geometry_ref: { artifact_id: a.artifact_id, artifact_type: a.artifact_type },
-    successor_geometry_ref: { artifact_id: b.artifact_id, artifact_type: b.artifact_type },
-    reason_code: 'USER_LOCALIZATION_CHANGE_V1',
-    issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
-    issuer_key_id: geometryKey.provider.keyId, issued_at: '2026-10-02T00:00:00.000Z',
-  });
-  const edge = { ...bareEdge, attestation: await attestLocalizationGeometrySupersessionArtifact({ artifact: bareEdge, issuer, signing: geometryKey.provider }) };
-  await put(repo, edge);
-  state.supersessionRows.push({
-    projectId: PROJECT_ID, supersessionArtifactId: edge.artifact_id,
-    predecessorGeometryArtifactId: a.artifact_id, successorGeometryArtifactId: b.artifact_id, createdAt: new Date(),
-  });
+  const supersede = async (from: LocalizationGeometryArtifact, to: LocalizationGeometryArtifact, issuedAt: string) => {
+    const bareEdge = createLocalizationGeometrySupersessionArtifact({
+      contract_version: LOCALIZATION_GEOMETRY_SUPERSESSION_VERSION, project_id: PROJECT_ID,
+      predecessor_geometry_ref: { artifact_id: from.artifact_id, artifact_type: from.artifact_type },
+      successor_geometry_ref: { artifact_id: to.artifact_id, artifact_type: to.artifact_type },
+      reason_code: 'USER_LOCALIZATION_CHANGE_V1',
+      issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
+      issuer_key_id: geometryKey.provider.keyId, issued_at: issuedAt,
+    });
+    const edge = { ...bareEdge, attestation: await attestLocalizationGeometrySupersessionArtifact({ artifact: bareEdge, issuer, signing: geometryKey.provider }) };
+    await put(repo, edge);
+    state.supersessionRows.push({
+      projectId: PROJECT_ID, supersessionArtifactId: edge.artifact_id,
+      predecessorGeometryArtifactId: from.artifact_id, successorGeometryArtifactId: to.artifact_id, createdAt: new Date(),
+    });
+    return edge.artifact_id;
+  };
+  const edgeAB = await supersede(a, b, '2026-10-02T00:00:00.000Z');
+  // What the supersession worker writes for one more move: object -> geometry row -> edge row.
+  const moveTo = async (from: LocalizationGeometryArtifact, northing: number, issuedAt: string) => {
+    const next = point(northing);
+    await project(next);
+    return { point: next, edgeId: await supersede(from, next, issuedAt) };
+  };
   process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID = geometryKey.provider.keyId;
   process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = geometryKey.publicKey;
   __resetLocalizationGeometrySupersessionVerifierForTests(null);
@@ -384,7 +404,7 @@ async function buildFixture(): Promise<Fixture> {
   };
   const assessmentA = await persistAssessment(a, 'A');
   const assessmentB = await persistAssessment(b, 'B');
-  return { casDir, indexDir, a, b, assessmentA, assessmentB };
+  return { casDir, indexDir, a, b, assessmentA, assessmentB, edgeAB, moveTo };
 }
 
 function indexEntryPath(f: Fixture, artifactId: string): string {
@@ -396,25 +416,31 @@ function objectPath(f: Fixture, artifactId: string): string {
   return new FileCASRepository(f.casDir).getFilePath(hash);
 }
 
+/** Damage ONE stored artifact on disk (by default the current point B). */
 const SABOTAGE = {
-  'object missing (index entry intact)': (f: Fixture) => unlinkSync(objectPath(f, f.b.artifact_id)),
-  'index entry missing': (f: Fixture) => unlinkSync(indexEntryPath(f, f.b.artifact_id)),
-  'index entry unreadable (EISDIR)': (f: Fixture) => {
-    const entry = indexEntryPath(f, f.b.artifact_id);
+  'object missing (index entry intact)': (f: Fixture, id = f.b.artifact_id) => unlinkSync(objectPath(f, id)),
+  'index entry missing': (f: Fixture, id = f.b.artifact_id) => unlinkSync(indexEntryPath(f, id)),
+  'index entry unreadable (EISDIR)': (f: Fixture, id = f.b.artifact_id) => {
+    const entry = indexEntryPath(f, id);
     unlinkSync(entry);
     mkdirSync(entry);
   },
-  'bytes corrupted': (f: Fixture) => writeFileSync(objectPath(f, f.b.artifact_id), Buffer.from('{"artifact_id":"not-what-the-hash-says"}')),
+  // M1a-F1: a half-written (torn) entry is a persistent integrity fault, not a transient read error.
+  'index entry torn (half-written)': (f: Fixture, id = f.b.artifact_id) => writeFileSync(indexEntryPath(f, id), '{"artifact_id":"'),
+  'bytes corrupted': (f: Fixture, id = f.b.artifact_id) => writeFileSync(objectPath(f, id), Buffer.from('{"artifact_id":"not-what-the-hash-says"}')),
 } as const;
 
 type Expectation = { readonly status: number; readonly failureClass: string; readonly retryable: boolean; readonly assessmentStatus: string };
 const TECHNICAL: Expectation = { status: 503, failureClass: 'CURRENTNESS_RESOLUTION_ERROR', retryable: true, assessmentStatus: 'EXECUTION_FAILED' };
+// M1a-F1 (1): a stored object that is gone, or a torn index entry, does not heal on a retry.
+const STORAGE: Expectation = { status: 503, failureClass: 'CURRENTNESS_STORAGE_INTEGRITY_FAULT', retryable: false, assessmentStatus: 'EXECUTION_FAILED' };
 const UNVERIFIED: Expectation = { status: 409, failureClass: 'CURRENT_GEOMETRY_UNVERIFIED', retryable: false, assessmentStatus: 'GOVERNANCE_DENIED' };
 
 const CASES: ReadonlyArray<[keyof typeof SABOTAGE, Expectation, string]> = [
-  ['object missing (index entry intact)', TECHNICAL, 'MIMERS_ARTIFACT_OBJECT_MISSING'],
+  ['object missing (index entry intact)', STORAGE, 'MIMERS_ARTIFACT_OBJECT_MISSING'],
   ['index entry missing', UNVERIFIED, 'MISSING_FROM_CAS'],
   ['index entry unreadable (EISDIR)', TECHNICAL, 'MIMERS_ARTIFACT_INDEX_READ_FAILED'],
+  ['index entry torn (half-written)', STORAGE, 'MALFORMED'],
   ['bytes corrupted', UNVERIFIED, 'CORRUPTED_IN_CAS'],
 ];
 
@@ -498,7 +524,8 @@ describe('damage to the CURRENT point B on disk fails every endpoint closed with
     expect(kernelMock, 'the kernel ran although the current point is unverifiable').not.toHaveBeenCalled();
     expect(motor).toMatchObject({
       admitted: false, assessment_artifact_id: null, assessment_status: expected.assessmentStatus,
-      localization_geometry: { status: 'FAILED_CLOSED', artifact_id: null, failure_class: expected.failureClass },
+      // M1a-F1 (1): the generate-report record carries the same retryable flag as the other endpoints.
+      localization_geometry: { status: 'FAILED_CLOSED', artifact_id: null, failure_class: expected.failureClass, retryable: expected.retryable },
     });
     expect(queryMock).not.toHaveBeenCalled();
     expect(kernelMock).not.toHaveBeenCalled();
@@ -538,5 +565,101 @@ describe('damage to the CURRENT point B on disk fails every endpoint closed with
     expect((typed as LocalizationGeometryCurrentnessError).failureClass).toBe(expected.failureClass);
     expect((typed as LocalizationGeometryCurrentnessError).technicalDetail).toContain(technicalMarker);
     expect((typed as LocalizationGeometryCurrentnessError).technicalDetail).toContain(f.b.artifact_id);
+  });
+});
+
+describe('M1a-F1 (2): damage to the SUPERSEDED point A is skipped consistently -- B stays current, also when A\'s object is gone', () => {
+  it.each([
+    'object missing (index entry intact)',
+    'index entry torn (half-written)',
+    'index entry missing',
+    'bytes corrupted',
+  ] as const)('A %s under the verified A -> B edge -> current-assessment serves B\'s assessment; generate-report runs on B', async (sabotage) => {
+    const f = await buildFixture();
+    SABOTAGE[sabotage](f, f.a.artifact_id);
+    state.repo = coldRepository(f.casDir, f.indexDir);
+    const auth = bearer();
+
+    const current = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', auth);
+    expect(current.status, JSON.stringify(current.body)).toBe(200);
+    expect(current.body.assessmentArtifactId).toBe(f.assessmentB);
+    expect(current.body.localizationGeometry).toMatchObject({ artifact_id: f.b.artifact_id });
+
+    const report = await request(app()).post('/api/localization/generate-report').set('Authorization', auth).send({ projectId: PROJECT_ID, siteAlternatives: [SITE] });
+    expect(report.status).toBe(200);
+    expect(report.body.siteAnalyses[0].executionMotor.localization_geometry).toMatchObject({ status: 'RESOLVED', artifact_id: f.b.artifact_id });
+    expect(kernelMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('M1a-F1 (a): the double fault "edge B -> C unverifiable AND C\'s projection row lost" fails closed -- never the superseded B', () => {
+  it('B -> C moved, then C\'s geometry row and the B -> C edge\'s index entry are lost -> 409 CURRENT_GEOMETRY_UNVERIFIED on every endpoint; B\'s (stale) assessment is never served', async () => {
+    const f = await buildFixture();
+    const { point: c, edgeId: edgeBC } = await f.moveTo(f.b, 6580943.0, '2026-10-02T00:00:01.000Z');
+    // Control on the intact store: C is current, so B's assessment is now the stale one.
+    state.repo = coldRepository(f.casDir, f.indexDir);
+    const auth = bearer();
+    const intact = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', auth);
+    expect(intact.body.code ?? null).not.toBe('LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED');
+    expect(intact.body.assessmentArtifactId ?? null).not.toBe(f.assessmentB);
+
+    // The double fault: C's projection row lost, and the B -> C edge's index entry lost.
+    state.geometryRows.splice(state.geometryRows.findIndex((r) => r.geometryArtifactId === c.artifact_id), 1);
+    unlinkSync(indexEntryPath(f, edgeBC));
+    state.repo = coldRepository(f.casDir, f.indexDir);
+    const failure = {
+      ok: false, code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+      failureClass: 'CURRENT_GEOMETRY_UNVERIFIED', reasonCode: 'LOCALIZATION_GEOMETRY_CURRENT_GEOMETRY_UNVERIFIED', retryable: false,
+    };
+
+    const report = await request(app()).post('/api/localization/generate-report').set('Authorization', auth).send({ projectId: PROJECT_ID, siteAlternatives: [SITE] });
+    const motor = report.body.siteAnalyses[0].executionMotor;
+    expect(motor.localization_geometry?.artifact_id ?? null, 'generate-report ran on the SUPERSEDED point B').not.toBe(f.b.artifact_id);
+    expect(motor).toMatchObject({
+      admitted: false, assessment_status: 'GOVERNANCE_DENIED',
+      localization_geometry: { status: 'FAILED_CLOSED', failure_class: 'CURRENT_GEOMETRY_UNVERIFIED', retryable: false },
+    });
+    expect(kernelMock).not.toHaveBeenCalled();
+    expect(queryMock).not.toHaveBeenCalled();
+
+    const current = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', auth);
+    expect(current.body.assessmentArtifactId, 'current-assessment presented the SUPERSEDED point-B assessment as current').not.toBe(f.assessmentB);
+    expect(current.status).toBe(409);
+    expect(current.body).toMatchObject(failure);
+
+    const pdf = await request(app()).get(`/api/localization/${PROJECT_ID}/export-assessment-pdf`).set('Authorization', auth);
+    expect(pdf.headers['x-assessment-artifact-id'], 'the PDF exported the SUPERSEDED point-B assessment').not.toBe(f.assessmentB);
+    expect(pdf.status).toBe(409);
+    expect(pdf.body).toMatchObject(failure);
+    expect(pdfMock).not.toHaveBeenCalled();
+
+    const verify = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', auth).send({});
+    expect(verify.status).toBe(409);
+    expect(verify.body).toMatchObject(failure);
+
+    const typed = await resolveLocalizationGeometryCurrentness({ projectId: PROJECT_ID, artifactRepository: state.repo as never }).catch((e: unknown) => e);
+    expect((typed as LocalizationGeometryCurrentnessError).technicalDetail).toContain(edgeBC);
+    expect((typed as LocalizationGeometryCurrentnessError).technicalDetail).toContain('EDGE_MISSING_FROM_CAS');
+    expect((typed as LocalizationGeometryCurrentnessError).technicalDetail).toContain(c.artifact_id);
+  });
+});
+
+describe('KNOWN_LIMITATION (LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS) -- M1a-F1 (b), accepted for 72h by the owner, NOT approved behaviour', () => {
+  it('KNOWN_LIMITATION: B\'s geometry row AND the A -> B edge row both lost -> current-assessment serves A\'s assessment although B and the edge are intact in CAS', async () => {
+    const f = await buildFixture();
+    state.geometryRows.splice(state.geometryRows.findIndex((r) => r.geometryArtifactId === f.b.artifact_id), 1);
+    state.supersessionRows.splice(state.supersessionRows.findIndex((r) => r.supersessionArtifactId === f.edgeAB), 1);
+    state.repo = coldRepository(f.casDir, f.indexDir);
+    // B and the signed edge are still readable from CAS -- nothing visible refers to them any more.
+    const repo = state.repo as CasBackedArtifactRepository;
+    expect(await repo.resolve<{ artifact_id: string }>({ artifact_id: f.b.artifact_id, artifact_type: 'localization_geometry' })).toMatchObject({ artifact_id: f.b.artifact_id });
+    expect(await repo.resolve<{ artifact_id: string }>({ artifact_id: f.edgeAB, artifact_type: 'localization_geometry_supersession' })).toMatchObject({ artifact_id: f.edgeAB });
+
+    const current = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', bearer());
+    // KNOWN_LIMITATION, pinned: "currentness är fail-closed för detekterbara fel men inte bevisad mot
+    // korrelerad förlust av all metadata som visar att en nyare punkt existerat". Invert this to a
+    // fail-closed expectation when a CAS head pointer exists.
+    expect(current.status).toBe(200);
+    expect(current.body.assessmentArtifactId).toBe(f.assessmentA);
   });
 });

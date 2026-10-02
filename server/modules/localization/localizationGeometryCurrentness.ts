@@ -29,11 +29,18 @@
  * (503, technical, NOT retryable) also when the key is present but unparsable, of the wrong type, or
  * valid but wrong (it verifies none of the project's supersession issuers) -- never AMBIGUOUS 409.
  * Every class states whether it is `retryable`; only transient technical failures are.
+ *
+ * M1a-F1 (2026-10-02): a stored candidate whose CAS object is gone or whose index entry is torn is
+ * CURRENTNESS_STORAGE_INTEGRITY_FAULT (503, technical, NOT retryable) instead of the retryable
+ * CURRENTNESS_RESOLUTION_ERROR; an unverifiable supersession edge whose claimed successor is not
+ * visible is CURRENT_GEOMETRY_UNVERIFIED (never the edge's predecessor); a FAILED_CLOSED provenance
+ * record carries `retryable`.
  */
 import type { ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import type { LocalizationGeometryProvenance } from '@miljobeslut/mps-lu';
 import { resolveCurrentLocalizationGeometry, type CurrentLocalizationGeometry } from './localizationGeometryProjection';
 import {
+  LOCALIZATION_GEOMETRY_CANDIDATE_STORAGE_INTEGRITY_FAULT_PREFIX,
   LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX,
   LOCALIZATION_GEOMETRY_CURRENT_CANDIDATE_UNVERIFIED_PREFIX,
 } from './localizationGeometryCurrentProvider';
@@ -52,6 +59,7 @@ export type LocalizationGeometryCurrentnessFailureClass =
   | 'INVALID_GEOMETRY_HEAD'
   | 'VERIFIER_CONFIGURATION'
   | 'DERIVED_GEOMETRY_PERSISTENCE_FAILED'
+  | 'CURRENTNESS_STORAGE_INTEGRITY_FAULT'
   | 'CURRENTNESS_RESOLUTION_ERROR';
 
 interface FailureClassPolicy {
@@ -105,11 +113,16 @@ const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClas
     kind: 'REFUSED',
     retryable: false,
   },
+  // M1a-F1 (4): the same class also covers "the configured key verifies none of the project's
+  // issuers", which a forged issuer (the project's only one) produces exactly like a wrong key. The
+  // text therefore names both causes and no longer says "not a fault in the project".
   VERIFIER_CONFIGURATION: {
     messageSv:
-      'Verifieringsnyckeln för lokaliseringsbyten saknas, är ogiltig eller stämmer inte med utfärdaren av projektets ' +
-      'lokaliseringsbyten. Det är ett konfigurationsfel i systemet, inte ett fel i projektet, och det försvinner inte vid ' +
-      'ett nytt försök. Ingen bedömning görs – kontakta systemets administratör.',
+      'Projektets lokaliseringsbyten kunde inte verifieras med systemets verifieringsnyckel. Antingen är det ett ' +
+      'konfigurationsfel i systemet (nyckeln saknas, är ogiltig eller är fel nyckel), eller så är utfärdaren av ' +
+      'lokaliseringsbytena inte betrodd (till exempel en förfalskad utfärdare). Systemet kan inte avgöra vilket, och felet ' +
+      'försvinner inte vid ett nytt försök. Ingen bedömning görs – kontakta systemets administratör, som behöver ' +
+      'kontrollera både verifieringsnyckeln och utfärdaren.',
     httpStatus: 503,
     kind: 'ERROR',
     retryable: false,
@@ -120,6 +133,17 @@ const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClas
     httpStatus: 503,
     kind: 'ERROR',
     retryable: true,
+  },
+  // M1a-F1 (1): a stored object whose CAS bytes are gone (or whose index entry is torn) does not heal
+  // on a retry. Technical (OD-R2: never "missing"), but not retryable, and the text says so.
+  CURRENTNESS_STORAGE_INTEGRITY_FAULT: {
+    messageSv:
+      'Aktuell lokalisering kunde inte fastställas: ett sparat objekt som projektets lokalisering bygger på saknas i ' +
+      'arkivet eller har en skadad indexpost. Det är ett bestående lagringsfel, inte ett tillfälligt fel, och det ' +
+      'försvinner inte vid ett nytt försök. Ingen bedömning görs – kontakta systemets administratör.',
+    httpStatus: 503,
+    kind: 'ERROR',
+    retryable: false,
   },
   CURRENTNESS_RESOLUTION_ERROR: {
     messageSv:
@@ -175,6 +199,9 @@ export function classifyLocalizationGeometryCurrentnessError(
   // retryable technical failure -- never a refusal, never NOT_FOUND. Explicit so that a later change
   // to the default below cannot silently move it.
   if (message.startsWith(LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX)) return 'CURRENTNESS_RESOLUTION_ERROR';
+  // M1a-F1: a stored candidate that cannot be read back (object gone, index entry torn) -- technical
+  // like the line above, but persistent: never a refusal, never NOT_FOUND, not retryable.
+  if (message.startsWith(LOCALIZATION_GEOMETRY_CANDIDATE_STORAGE_INTEGRITY_FAULT_PREFIX)) return 'CURRENTNESS_STORAGE_INTEGRITY_FAULT';
   // OD-R1: the possibly-current geometry was determined bad -- a refusal, never an older point.
   if (message.startsWith(LOCALIZATION_GEOMETRY_CURRENT_CANDIDATE_UNVERIFIED_PREFIX)) return 'CURRENT_GEOMETRY_UNVERIFIED';
   if (message.startsWith('AMBIGUOUS_CURRENT_GEOMETRY')) return 'AMBIGUOUS_CURRENT_GEOMETRY';
@@ -267,6 +294,12 @@ export interface LocalizationGeometryProvenanceRecord {
   readonly failure_class: LocalizationGeometryCurrentnessFailureClass | null;
   readonly reason_code: string | null;
   readonly message_sv: string | null;
+  /**
+   * M1a-F1 (1): on a FAILED_CLOSED record, whether repeating the request can succeed (the class's
+   * `retryable`), so the generate-report response carries the same flag as the other endpoints.
+   * Absent on a RESOLVED record.
+   */
+  readonly retryable?: boolean;
 }
 
 export function resolvedGeometryProvenanceRecord(args: {
@@ -296,5 +329,6 @@ export function failedClosedGeometryProvenanceRecord(error: LocalizationGeometry
     failure_class: error.failureClass,
     reason_code: error.reasonCode,
     message_sv: error.userMessage,
+    retryable: error.retryable,
   };
 }
