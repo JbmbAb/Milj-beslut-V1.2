@@ -259,7 +259,9 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
         const fc = evidence.geojson as { features?: unknown };
         const features = Array.isArray(fc?.features) ? (fc.features as Array<{ geometry?: unknown } | null>) : [];
         setEvidenceCount(count);
-        setEmptyEvidence(count === 0);
+        // W-M2d item 9: "no control results" only when the assessment has none -- governed evidence
+        // without object geometry draws nothing but is not "no results" (the panel shows them).
+        setEmptyEvidence(features.length === 0);
         setGeometrylessEvidence(features.length > 0 && features.every((f) => !f?.geometry));
       } catch (err) {
         if (cancelled) return;

@@ -2147,6 +2147,24 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.queryByTestId('lu-geometry-pending')).not.toBeInTheDocument();
   });
 
+  it('item 9: a qualified "ingen registrerad träff" (limited coverage, unknown version) is never green -- text and border are a warning colour', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => governedReadBack({ id: 'assessment-colours', layers: { ebh: { kind: 'no_hit', version: 'f'.repeat(64) } } }),
+      evidence: () => FIVE_NO_HIT,
+    });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
+    for (const layer of ['natura2000', 'protected_area', 'water_protection_area', 'ebh']) {
+      const chip = screen.getByTestId(`lu-check-state-${layer}`);
+      expect(chip).toHaveAttribute('data-qualified');
+      expect(chip).toHaveStyle({ color: '#FDBA74' });
+      expect(chip).not.toHaveStyle({ color: '#6EE7B7' });
+    }
+    // An unqualified checked no-hit keeps its own (green) state colour.
+    expect(screen.getByTestId('lu-check-state-water')).toHaveStyle({ color: '#6EE7B7' });
+  });
+
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
     const user = userEvent.setup();
     mockM2b({ currentAssessment: () => persistedWithoutServerChecks('assessment-old-server') });

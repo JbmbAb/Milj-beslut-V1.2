@@ -23,10 +23,12 @@ const STATE_STYLE: Readonly<Record<LuKnowledgeState, { color: string; border: st
 const PROPERTY_FOUND_STYLE = { color: '#A5F3FC', border: '#22D3EE', background: 'rgba(34,211,238,0.08)' };
 
 /**
- * DEMO M2c item 1: a negative result from a register KNOWN to cover only part of the check's name
- * (e.g. Natura 2000 with SPA only) is never plain green -- the orange border marks the qualification.
+ * DEMO M2c item 1, W-M2d items 3 + 9: a negative result from a register KNOWN to cover only part of the
+ * check's name (e.g. Natura 2000 with SPA only), or on a dataset version outside the import contracts,
+ * is never green -- text, border and background are the warning colour (M2c verification: green text
+ * with an orange border still read as green).
  */
-const LIMITED_NO_HIT_STYLE = { color: '#6EE7B7', border: '#F97316', background: 'rgba(249,115,22,0.08)' };
+const LIMITED_NO_HIT_STYLE = { color: '#FDBA74', border: '#F97316', background: 'rgba(249,115,22,0.08)' };
 
 export const LuStateChip: React.FC<{
   check: Pick<LuCheckView, 'key' | 'state' | 'stateLabel'> & { coverageLimited?: boolean; datasetVersionUnknown?: boolean };

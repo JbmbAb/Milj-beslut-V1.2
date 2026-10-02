@@ -116,6 +116,13 @@ describe('DEMO M2a item 4 / M2b: CesiumMapView in product mode', () => {
     );
   });
 
+  it('W-M2d item 9: control results without object geometry are never announced as "no control results" -- the map says what the panel says', async () => {
+    adapter.setEvidenceLayers.mockResolvedValueOnce(0); // nothing drawable: every governed feature has geometry: null
+    render(<CesiumMapView {...baseProps} productEvidence={LOADED} searchRadiusMeters={500} />);
+    expect(await screen.findByTestId('cesium-geometryless-note')).toHaveTextContent('Kontrollresultaten saknar objektgeometri');
+    expect(screen.queryByTestId('cesium-empty-evidence')).not.toBeInTheDocument();
+  });
+
   it('M2c item 2: when the workspace withholds the ring (assessment made for another point) the legend says why', async () => {
     render(
       <CesiumMapView
