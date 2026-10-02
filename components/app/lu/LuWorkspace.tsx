@@ -112,17 +112,17 @@ type CurrentAssessmentResponse = {
 };
 
 /**
- * DEMO M2a item 2 / M2b item 2 -- the ONE governed result this view renders. An ASSESSED result is
+ * DEMO M2a item 2 / M2b item 2 / M2c item 3 -- the ONE governed result this view renders. It is
  * ALWAYS read from GET current-assessment, for a fresh run (after checking that the read-back is the
- * assessment the run produced) and for a reopen alike: one data source, one mapping. Only a run
- * that produced no assessment is rendered from the run response itself (there is nothing to read
- * back). Legacy observations (complianceAnalysis, dataSources, warnings) are never part of it.
+ * assessment the run produced) and for a reopen alike: one data source, one mapping. A run that
+ * produced no assessment is NOT a result: it is a RunOutcome notice, and the project's current
+ * assessment (if any) is still read back and shown as such. Legacy observations
+ * (complianceAnalysis, dataSources, warnings) are never part of it.
  */
 type GovernedResult = {
   assessmentStatus: string;
   assessmentArtifactId: string | null;
   findings: LuFindingView[];
-  statusMessage: string | null;
   /** The displayed assessment's own SPATIAL_EVIDENCE ids -- the viewer evidence must equal these. */
   spatialEvidenceRefs: readonly string[] | null;
   /**
@@ -136,6 +136,24 @@ type GovernedResult = {
    */
   assessedGeometryId: string | null;
 };
+
+/**
+ * DEMO M2c item 3 (M2b verifier finding 7): the latest run in THIS view produced no assessment
+ * (GOVERNANCE_DENIED, NOT_ASSESSED, EXECUTION_FAILED). The server keeps no record of it in the read
+ * model, so a reload cannot show it; the view says it as long as it is open.
+ */
+type RunOutcome = {
+  status: string;
+  /** The server's own Swedish reason (executionMotor.localization_geometry.message_sv). */
+  messageSv: string | null;
+};
+
+/** How the run that produced no assessment ended, as the end of a sentence. */
+function runOutcomeClause(status: string): string {
+  if (status === 'GOVERNANCE_DENIED') return 'nekades av styrningen';
+  if (status === 'EXECUTION_FAILED') return 'misslyckades';
+  return 'inte gav någon bedömning';
+}
 
 /** DEMO M2c item 2: the read-back's own bound point id, or null when the answer does not state one. */
 function assessedGeometryIdOf(result: CurrentAssessmentResponse): string | null {
@@ -203,7 +221,6 @@ function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assess
     assessmentStatus: 'ASSESSED',
     assessmentArtifactId: assessmentId,
     findings: sortFindings(Array.isArray(result.findings) ? result.findings : []),
-    statusMessage: null,
     spatialEvidenceRefs: spatialRefsOf(result.evidenceRefs),
     serverLayerChecks: mergeServerChecks(result.documentCheck, serverLayerChecks),
     assessedGeometryId: assessedGeometryIdOf(result),
@@ -254,6 +271,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<LuErrorPresentation | null>(null);
   const [governed, setGoverned] = useState<GovernedResult | null>(null);
+  const [runOutcome, setRunOutcome] = useState<RunOutcome | null>(null);
   const [incoherence, setIncoherence] = useState<Incoherence | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState<LuErrorPresentation | null>(null);
@@ -305,6 +323,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setLookupError(null);
     setLookingUp(true);
     clearResultState();
+    setRunOutcome(null);
     expectedRunRef.current = null;
     try {
       const info = await fetchPropertyInfo(designation.trim(), getActiveProjectId() || undefined);
@@ -419,8 +438,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
   useEffect(() => {
     if (site) {
-      // A new property/point is a new context: a previous run's expectation no longer applies.
+      // A new property/point is a new context: a previous run's expectation (and outcome) no longer applies.
       expectedRunRef.current = null;
+      setRunOutcome(null);
       void loadCurrentAssessment();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -545,6 +565,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     assessmentRequestRef.current++; // any read still in flight no longer owns the view
     expectedRunRef.current = null;
     clearResultState();
+    setRunOutcome(null);
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentError(null);
     try {
@@ -575,17 +596,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         };
         await loadCurrentAssessment();
       } else {
-        // No assessment was produced: there is nothing to read back. Show the governed status and
-        // the server's Swedish reason (localization_geometry.message_sv) only.
-        setGoverned({
-          assessmentStatus: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
-          assessmentArtifactId: null,
-          findings: [],
-          statusMessage: motor.localization_geometry?.message_sv ?? null,
-          spatialEvidenceRefs: [],
-          serverLayerChecks: null,
-          assessedGeometryId: null,
+        // DEMO M2c item 3: no assessment was produced. Say so (governed status + the server's
+        // Swedish reason) -- and read back what IS current, so a still-current older assessment is
+        // shown as such instead of being hidden until the next reload.
+        setRunOutcome({
+          status: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
+          messageSv: motor.localization_geometry?.message_sv ?? null,
         });
+        await loadCurrentAssessment();
       }
     } catch (err) {
       setRunError(presentLuError(err, 'run'));
@@ -704,9 +722,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       return governed.assessmentStatus === 'ASSESSED' && governed.assessmentArtifactId ? { status: 'present' } : { status: 'not_assessed' };
     }
     if (persistedAssessmentError) return { status: 'error', error: persistedAssessmentError };
+    // DEMO M2c item 3: the latest run produced no assessment and none is current.
+    if (runOutcome && persistedAssessmentNotFound) return { status: 'not_assessed' };
     if (persistedAssessmentNotFound || !site || !projectReady) return { status: 'none' };
     return { status: 'loading' };
-  }, [persistedAssessmentLoading, incoherencePresentation, governed, persistedAssessmentError, persistedAssessmentNotFound, site, projectReady]);
+  }, [persistedAssessmentLoading, incoherencePresentation, governed, persistedAssessmentError, persistedAssessmentNotFound, runOutcome, site, projectReady]);
 
   // DEMO M2c item 2: the displayed point is bound to the displayed assessment by artifact id.
   const pointBinding: PointBinding = useMemo(() => {
@@ -846,14 +866,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           ? 'Bedömningen kunde inte köras'
           : incoherence
             ? 'Bedömningen kunde inte läsas tillbaka'
-            : assessmentPresence.status === 'not_assessed'
-              ? 'Ingen bedömning gjordes'
+            : runOutcome
+              ? 'Körningen gav ingen ny bedömning'
               : assessedAndShown
                 ? 'Bedömning sparad'
                 : 'Bedömning',
       state: running
         ? 'active'
-        : runError || incoherence || assessmentPresence.status === 'not_assessed'
+        : runError || incoherence || runOutcome
           ? 'failed'
           : assessedAndShown
             ? 'done'
@@ -1018,6 +1038,25 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
         {lookupError ? <LuErrorNotice testId="lu-lookup-error" error={lookupError} className="" /> : null}
         {runError ? <LuErrorNotice testId="lu-run-error" error={runError} className="" /> : null}
+        {runOutcome ? (
+          <div
+            data-testid="lu-run-outcome"
+            className="text-sm space-y-1 border p-3"
+            style={{ borderColor: '#F97316', color: '#FDBA74' }}
+          >
+            <p>
+              Senaste körningen:{' '}
+              <span data-testid="lu-run-outcome-status" className="font-semibold">
+                {ASSESSMENT_STATUS_LABEL[runOutcome.status] ?? 'Okänd status'}
+              </span>
+            </p>
+            {runOutcome.messageSv ? <p data-testid="lu-run-outcome-message">{runOutcome.messageSv}</p> : null}
+            <p>
+              Körningen gav ingen ny bedömning.
+              {governed ? ' Bedömningen som visas nedan är projektets aktuella sparade bedömning från en annan körning.' : ''}
+            </p>
+          </div>
+        ) : null}
 
         {site ? (
           <p data-testid="lu-site-ready" className="text-sm opacity-80">
@@ -1313,9 +1352,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </div>
             ) : null}
           </div>
-          {governed.statusMessage ? (
-            <p data-testid="lu-assessment-status-message" className="text-sm" style={{ color: '#FDBA74' }}>
-              {governed.statusMessage}
+          {runOutcome ? (
+            <p data-testid="lu-results-not-latest-run" className="text-sm" style={{ color: '#FDBA74' }}>
+              Detta är projektets aktuella sparade bedömning från en annan körning. Den är inte resultatet av den senaste
+              körningen, som {runOutcomeClause(runOutcome.status)}.
             </p>
           ) : null}
 

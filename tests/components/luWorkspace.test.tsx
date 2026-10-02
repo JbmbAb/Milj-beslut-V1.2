@@ -314,11 +314,14 @@ describe('LuWorkspace', () => {
     expect(await screen.findByTestId('lu-site-ready')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('lu-run'));
-    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
-    expect(screen.getByTestId('lu-assessment-status')).toHaveTextContent('Ej bedömd');
-    expect(screen.getByTestId('lu-assessment-status')).not.toHaveTextContent('LOW');
-    expect(screen.getByTestId('lu-assessment-status')).not.toHaveTextContent('MEDIUM');
-    expect(screen.getByTestId('lu-assessment-status')).not.toHaveTextContent('HIGH');
+    // DEMO M2c item 3: the run's own outcome is its own notice; "lu-results" is only ever an assessment.
+    expect(await screen.findByTestId('lu-run-outcome')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-run-outcome-status')).toHaveTextContent('Ej bedömd');
+    expect(screen.getByTestId('lu-run-outcome-status')).not.toHaveTextContent('LOW');
+    expect(screen.getByTestId('lu-run-outcome-status')).not.toHaveTextContent('MEDIUM');
+    expect(screen.getByTestId('lu-run-outcome-status')).not.toHaveTextContent('HIGH');
+    expect(await screen.findByTestId('lu-persisted-assessment-not-found')).toBeInTheDocument();
+    expect(screen.queryByTestId('lu-results')).not.toBeInTheDocument();
     // No governed assessment_artifact_id -- nothing to export.
     expect(screen.queryByTestId('lu-export-pdf')).not.toBeInTheDocument();
   });
@@ -987,10 +990,11 @@ describe('LuWorkspace', () => {
     });
     await openWorkspace(user);
     await user.click(await screen.findByTestId('lu-run'));
-    expect(await screen.findByTestId('lu-assessment-status')).toHaveTextContent('Ej bedömd – nekad av styrning');
-    expect(screen.getByTestId('lu-assessment-status-message')).toHaveTextContent('Lokaliseringen är tvetydig. Ingen bedömning görs.');
+    expect(await screen.findByTestId('lu-run-outcome-status')).toHaveTextContent('Ej bedömd – nekad av styrning');
+    expect(screen.getByTestId('lu-run-outcome-message')).toHaveTextContent('Lokaliseringen är tvetydig. Ingen bedömning görs.');
     expect(screen.queryByTestId('lu-export-pdf')).not.toBeInTheDocument();
-    expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'NOT_CHECKED');
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'NOT_CHECKED'));
+    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('Den senaste körningen gav ingen bedömning – kontrollen är inte gjord.');
   });
 
   it('DEMO M2a item 7: progress steps come from real state -- the run step is active only while the request is in flight', async () => {
@@ -1613,6 +1617,71 @@ describe('LuWorkspace DEMO M2b', () => {
     await openM2b(user);
     await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
     expect(lastCesiumMapViewProps.productEvidence.stateLabel).toBe('Tekniskt fel');
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // DEMO M2c item 3 (M2b verifier finding 7): a run that produced no assessment is shown as exactly
+  // that, and a still-current OLDER assessment is shown as the project's current one -- labelled as
+  // not the result of the latest run -- instead of being hidden (and then reappearing on reload).
+  // -----------------------------------------------------------------------------------------------
+  const deniedRun = () => ({
+    ok: true,
+    siteAnalyses: [
+      {
+        complianceAnalysis: { overallRisk: 'HIGH' },
+        executionMotor: {
+          admitted: false,
+          assessment_status: 'GOVERNANCE_DENIED',
+          findings: [],
+          localization_geometry: { status: 'FAILED_CLOSED', message_sv: 'Lokaliseringen är tvetydig. Ingen bedömning görs.' },
+        },
+      },
+    ],
+  });
+
+  it('M2c item 3: a DENIED run is shown as denied, and the still-current older assessment stays visible as "not this run"', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => persisted('assessment-older'), run: deniedRun });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assessment-older'));
+    await user.click(screen.getByTestId('lu-run'));
+
+    const outcome = await screen.findByTestId('lu-run-outcome');
+    expect(screen.getByTestId('lu-run-outcome-status')).toHaveTextContent('Ej bedömd – nekad av styrning');
+    expect(screen.getByTestId('lu-run-outcome-message')).toHaveTextContent('Lokaliseringen är tvetydig. Ingen bedömning görs.');
+    expect(outcome).toHaveTextContent('Körningen gav ingen ny bedömning.');
+    // The older assessment is NOT hidden: it is the project's current one, and says it is not this run's.
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assessment-older'));
+    expect(screen.getByTestId('lu-assessment-status')).toHaveTextContent('Bedömd');
+    expect(screen.getByTestId('lu-results-not-latest-run')).toHaveTextContent(
+      'Detta är projektets aktuella sparade bedömning från en annan körning. Den är inte resultatet av den senaste körningen, som nekades av styrningen.',
+    );
+    expect(screen.getByTestId('lu-finding-finding-water')).toBeInTheDocument();
+  });
+
+  it('M2c item 3: after a denied run and a reload, the same older assessment is shown -- only the run notice is gone', async () => {
+    const user1 = userEvent.setup();
+    mockM2b({ currentAssessment: () => persisted('assessment-older'), run: deniedRun });
+    const fresh = render(<LuWorkspace />);
+    await user1.type(screen.getByTestId('lu-designation'), 'UPPSALA SVIA 1:111');
+    await user1.click(screen.getByTestId('lu-lookup'));
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assessment-older'));
+    await user1.click(screen.getByTestId('lu-run'));
+    await screen.findByTestId('lu-run-outcome');
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assessment-older'));
+    const freshFindings = screen.getByTestId('lu-findings').textContent;
+    fresh.unmount();
+
+    callApi.mockReset();
+    const user2 = userEvent.setup();
+    mockM2b({ currentAssessment: () => persisted('assessment-older') });
+    await openM2b(user2);
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assessment-older'));
+    expect(screen.getByTestId('lu-assessment-status')).toHaveTextContent('Bedömd');
+    expect(screen.getByTestId('lu-findings').textContent).toBe(freshFindings);
+    // The denial itself is not in the server's read model: a reload cannot show it (server change needed).
+    expect(screen.queryByTestId('lu-run-outcome')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lu-results-not-latest-run')).not.toBeInTheDocument();
   });
 
   it('item 2: "Kör bedömning" is disabled while the saved assessment is still being read', async () => {
