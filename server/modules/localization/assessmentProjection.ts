@@ -81,6 +81,25 @@ export interface CurrentAssessmentProjection {
   readonly assessmentArtifactId: string;
 }
 
+/**
+ * KNOWN_LIMITATION (W-BOOT 2026-10-02, on the APR verifier's F1/F9; the owner decision is OPEN).
+ * Machine-readable marker, analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_KNOWN_LIMITATION: the
+ * current-assessment selection fails closed for DETECTABLE faults, but it is not proven against a
+ * CORRELATED loss or corruption of all metadata showing that a newer assessment or binding existed
+ * (the assessment's projection row with its binding, point and type columns, and the binding index's
+ * binding and supersession rows). No text describing current-assessment selection (U51, reports,
+ * PDF, UI) may claim more than `meaning_sv` says. The structural fix (a signed current/supersession
+ * relation or a CAS-anchored head pointer) is not built.
+ */
+export const ASSESSMENT_PROJECTION_CURRENTNESS_KNOWN_LIMITATION = Object.freeze({
+  code: "KNOWN_LIMITATION",
+  id: "ASSESSMENT_PROJECTION_CURRENTNESS_CORRELATED_METADATA_LOSS",
+  meaning_sv:
+    "valet av aktuell bedömning är fail-closed för detekterbara fel men inte bevisat mot korrelerad förlust eller förvanskning av all metadata som visar att en nyare bedömning eller bindning existerat (bedömningens projektionsrad med dess bindnings-, punkt- och typkolumner samt bindningsindexets bindnings- och ersättningsrader)",
+  owner_decision:
+    "OPEN (W-BOOT 2026-10-02, APR verifier F1/F9): not decided by the owner; analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS",
+} as const);
+
 export const ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE = "ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE" as const;
 
 /**
@@ -94,7 +113,9 @@ export const ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE = "ASSESSMENT_PROJECTI
  *  - TAMPERED: the content does not hash to its own content_hash / artifact_id;
  *  - ARTIFACT_ID_MISMATCH: the CAS returned a different artifact under the requested id;
  *  - PROJECTION_ROW_INCONSISTENT: the row's context contradicts a verified artifact that IS bound to
- *    the current context (the row is wrong; the artifact may well be the current assessment).
+ *    the current context (the row is wrong; the artifact may well be the current assessment); or
+ *    (W-BOOT, APR verifier F1) the row names a binding outside the project's verified binding graph
+ *    (binding rows are lost; the remaining head may be an older binding).
  * Every reason except READ_ERROR is lasting: a retry cannot heal it.
  */
 export type AssessmentCandidateFaultReason =
@@ -261,10 +282,14 @@ function candidateIdentityFault(value: unknown, assessmentArtifactId: string): A
  * be selected, and never the REJECT_* "no assessment" absence. Every eligible candidate is examined
  * before deciding; the fault is reported before an ambiguity refusal or a contract-version refusal.
  *
- * KNOWN LIMITATION (analogous to M1a's LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS):
- * candidates come only from the projection rows. A newer assessment whose row is lost (or whose row's
- * binding/point columns are corrupted so it looks ineligible) is invisible here, whether or not its
- * CAS object survives; an older verified candidate is then selected. Not detected, not approved.
+ * KNOWN LIMITATION (analogous to M1a's LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS;
+ * machine-readable: ASSESSMENT_PROJECTION_CURRENTNESS_KNOWN_LIMITATION below): candidates come only
+ * from the projection rows, and the binding graph only from the binding index. A newer assessment
+ * whose row is lost (or whose row's binding, point or TYPE column is corrupted so it looks
+ * ineligible) is invisible here, whether or not its CAS object survives; an older verified candidate
+ * is then selected. The same holds when a newer binding's index row AND its supersession row are lost
+ * together with every projection row that names it -- W-BOOT (APR F1) detects the case where such a
+ * row survives (PROJECTION_ROW_INCONSISTENT), not the fully correlated loss. Not detected, not approved.
  */
 export async function resolveCurrentAssessmentProjection(args: {
   readonly projectId: string;
@@ -289,8 +314,19 @@ export async function resolveCurrentAssessmentProjection(args: {
   }
 
   let currentBinding: { readonly artifact_id: string; readonly payload?: { readonly project_context_ref?: ArtifactReference } };
+  // W-BOOT (APR verifier F1): every binding the index lists for the project, or null for a provider
+  // stand-in that can only give the head (then rows are not checked against the graph).
+  let registeredBindingIds: ReadonlySet<string> | null = null;
   try {
-    currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
+    const provider = args.currentBindingProvider as Partial<Pick<ProjectContextBindingProvider, "resolveCurrentWithRegisteredBindings">> &
+      Pick<ProjectContextBindingProvider, "resolveCurrent">;
+    if (typeof provider.resolveCurrentWithRegisteredBindings === "function") {
+      const graph = await provider.resolveCurrentWithRegisteredBindings(args.projectId);
+      currentBinding = graph.head;
+      registeredBindingIds = graph.registeredBindingIds;
+    } else {
+      currentBinding = await provider.resolveCurrent(args.projectId);
+    }
   } catch (error) {
     // W-APR add-on 2 (OD-R2): a binding that cannot be read, or that is refused, is a typed fault --
     // never "no current assessment".
@@ -305,6 +341,21 @@ export async function resolveCurrentAssessmentProjection(args: {
   // The verified current binding's own context (W-APR criterion (2)); undefined only for a provider
   // stand-in that does not return the binding artifact, in which case nothing is proven by context.
   const currentContextRef = currentBinding.payload?.project_context_ref;
+
+  // W-BOOT (APR verifier F1): a row is only ever written under a registered binding of its project,
+  // so a row of this project naming a binding OUTSIDE the verified graph proves lost binding rows
+  // (e.g. the newer binding's row and its supersession row): the remaining head may be an OLDER
+  // binding, and its assessment must not be presented. Every such row is PROJECTION_ROW_INCONSISTENT
+  // and fails the resolution closed, before anything is read. Checked on every row of the project.
+  if (registeredBindingIds !== null) {
+    const graph = registeredBindingIds;
+    const outside = candidates.filter((c) => c.projectId === args.projectId && !graph.has(c.bindingArtifactId));
+    if (outside.length > 0) {
+      throw new AssessmentProjectionCandidateUnverifiableError(
+        outside.map((c) => ({ assessmentArtifactId: c.assessmentArtifactId, reason: "PROJECTION_ROW_INCONSISTENT" as const, retryable: false })),
+      );
+    }
+  }
 
   const eligible = candidates.filter(
     (c) =>

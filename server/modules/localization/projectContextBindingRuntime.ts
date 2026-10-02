@@ -106,6 +106,19 @@ export class ProjectContextBindingProvider {
 
   /** Resolves the verified graph head; lookup projection only supplies candidate refs. */
   async resolveCurrent(projectId: string): Promise<AnyProjectContextBindingArtifact> {
+    return (await this.resolveCurrentWithRegisteredBindings(projectId)).head;
+  }
+
+  /**
+   * W-BOOT (APR verifier F1): the verified head AND the ids of every binding the index lists for the
+   * project (each one was read and verified on the way, or this throws exactly as resolveCurrent).
+   * Lets a caller recognise a row that names a binding outside the project's graph -- evidence of
+   * lost binding rows -- instead of trusting whatever head the remaining rows give.
+   */
+  async resolveCurrentWithRegisteredBindings(projectId: string): Promise<{
+    readonly head: AnyProjectContextBindingArtifact;
+    readonly registeredBindingIds: ReadonlySet<string>;
+  }> {
     let noBindingRegistered = false;
     try {
       if (!this.index.listBindingRefs || !this.index.listSupersessionRefs) {
@@ -144,7 +157,10 @@ export class ProjectContextBindingProvider {
         });
         return relation;
       }));
-      return resolveCurrentProjectContextBindingHead({ projectId, bindings, supersessions });
+      return {
+        head: resolveCurrentProjectContextBindingHead({ projectId, bindings, supersessions }),
+        registeredBindingIds: new Set(bindingRefs.map((reference) => reference.artifact_id)),
+      };
     } catch (error) {
       throw new ProjectContextBindingCurrentUnavailableError(noBindingRegistered, error);
     }
