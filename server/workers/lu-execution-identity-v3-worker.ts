@@ -7,11 +7,11 @@
  */
 import { logger } from '../logger';
 import { startLocalizationIdentityProvisioningWorker } from '../services/luExecutionIdentityV3ProvisioningWorker';
-import { bootstrapWorkerProcess } from './bootstrap';
+import { assertLuWorkerDurableCas, bootstrapWorkerProcess } from './bootstrap';
 
 bootstrapWorkerProcess();
 
-function main(): void {
+async function main(): Promise<void> {
   if (!process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM) {
     logger.error('lu-identity-v3-worker: LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM is not set -- refusing to start.');
     process.exit(1);
@@ -20,6 +20,7 @@ function main(): void {
     logger.error('lu-identity-v3-worker: LU_EXECUTION_AUTHORITY_LIFECYCLE_ID is not set -- refusing to start.');
     process.exit(1);
   }
+  await assertLuWorkerDurableCas('lu-identity-v3-worker');
 
   logger.info('lu-identity-v3-worker: Starting LU ExecutionIdentity V3 + lifecycle-bound temporal-authority provisioning worker...');
   const pollMs = Math.max(1000, Number(process.env.LU_IDENTITY_V3_WORKER_POLL_MS || 5000));
@@ -27,4 +28,7 @@ function main(): void {
   logger.info(`lu-identity-v3-worker: Polling for requests every ${pollMs}ms.`);
 }
 
-main();
+main().catch((error: unknown) => {
+  logger.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
