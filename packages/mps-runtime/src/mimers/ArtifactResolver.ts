@@ -6,7 +6,14 @@
 import type { ContentHash } from "../../../mps-compliance/src/artifacts/ContentHash.js";
 import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference.js";
 
-/** Minimal read port — avoids circular import with CasBackedArtifactRepository. */
+/**
+ * Minimal read port — avoids circular import with CasBackedArtifactRepository.
+ *
+ * Contract (U30-A6, ADV-1 rest): `get` returns `null` ONLY when the artifact was never stored. A
+ * storage fault -- an unreadable index entry, or an index entry whose CAS object is gone -- must
+ * THROW a typed error, because `null` becomes the "Artifact not found" verdict below, which callers
+ * (e.g. the localization-geometry currentness chain) treat as a determined missing artifact.
+ */
 export type ResolverByteStore = {
   get(id: string): Promise<Uint8Array | null>;
 };

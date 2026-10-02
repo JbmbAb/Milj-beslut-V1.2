@@ -36,6 +36,31 @@ export class MimersArtifactIndexReadError extends Error {
   }
 }
 
+export const MIMERS_ARTIFACT_OBJECT_MISSING = "MIMERS_ARTIFACT_OBJECT_MISSING" as const;
+
+/**
+ * ADV-1 rest / OD-R2: the id->hash index entry EXISTS and names a CAS object that is not in the CAS.
+ * The artifact was stored -- its index entry is written only after its object -- so the bytes being
+ * gone (lost, deleted, quarantined, a CAS root mixed up underneath the index) is a storage integrity
+ * fault, never "artifact not found". Reading it as "not found" let the geometry chain treat a lost
+ * current point as a determined MISSING verdict, and let put() return silently over the entry.
+ */
+export class MimersArtifactObjectMissingError extends Error {
+  readonly code = MIMERS_ARTIFACT_OBJECT_MISSING;
+
+  constructor(
+    readonly artifactId: string,
+    readonly hash: string,
+    readonly operation: "get" | "exists" | "put",
+  ) {
+    super(
+      `${MIMERS_ARTIFACT_OBJECT_MISSING}: the id->hash index entry for artifact '${artifactId}' names CAS object ` +
+        `'${hash}', which is not in the CAS (${operation}); this is a storage integrity fault, not a missing artifact`,
+    );
+    this.name = "MimersArtifactObjectMissingError";
+  }
+}
+
 function isEnoent(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -109,17 +134,26 @@ export class MimersByteStorageBackend implements ByteStorageBackend {
     }
   }
 
+  /**
+   * `null` ONLY when the artifact was never indexed. An index entry whose CAS object is gone throws
+   * `MimersArtifactObjectMissingError` (ADV-1 rest): it was stored, so it is not "not found".
+   */
   async get(id: string): Promise<Uint8Array | null> {
     const hash = await this.readHash(id);
     if (!hash) return null;
-    return this.cas.getBytes(hash, { verifyHash: true });
+    const bytes = await this.cas.getBytes(hash, { verifyHash: true });
+    if (bytes === null) throw new MimersArtifactObjectMissingError(id, hash, "get");
+    return bytes;
   }
 
   async put(id: string, bytes: Uint8Array): Promise<void> {
     const existingHash = await this.readHash(id);
     if (existingHash) {
       const existing = await this.cas.getBytes(existingHash);
-      if (existing && Buffer.compare(Buffer.from(existing), Buffer.from(bytes)) !== 0) {
+      // ADV-1 rest: an indexed id whose object is gone is not "already stored" -- fail closed instead
+      // of returning silently over it (the artifact would stay unreadable). No silent repair either.
+      if (existing === null) throw new MimersArtifactObjectMissingError(id, existingHash, "put");
+      if (Buffer.compare(Buffer.from(existing), Buffer.from(bytes)) !== 0) {
         throw new Error(`WORM violation: ${id}`);
       }
       return;
@@ -131,7 +165,8 @@ export class MimersByteStorageBackend implements ByteStorageBackend {
   async exists(id: string): Promise<boolean> {
     const hash = await this.readHash(id);
     if (!hash) return false;
-    return this.cas.exists(hash);
+    if (await this.cas.exists(hash)) return true;
+    throw new MimersArtifactObjectMissingError(id, hash, "exists");
   }
 
   /** Content-address digest for an artifact_id (index lookup only). */
