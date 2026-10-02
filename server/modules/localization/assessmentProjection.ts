@@ -83,22 +83,25 @@ export interface CurrentAssessmentProjection {
 }
 
 /**
- * KNOWN_LIMITATION (W-BOOT 2026-10-02, on the APR verifier's F1/F9; the owner decision is OPEN).
+ * KNOWN_LIMITATION (W-BOOT 2026-10-02, on the APR verifier's F1/F9; accepted by the owner 2026-10-03,
+ * decision (4) p.6, as an explicit PRODUCT LIMITATION -- documented, NOT approved behaviour).
  * Machine-readable marker, analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_KNOWN_LIMITATION: the
  * current-assessment selection fails closed for DETECTABLE faults, but it is not proven against a
  * CORRELATED loss or corruption of all metadata showing that a newer assessment or binding existed
- * (the assessment's projection row with its binding, point and type columns, and the binding index's
- * binding and supersession rows). No text describing current-assessment selection (U51, reports,
- * PDF, UI) may claim more than `meaning_sv` says. The structural fix (a signed current/supersession
- * relation or a CAS-anchored head pointer) is not built.
+ * (the assessment's projection row with its binding and point columns, and the binding index's
+ * binding and supersession rows). W-CATCH2 (BOOT verifier finding 2): the row's TYPE column is no
+ * longer part of it -- its domain is closed, so another value is detected and fails closed. No text
+ * describing current-assessment selection (U51, reports, PDF, UI) may claim more than `meaning_sv`
+ * says. The structural fix (a signed current/supersession relation or a CAS-anchored head pointer) is
+ * not built.
  */
 export const ASSESSMENT_PROJECTION_CURRENTNESS_KNOWN_LIMITATION = Object.freeze({
   code: "KNOWN_LIMITATION",
   id: "ASSESSMENT_PROJECTION_CURRENTNESS_CORRELATED_METADATA_LOSS",
   meaning_sv:
-    "valet av aktuell bedömning är fail-closed för detekterbara fel men inte bevisat mot korrelerad förlust eller förvanskning av all metadata som visar att en nyare bedömning eller bindning existerat (bedömningens projektionsrad med dess bindnings-, punkt- och typkolumner samt bindningsindexets bindnings- och ersättningsrader)",
+    "valet av aktuell bedömning är fail-closed för detekterbara fel men inte bevisat mot korrelerad förlust eller förvanskning av all metadata som visar att en nyare bedömning eller bindning existerat (bedömningens projektionsrad med dess bindnings- och punktkolumner samt bindningsindexets bindnings- och ersättningsrader)",
   owner_decision:
-    "OPEN (W-BOOT 2026-10-02, APR verifier F1/F9): not decided by the owner; analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS",
+    "ACCEPTED 2026-10-03 (owner decision (4) p.6) as an explicit PRODUCT LIMITATION, documented and NOT approved behaviour; analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS; the structural fix (a signed current relation or a CAS-anchored head pointer) is not built",
 } as const);
 
 export const ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE = "ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE" as const;
@@ -257,8 +260,10 @@ function candidateIdentityFault(value: unknown, assessmentArtifactId: string): A
  * W-APR (OD-R1/OD-R2, forward-only). Because nothing orders the candidates, EVERY eligible candidate
  * (row bound to this project, the current binding and -- when supplied -- the current point) may be
  * the current assessment. A candidate is skipped ONLY when it provably cannot be current:
- *  (1) its row is not eligible (another project, binding or point, or not an LU assessment row) --
- *      it is never read, so a lost or broken historical assessment never blocks the current one;
+ *  (1) its row is not eligible (another project, binding or point) -- it is never read, so a lost or
+ *      broken historical assessment never blocks the current one. W-CATCH2 (BOOT verifier finding 2):
+ *      a row whose TYPE value is not LOCALIZATION_ASSESSMENT is not "ineligible" but damaged (the
+ *      column has a closed domain) and fails the resolution closed (PROJECTION_ROW_INCONSISTENT);
  *  (2) its own CAS-verified content is bound to another point than the current one, or to another
  *      project context than the current binding's.
  * Any other eligible candidate that cannot be read or verified (read error, lost object, missing
@@ -271,9 +276,9 @@ function candidateIdentityFault(value: unknown, assessmentArtifactId: string): A
  * KNOWN LIMITATION (analogous to M1a's LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS;
  * machine-readable: ASSESSMENT_PROJECTION_CURRENTNESS_KNOWN_LIMITATION below): candidates come only
  * from the projection rows, and the binding graph only from the binding index. A newer assessment
- * whose row is lost (or whose row's binding, point or TYPE column is corrupted so it looks
- * ineligible) is invisible here, whether or not its CAS object survives; an older verified candidate
- * is then selected. The same holds when a newer binding's index row AND its supersession row are lost
+ * whose row is lost (or whose row's binding or point column is corrupted so it looks ineligible) is
+ * invisible here, whether or not its CAS object survives; an older verified candidate is then
+ * selected. (A corrupted TYPE column is detected -- W-CATCH2, see above.) The same holds when a newer binding's index row AND its supersession row are lost
  * together with every projection row that names it -- W-BOOT (APR F1) detects the case where such a
  * row survives (PROJECTION_ROW_INCONSISTENT), not the fully correlated loss. Not detected, not approved.
  */
@@ -343,6 +348,20 @@ export async function resolveCurrentAssessmentProjection(args: {
     }
   }
 
+  // W-CATCH2 (BOOT verifier finding 2; owner decision (4) p.6, detectable loss fails closed): every write
+  // path writes exactly LOCALIZATION_ASSESSMENT into a row's type column (registerAssessmentProjection
+  // takes a LocalizationAssessmentArtifact; reconcileAssessmentProjection refuses WRONG_TYPE), so any
+  // other value is DETECTABLE damage of the row -- and a damaged row's binding and point columns are no
+  // evidence either. Every such row of the project is PROJECTION_ROW_INCONSISTENT and fails the
+  // resolution closed before anything is read: never 404 "no assessment", never another candidate in
+  // its place. (Before, such a row was skipped unread as "not an LU assessment row".)
+  const damagedType = candidates.filter((c) => c.projectId === args.projectId && c.assessmentArtifactType !== "LOCALIZATION_ASSESSMENT");
+  if (damagedType.length > 0) {
+    throw new AssessmentProjectionCandidateUnverifiableError(
+      damagedType.map((c) => ({ assessmentArtifactId: c.assessmentArtifactId, reason: "PROJECTION_ROW_INCONSISTENT" as const, retryable: false })),
+    );
+  }
+
   const eligible = candidates.filter(
     (c) =>
       c.projectId === args.projectId &&
@@ -362,9 +381,7 @@ export async function resolveCurrentAssessmentProjection(args: {
   const faults: AssessmentCandidateFault[] = [];
   let contractVersionRefusal: unknown = null;
   for (const candidate of eligible) {
-    // Criterion (1): not an LU assessment row -- by the row's own type, never read.
-    if (candidate.assessmentArtifactType !== "LOCALIZATION_ASSESSMENT") continue;
-
+    // (Criterion (1) by type is gone: a row of another type is damage and has failed closed above.)
     let read: unknown;
     try {
       read = await args.artifactRepository.resolve<LocalizationAssessmentArtifact>({
