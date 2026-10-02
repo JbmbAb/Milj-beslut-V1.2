@@ -449,3 +449,15 @@ describe('W-CATCH3 #10: an existing issuer is verified before it is used; nothin
     expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
   });
 });
+
+// W-CATCH3 mutation F2-B: the field-for-field comparison is what catches content that validation and
+// the attestation do not cover (a top-level field outside the payload hash) -- never reused.
+describe('W-CATCH3 #10: an existing capability with content beyond the deterministic one is never reused', () => {
+  it('an extra top-level field on an otherwise exact, validly signed capability -> EXISTING_ARTIFACT_REFUSED, nothing written', async () => {
+    const id = await mintedOnce();
+    await rewriteObject(id, (body) => {
+      body.note = 'added after persistence';
+    });
+    expectTypedNoWrite(await executeViewerCapabilityProvisioning(input()), { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false });
+  });
+});

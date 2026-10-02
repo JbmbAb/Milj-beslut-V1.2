@@ -413,3 +413,31 @@ describe('W-CATCH3 #11: the stored text tells the truth about writes (finding 3,
     expect(outcome.failureDetail?.endsWith(MAY_HAVE_WRITTEN)).toBe(true);
   });
 });
+
+// W-CATCH3 mutations F2-D and F3-B: content beyond the deterministic relation is never reused, and a new
+// relation that does not verify is never written (the order verify-before-put is what keeps the CAS clean
+// when the issuer verifies but the signing key does not match it).
+describe('W-CATCH3 #11: pins for what the mutation round showed unguarded', () => {
+  it('an extra top-level field on an otherwise exact, validly signed relation -> EXISTING_ARTIFACT_REFUSED, never reused, nothing written', async () => {
+    const ab = await transitionedOnce();
+    await rewriteObject(ab, (body) => {
+      body.note = 'added after persistence';
+    });
+    expectTypedNoWrite(await request(A, B), { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false });
+  });
+  it('the signing key is another key under the issuer key id while the stored issuer verifies: the new relation does not verify and is NOT written', async () => {
+    await transitionedOnce();
+    const seed = createHash('sha256').update(`w-catch3-wrong-signing:${key.keyId}`).digest();
+    const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
+    __resetLocalizationGeometrySupersessionSigningProviderForTests(
+      new LocalPemSigningKeyProvider(key.keyId, privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }).toString()),
+    );
+    const edgesBefore = JSON.stringify(h.edgeRows);
+    const outcome = (await request(B, C, '2026-10-02T11:00:00.000Z')) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(outcome.failureCode).toBe('PROVISIONING_REFUSED');
+    expect(h.puts, 'a relation that does not verify never reaches the CAS').toEqual([]);
+    expect(JSON.stringify(h.edgeRows)).toBe(edgesBefore);
+    expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
+  });
+});

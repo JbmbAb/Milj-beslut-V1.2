@@ -467,26 +467,31 @@ describe('W-CATCH3 #13: a completed row selected on exactly this subject differs
 });
 
 describe('W-CATCH3 #13: what stays proof of "not current", and what stays unchanged (V5-V8)', () => {
-  it('a refusal-shaped error that carries a cause (a failed READ inside the verification) is never proof of "not current" (mutation OWN-X2)', async () => {
-    const { issuer, capability } = await seed();
-    const inner = repository();
-    const eio = Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
-    const repo = {
-      put: (artifact: never) => inner.put(artifact),
-      resolve: async <T,>(ref: { artifact_id: string; artifact_type: string }): Promise<T> => {
-        if (ref.artifact_id === issuer.artifact_id) throw new Error('REJECT_VIEWER_CAPABILITY_EXPIRED', { cause: eio });
-        return inner.resolve<T>(ref);
-      },
-    };
-    const result = await (async () => {
-      try {
-        return { config: await resolveLocalizationViewerRuntimeConfigForProject(PROJECT_ID, repo as never, deps([completedRequest(capability.artifact_id)])) };
-      } catch (error) {
-        return { error: error as Error & Record<string, unknown> };
-      }
-    })();
-    expectTyped(result, 'viewer-capability', 'READ_ERROR', true);
-  });
+  // OWN-X2 (CATCH2 verifier) and W-CATCH3 mutation F1-H: a refusal-shaped error that carries a cause is
+  // not the verifier's own verdict about the capability's content -- neither proof of "not current" nor a
+  // row damage; its cause decides (here a read error).
+  for (const token of ['REJECT_VIEWER_CAPABILITY_EXPIRED', 'REJECT_VIEWER_CAPABILITY_PROJECT']) {
+    it(`a refusal-shaped error (${token}) that carries a cause (a failed READ inside the verification) is never "not current" nor row damage -> READ_ERROR`, async () => {
+      const { issuer, capability } = await seed();
+      const inner = repository();
+      const eio = Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+      const repo = {
+        put: (artifact: never) => inner.put(artifact),
+        resolve: async <T,>(ref: { artifact_id: string; artifact_type: string }): Promise<T> => {
+          if (ref.artifact_id === issuer.artifact_id) throw new Error(token, { cause: eio });
+          return inner.resolve<T>(ref);
+        },
+      };
+      const result = await (async () => {
+        try {
+          return { config: await resolveLocalizationViewerRuntimeConfigForProject(PROJECT_ID, repo as never, deps([completedRequest(capability.artifact_id)])) };
+        } catch (error) {
+          return { error: error as Error & Record<string, unknown> };
+        }
+      })();
+      expectTyped(result, 'viewer-capability', 'READ_ERROR', true);
+    });
+  }
   it('V5: the whole index directory is gone -> typed MISSING_FROM_CAS (the known ENOENT limit fails closed here: the completed row says it must exist)', async () => {
     const { capability } = await seed();
     rmSync(indexDir, { recursive: true, force: true });

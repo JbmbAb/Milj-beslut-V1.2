@@ -24,6 +24,8 @@ const h = vi.hoisted(() => ({
   contextError: null as unknown,
   accessError: null as Error | null,
   failPutOfIdPrefix: null as string | null,
+  /** W-CATCH3: from the n-th read of `id` on, answer with the object stored under `to` (a race or a misdirected entry between two reads). */
+  swapRead: null as { id: string; to: string; fromRead: number; reads: number } | null,
 }));
 
 vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
@@ -38,7 +40,11 @@ vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
         const inner = new CasBackedArtifactRepository(new MimersByteStorageBackend(new FileCASRepository(h.casDir, { durabilityMode: 'none' }), h.indexDir));
         return {
           artifactRepository: {
-            resolve: (ref: { artifact_id: string; artifact_type: string }) => inner.resolve(ref),
+            resolve: (ref: { artifact_id: string; artifact_type: string }) => {
+              const swap = h.swapRead;
+              if (swap && ref.artifact_id === swap.id && ++swap.reads >= swap.fromRead) return inner.resolve({ ...ref, artifact_id: swap.to });
+              return inner.resolve(ref);
+            },
             put: (artifact: { artifact_id: string }) => {
               h.puts.push(artifact.artifact_id);
               if (h.failPutOfIdPrefix && artifact.artifact_id.startsWith(h.failPutOfIdPrefix)) {
@@ -138,6 +144,7 @@ beforeEach(async () => {
   h.contextError = null;
   h.accessError = null;
   h.failPutOfIdPrefix = null;
+  h.swapRead = null;
   process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID = rootKey.keyId;
   process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM = rootKey.publicKeyPem;
   process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = authorityKey.keyId;
@@ -343,6 +350,30 @@ describe('W-CATCH3 #12: an object under a deterministic id must BE that object',
     const other = await otherPointProvisioned();
     expect(other.temporalId).not.toBe(mine.temporalId);
     pointIndexAt(mine.temporalId, other.temporalId);
+    expectTypedNoWrite(await run(), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+  });
+});
+
+// W-CATCH3 mutation F5-C: the reuse path reads the verified identity a second time; that read is bound
+// to the id too -- another identity answered on the re-read is an integrity fault, never used.
+describe('W-CATCH3 #12: the re-read after a verified reuse is bound to its id', () => {
+  it('the second read of the reused identity answers another valid identity -> EXISTING_ARTIFACT_INTEGRITY_FAULT, nothing written', async () => {
+    const mine = await provisionedOnce();
+    const original = geometryId;
+    const other = createLocalizationGeometryArtifact({
+      project_id: PROJECT_ID,
+      property_context_ref: { artifact_id: 'lu_property_context-catch2', artifact_type: 'LU_PROPERTY_CONTEXT' },
+      wgs84LngLat: [18.11, 59.36],
+      sweref99NorthingEasting: [6582000, 676000],
+      provenance: 'user_defined',
+      label: 'Third point',
+      created_by: 'requester-1',
+    });
+    await put(other);
+    geometryId = other.artifact_id;
+    const theirs = await provisionedOnce();
+    geometryId = original;
+    h.swapRead = { id: mine.identityId, to: theirs.identityId, fromRead: 2, reads: 0 };
     expectTypedNoWrite(await run(), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
   });
 });

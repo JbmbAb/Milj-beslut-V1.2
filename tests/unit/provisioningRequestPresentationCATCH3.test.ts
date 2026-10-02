@@ -72,3 +72,16 @@ describe('W-CATCH3: presentProvisioningRequestDetail', () => {
     }
   });
 });
+
+// W-CATCH3 mutation F3-L: a caller that hands provisioningFailure no write record (impossible from
+// TypeScript, possible from plain JavaScript) is treated as "may have written" -- "Inget utfärdades."
+// is never claimed without the record that proves it.
+describe('W-CATCH3: provisioningFailure without a write record never claims "Inget utfärdades."', () => {
+  it('no record -> the may-have-written sentence; { written: false } -> "Inget utfärdades."', () => {
+    const error = Object.assign(new Error('EIO'), { code: 'EIO' });
+    const without = provisioningFailure(error, undefined as never);
+    expect(without.failureDetail).not.toContain('Inget utfärdades');
+    expect(without.failureDetail.endsWith('Ett eller flera objekt kan ha sparats innan felet uppstod, men begäran slutfördes inte.')).toBe(true);
+    expect(provisioningFailure(error, { written: false }).failureDetail.endsWith('Inget utfärdades.')).toBe(true);
+  });
+});
