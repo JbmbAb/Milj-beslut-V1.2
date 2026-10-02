@@ -1208,7 +1208,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             style={{ borderColor: '#F97316', color: '#FDBA74' }}
           >
             <p>
-              Senaste körningen{formatClock(runOutcome.endedAt) ? ` (kl. ${formatClock(runOutcome.endedAt)})` : ''}:{' '}
+              {/* W-M2e item 3 (M2d verification finding 8): remembered per tab -- another tab's run is not seen. */}
+              Senaste körningen i den här fliken{formatClock(runOutcome.endedAt) ? ` (kl. ${formatClock(runOutcome.endedAt)})` : ''}:{' '}
               <span data-testid="lu-run-outcome-status" className="font-semibold">
                 {presentLuAssessmentStatus(runOutcome.status)}
               </span>
@@ -1231,8 +1232,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             {/* W-M2d item 8: honest about what is kept -- the server stores no denied runs. */}
             <p data-testid="lu-run-outcome-session-note" className="text-xs opacity-80">
               {runOutcomeInShell
-                ? 'Uppgiften finns kvar så länge du är inloggad i den här fliken. Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om.'
-                : 'Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om.'}
+                ? 'Uppgiften finns kvar så länge du är inloggad i den här fliken. Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om. Körningar i andra flikar eller av andra användare visas inte här.'
+                : 'Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om. Körningar i andra flikar eller av andra användare visas inte här.'}
             </p>
           </div>
         ) : null}
@@ -1626,7 +1627,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           {runOutcome ? (
             <p data-testid="lu-results-not-latest-run" className="text-sm" style={{ color: '#FDBA74' }}>
               Detta är projektets aktuella sparade bedömning från en annan körning. Den är inte resultatet av den senaste
-              körningen, som {runOutcomeClause(runOutcome.status)}.
+              körningen i den här fliken, som {runOutcomeClause(runOutcome.status)}.
             </p>
           ) : null}
 

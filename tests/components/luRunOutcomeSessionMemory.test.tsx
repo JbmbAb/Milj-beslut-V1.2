@@ -109,6 +109,12 @@ describe('W-M2d item 8: the denied-run notice lives in the shell for the session
     expect(screen.getByTestId('lu-run-outcome-session-note')).toHaveTextContent(
       'Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om.',
     );
+    // W-M2e item 3 (M2d verification finding 8): the notice is this tab's -- said in the text itself.
+    expect(screen.getByTestId('lu-run-outcome')).toHaveTextContent('Senaste körningen i den här fliken');
+    expect(screen.getByTestId('lu-run-outcome-session-note')).toHaveTextContent(
+      'Körningar i andra flikar eller av andra användare visas inte här.',
+    );
+    expect(screen.getByTestId('lu-results-not-latest-run')).toHaveTextContent('den senaste körningen i den här fliken');
     // When the shown assessment's basis was retrieved (the server's retrieved_at), so it can be told apart.
     expect(screen.getByTestId('lu-assessment-retrieved')).toHaveTextContent('Underlaget för bedömningen hämtades');
   });

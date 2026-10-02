@@ -1021,7 +1021,7 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-run-outcome-message')).toHaveTextContent('Lokaliseringen är tvetydig. Ingen bedömning görs.');
     expect(screen.queryByTestId('lu-export-pdf')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'NOT_CHECKED'));
-    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('Den senaste körningen gav ingen bedömning – kontrollen är inte gjord.');
+    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('Den senaste körningen i den här fliken gav ingen bedömning – kontrollen är inte gjord.');
   });
 
   it('DEMO M2a item 7: progress steps come from real state -- the run step is active only while the request is in flight', async () => {
@@ -1643,7 +1643,7 @@ describe('LuWorkspace DEMO M2b', () => {
     await waitFor(() => expect(screen.getByTestId('lu-assessment-id')).toHaveTextContent('assessment-older'));
     expect(screen.getByTestId('lu-assessment-status')).toHaveTextContent('Bedömd');
     expect(screen.getByTestId('lu-results-not-latest-run')).toHaveTextContent(
-      'Detta är projektets aktuella sparade bedömning från en annan körning. Den är inte resultatet av den senaste körningen, som nekades av styrningen.',
+      'Detta är projektets aktuella sparade bedömning från en annan körning. Den är inte resultatet av den senaste körningen i den här fliken, som nekades av styrningen.',
     );
     expect(screen.getByTestId('lu-finding-finding-water')).toBeInTheDocument();
   });

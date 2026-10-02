@@ -417,7 +417,8 @@ function transportRow(def: LuCheckDefinition, assessment: Exclude<LuAssessmentPr
         details: [NOT_CHECKED_RESULT],
       });
     case 'not_assessed':
-      return baseView(def.key, def.label, def.ruleId, 'NOT_CHECKED', 'Den senaste körningen gav ingen bedömning – kontrollen är inte gjord.', {
+      // W-M2e item 3: "the latest run" is this tab's (the session memory), never another tab's or user's.
+      return baseView(def.key, def.label, def.ruleId, 'NOT_CHECKED', 'Den senaste körningen i den här fliken gav ingen bedömning – kontrollen är inte gjord.', {
         details: [NOT_CHECKED_RESULT],
       });
   }

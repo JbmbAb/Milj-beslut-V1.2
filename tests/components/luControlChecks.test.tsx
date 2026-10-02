@@ -127,7 +127,7 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
       expect(c.summary).not.toMatch(/ingen (registrerad )?träff/i);
     }
     const notAssessed = presentLuControlChecks({ property, assessment: { status: 'not_assessed' }, server: null });
-    expect(notAssessed.find((c) => c.key === 'water')!.summary).toBe('Den senaste körningen gav ingen bedömning – kontrollen är inte gjord.');
+    expect(notAssessed.find((c) => c.key === 'water')!.summary).toBe('Den senaste körningen i den här fliken gav ingen bedömning – kontrollen är inte gjord.');
   });
 
   it('the evidence panel rows come from the server\'s evidenceDetails: count, cap, radius (never "avstånd"), source, version, time', () => {
