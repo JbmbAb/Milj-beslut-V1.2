@@ -117,9 +117,29 @@ function admitted(basis: 'dead-target' | 'explicit-opt-in', reason: string): Tar
   return { allowed: true, basis, denylist: null, reason };
 }
 
-/** NODE_ENV=test, or any Vitest worker (a test may set NODE_ENV=production to test a branch). */
+/**
+ * The explicit test-process marker, for a process that a test harness starts and that must not
+ * get NODE_ENV=test (which would change product behaviour) -- e.g. the API server Playwright
+ * starts. Recognized values: `1` and `true`. Such a process is a test runtime AND hermetic: it
+ * reads no env file at all (neither `.env` nor `.env.local` nor any other), so the explicitly given
+ * process environment -- with its controlled DATABASE_URL -- is its whole configuration.
+ */
+export const TEST_MODE_ENV = 'MIMER_TEST_MODE';
+
+/** A process explicitly marked by MIMER_TEST_MODE: test runtime, and no env file is ever read. */
+export function isHermeticTestProcess(env: NodeJS.ProcessEnv = process.env): boolean {
+  const marker = String(env[TEST_MODE_ENV] ?? '')
+    .trim()
+    .toLowerCase();
+  return marker === '1' || marker === 'true';
+}
+
+/**
+ * NODE_ENV=test, any Vitest worker (a test may set NODE_ENV=production to test a branch), or a
+ * process explicitly marked by MIMER_TEST_MODE.
+ */
 export function isTestRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.NODE_ENV === 'test' || Boolean(env.VITEST);
+  return env.NODE_ENV === 'test' || Boolean(env.VITEST) || isHermeticTestProcess(env);
 }
 
 function normalizeHost(host: string | undefined | null): string {

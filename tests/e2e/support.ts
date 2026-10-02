@@ -6,6 +6,7 @@ import {
   type Page,
 } from '@playwright/test';
 import { loadEnv } from 'vite';
+import { LOCAL_E2E_DEFAULT_API_PORT } from '../../server/modules/test-db-guard/localE2eServerPolicy';
 
 const testEnv = loadEnv('test', process.cwd(), '');
 
@@ -30,7 +31,9 @@ export function getE2EApiBaseUrl(): string {
     trim(process.env.PLAYWRIGHT_BASE_URL) ||
     trim(process.env.STAGING_API_BASE_URL) ||
     trim(process.env.STAGING_URL) ||
-    `http://127.0.0.1:${trim(process.env.PLAYWRIGHT_LOCAL_API_PORT) || '8787'}`
+    // TEST-DB-GUARD (OD-K0-5): never the demonstrator's 8787 (live database); playwright.config.ts
+    // sets PLAYWRIGHT_API_BASE_URL for a local run, this is only the last fallback.
+    `http://127.0.0.1:${trim(process.env.PLAYWRIGHT_LOCAL_API_PORT) || String(LOCAL_E2E_DEFAULT_API_PORT)}`
   );
 }
 

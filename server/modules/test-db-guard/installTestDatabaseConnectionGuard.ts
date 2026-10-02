@@ -8,6 +8,7 @@ import {
   describeDatabaseTarget,
   evaluateLiveEndpoint,
   evaluateTestDatabaseTarget,
+  isHermeticTestProcess,
   isLocalEnvFile,
   isTestRuntime,
   noteTestEnvFileGuard,
@@ -18,7 +19,8 @@ import {
 /**
  * TEST-DB-GUARD (OD-K0-5): connection-time enforcement in a TEST RUNTIME. Installed by the first
  * Vitest setup file of every project (tests/setup/testDatabaseGuard.ts), by the integration
- * globalSetup, and by server/db/prisma.ts when it is loaded in a test runtime. Idempotent.
+ * globalSetup, by server/loadEnvFirst.ts and server/db/prisma.ts when they are loaded in a test
+ * runtime, and by playwright.config.ts for a local E2E run. Idempotent.
  *
  *   - pg.Client.prototype.connect: refuses every target that is not explicitly dead or opted in
  *     (policy in testDatabaseTargetPolicy.ts) BEFORE pg creates its connection; pg.Pool and
@@ -27,7 +29,8 @@ import {
  *     other client (postgres.js, a raw socket, ...). It throws before the socket connects.
  *   - dotenv's configDotenv: in a test runtime never reads a `*.local` env file and drops database
  *     connection keys from every other env file (so `dotenv.config()`, `import 'dotenv/config'`
- *     and `config({ path: '.env.test' })` in the test chain follow the same rule as loadEnvFile).
+ *     and `config({ path: '.env.test' })` in the test chain follow the same rule as loadEnvFile);
+ *     in a process marked MIMER_TEST_MODE it reads no env file at all.
  *
  * Never installed outside a test runtime by product code; non-test behaviour is unchanged.
  */
@@ -160,7 +163,12 @@ function guardDotenvFileLoading(): void {
     const target = (options?.processEnv ?? process.env) as Record<string, unknown>;
     const parsedAll: Record<string, string> = {};
     let lastError: unknown;
+    const hermetic = isHermeticTestProcess(process.env);
     for (const filePath of dotenvPathsOf(options)) {
+      if (hermetic) {
+        noteTestEnvFileGuard(filePath, 'MIMER_TEST_MODE: no env file is read in a marked test process');
+        continue;
+      }
       if (isLocalEnvFile(filePath)) {
         noteTestEnvFileGuard(filePath, 'a *.local env file is never read in a test runtime');
         continue;

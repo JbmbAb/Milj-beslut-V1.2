@@ -2,32 +2,37 @@ import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
-import { loadEnv } from 'vite';
+import { installTestDatabaseConnectionGuard } from './server/modules/test-db-guard/installTestDatabaseConnectionGuard';
 import {
-  assertTestDatabaseTargetAllowed,
-  parseDatabaseUrlTarget,
-} from './server/modules/test-db-guard/testDatabaseTargetPolicy';
+  assertExternalE2eTargetsAreRemote,
+  LOCAL_E2E_DEFAULT_API_PORT,
+  LOCAL_E2E_DEFAULT_UI_PORT,
+  resolveLocalE2eServerPlan,
+  type LocalE2eServerPlan,
+} from './server/modules/test-db-guard/localE2eServerPolicy';
 
 function trim(value: string | undefined): string {
   return String(value || '').trim();
 }
 
-function parsePort(value: string | undefined, fallback: number): number {
-  const parsed = Number(trim(value));
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
 const externalBaseUrl = trim(process.env.PLAYWRIGHT_BASE_URL) || trim(process.env.STAGING_URL);
-const localApiPort = parsePort(process.env.PLAYWRIGHT_LOCAL_API_PORT, 8787);
-const localUiPort = parsePort(process.env.PLAYWRIGHT_LOCAL_UI_PORT, 3200);
-const localUiBaseUrl = `http://127.0.0.1:${localUiPort}`;
 const isExternalTarget = Boolean(externalBaseUrl);
-const forceFreshSetting = trim(process.env.PLAYWRIGHT_FORCE_FRESH_SERVER).toLowerCase();
-// Local default should reuse running servers to avoid port churn and cold-start flakes.
-const requireFreshLocalServers = forceFreshSetting === '' ? false : forceFreshSetting === 'true';
-const testEnv = loadEnv('test', process.cwd(), '');
 
-const geminiApiKey = trim(testEnv.GEMINI_API_KEY) || (process.env.CI ? 'ci-gemini-key' : '');
+// TEST-DB-GUARD (OD-K0-5): decided first -- before a directory is created, the process env is
+// changed or any server is started (server/modules/test-db-guard/localE2eServerPolicy.ts).
+//   - An external target must not be this workstation: it would reuse a running local server,
+//     e.g. the demonstrator on the live database.
+//   - A local run needs MIMER_TEST_DB_ALLOW=<db> naming the *_test database of
+//     PLAYWRIGHT_DATABASE_URL / DATABASE_URL, both from the process environment (no env file is
+//     read for E2E any more), and always gets fresh servers on ports of its own (never 8787).
+if (isExternalTarget) assertExternalE2eTargetsAreRemote(process.env);
+const localPlan: LocalE2eServerPlan | null = isExternalTarget ? null : resolveLocalE2eServerPlan(process.env);
+
+const localApiPort = localPlan ? localPlan.apiPort : LOCAL_E2E_DEFAULT_API_PORT;
+const localUiPort = localPlan ? localPlan.uiPort : LOCAL_E2E_DEFAULT_UI_PORT;
+const localUiBaseUrl = `http://127.0.0.1:${localUiPort}`;
+
+const geminiApiKey = trim(process.env.GEMINI_API_KEY) || (process.env.CI ? 'ci-gemini-key' : '');
 
 // U30-A: the server refuses to start without the durable Mimers CAS root (no `.data/mimers`
 // fallback any more). ADV-1 rest: that root must also be an EXISTING absolute directory -- it is never
@@ -39,24 +44,23 @@ if (!callerMimersRoot && !isExternalTarget) mkdirSync(e2eMimersRoot, { recursive
 
 const serverEnv = {
   NODE_ENV: 'development',
+  // TEST-DB-GUARD (OD-K0-5): the API server is a marked test process. It keeps exactly the
+  // DATABASE_URL below (loadEnvFirst never deletes it), reads no env file at all (no .env, no
+  // .env.local), and guards every database connection with the opt-in it is given.
+  MIMER_TEST_MODE: '1',
   PORT: String(localApiPort),
-  DATABASE_URL:
-    trim(process.env.PLAYWRIGHT_DATABASE_URL) ||
-    trim(process.env.DATABASE_URL) ||
-    trim(testEnv.DATABASE_URL) ||
-    'postgresql://miljobeslut:miljobeslut@localhost:5432/miljobeslut_test',
-  JWT_ACCESS_SECRET: trim(testEnv.JWT_ACCESS_SECRET) || 'test-access-secret',
-  JWT_REFRESH_SECRET: trim(testEnv.JWT_REFRESH_SECRET) || 'test-refresh-secret',
-  LANTMATERIET_OPEN_MODE: trim(testEnv.LANTMATERIET_OPEN_MODE) || 'true',
-  LANTMATERIET_BASE_URL: trim(testEnv.LANTMATERIET_BASE_URL) || 'https://example.invalid',
-  ADMIN_CONSOLE_USERNAME:
-    trim(process.env.E2E_ADMIN_USERNAME) || trim(testEnv.ADMIN_CONSOLE_USERNAME) || 'admin',
-  ADMIN_CONSOLE_PASSWORD:
-    trim(process.env.E2E_ADMIN_PASSWORD) || trim(testEnv.ADMIN_CONSOLE_PASSWORD) || 'admin-test-password',
-  ADMIN_ORG_NAME: trim(testEnv.ADMIN_ORG_NAME) || 'Miljöbeslut Test Org',
-  ADMIN_ORG_NUMBER: trim(testEnv.ADMIN_ORG_NUMBER) || '999999-0001',
-  SLU_API_BASE_URL: trim(testEnv.SLU_API_BASE_URL) || 'https://example.invalid',
-  SLU_API_KEY: trim(testEnv.SLU_API_KEY) || 'test-slu-key',
+  DATABASE_URL: localPlan ? localPlan.databaseUrl : '',
+  MIMER_TEST_DB_ALLOW: localPlan ? localPlan.databaseOptIn : '',
+  JWT_ACCESS_SECRET: trim(process.env.JWT_ACCESS_SECRET) || 'test-access-secret',
+  JWT_REFRESH_SECRET: trim(process.env.JWT_REFRESH_SECRET) || 'test-refresh-secret',
+  LANTMATERIET_OPEN_MODE: trim(process.env.LANTMATERIET_OPEN_MODE) || 'true',
+  LANTMATERIET_BASE_URL: trim(process.env.LANTMATERIET_BASE_URL) || 'https://example.invalid',
+  ADMIN_CONSOLE_USERNAME: trim(process.env.E2E_ADMIN_USERNAME) || 'admin',
+  ADMIN_CONSOLE_PASSWORD: trim(process.env.E2E_ADMIN_PASSWORD) || 'admin-test-password',
+  ADMIN_ORG_NAME: trim(process.env.ADMIN_ORG_NAME) || 'Miljöbeslut Test Org',
+  ADMIN_ORG_NUMBER: trim(process.env.ADMIN_ORG_NUMBER) || '999999-0001',
+  SLU_API_BASE_URL: trim(process.env.SLU_API_BASE_URL) || 'https://example.invalid',
+  SLU_API_KEY: trim(process.env.SLU_API_KEY) || 'test-slu-key',
   DISPATCH_PROVIDER_MODE: 'TIMOCOM',
   TIMOCOM_API_KEY: 'mock-e2e-timocom-key',
   CORS_ALLOW_ORIGINS: localUiBaseUrl,
@@ -66,32 +70,26 @@ const serverEnv = {
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
-  VERTEX_PROJECT_ID: trim(testEnv.VERTEX_PROJECT_ID) || 'miljointelligens',
-  EXEC_SUMMARY_MOCK_MODE: trim(testEnv.EXEC_SUMMARY_MOCK_MODE) || (process.env.CI ? 'true' : ''),
+  VERTEX_PROJECT_ID: trim(process.env.VERTEX_PROJECT_ID) || 'miljointelligens',
+  EXEC_SUMMARY_MOCK_MODE: trim(process.env.EXEC_SUMMARY_MOCK_MODE) || (process.env.CI ? 'true' : ''),
   ...(geminiApiKey ? { GEMINI_API_KEY: geminiApiKey } : {}),
 };
 
-function applyLocalTestProcessEnv(): void {
+function applyLocalTestProcessEnv(plan: LocalE2eServerPlan): void {
+  // TEST-DB-GUARD (OD-K0-5): the runner and every worker (they load this config too) are marked
+  // test processes and guarded, so tests/e2e/prismaClient.ts can reach the admitted database only.
+  process.env.MIMER_TEST_MODE = '1';
+  installTestDatabaseConnectionGuard();
   // Keep test worker and webServer process aligned to avoid credential/port drift.
-  process.env.PLAYWRIGHT_DATABASE_URL = serverEnv.DATABASE_URL;
-  process.env.DATABASE_URL = serverEnv.DATABASE_URL;
+  process.env.PLAYWRIGHT_DATABASE_URL = plan.databaseUrl;
+  process.env.DATABASE_URL = plan.databaseUrl;
   process.env.PLAYWRIGHT_LOCAL_API_PORT = String(localApiPort);
   process.env.PLAYWRIGHT_API_BASE_URL = `http://127.0.0.1:${localApiPort}`;
   process.env.E2E_ADMIN_USERNAME = serverEnv.ADMIN_CONSOLE_USERNAME;
   process.env.E2E_ADMIN_PASSWORD = serverEnv.ADMIN_CONSOLE_PASSWORD;
 }
 
-if (!isExternalTarget) {
-  // TEST-DB-GUARD (OD-K0-5): local E2E writes to the database it is given, so it needs the same
-  // explicit opt-in as every other test run: MIMER_TEST_DB_ALLOW=<db> naming a *_test database
-  // that is not on a live host/port. A live URL from .env.local or the shell is refused here,
-  // before any server is started or reused.
-  assertTestDatabaseTargetAllowed(
-    parseDatabaseUrlTarget(serverEnv.DATABASE_URL) ?? { host: '', port: 0, database: '' },
-    'playwright.config.ts (local E2E DATABASE_URL)',
-  );
-  applyLocalTestProcessEnv();
-}
+if (localPlan) applyLocalTestProcessEnv(localPlan);
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -106,6 +104,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
+  // TEST-DB-GUARD (OD-K0-5): never reuse a running server, locally or in CI -- a server already
+  // listening on the port is an error, not something to test against.
   webServer: isExternalTarget
     ? undefined
     : [
@@ -113,14 +113,14 @@ export default defineConfig({
           command: 'npm run dev:server',
           port: localApiPort,
           timeout: 180000,
-          reuseExistingServer: !process.env.CI && !requireFreshLocalServers,
+          reuseExistingServer: false,
           env: serverEnv,
         },
         {
           command: `npm run dev -- --host 127.0.0.1 --port ${localUiPort}`,
           port: localUiPort,
           timeout: 180000,
-          reuseExistingServer: !process.env.CI && !requireFreshLocalServers,
+          reuseExistingServer: false,
           env: {
             ...serverEnv,
             VITE_API_BASE_URL: `http://127.0.0.1:${localApiPort}`,

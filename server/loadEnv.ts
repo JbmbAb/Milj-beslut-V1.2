@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import {
   isDatabaseConnectionEnvKey,
+  isHermeticTestProcess,
   isLocalEnvFile,
   isTestRuntime,
   noteTestEnvFileGuard,
@@ -31,6 +32,13 @@ function unescapeNewlines(value: string): string {
 
 export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions = {}): void {
   const filePath = path.resolve(process.cwd(), fileName);
+  // TEST-DB-GUARD (OD-K0-5): a process marked MIMER_TEST_MODE (the Playwright API server, a test's
+  // child process) reads no env file at all: its explicit process environment is its whole
+  // configuration, whatever its working directory holds.
+  if (isHermeticTestProcess(process.env)) {
+    noteTestEnvFileGuard(filePath, 'MIMER_TEST_MODE: no env file is read in a marked test process');
+    return;
+  }
   // TEST-DB-GUARD (OD-K0-5): in a test runtime (NODE_ENV=test or a Vitest worker) a `*.local` env
   // file is never read at all -- in a developer worktree `.env.local` names the live database.
   const testRuntime = isTestRuntime(process.env);

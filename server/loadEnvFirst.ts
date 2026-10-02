@@ -1,8 +1,16 @@
 import { loadEnvFile } from './loadEnv';
+import { installTestDatabaseConnectionGuard } from './modules/test-db-guard/installTestDatabaseConnectionGuard';
 import { isTestRuntime } from './modules/test-db-guard/testDatabaseTargetPolicy';
 
 // TEST-DB-GUARD (OD-K0-5): decided once, before any env file is read.
 const testRuntime = isTestRuntime(process.env);
+
+// TEST-DB-GUARD (OD-K0-5): a test runtime (NODE_ENV=test, a Vitest worker, or a process marked
+// MIMER_TEST_MODE such as the API server Playwright starts) is guarded from its first import on --
+// before any other module of the process can call dotenv or open a database connection.
+if (testRuntime) {
+  installTestDatabaseConnectionGuard();
+}
 
 // Force delete any system-level DATABASE_URL on startup to ensure
 // local .env and .env.local file settings take absolute precedence!
