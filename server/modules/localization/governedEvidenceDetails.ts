@@ -60,6 +60,7 @@ import {
   summarizeGovernedCheckCoverage,
   type GovernedCheckCoverage,
 } from './governedCoverageStatement';
+import { knownCoverageLimitationSv } from './knownCoverageGaps';
 
 /** The governed spatial layers of LU v1, in check order. The product query requests exactly these. */
 export const LU_V1_GOVERNED_SPATIAL_LAYERS = [
@@ -83,7 +84,11 @@ export interface AdmitV1LayerContractFacts {
   readonly authority: string;
   /** The contract's source_version is a `legacy-adopted-*` delivery: adopted existing data. */
   readonly legacy_adopted: boolean;
-  /** What the contract itself says the layer does NOT cover; null where the contract is silent. */
+  /**
+   * What is known NOT to be covered for this dataset version -- the contract's own scope and any
+   * known incompleteness -- composed from the single register in knownCoverageGaps.ts; null where
+   * nothing is stated (never read as "complete").
+   */
   readonly coverage_limitation_sv: string | null;
 }
 
@@ -92,54 +97,55 @@ export interface AdmitV1LayerContractFacts {
  * ADMIT-V1-SET.md, keyed by the contract's source_sha256 -- the same value the spatial layer
  * registry binds as `version_hash` and every spatial evidence carries in `layer_ref.version_hash`.
  * Keyed by hash on purpose: evidence for any other dataset version gets NO contract text (shown as
- * "Saknas i underlaget"), never the text of a version it was not produced from. Nothing beyond the
- * contracts is stated.
+ * "Saknas i underlaget"), never the text of a version it was not produced from. The coverage text is
+ * not written here: it comes from knownCoverageGaps.ts (one place, with source and date).
  */
-const ADMIT_V1_CONTRACT_FACTS_BY_SOURCE_SHA256: Readonly<Record<string, AdmitV1LayerContractFacts>> = {
-  '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc': {
+function contractFacts(
+  sourceSha256: string,
+  facts: Omit<AdmitV1LayerContractFacts, 'coverage_limitation_sv'>,
+): readonly [string, AdmitV1LayerContractFacts] {
+  return [sourceSha256, { ...facts, coverage_limitation_sv: knownCoverageLimitationSv(sourceSha256) }];
+}
+
+const ADMIT_V1_CONTRACT_FACTS_BY_SOURCE_SHA256: Readonly<Record<string, AdmitV1LayerContractFacts>> = Object.fromEntries([
+  contractFacts('2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc', {
     layer_id: 'lu.water_wells',
     source_id: 'SGU/brunnar/2026-06-19',
     source_version: '2026-06-19',
     authority: 'SGU',
     legacy_adopted: false,
-    coverage_limitation_sv: null,
-  },
-  '02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186': {
+  }),
+  contractFacts('02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186', {
     layer_id: 'lu.ebh',
     source_id: 'LST/EBH_Potentiellt_fororenade_omraden/2026-07-23',
     source_version: '2026-07-23',
     authority: 'Länsstyrelsen',
     legacy_adopted: false,
-    coverage_limitation_sv: null,
-  },
-  '983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae': {
+  }),
+  contractFacts('983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae', {
     layer_id: 'lu.protected_area',
     source_id: 'Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20',
     source_version: 'legacy-adopted-2026-07-20',
     authority: 'Naturvårdsverket',
     legacy_adopted: true,
-    coverage_limitation_sv: 'Skyddad natur: endast naturreservat; övriga skyddsformer ingår inte i underlaget.',
-  },
-  'ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18': {
+  }),
+  contractFacts('ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18', {
     layer_id: 'lu.water_protection',
     source_id: 'Naturvardsverket/Vatten/Vattenskyddsomrade/legacy-adopted-2026-07-20',
     source_version: 'legacy-adopted-2026-07-20',
     authority: 'Naturvårdsverket',
     legacy_adopted: true,
-    coverage_limitation_sv:
-      'Vattenskyddsområde: endast Naturvårdsverkets vattenskyddsområden; Länsstyrelsens vattenskydd ' +
-      '(VISS lst_vattenskydd) ingår inte i underlaget.',
-  },
-  a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02: {
+  }),
+  contractFacts('a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02', {
     layer_id: 'lu.natura2000',
+    // The contract's identifier, verbatim (its "Rikstackande" names the source file, it is no
+    // coverage claim; see knownCoverageGaps.ts for what the governed table actually lacks).
     source_id: 'Naturvardsverket/Natura2000/2026-05-08/SPA_Rikstackande',
     source_version: '2026-05-08',
     authority: 'Naturvårdsverket',
     legacy_adopted: false,
-    coverage_limitation_sv:
-      'Natura 2000: endast fågelskyddsområden (SPA); särskilda bevarandeområden (SCI/SAC) ingår inte i underlaget.',
-  },
-};
+  }),
+]);
 
 export function admitV1ContractFacts(versionHash: string | null | undefined): AdmitV1LayerContractFacts | null {
   return (versionHash && ADMIT_V1_CONTRACT_FACTS_BY_SOURCE_SHA256[versionHash]) || null;

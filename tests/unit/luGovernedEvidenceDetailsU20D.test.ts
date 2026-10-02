@@ -590,14 +590,20 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     const natura = byLayer.get('natura2000')!;
     expect(natura.result?.cap_reached).toBe(true);
     expect(natura.message_sv).toContain('minst 50 objekt (taket på 50 träffar nåddes; fler kan finnas)');
-    expect(natura.coverage_limitation_sv).toBe(
-      'Natura 2000: endast fågelskyddsområden (SPA); särskilda bevarandeområden (SCI/SAC) ingår inte i underlaget.',
-    );
+    // U20CDF (U20CD verification F1): SPA only AND the SPA basis itself is known to be incomplete --
+    // never read as "all SPA areas". From the one register (knownCoverageGaps.ts), with its date.
+    const NATURA_LIMITATION =
+      'Natura 2000: endast fågelskyddsområden (SPA); underlaget är känt ofullständigt (103 av 558 SPA-områden saknas enligt avstämning 2026-09-25).';
+    expect(natura.coverage_limitation_sv).toBe(NATURA_LIMITATION);
+    expect(natura.contract?.coverage_limitation_sv).toBe(NATURA_LIMITATION);
+    expect(summary.governedLayerChecks.find((c) => c.layer === 'natura2000')!.coverage_limitation_sv).toBe(NATURA_LIMITATION);
 
     await exportCurrentLuAssessmentPdf(s.deps());
     const text = JSON.stringify(capturedPdfData);
     expect(text).toContain('Ingen registrerad träff i Potentiellt förorenade områden (EBH) (Länsstyrelsen) inom 500 m (registerkontroll, inte markundersökning).');
-    expect(text).toContain('Natura 2000: endast fågelskyddsområden (SPA); särskilda bevarandeområden (SCI/SAC) ingår inte i underlaget.');
+    expect(text).toContain(NATURA_LIMITATION);
+    // No full-coverage claim in the governed PDF (the contract id "SPA_Rikstackande" is an identifier).
+    expect(text).not.toMatch(/rikstäckande|alla SPA|samtliga SPA/i);
     expect(text).toContain(REGISTRY_HASH.water);
     const pdfWater = (capturedPdfData as PdfData).evidensdetaljer.find((d) => d.evidens_artifact_id === water.evidence_artifact_id)!;
     expect(pdfWater).toMatchObject({ importbatch: 'Saknas i underlaget', sokradie_m: 500, antal_traffar: 3, tak_natt: false, kalla: 'SGU' });
