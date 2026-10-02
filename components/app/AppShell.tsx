@@ -4,6 +4,7 @@ import { useAppWorkspace } from './providers/AppWorkspaceProvider';
 import { setSession, callApi, getToken, getRefreshToken, setActiveProjectId } from '../../services/coreApiClient';
 import { MimerProductShell } from './MimerProductShell';
 import { AuthInterface } from '../project/AuthInterface';
+import { DemoLoginForm, isDemoLoginEnabled, type DemoLoginSuccess } from './DemoLoginForm';
 import { logout as bankIdLogout, type BankIdLoginResult } from '../../src/ui/hooks/useAuth';
 
 interface BankIdStatusResponse {
@@ -118,6 +119,16 @@ export const AppShell: React.FC = () => {
       });
     };
 
+    const handleDemoLoginSuccess = (payload: DemoLoginSuccess, username: string) => {
+      setSession({ accessToken: payload.accessToken, refreshToken: payload.refreshToken });
+      onLoginSuccess({
+        id: payload.user.id,
+        name: username,
+        personalNumber: '',
+        isAuthenticated: true,
+      });
+    };
+
     const bankIdReady = Boolean(authConfig?.canInitiate);
     const devLoginAllowed = Boolean(authConfig?.allowDevLogin);
     const stillResolvingAuthConfig = !authConfig && !authConfigError;
@@ -141,6 +152,9 @@ export const AppShell: React.FC = () => {
             </p>
           </div>
         )}
+
+        {/* DEMO M2a: shown only when the client build sets VITE_DEMO_LOGIN=true (default off). */}
+        {isDemoLoginEnabled() ? <DemoLoginForm onSuccess={handleDemoLoginSuccess} /> : null}
 
         {devLoginAllowed ? (
           <div className="text-center">

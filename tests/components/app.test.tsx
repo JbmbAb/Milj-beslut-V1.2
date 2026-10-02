@@ -201,6 +201,32 @@ describe('App', () => {
     expect(screen.queryByTestId('dev-login')).not.toBeInTheDocument();
   });
 
+  it('DEMO M2a: the username/password demo form is NOT rendered unless VITE_DEMO_LOGIN=true (default off)', async () => {
+    vi.stubEnv('VITE_DEMO_LOGIN', '');
+    coreApiClientMocks.getToken.mockReturnValue('');
+    renderApp();
+    expect(await screen.findByTestId('app-login')).toBeInTheDocument();
+    expect(screen.queryByTestId('demo-login-form')).not.toBeInTheDocument();
+    vi.unstubAllEnvs();
+  });
+
+  it('DEMO M2a: with VITE_DEMO_LOGIN=true the demo form renders on the login screen, empty, independent of allowDevLogin', async () => {
+    vi.stubEnv('VITE_DEMO_LOGIN', 'true');
+    coreApiClientMocks.getToken.mockReturnValue('');
+    coreApiClientMocks.callApi.mockImplementation(async (endpoint: string) => {
+      if (endpoint === '/api/auth/bankid/status') {
+        return { ok: true, mode: 'test', canInitiate: false, message: 'BankID ej konfigurerat', allowDevLogin: false };
+      }
+      return { ok: true };
+    });
+    renderApp();
+    expect(await screen.findByTestId('demo-login-form')).toBeInTheDocument();
+    expect(screen.getByTestId('demo-login-username')).toHaveValue('');
+    expect(screen.getByTestId('demo-login-password')).toHaveValue('');
+    expect(screen.queryByTestId('dev-login')).not.toBeInTheDocument();
+    vi.unstubAllEnvs();
+  });
+
   it('renders the real AuthInterface (not an "unavailable" placeholder) when BankID canInitiate=true', async () => {
     coreApiClientMocks.getToken.mockReturnValue('');
     coreApiClientMocks.callApi.mockImplementation(async (endpoint: string) => {
