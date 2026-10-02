@@ -16,6 +16,7 @@
  * the current verified binding before minting anything, so a reclaim after a crash that already
  * completed the CAS write reuses that binding instead of diverging.
  */
+import { demoQueueClaimFloorWhere } from './demoQueueClaimFloor';
 import { prisma } from '../../db/prisma';
 
 const LEASE_DURATION_MS = 2 * 60 * 1000;
@@ -64,6 +65,7 @@ export async function getBootstrapRequestStatusForProject(projectId: string): Pr
 export async function leaseOnePendingBootstrapRequest(now: Date = new Date()): Promise<BootstrapRequestRecord | null> {
   const candidate = await prisma.projectContextBootstrapRequest.findFirst({
     where: {
+      ...demoQueueClaimFloorWhere(),
       OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }],
     },
     orderBy: { createdAt: 'asc' },

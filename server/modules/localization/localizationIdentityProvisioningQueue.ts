@@ -17,6 +17,7 @@
  * re-checks for an existing identity for the exact pinned subject before minting, so a reclaim
  * after a crash that already completed the CAS write reuses that identity instead of diverging.
  */
+import { demoQueueClaimFloorWhere } from './demoQueueClaimFloor';
 import { prisma } from '../../db/prisma';
 
 const LEASE_DURATION_MS = 2 * 60 * 1000;
@@ -99,6 +100,7 @@ export async function leaseOnePendingLocalizationIdentityProvisioningRequest(
 ): Promise<LocalizationIdentityProvisioningRequestRecord | null> {
   const candidate = await prisma.localizationIdentityProvisioningRequest.findFirst({
     where: {
+      ...demoQueueClaimFloorWhere(),
       OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }],
     },
     orderBy: { createdAt: 'asc' },

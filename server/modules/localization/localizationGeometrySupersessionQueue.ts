@@ -9,6 +9,7 @@
  * everything else itself. `leaseExpiresAt` is present from day one (H3 fix, never reproduced) --
  * same race-free reclaim pattern as viewerCapabilityProvisioningQueue.ts.
  */
+import { demoQueueClaimFloorWhere } from './demoQueueClaimFloor';
 import { prisma } from '../../db/prisma';
 
 const LEASE_DURATION_MS = 2 * 60 * 1000;
@@ -108,6 +109,7 @@ export async function leaseOnePendingLocalizationGeometrySupersessionRequest(
 ): Promise<LocalizationGeometrySupersessionRequestRecord | null> {
   const candidate = await prisma.localizationGeometrySupersessionRequest.findFirst({
     where: {
+      ...demoQueueClaimFloorWhere(),
       OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }],
     },
     orderBy: { createdAt: 'asc' },

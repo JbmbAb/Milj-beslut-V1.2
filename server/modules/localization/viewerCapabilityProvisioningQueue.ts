@@ -12,6 +12,7 @@
  * copied from): a LEASED row whose `leaseExpiresAt` has passed is treated as available again,
  * exactly like a PENDING row, so a crashed worker never leaves a row stuck forever.
  */
+import { demoQueueClaimFloorWhere } from './demoQueueClaimFloor';
 import { prisma } from '../../db/prisma';
 
 const LEASE_DURATION_MS = 2 * 60 * 1000;
@@ -157,6 +158,7 @@ export async function leaseOnePendingViewerCapabilityProvisioningRequest(
 ): Promise<ViewerCapabilityProvisioningRequestRecord | null> {
   const candidate = await prisma.viewerCapabilityProvisioningRequest.findFirst({
     where: {
+      ...demoQueueClaimFloorWhere(),
       OR: [{ status: 'PENDING' }, { status: 'LEASED', leaseExpiresAt: { lt: now } }],
     },
     orderBy: { createdAt: 'asc' },
