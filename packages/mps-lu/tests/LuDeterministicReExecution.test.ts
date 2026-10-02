@@ -1225,6 +1225,9 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
     ["an error name containing ': '", Object.assign(new Error("x"), { name: "pg: error" })],
     ["a multi-line message over 200 characters, truncated", new Error(`first line\n${"y".repeat(250)}`)],
     ["a non-Error throw with a line break", "line one\nline two"],
+    // The separator is not necessarily the first nor the last ": " of the cause.
+    ["an error name containing ': ' with a truncated message", Object.assign(new Error("q".repeat(260)), { name: "pg: error" })],
+    ["a truncated message that itself starts with ': '", new Error(`: ${"z".repeat(260)}`)],
   ];
   for (const [label, thrown] of GENUINE) {
     it(`19g genuine (${label}) -> PASS + NOT_CHECKED_CAUSE_NOT_PINNED`, async () => {
