@@ -30,10 +30,15 @@ const state = vi.hoisted(() => ({
   listError: null as Error | null,
   geometryRows: [] as Array<{ projectId: string; geometryArtifactId: string; propertyContextRefId: string; propertyContextRefType: string; createdAt: Date }>,
   provisioningRequests: [] as Array<{ projectId: string; geometryArtifactId: string }>,
+  accessError: null as Error | null,
 }));
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
-vi.mock('../../server/security/projectAccess', () => ({ assertProjectAccess: vi.fn(async () => undefined) }));
+vi.mock('../../server/security/projectAccess', () => ({
+  assertProjectAccess: vi.fn(async () => {
+    if (state.accessError) throw state.accessError;
+  }),
+}));
 vi.mock('../../server/modules/localization/createLocalizationSpatialRuntime', () => ({
   createLocalizationSpatialRuntime: vi.fn(async () => {
     throw new Error('the real spatial runtime is never created in this test');
@@ -119,7 +124,11 @@ import { CasBackedArtifactRepository } from '../../packages/mps-runtime/src/repo
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 import { attestProjectContextBindingArtifact, installVerifiedProductLuContext } from '../../server/modules/localization/projectContextBindingAuthority';
 import { PrismaProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
-import { getCurrentLocalizationGeometryForProject, saveUserLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
+import {
+  getCurrentLocalizationGeometryForProject,
+  retryLocalizationIdentityProvisioning,
+  saveUserLocalizationGeometry,
+} from '../../server/modules/localization/localizationGeometryService';
 import type { LocalizationSpatialRuntime } from '../../server/modules/localization/createLocalizationSpatialRuntime';
 import type { AuthUser } from '../../server/security/types';
 
@@ -261,6 +270,7 @@ beforeEach(async () => {
   state.listError = null;
   state.geometryRows.length = 0;
   state.provisioningRequests.length = 0;
+  state.accessError = null;
   puts.length = 0;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.keyId;
   process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = issuerKey.publicKeyPem;
@@ -366,5 +376,33 @@ describe('W-CATCH2 #8: a context that cannot be read or verified is a typed faul
         expect(hermeticPrismaTouches).toEqual([]);
       });
     }
+  }
+});
+
+describe('W-CATCH2 #14 (same surface): the geometry routes answer 403 only for the access check’s own typed denial', () => {
+  const denial = () => Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED', name: 'ProjectAccessDeniedError' });
+  const dbDown = () => Object.assign(new Error("Can't reach database server at 10.0.0.5:5432"), { name: 'PrismaClientInitializationError' });
+  const retry = () => retryLocalizationIdentityProvisioning({ authUser: USER, projectId: PROJECT_ID });
+  for (const [verb, call] of [['GET', load], ['POST', save], ['RETRY', retry]] as const) {
+    it(`${verb}: a typed denial -> 403 (unchanged)`, async () => {
+      state.accessError = denial();
+      expect(await call()).toEqual({ ok: false, status: 403, error: 'Not authorized for this project.' });
+    });
+    it(`${verb}: the access facts cannot be read -> 503 PROJECT_ACCESS_UNRESOLVED (retryable), never 403; nothing read or written`, async () => {
+      state.accessError = dbDown();
+      const result = await call();
+      expect(result).toEqual({
+        ok: false,
+        status: 503,
+        error: expect.stringMatching(/^Behörigheten till projektet kunde inte läsas \(tekniskt fel\)\. Ett nytt försök kan lyckas\./),
+        code: 'PROJECT_ACCESS_UNRESOLVED',
+        failureClass: 'READ_ERROR',
+        reasonCode: 'READ_ERROR',
+        retryable: true,
+      });
+      expect(JSON.stringify(result)).not.toMatch(/10\.0\.0\.5|database server/);
+      expect(puts).toEqual([]);
+      expect(state.provisioningRequests).toEqual([]);
+    });
   }
 });
