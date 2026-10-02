@@ -2,8 +2,10 @@
  * W-BOOT (OD-R1/OD-R2, owner decisions 2026-10-02): when may the project-context bootstrap mint a
  * NEW ProjectContextBinding for a project?
  *
- * Only when the project provably has none: ProjectContextBindingProvider.resolveCurrent refused with
- * W-APR's `noBindingRegistered` contract (the index lists no binding) because the binding graph is
+ * Only when NO INDEX TRACE shows a binding for the project (W-CATCH2, BOOT verifier finding 1: this is
+ * what the gate proves -- not that the project "provably has none"; see
+ * PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION below): ProjectContextBindingProvider.resolveCurrent refused
+ * with W-APR's `noBindingRegistered` contract (the index lists no binding) because the binding graph is
  * empty, AND the binding index lists no supersession relation for the project either (a relation
  * proves that bindings existed -- their rows are lost, not absent).
  *
@@ -23,10 +25,12 @@
  *    or the graph has no single head (`refusalCode` is the REJECT_* token) -- not retryable;
  *  - BINDING_INDEX_INCONSISTENT: no binding row, but supersession rows (the provider's typed cause
  *    PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT, or the bootstrap's own listing) or another index
- *    trace of a binding remain -- not retryable.
- * The classification is the same value-based rule W-APR uses for the current binding
- * (assessmentProjection.ts currentBindingFault) and M1a-F1/U20CDF2 use for storage faults
- * (storageFaultClassification.ts); it reads codes and REJECT_* tokens, never free text.
+ *    trace of a binding remain; or (W-CATCH2, BOOT verifier finding 3) the index lists a binding twice,
+ *    lists a binding or relation of another project, or a relation naming a binding it lost -- not
+ *    retryable.
+ * W-CATCH2: the classification IS the shared rule (readFaultClassification.ts classifyReadFault, also
+ * used by the selection, the geometry routes, the viewer runtime and the provisioning workers); it
+ * reads codes and REJECT_* tokens, never free text.
  *
  * The message is the Swedish text the bootstrap-status API shows (failureDetail): no id, path,
  * storage code or REJECT_* token. The original failure stays server-side in `cause`.
@@ -35,6 +39,29 @@ import { retrySentenceSv } from './storageFaultClassification';
 import { classifyReadFault, isProvenBindingAbsence } from './readFaultClassification';
 
 export const PROJECT_CONTEXT_BOOTSTRAP_BINDING_UNRESOLVED = 'PROJECT_CONTEXT_BOOTSTRAP_BINDING_UNRESOLVED' as const;
+
+/**
+ * KNOWN_LIMITATION (W-CATCH2 on the BOOT verifier's finding 1; owner decision (4) p.6, 2026-10-03:
+ * correlated total metadata loss is the same documented class as M1a's -- documented, NOT approved
+ * behaviour). The gate proves only that no index trace shows a binding. When every trace is lost
+ * together -- the binding index's binding and supersession rows, the assessment projection's rows, the
+ * localization geometry rows and a COMPLETED bootstrap request -- the bootstrap mints a new root (after
+ * a re-import of the property layer: another property root) although the old binding is intact in CAS
+ * (the BOOT verifier's probe K1; old code did the same). Pinned as a limit in
+ * luProjectContextBootstrapCasFaultChainBOOT.test.ts. No text describing the bootstrap or bindings
+ * (U51, reports, PDF, UI) may claim more than `meaning_sv`. The structural fix (a CAS-anchored binding
+ * head) is not built.
+ */
+export const PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION = Object.freeze({
+  code: 'KNOWN_LIMITATION',
+  id: 'PROJECT_CONTEXT_BOOTSTRAP_CORRELATED_METADATA_LOSS',
+  meaning_sv:
+    'currentness/bindning är fail-closed för detekterbara fel men inte bevisad mot korrelerad förlust av all metadata som visar att en bindning existerat',
+  scope_sv:
+    'Bootstrapen bevisar bara att inget indexspår visar en bindning: bindningsindexets bindnings- och ersättningsrader, bedömningsprojektionens rader, lokaliseringsgeometrins rader och en slutförd bootstrap-begäran med bindning. Förloras alla dessa spår tillsammans mintas en ny bindning, efter en omimport av fastighetsskiktet med en annan fastighetsrot, fast den gamla bindningen finns kvar i CAS. För ett projekt som bootstrappats via kön krävs förlust i minst två tabeller (bindningsraden och den slutförda begäran); för ett projekt vars bindning installerats utanför kön och som saknar bedömnings- och geometrirader räcker att bindningsraden förloras.',
+  owner_decision:
+    'ACCEPTED 2026-10-03 (owner decision (4) p.6): correlated total metadata loss is the same documented KNOWN_LIMITATION class as M1a; documented, NOT approved behaviour; the structural fix (a CAS-anchored binding head) is not built',
+} as const);
 
 export type BootstrapBindingFaultReason =
   | 'READ_ERROR'
@@ -67,7 +94,7 @@ function swedishText(reason: BootstrapBindingFaultReason, retryable: boolean): s
     REFUSED:
       'projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja).',
     BINDING_INDEX_INCONSISTENT:
-      'projektets bindning saknas i bindningsindexet, men indexen visar att en bindning har funnits (bestående integritetsfel).',
+      'projektets bindningsindex är inkonsekvent: indexen visar att en bindning har funnits, men den saknas, är dubblerad eller hör till ett annat projekt (bestående integritetsfel).',
   };
   return [PREFIX, cause[reason], NO_NEW_BINDING, retrySentenceSv(retryable), ...(retryable ? [] : [CONTACT])].join(' ');
 }
@@ -127,9 +154,10 @@ export interface ProjectBindingTrace {
 }
 
 /**
- * Called with the error resolveCurrent threw. Returns ONLY when the project has no binding at all
- * (minting may proceed); otherwise throws ProjectContextBootstrapBindingUnresolvedError. Every trace
- * is consulted, in order, before minting is allowed.
+ * Called with the error resolveCurrent threw. Returns ONLY when no index trace shows a binding for the
+ * project (minting may proceed; what that does NOT prove: PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION);
+ * otherwise throws ProjectContextBootstrapBindingUnresolvedError. Every trace is consulted, in order,
+ * before minting is allowed.
  */
 export async function assertNoProjectContextBindingRegistered(args: {
   readonly resolveCurrentError: unknown;

@@ -162,7 +162,12 @@ async function runFreshVerifier(bindingId: string, projectId: string): Promise<v
  * W-BOOT (OD-R1/OD-R2): "not done yet" means exactly that no binding is registered for the project
  * (the index row is the install's last write, so a crash before it leaves none). A registered binding
  * that cannot be read or verified is NOT "not done yet": the outcome is a typed fail-closed
- * CURRENT_BINDING_* failure with `retryable`, and nothing is minted over it.
+ * CURRENT_BINDING_* failure with `retryable`, and nothing is minted over it. W-CATCH2 (BOOT verifier
+ * finding 1): "no binding registered" is what the indexes show, not a proof -- when every index trace
+ * of a binding is lost together a new root is minted (PROJECT_CONTEXT_BOOTSTRAP_KNOWN_LIMITATION).
+ * Operator note (BOOT verifier finding 5): run exactly ONE bootstrap worker per database -- two
+ * concurrent bootstraps of a fresh project can both pass the gate and register two heads (409 on every
+ * read afterwards; old code did the same).
  */
 export async function executeProjectContextBootstrap(input: {
   readonly projectId: string;
