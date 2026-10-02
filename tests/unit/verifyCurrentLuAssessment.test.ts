@@ -228,9 +228,21 @@ async function setup() {
 }
 
 describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
+  // U30-R5 (K0 model): verify accepts these bootstrap executions only in an EXPLICIT test process -- the flag "1"
+  // AND NODE_ENV exactly "test" AND APP_ENV exactly "test"/"ci" -- set here, never as a global default; the flag
+  // outside such a process makes verify refuse (BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST).
+  const savedEnv = new Map<string, string | undefined>();
   beforeEach(() => {
     membershipAllowed = true;
+    for (const key of ['MPS_LU_BOOTSTRAP_ADMIT', 'NODE_ENV', 'APP_ENV']) savedEnv.set(key, process.env[key]);
     process.env.MPS_LU_BOOTSTRAP_ADMIT = '1';
+    process.env.NODE_ENV = 'test';
+    process.env.APP_ENV = 'test';
+  });
+  afterEach(() => {
+    for (const [key, value] of savedEnv) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
   });
 
   it('proof 1+2: uses the persisted assessment identity; PASS only when H15 re-execution matches exactly', async () => {

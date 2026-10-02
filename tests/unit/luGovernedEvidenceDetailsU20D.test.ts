@@ -494,15 +494,26 @@ function app() {
 }
 const token = () => createTokenPair({ id: AUTH_USER.id, organisationId: AUTH_USER.organisationId, bankidId: AUTH_USER.bankidId, role: 'ADMIN' }).accessToken;
 
+// U30-R5 (K0 model): verify accepts these bootstrap executions only in an EXPLICIT test process -- the flag "1"
+// AND NODE_ENV exactly "test" AND APP_ENV exactly "test"/"ci" -- set here, never as a global default; the flag
+// outside such a process makes verify refuse (BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST).
+const savedBootstrapEnv = new Map<string, string | undefined>();
+
 beforeEach(() => {
   state.reExecute = null;
   capturedPdfData = undefined;
   hermeticPrismaTouches.length = 0;
+  for (const key of ['NODE_ENV', 'APP_ENV']) savedBootstrapEnv.set(key, process.env[key]);
   process.env.MPS_LU_BOOTSTRAP_ADMIT = '1';
+  process.env.NODE_ENV = 'test';
+  process.env.APP_ENV = 'test';
 });
 
 afterEach(() => {
   delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+  for (const [key, value] of savedBootstrapEnv) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
   expect(hermeticPrismaTouches).toEqual([]);
 });
 
