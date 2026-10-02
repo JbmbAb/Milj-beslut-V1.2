@@ -41,6 +41,12 @@ import {
   readPinnedArtifact,
   type LuReExecutionStage,
 } from "./LuReExecutionStorageError.js";
+import { executionIdentityCanonicalBody } from "./ExecutionIdentityAttestation.js";
+import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
+import {
+  computeExecutionIdentityArtifactIdV3,
+  computeExecutionManifestIdV3,
+} from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -90,7 +96,7 @@ import {
  * U30-R2 (NOT_CHECKED replay within the existing contracts; owner 2026-10-02: no new artifact
  * type). A NOT_CHECKED layer finding is a function of its layer alone (LURuleEngine), and WHICH
  * layers were not checked is re-derived from the attested execution -- the CAPABILITY_EXECUTION
- * pinned by the validated v2 outcome, re-hashed (`attestedNotCheckedLayers`) -- never from the
+ * pinned by the validated v2 outcome, re-hashed (`attestedExecution`) -- never from the
  * stored findings under comparison: an added, removed or rewritten NOT_CHECKED finding therefore
  * still mismatches. A historical NOT_CHECKED finding whose explanation embeds the provider's
  * never-pinned free text is reproduced in every semantic field; its wording difference is reported
@@ -104,6 +110,25 @@ import {
  * LuReExecutionStorageError (code LU_REEXECUTION_STORAGE_FAULT, the stage, the original fault as
  * cause) -- never a DENY and never a silent fallback. The assessment itself is the caller's input,
  * not a pinned artifact: its absence keeps the repository's own not-found error.
+ *
+ * U30-R3 K2 (verifier F1/F5/F6). The binding between the assessment and the execution it names is
+ * checked in BOTH directions, never by trusting either side:
+ *  - assessment -> execution: the assessment's own hash covers execution_outcome_ref; the v2 outcome
+ *    hashes capability_execution_ref and attempt_ref; the CAPABILITY_EXECUTION is re-hashed from its
+ *    outputs (`attestedExecution`).
+ *  - execution -> assessment: the execution's output_refs must be EXACTLY the finding ids
+ *    re-executed from the assessment's own pinned, re-hashed evidence (layer findings carry the
+ *    evidence artifact id) plus the NOT_CHECKED layers -- nothing missing, nothing extra. A removed
+ *    or fabricated HIGH, a junk output, or another assessment's outcome (verifier X3) is
+ *    MANIFEST_ATTEMPT_MISMATCH.
+ *  - for a V4 assessment additionally: its AuthorityEvidence (id re-derived from its content) names
+ *    exactly one V3 ExecutionIdentity (content hash as pinned there); that identity's subject must
+ *    derive the very manifest the outcome's attempt belongs to, and name the assessment's
+ *    localization point (`authoritySubjectMismatch`). This closes the redirect that output binding
+ *    alone cannot see: an assessment with no evidence-derived finding pointed at another no-hit
+ *    run's outcome.
+ * What this proves is deterministic consistency of the replay against the pinned artifacts. It does
+ * NOT prove authenticity: no signature is checked here (U30R3-REPORT, "Vad verify inte bevisar").
  */
 
 export type LuReExecutionMismatchCode =
@@ -409,6 +434,12 @@ export async function reExecuteLocalizationAssessment(args: {
     };
   }
 
+  // U30-R3 K2: a V4 assessment's authority subject must name the execution its outcome pins.
+  const authorityMismatch = await authoritySubjectMismatch(assessment, manifestIdFromAttemptRef, args.artifactRepository);
+  if (authorityMismatch) {
+    return denied(authorityMismatch);
+  }
+
   const { spatial_evidence, document_evidence, verified_document_facts, mismatches } = await resolveEvidence({
     evidenceRefs: assessment.payload.evidence_refs,
     artifactRepository: args.artifactRepository,
@@ -425,7 +456,7 @@ export async function reExecuteLocalizationAssessment(args: {
   }
 
   // U30-R2: which layers the original run could not check comes from the attested execution only.
-  const attested = await attestedNotCheckedLayers(outcome, args.artifactRepository);
+  const attested = await attestedExecution(outcome, args.artifactRepository);
   if ("mismatch" in attested) {
     return {
       outcome: "DENY",
@@ -473,6 +504,19 @@ export async function reExecuteLocalizationAssessment(args: {
         ];
 
   const comparisonMismatches: LuReExecutionMismatch[] = [];
+
+  // U30-R3 K2: the attested execution must have produced EXACTLY the findings this assessment's own
+  // pinned evidence re-executes to (as multisets of finding ids) -- not a subset, not a superset.
+  // V1 outcomes carry no execution lineage (historical, predating NOT_CHECKED); nothing to bind.
+  if (attested.output_ids !== null) {
+    const outputBinding = exactOutputBindingMismatch(
+      attested.execution_id,
+      attested.output_ids,
+      freshFindings.map((finding) => finding.finding_id),
+    );
+    if (outputBinding) comparisonMismatches.push(outputBinding);
+  }
+
   const storedFindingsCanonical = canonicalFindingsKey(storedComparable);
   const freshFindingsCanonical = canonicalFindingsKey(freshFindings);
   if (JSON.stringify(storedFindingsCanonical) !== JSON.stringify(freshFindingsCanonical)) {
@@ -501,7 +545,136 @@ export async function reExecuteLocalizationAssessment(args: {
 }
 
 /**
- * U30-R2 -- the governed layers the ATTESTED execution reported as not checked.
+ * U30-R3 K2 -- `output_ids` (what the attested execution produced) against `freshIds` (what this
+ * assessment's pinned evidence re-executes to), compared as sorted multisets. Only ids appear in the
+ * detail, never finding text.
+ */
+function exactOutputBindingMismatch(
+  executionId: string,
+  outputIds: readonly string[],
+  freshIds: readonly string[],
+): LuReExecutionMismatch | null {
+  const sortedOutputs = [...outputIds].sort();
+  const sortedFresh = [...freshIds].sort();
+  if (JSON.stringify(sortedOutputs) === JSON.stringify(sortedFresh)) return null;
+  const remaining = [...sortedFresh];
+  const onlyInOutputs: string[] = [];
+  for (const id of sortedOutputs) {
+    const at = remaining.indexOf(id);
+    if (at === -1) onlyInOutputs.push(id);
+    else remaining.splice(at, 1);
+  }
+  return {
+    code: "MANIFEST_ATTEMPT_MISMATCH",
+    detail:
+      `attested execution lineage: CAPABILITY_EXECUTION ${executionId} output_refs are not exactly the findings ` +
+      `re-executed from this assessment's pinned evidence (only in output_refs: ${JSON.stringify(onlyInOutputs)}; ` +
+      `only re-executed: ${JSON.stringify(remaining)}) -- the pinned execution did not produce this assessment`,
+  };
+}
+
+/**
+ * U30-R3 K2 -- the reverse binding of a V4 assessment to the execution its outcome pins.
+ *
+ * assessment.authority_evidence_ref (inside the assessment's own hash) -> AuthorityEvidence, whose
+ * id is re-derived from its canonical fields and whose content hash is recomputed -> exactly one
+ * `subject` path entry, an execution_identity with a pinned content hash -> that ExecutionIdentity,
+ * re-hashed (executionIdentityCanonicalBody) to the pinned hash, V3, its id re-derived from its
+ * subject -> computeExecutionManifestIdV3(subject) must be the manifest the outcome's attempt belongs
+ * to, and the subject's localization point must be the assessment's. Every step is a hash or a
+ * preimage-resistant derivation; none trusts a stored claim, and no signature is verified (that is
+ * authenticity, not consistency -- see the module header).
+ *
+ * Applies to V4 only: V1-V3 assessments pin no authority subject, so they keep the finding-level
+ * binding alone (U30R3-REPORT, remaining boundary). Genuine absence of a pinned artifact is
+ * MANIFEST_ATTEMPT_MISMATCH; a storage fault is LuReExecutionStorageError (OD-R2).
+ */
+async function authoritySubjectMismatch(
+  assessment: LocalizationAssessmentArtifact,
+  manifestIdFromAttemptRef: string,
+  repository: ArtifactRepositoryPort,
+): Promise<LuReExecutionMismatch | null> {
+  const evidenceRef = assessment.payload.authority_evidence_ref;
+  if (evidenceRef === undefined) return null;
+  const unbound = (detail: string): LuReExecutionMismatch => ({
+    code: "MANIFEST_ATTEMPT_MISMATCH",
+    detail: `authority binding: ${detail}`,
+  });
+
+  const evidenceRead = await readPinnedArtifact<Record<string, unknown>>(repository, evidenceRef, "authority_evidence");
+  if (evidenceRead.found === false) {
+    return unbound(`authority evidence ${evidenceRef.artifact_id} pinned by the assessment is not in CAS`);
+  }
+  const evidence = evidenceRead.value;
+  if (
+    typeof evidence !== "object" ||
+    evidence === null ||
+    evidence.artifact_type !== "authority_evidence" ||
+    evidence.artifact_id !== evidenceRef.artifact_id
+  ) {
+    return unbound(`${evidenceRef.artifact_id} is not the authority evidence the assessment pins`);
+  }
+  const { content_hash: storedHash, ...body } = evidence as Record<string, unknown> & { content_hash?: { value?: unknown } };
+  const { artifact_id: _id, references: _references, ...canonical } = body;
+  if (
+    sha256ContentHash(body).value !== storedHash?.value ||
+    evidence.artifact_id !== `authority-evidence-${sha256ContentHash(canonical).value.slice(0, 24)}`
+  ) {
+    return unbound(`${evidenceRef.artifact_id} does not match its own content -- rewritten or malformed`);
+  }
+
+  const path = Array.isArray(evidence.authority_path) ? (evidence.authority_path as readonly unknown[]) : [];
+  const subjects = path.filter(
+    (entry): entry is { artifact_ref: ArtifactReference; content_hash: { algorithm: string; value: string } } =>
+      (entry as { role?: unknown } | null)?.role === "subject",
+  );
+  const subjectEntry = subjects.length === 1 ? subjects[0]! : null;
+  if (
+    !subjectEntry ||
+    subjectEntry.artifact_ref?.artifact_type !== "execution_identity" ||
+    typeof subjectEntry.artifact_ref?.artifact_id !== "string" ||
+    typeof subjectEntry.content_hash?.value !== "string"
+  ) {
+    return unbound(`${evidenceRef.artifact_id} does not name exactly one execution identity as its subject`);
+  }
+
+  const identityRead = await readPinnedArtifact<ExecutionIdentityArtifact>(repository, subjectEntry.artifact_ref, "execution_identity");
+  if (identityRead.found === false) {
+    return unbound(`execution identity ${subjectEntry.artifact_ref.artifact_id} named by the authority evidence is not in CAS`);
+  }
+  const identity = identityRead.value;
+  const subject = identity?.subject_v3;
+  const identityHash = identity ? sha256ContentHash(executionIdentityCanonicalBody(identity)) : null;
+  if (
+    !identity ||
+    !subject ||
+    identity.artifact_id !== subjectEntry.artifact_ref.artifact_id ||
+    identityHash?.algorithm !== subjectEntry.content_hash.algorithm ||
+    identityHash?.value !== subjectEntry.content_hash.value ||
+    computeExecutionIdentityArtifactIdV3(subject) !== identity.artifact_id
+  ) {
+    return unbound(`${subjectEntry.artifact_ref.artifact_id} is not the V3 execution identity the authority evidence hashes`);
+  }
+
+  if (computeExecutionManifestIdV3(subject) !== manifestIdFromAttemptRef) {
+    return unbound(
+      `the assessment's authority subject ${identity.artifact_id} does not name the execution its outcome pins (manifest ${manifestIdFromAttemptRef})`,
+    );
+  }
+  const point = assessment.payload.localization_geometry_ref;
+  if (
+    !point ||
+    point.artifact_id !== subject.localization_geometry_ref?.artifact_id ||
+    point.artifact_type !== subject.localization_geometry_ref?.artifact_type
+  ) {
+    return unbound(`the assessment's localization point is not the one its authority subject ${identity.artifact_id} was issued for`);
+  }
+  return null;
+}
+
+/**
+ * U30-R2 -- the governed layers the ATTESTED execution reported as not checked; U30-R3 K2 -- and every
+ * finding id it produced (`output_ids`, null for a V1 outcome without lineage).
  *
  * Source: the assessment's execution_outcome_ref (a FrozenExecutionOutcome v2, validated above)
  * -> its capability_execution_ref -> the CAPABILITY_EXECUTION the kernel wrote when the rules ran
@@ -521,14 +694,21 @@ export async function reExecuteLocalizationAssessment(args: {
  *    assessments from before LU-BREADTH-01).
  *
  * A V1 outcome carries no capability lineage. V1 predates NOT_CHECKED (SEM-1) by a month, so it
- * attests none: nothing is fed back, exactly as before U30-R2.
+ * attests none: nothing is fed back, exactly as before U30-R2, and there is no output list to bind.
  */
-async function attestedNotCheckedLayers(
+async function attestedExecution(
   outcome: FrozenExecutionOutcomeIdentity,
   repository: ArtifactRepositoryPort,
-): Promise<{ readonly layers: readonly string[] } | { readonly mismatch: LuReExecutionMismatch }> {
+): Promise<
+  | {
+      readonly layers: readonly string[];
+      readonly execution_id: string;
+      readonly output_ids: readonly string[] | null;
+    }
+  | { readonly mismatch: LuReExecutionMismatch }
+> {
   if (!("capability_execution_ref" in outcome)) {
-    return { layers: [] };
+    return { layers: [], execution_id: "", output_ids: null };
   }
   const untrusted = (detail: string) => ({
     mismatch: { code: "MANIFEST_ATTEMPT_MISMATCH" as const, detail: `attested execution lineage: ${detail}` },
@@ -585,6 +765,8 @@ async function attestedNotCheckedLayers(
     layers: (outputIds as string[])
       .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
       .map((id) => id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length)),
+    execution_id: execution.artifact_id,
+    output_ids: outputIds as string[],
   };
 }
 
