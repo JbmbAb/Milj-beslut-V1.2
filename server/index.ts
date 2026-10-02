@@ -1,5 +1,5 @@
 import './loadEnvFirst';
-console.log('🚀 EXPRESS BACKEND STARTING - DATABASE_URL:', process.env.DATABASE_URL);
+console.log('🚀 EXPRESS BACKEND STARTING - DATABASE_URL:', process.env.DATABASE_URL?.replace(/:([^:@]+)@/, ':****@')); // demo: redact password
 import http from 'http';
 import { logger } from './logger';
 import { createApp } from './createApp';
