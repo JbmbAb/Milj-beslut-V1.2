@@ -53,6 +53,7 @@ import {
 import { governedLayerLabelSv } from './governedCoverageStatement';
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
+import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
@@ -432,11 +433,12 @@ export async function resolveLuViewerPresentation(input: {
       index: input.assessmentProjectionIndex,
     });
     assessmentArtifactId = projection.assessmentArtifactId;
-  } catch {
+  } catch (error) {
     // Covers: no assessment has ever been produced for this project, the only assessment(s) on
     // record are bound to a since-superseded context, or none survive CAS re-verification.
-    // Explicit, never a silent stale fallback.
-    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+    // Explicit, never a silent stale fallback. U20CDF2 (add-on 2, OD-R2): a technical failure to
+    // resolve (e.g. the projection index cannot be read) is a 503, never "no assessment".
+    return assessmentResolutionFailure(error);
   }
 
   // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: per-project resolution -- looks up
@@ -518,7 +520,68 @@ type CurrentAssessmentInput = {
 type CurrentAssessmentFailure =
   | { ok: false; status: number; error: string }
   | LocalizationGeometryCurrentnessFailureResponse
-  | AssessmentIdMismatchFailure;
+  | AssessmentIdMismatchFailure
+  | AssessmentReadFailure;
+
+/**
+ * U20CDF2 (coordinator add-on 2; OD-R2: a CAS/read error is a technical error, never "missing").
+ * Before, every failure to resolve or read the current assessment answered 404 "no current
+ * assessment". Now only a genuine absence does (the projection's own REJECT_* refusals, or the
+ * repository's "Artifact not found" for the assessment id -- the existing contract); a read that
+ * FAILED is 503 with a typed class and an honest retryable flag:
+ *  - ASSESSMENT_READ_ERROR: the assessment could not be read (e.g. EIO) -- retryable;
+ *  - ASSESSMENT_STORAGE_INTEGRITY_FAULT: a lasting storage fault (object gone behind its index entry,
+ *    torn index entry, corrupt bytes) -- not retryable;
+ *  - ASSESSMENT_RESOLUTION_ERROR: the current assessment could not be determined for a technical
+ *    reason (e.g. the projection index cannot be read) -- retryable.
+ * The fault's own text never leaves the server.
+ */
+export interface AssessmentReadFailure {
+  ok: false;
+  status: 503;
+  error: string;
+  code: 'ASSESSMENT_READ_ERROR';
+  failureClass: 'ASSESSMENT_READ_ERROR' | 'ASSESSMENT_STORAGE_INTEGRITY_FAULT' | 'ASSESSMENT_RESOLUTION_ERROR';
+  reasonCode: 'ASSESSMENT_READ_ERROR' | 'ASSESSMENT_STORAGE_INTEGRITY_FAULT' | 'ASSESSMENT_RESOLUTION_ERROR';
+  retryable: boolean;
+}
+
+const NO_CURRENT_ASSESSMENT_ERROR = 'No current governed LU assessment is available for this project.';
+
+function assessmentReadFailure(failureClass: AssessmentReadFailure['failureClass'], retryable: boolean, error: string): AssessmentReadFailure {
+  return { ok: false, status: 503, error, code: 'ASSESSMENT_READ_ERROR', failureClass, reasonCode: failureClass, retryable };
+}
+
+/** A failure of resolveCurrentAssessmentProjection: its own REJECT_* refusals are absence (404). */
+function assessmentResolutionFailure(error: unknown): { ok: false; status: number; error: string } | AssessmentReadFailure {
+  if (error instanceof Error && /^REJECT_[A-Z0-9_]+/.test(error.message)) {
+    return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
+  }
+  return assessmentReadFailure(
+    'ASSESSMENT_RESOLUTION_ERROR',
+    true,
+    `Den aktuella bedömningen kunde inte fastställas på grund av ett tekniskt fel. ${retrySentenceSv(true)}`,
+  );
+}
+
+/** A failed read of the resolved assessment itself: only the repository's "not found" is absence. */
+function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: string): { ok: false; status: number; error: string } | AssessmentReadFailure {
+  if (error instanceof Error && error.message === `Artifact not found: ${assessmentArtifactId}`) {
+    return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
+  }
+  if (isPersistentStorageFault(error)) {
+    return assessmentReadFailure(
+      'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+      false,
+      `Bedömningen kunde inte läsas ur CAS (bestående lagringsfel). ${retrySentenceSv(false)}`,
+    );
+  }
+  return assessmentReadFailure(
+    'ASSESSMENT_READ_ERROR',
+    true,
+    `Bedömningen kunde inte läsas ur CAS (tekniskt fel). Den saknas inte, men kan inte visas nu. ${retrySentenceSv(true)}`,
+  );
+}
 
 /**
  * The identity resolution shared by the read-back, the PDF and verify: project authorization ->
@@ -572,8 +635,9 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
       index: input.assessmentProjectionIndex,
     });
     assessmentArtifactId = projection.assessmentArtifactId;
-  } catch {
-    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  } catch (error) {
+    // U20CDF2 (add-on 2, OD-R2): absence stays 404; a technical failure to resolve is 503.
+    return assessmentResolutionFailure(error);
   }
 
   if (input.expectedAssessmentArtifactId !== undefined && input.expectedAssessmentArtifactId !== assessmentArtifactId) {
@@ -595,8 +659,10 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
       artifact_id: assessmentArtifactId,
       artifact_type: 'LOCALIZATION_ASSESSMENT',
     });
-  } catch {
-    return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  } catch (error) {
+    // U20CDF2 (add-on 2, OD-R2): only the repository's "not found" is absence (404); a read that
+    // failed is a technical 503 -- retryable unless the storage fault is lasting.
+    return assessmentArtifactReadFailure(error, assessmentArtifactId);
   }
 
   const recomputedAssessmentHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));

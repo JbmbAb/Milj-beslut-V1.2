@@ -1212,5 +1212,67 @@ describe('U20CDF2 (coordinator add-on 1; OD-R2): a storage fault during re-execu
   });
 });
 
+describe('U20CDF2 (coordinator add-on 2; OD-R2): an assessment that cannot be READ is a technical 503, never "no assessment" (404)', () => {
+  /** The projection's own read of the assessment succeeds; the identity resolution's re-read fails. */
+  function failSecondAssessmentRead(s: Awaited<ReturnType<typeof setup>>, assessmentId: string, fault: unknown) {
+    const realResolve = s.repository.resolve.bind(s.repository);
+    let reads = 0;
+    s.repository.resolve = async <T,>(ref: ArtifactReference): Promise<T> => {
+      if (ref.artifact_id === assessmentId) {
+        reads += 1;
+        if (reads % 2 === 0) throw fault;
+      }
+      return (await realResolve(ref)) as T;
+    };
+  }
+
+  it.each<[string, unknown, string, boolean, string]>([
+    [
+      'a read error (EIO)', Object.assign(new Error('EIO: i/o error, read C:/cas/x'), { code: 'EIO' }),
+      'ASSESSMENT_READ_ERROR', true,
+      'Bedömningen kunde inte läsas ur CAS (tekniskt fel). Den saknas inte, men kan inte visas nu. Ett nytt försök kan lyckas.',
+    ],
+    [
+      'a lasting storage fault (object missing behind its index entry)', Object.assign(new Error('gone'), { code: 'MIMERS_ARTIFACT_OBJECT_MISSING' }),
+      'ASSESSMENT_STORAGE_INTEGRITY_FAULT', false,
+      'Bedömningen kunde inte läsas ur CAS (bestående lagringsfel). Felet är bestående och löses inte av ett nytt försök.',
+    ],
+  ])('%s -> 503 %s in read-back, HTTP, PDF and verify', async (_label, fault, failureClass, retryable, error) => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    const assessmentId = fresh.executionMotor!.assessment_artifact_id!;
+    failSecondAssessmentRead(s, assessmentId, fault);
+    const expected = { ok: false, status: 503, code: 'ASSESSMENT_READ_ERROR', failureClass, reasonCode: failureClass, retryable, error };
+    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toEqual(expected);
+    expect(await exportCurrentLuAssessmentPdf(s.deps())).toEqual(expected);
+    expect(capturedPdfData).toBeUndefined();
+    expect(await verifyCurrentLuAssessment(s.deps())).toEqual(expected);
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ ok: false, code: 'ASSESSMENT_READ_ERROR', failureClass, reasonCode: failureClass, retryable, error });
+    expect(JSON.stringify(res.body)).not.toMatch(/EIO|C:\/cas|gone/);
+  });
+
+  it('a genuine absence (the repository says "Artifact not found") keeps the existing contract: 404', async () => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    const assessmentId = fresh.executionMotor!.assessment_artifact_id!;
+    failSecondAssessmentRead(s, assessmentId, new Error(`Artifact not found: ${assessmentId}`));
+    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it('the projection index cannot be read -> 503 ASSESSMENT_RESOLUTION_ERROR, not "no assessment"', async () => {
+    const s = await setup();
+    await s.runFresh();
+    const deps = { ...s.deps(), assessmentProjectionIndex: { register: async () => undefined, listForProject: async () => { throw new Error('connect ECONNREFUSED 10.0.0.5:5432'); } } };
+    const result = await resolveCurrentLuAssessmentSummary(deps as never);
+    expect(result).toEqual({
+      ok: false, status: 503, code: 'ASSESSMENT_READ_ERROR', failureClass: 'ASSESSMENT_RESOLUTION_ERROR', reasonCode: 'ASSESSMENT_RESOLUTION_ERROR', retryable: true,
+      error: 'Den aktuella bedömningen kunde inte fastställas på grund av ett tekniskt fel. Ett nytt försök kan lyckas.',
+    });
+    expect(JSON.stringify(result)).not.toMatch(/ECONNREFUSED|10\.0\.0\.5/);
+  });
+});
+
 // Type-only use, keeps the import honest for readers of this file.
 export type _AssessmentForReaders = LocalizationAssessmentArtifact;
