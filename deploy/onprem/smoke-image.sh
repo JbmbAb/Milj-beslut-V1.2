@@ -1,7 +1,7 @@
 #!/bin/sh
 # Kör image-smoken mot en byggd image, utan nätverk och utan databas.
 #
-#   deploy/onprem/smoke-image.sh <image> [<commit-ish>]
+#   sh deploy/onprem/smoke-image.sh <image> [<commit-ish>]   (från repo-roten)
 #
 # Smoken tas ur commitens egna bytes (git archive av deploy/onprem/image-smoke),
 # som standard den commit imagen är märkt med (org.opencontainers.image.revision).
@@ -15,7 +15,7 @@
 set -eu
 export MSYS_NO_PATHCONV=1
 
-image="${1:?usage: deploy/onprem/smoke-image.sh <image> [<commit-ish>]}"
+image="${1:?usage: sh deploy/onprem/smoke-image.sh <image> [<commit-ish>]}"
 rev="${2:-$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")}"
 sha="$(git rev-parse --verify "${rev}^{commit}")"
 run='mkdir -p /tmp/smoke && tar -xf - -C /tmp/smoke && cd /app && exec node /tmp/smoke/deploy/onprem/image-smoke/smoke.mjs'

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Bygger Mimer-appens image från exakt en commits bytes, aldrig från arbetsträdet.
 #
-#   deploy/onprem/build-image.sh <commit-ish> [image-tag]
+#   sh deploy/onprem/build-image.sh <commit-ish> [image-tag]   (från repo-roten)
 #
 # - Kontexten är `git archive <SHA>`: bara spårade filer. Ospårade kataloger och
 #   .env.local i en checkout kan inte komma med.
@@ -15,7 +15,7 @@
 set -eu
 export MSYS_NO_PATHCONV=1
 
-rev="${1:?usage: deploy/onprem/build-image.sh <commit-ish> [image-tag]}"
+rev="${1:?usage: sh deploy/onprem/build-image.sh <commit-ish> [image-tag]}"
 sha="$(git rev-parse --verify "${rev}^{commit}")"
 tag="${2:-mimer-app:$(printf '%s' "$sha" | cut -c1-12)}"
 target="${MIMER_IMAGE_TARGET:-web}"
