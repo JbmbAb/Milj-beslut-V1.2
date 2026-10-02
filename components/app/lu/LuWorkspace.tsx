@@ -5,7 +5,7 @@ import { fetchPropertyInfo } from '../../../src/ui/api-client/geo.client';
 import EvidenceDetailsPanel from '../../cesium/EvidenceDetailsPanel';
 import type { CesiumEvidenceMode } from '../../CesiumMapView';
 import { presentLuFinding } from './luFindingPresentation';
-import { presentLuCoverageStatus } from './luCoverageStatusPresentation';
+import { presentLuCoverageStatus, presentLuGovernedLayerCheck } from './luCoverageStatusPresentation';
 
 const CesiumMapView = lazy(() => import('../../CesiumMapView'));
 
@@ -65,6 +65,8 @@ type ExecutionMotorMeta = {
   property_context_id?: string | null;
   assessment_status?: string;
   findings?: LuFindingView[];
+  /** DEMO M1a / U12: governed per-layer check states (server governedLayerChecks.ts). */
+  governed_layer_checks?: Array<{ layer: string; status: string; rule_id?: string | null }>;
 };
 
 type SiteAnalysis = {
@@ -834,9 +836,29 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             </span>
           </p>
 
+          {(motor?.governed_layer_checks?.length ?? 0) > 0 ? (
+            <div data-testid="lu-governed-layer-checks">
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Underlag – styrda kontroller</h3>
+              <ul className="space-y-2 text-sm">
+                {motor!.governed_layer_checks!.map((check) => {
+                  const presentation = presentLuGovernedLayerCheck(check);
+                  return (
+                    <li key={check.layer} data-testid={`lu-governed-check-${check.layer}`}>
+                      <span className="font-semibold">{presentation.name}</span>
+                      {': '}
+                      <span>{presentation.label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+
           {(analysis?.dataSources?.length ?? 0) > 0 ? (
             <div data-testid="lu-data-sources">
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Underlag</h3>
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">
+                Underlag – äldre observationer (ingår inte i den styrda bedömningen)
+              </h3>
               <ul className="space-y-2 text-sm">
                 {analysis!.dataSources!.map((ds) => {
                   const coverage = presentLuCoverageStatus(ds.status);

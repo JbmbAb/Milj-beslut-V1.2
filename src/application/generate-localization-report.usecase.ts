@@ -39,6 +39,13 @@ import { resolveCanonicalProjectContext } from './resolveCanonicalProjectContext
 import { resolveCanonicalProductRelease } from '../../server/modules/release/productReleaseRuntime';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
+import {
+  LocalizationGeometryCurrentnessError,
+  failedClosedGeometryProvenanceRecord,
+  resolvedGeometryProvenanceRecord,
+  type LocalizationGeometryProvenanceRecord,
+} from '../../server/modules/localization/localizationGeometryCurrentness';
+import { computeGovernedLayerChecks, type GovernedLayerCheck } from '../../server/modules/localization/governedLayerChecks';
 
 export interface SiteAlternative {
   id: string;
@@ -110,6 +117,20 @@ export interface ExecutionMotorMeta {
    * from AssessmentFinding[] and stays in requiredActions/notes exactly as before.
    */
   findings: readonly AssessmentFinding[];
+  /**
+   * DEMO M1a / D9(a). Which localization geometry this run used and how it came about (resolved
+   * current point vs centroid derived on NOT_FOUND), or -- status FAILED_CLOSED -- the currentness
+   * failure class and the Swedish reason why no governed run was made. Optional only so that
+   * pre-existing constructions/tests of this type stay valid; every analyzeSite path sets it once
+   * the geometry step has been reached.
+   */
+  localization_geometry?: LocalizationGeometryProvenanceRecord;
+  /**
+   * DEMO M1a / U12. Per governed layer: CHECKED_NO_HIT / CHECKED_HIT / NOT_CHECKED, derived from
+   * this run's own governed evidence. Present only for an ASSESSED run. Adds a signal; the
+   * NOT_CHECKED findings and `unresolvedChecks` remain the structured source of truth.
+   */
+  governed_layer_checks?: readonly GovernedLayerCheck[];
 }
 
 /**
@@ -269,6 +290,8 @@ export type LuComparisonStatus = 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
 export interface SiteAnalysisResult {
   site: SiteAlternative;
   spatialAudit: SpatialAuditSummary;
+  /** DEMO M1a / U12: says explicitly that `spatialAudit` is the older, ungoverned observation. */
+  spatialAuditProvenance?: typeof LEGACY_SPATIAL_AUDIT_PROVENANCE;
   complianceAnalysis: LuVerdictAnalysis;
   monuments: Monument[];
   vissWaterStatus: VissWaterStatus | null;
@@ -568,6 +591,19 @@ function buildDataSources(input: {
   return sources;
 }
 
+/** DEMO M1a / U12: marks text that comes from the older, ungoverned spatialAudit. */
+export const LEGACY_SPATIAL_AUDIT_PREFIX_SV = 'Äldre observation (ingår inte i den styrda bedömningen):';
+
+/** DEMO M1a / U12: tag on SiteAnalysisResult.spatialAudit's provenance (the block itself is unchanged). */
+export const LEGACY_SPATIAL_AUDIT_PROVENANCE = {
+  source: 'legacy_observation',
+  version: 'v1',
+  governed: false,
+  note_sv:
+    'Äldre observation från den lokala PostGIS-kontrollen (spatialAudit). Den ingår inte i den styrda ' +
+    'bedömningen och kan inte motsäga den; se executionMotor för det styrda resultatet.',
+} as const;
+
 function collectWarnings(input: {
   spatial: SpatialAuditSummary;
   nvr: FetchOutcome<ProtectedArea[]>;
@@ -577,11 +613,14 @@ function collectWarnings(input: {
   strict: boolean;
 }): string[] {
   const warnings: string[] = [];
+  // DEMO M1a / U12: these two come from the older, ungoverned spatialAudit (runSpatialAudit), not
+  // from the governed layer query. Labelled as such so they cannot read as contradicting the
+  // governed result (e.g. "kunde inte verifieras" next to a governed protected_area check).
   if (!input.spatial.protectedAreaAvailable && input.spatial.protectedAreaWarning) {
-    warnings.push(`Skyddad natur (lokal): ${input.spatial.protectedAreaWarning}`);
+    warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Skyddad natur (lokal): ${input.spatial.protectedAreaWarning}`);
   }
   if (!input.spatial.distanceToWaterAvailable && input.spatial.distanceToWaterWarning) {
-    warnings.push(`Avstånd vatten: ${input.spatial.distanceToWaterWarning}`);
+    warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Avstånd vatten: ${input.spatial.distanceToWaterWarning}`);
   }
   if (!input.nvr.ok) {
     warnings.push(
@@ -706,7 +745,9 @@ async function analyzeSite(
     // localizationGeometryService.ts, shared with the GET read path the UI polls before any LU
     // run has ever executed -- the two must never disagree about what "current" means for a
     // project with no explicit point yet.
-    const { geometry: currentLocalizationGeometry } = await resolveOrDeriveCurrentLocalizationGeometry({
+    // DEMO M1a / D9(a): derives ONLY on currentness NOT_FOUND; every other currentness failure
+    // throws LocalizationGeometryCurrentnessError, handled in the catch below (fail closed).
+    const resolvedGeometry = await resolveOrDeriveCurrentLocalizationGeometry({
       projectId: ctx.projectId,
       artifactRepository: repo,
       propertyContextRef: propRef,
@@ -714,6 +755,14 @@ async function analyzeSite(
       sweref99ToWgs84: spatialRuntime.sweref99ToWgs84,
       createdBy: ctx.user?.id ?? 'system',
     });
+    const currentLocalizationGeometry = resolvedGeometry.geometry;
+    const geometryProvenance: LocalizationGeometryProvenanceRecord =
+      resolvedGeometry.provenanceRecord ??
+      resolvedGeometryProvenanceRecord({
+        artifactId: currentLocalizationGeometry.artifact_id,
+        provenance: currentLocalizationGeometry.payload?.provenance,
+        derivedInThisRequest: Boolean(resolvedGeometry.wasDerived),
+      });
     const locationRef = {
       artifact_id: currentLocalizationGeometry.artifact_id,
       artifact_type: currentLocalizationGeometry.artifact_type,
@@ -938,26 +987,65 @@ async function analyzeSite(
           ? 'ASSESSED'
           : 'NOT_ASSESSED',
       findings: [...mpsFindings],
+      localization_geometry: geometryProvenance,
+      ...(kernelResult.admitted && assessment_artifact_id
+        ? {
+            governed_layer_checks: computeGovernedLayerChecks({
+              requestedLayers: queryRequest.layers.map((l) => l.name),
+              evidence: mpsEvidence,
+              unavailableLayers: mpsUnavailableLayers ?? [],
+              findings: mpsFindings,
+            }),
+          }
+        : {}),
     };
 
   } catch (err: any) {
-    const msg = err?.message || String(err);
-    logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
-    warnings.push(`ExecutionKernel error: ${msg}`);
-    executionMotor = {
-      admitted: false,
-      reason_codes: ['EXECUTION_KERNEL_ERROR'],
-      attempt_id: null,
-      outcome_id: null,
-      manifest_id: null,
-      ticket_id: null,
-      finding_ids: [],
-      assessment_artifact_id: null,
-      assessment_projection_registered: null,
-      property_context_id: null,
-      assessment_status: 'EXECUTION_FAILED',
-      findings: [],
-    };
+    if (err instanceof LocalizationGeometryCurrentnessError) {
+      // DEMO M1a / D9(a): fail closed on the localization geometry -- no derived point, no kernel
+      // run, no verdict. The failure class is kept as structured data and the reason is shown in
+      // Swedish. A deliberate refusal (ambiguity, invalid graph, unverifiable candidates) reads as
+      // GOVERNANCE_DENIED; a technical failure (DB/CAS/config) reads as EXECUTION_FAILED.
+      logger.warn('LU localization geometry currentness failed closed', {
+        site: site.id,
+        failureClass: err.failureClass,
+        detail: err.technicalDetail,
+      });
+      warnings.push(`Lokalisering: ${err.userMessage}`);
+      executionMotor = {
+        admitted: false,
+        reason_codes: [err.code, err.reasonCode],
+        attempt_id: null,
+        outcome_id: null,
+        manifest_id: null,
+        ticket_id: null,
+        finding_ids: [],
+        assessment_artifact_id: null,
+        assessment_projection_registered: null,
+        property_context_id: null,
+        assessment_status: err.kind === 'REFUSED' ? 'GOVERNANCE_DENIED' : 'EXECUTION_FAILED',
+        findings: [],
+        localization_geometry: failedClosedGeometryProvenanceRecord(err),
+      };
+    } else {
+      const msg = err?.message || String(err);
+      logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
+      warnings.push(`ExecutionKernel error: ${msg}`);
+      executionMotor = {
+        admitted: false,
+        reason_codes: ['EXECUTION_KERNEL_ERROR'],
+        attempt_id: null,
+        outcome_id: null,
+        manifest_id: null,
+        ticket_id: null,
+        finding_ids: [],
+        assessment_artifact_id: null,
+        assessment_projection_registered: null,
+        property_context_id: null,
+        assessment_status: 'EXECUTION_FAILED',
+        findings: [],
+      };
+    }
   } finally {
     await spatialRuntime?.close().catch(() => undefined);
   }
@@ -970,6 +1058,7 @@ async function analyzeSite(
   return {
     site,
     spatialAudit,
+    spatialAuditProvenance: LEGACY_SPATIAL_AUDIT_PROVENANCE,
     complianceAnalysis: hasGovernedAssessment
       ? {
           ...complianceAnalysis,

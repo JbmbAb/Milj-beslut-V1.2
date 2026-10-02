@@ -21,8 +21,14 @@ export interface LuCoverageStatusPresentation {
   readonly label: string;
 }
 
+/**
+ * DEMO M1a / U12: `ok` on these (legacy, ungoverned) data sources only means the source ANSWERED --
+ * it was never checked by the governed assessment. It must therefore never read as "kontrollerat --
+ * ingen träff" / "Inga avvikelser identifierade". Only `presentLuGovernedLayerCheck` below may say
+ * "kontrollerat", and only for a layer the governed run actually checked.
+ */
 const LABEL_BY_STATUS: Readonly<Record<LuDataSourceStatus, string>> = {
-  ok: 'Inga avvikelser identifierade i denna källa',
+  ok: 'Källan svarade – inte kontrollerad i den styrda bedömningen',
   degraded: 'Ofullständigt underlag',
   unavailable: 'Källan är otillgänglig',
 };
@@ -30,4 +36,29 @@ const LABEL_BY_STATUS: Readonly<Record<LuDataSourceStatus, string>> = {
 export function presentLuCoverageStatus(status: string): LuCoverageStatusPresentation {
   const known = LABEL_BY_STATUS[status as LuDataSourceStatus];
   return { label: known ?? 'Okänd status' };
+}
+
+/** DEMO M1a / U12: the governed per-layer check states (server: governedLayerChecks.ts). */
+export type LuGovernedLayerCheckStatus = 'CHECKED_NO_HIT' | 'CHECKED_HIT' | 'NOT_CHECKED';
+
+const GOVERNED_CHECK_LABEL: Readonly<Record<LuGovernedLayerCheckStatus, string>> = {
+  CHECKED_NO_HIT: 'Kontrollerat – ingen träff',
+  CHECKED_HIT: 'Kontrollerat – träff (se fynd)',
+  NOT_CHECKED: 'Inte kontrollerat',
+};
+
+const GOVERNED_LAYER_NAME: Readonly<Record<string, string>> = {
+  water: 'Vatten',
+  ebh: 'Förorenade områden (EBH)',
+  protected_area: 'Skyddade naturområden',
+  natura2000: 'Natura 2000',
+  water_protection_area: 'Vattenskyddsområden',
+};
+
+export function presentLuGovernedLayerCheck(check: { layer: string; status: string }): { name: string; label: string } {
+  return {
+    name: GOVERNED_LAYER_NAME[check.layer] ?? check.layer,
+    // An unrecognised status is never shown as a checked/no-hit state.
+    label: GOVERNED_CHECK_LABEL[check.status as LuGovernedLayerCheckStatus] ?? 'Okänd status',
+  };
 }

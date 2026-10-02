@@ -130,6 +130,12 @@ describe('LuWorkspace', () => {
                   explanation: 'Närhet till vatten kräver analys',
                 },
               ],
+              // DEMO M1a / U12: governed per-layer coverage from the server.
+              governed_layer_checks: [
+                { layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT' },
+                { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_NO_HIT' },
+                { layer: 'protected_area', rule_id: 'LU-PROTECTED-001', status: 'NOT_CHECKED' },
+              ],
             },
           },
         ],
@@ -164,11 +170,18 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Bör utredas vidare');
     expect(screen.getByTestId('lu-finding-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
 
-    // LU-UNKNOWN-MISSING-DISPLAY-V1, proof 1: assessed source + no conflict -> clearly "no
-    // identified conflict", never rendered as generic "OK"/green with no explanation.
+    // LU-UNKNOWN-MISSING-DISPLAY-V1, proof 1 -- corrected by DEMO M1a / U12: a legacy source that
+    // merely ANSWERED ('ok') was never checked by the governed assessment, so it must not read as
+    // "Inga avvikelser identifierade" (a checked, no-hit claim) -- it says what is actually known.
     expect(screen.getByTestId('lu-data-source-NVR API')).toHaveTextContent(
-      'Inga avvikelser identifierade i denna källa',
+      'Källan svarade – inte kontrollerad i den styrda bedömningen',
     );
+    expect(screen.queryByText(/Inga avvikelser identifierade/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('lu-data-sources')).toHaveTextContent('äldre observationer (ingår inte i den styrda bedömningen)');
+    // U12: only governed per-layer checks may say "Kontrollerat", and they distinguish all states.
+    expect(screen.getByTestId('lu-governed-check-water')).toHaveTextContent('Vatten: Kontrollerat – träff (se fynd)');
+    expect(screen.getByTestId('lu-governed-check-ebh')).toHaveTextContent('Kontrollerat – ingen träff');
+    expect(screen.getByTestId('lu-governed-check-protected_area')).toHaveTextContent('Inte kontrollerat');
     // proof 2: a degraded/insufficient source is never shown with the same label as "ok" --
     // must not read as green/no-risk.
     expect(screen.getByTestId('lu-data-source-PostGIS spatial')).toHaveTextContent('Ofullständigt underlag');
