@@ -350,9 +350,89 @@ function expectStorageFault(settled: { ok: boolean; value?: unknown; error?: unk
  */
 function expectFlagOutsideTestRefusal(settled: { ok: boolean; value?: unknown; error?: unknown }) {
   expect(settled.ok, `expected the flag refusal, got a verdict ${JSON.stringify((settled as { value?: { outcome?: unknown } }).value?.outcome ?? null)}`).toBe(false);
-  const error = (settled as { error: Error & { code?: unknown } }).error;
+  const error = (settled as { error: Error & { code?: unknown; gate?: unknown } }).error;
   expect(error.name).toBe("LuBootstrapAdmitFlagOutsideTestError");
   expect(error.code).toBe("BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST");
+  // U30-R6 (U30R5-VERIFICATION finding 2, mutant VM5): the refusal names the gate that refused -- verify's own.
+  expect(error.gate).toBe("reexecution");
+  expect(error.message).toContain("The re-execution (verify) refuses to run");
+}
+
+// ---------------------------------------------------------------------------------------------
+// U30-R6 (owner decision 2026-10-02/03, BINDING): the V1 form is accepted until U51 as an explicit PRODUCT
+// LIMITATION, with a mandatory machine-readable notice on EVERY PASS that rests on a V1/legacy-unbound artifact form,
+// and an explicit binding strength so that such a PASS can never look like the same green verification as a fully
+// bound V4. The verdict never changes; only the notice and the strength are added.
+// ---------------------------------------------------------------------------------------------
+
+/** The owner's exact wording and the proposed code, written out here independently of the code (an oracle). */
+const LEGACY_UNBOUND_FORM_CODE = "LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY";
+const LEGACY_UNBOUND_FORM_TEXT_SV =
+  "Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.";
+/** U30-R6 (owner: UNBOUND gets its own text, distinct from manipulation) -- the oracle wording. */
+const UNBOUND_TEXT_SV =
+  "Reproducerbarheten kan inte bekräftas: körningen bakom bedömningen saknar ett styrt exekveringssubjekt (äldre eller obunden körningsform) och kan inte bindas till bedömningen. Resultatet påstår inte att underlaget har ändrats.";
+
+type VerifyResult = Awaited<ReturnType<typeof reExecuteLocalizationAssessment>>;
+type LegacyBasis = "V1_FORM" | "LEGACY_UNBOUND";
+
+const legacyNoticesOf = (r: VerifyResult) => r.notices.filter((notice) => notice.code === LEGACY_UNBOUND_FORM_CODE);
+
+/** The notice exactly as the owner decided it: code, basis, both "not verified" flags, the Swedish text. */
+function legacyUnboundFormNotice(basis: LegacyBasis) {
+  return {
+    code: LEGACY_UNBOUND_FORM_CODE,
+    basis,
+    authenticity_verified: false,
+    current_authority_verified: false,
+    text_sv: LEGACY_UNBOUND_FORM_TEXT_SV,
+    finding_ids: [],
+    detail: expect.any(String),
+  };
+}
+
+/**
+ * U30-R6 invariant, for EVERY result: a PASS is either (exactly one legacy notice, first, AND "LEGACY_UNBOUND_FORM")
+ * or (no legacy notice AND "FULLY_BOUND") -- never both, never neither; a DENY has no strength and no legacy notice.
+ */
+function expectBindingInvariant(r: VerifyResult, label = "") {
+  const legacy = legacyNoticesOf(r);
+  if (r.outcome === "PASS") {
+    const asLegacy = legacy.length === 1 && r.notices[0] === legacy[0] && r.verification_binding === "LEGACY_UNBOUND_FORM";
+    const asBound = legacy.length === 0 && r.verification_binding === "FULLY_BOUND";
+    expect(asLegacy !== asBound, `${label} PASS: verification_binding=${String(r.verification_binding)}, legacy notices=${legacy.length}`).toBe(true);
+  } else {
+    expect(r.verification_binding, `${label} a DENY has no binding strength`).toBeNull();
+    expect(legacy, `${label} a DENY never carries the legacy notice`).toEqual([]);
+  }
+}
+
+/** A PASS over a V1/legacy-unbound form: the same PASS as before, now with the notice first and the explicit strength. */
+function expectLegacyUnboundForm(r: VerifyResult, basis: LegacyBasis) {
+  expect(r.mismatches).toEqual([]);
+  expect(r.outcome).toBe("PASS");
+  expect(r.verification_binding).toBe("LEGACY_UNBOUND_FORM");
+  expect(r.notices[0]).toEqual(legacyUnboundFormNotice(basis));
+  expect(legacyNoticesOf(r)).toHaveLength(1);
+  expectBindingInvariant(r);
+}
+
+/** A PASS over a fully bound form: no legacy notice. Consistency only -- never authenticity. */
+function expectFullyBound(r: VerifyResult) {
+  expect(r.mismatches).toEqual([]);
+  expect(r.outcome).toBe("PASS");
+  expect(r.verification_binding).toBe("FULLY_BOUND");
+  expect(legacyNoticesOf(r)).toEqual([]);
+  expectBindingInvariant(r);
+}
+
+/** EXECUTION_SUBJECT_UNBOUND (product configuration): a DENY with its own Swedish text, no strength, no legacy notice. */
+function expectUnboundDeny(r: VerifyResult) {
+  expect(r.outcome).toBe("DENY");
+  expect(r.mismatches).toEqual([
+    { code: "EXECUTION_SUBJECT_UNBOUND", detail: expect.stringContaining("execution subject binding: "), text_sv: UNBOUND_TEXT_SV },
+  ]);
+  expectBindingInvariant(r);
 }
 
 /** A rewritten assessment stored under its own NEW content-addressed id, as a forger without WORM bypass must. */
@@ -540,7 +620,7 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
   // findings under comparison; the explanation is the standardized text, never the provider's.
   // ---------------------------------------------------------------------------------------------
 
-  it("17: unavailable layer reported as { dataset, reason } -> re-execution reproduces the identical NOT_CHECKED finding (PASS, no notices)", async () => {
+  it("17: unavailable layer reported as { dataset, reason } -> re-execution reproduces the identical NOT_CHECKED finding (PASS; its only notice is U30-R6's legacy-unbound form of this bootstrap execution, no NOT_CHECKED notice)", async () => {
     const repo = new InMemoryArtifactRepository();
     const { run } = await runWithUnavailable(repo, "reexec-nc");
     const stored = run.assessment!.payload.findings.find((f) => f.finding_id === "finding-notchecked-ebh");
@@ -549,7 +629,9 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: repo });
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
-    expect(r.notices).toEqual([]);
+    // U30-R6: a legacy site-scoped (bootstrap) execution, accepted only in this explicit test process.
+    expect(r.notices).toEqual([legacyUnboundFormNotice("LEGACY_UNBOUND")]);
+    expect(r.verification_binding).toBe("LEGACY_UNBOUND_FORM");
     expect(r.fresh_findings.find((f) => f.finding_id === stored!.finding_id)).toEqual(stored);
   });
 
@@ -666,9 +748,12 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: historical.artifact_id, artifactRepository: repo });
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
+    // U30-R6: the legacy-unbound form of this bootstrap execution first, then the U30-R2 notice, unchanged.
     expect(r.notices).toEqual([
+      legacyUnboundFormNotice("LEGACY_UNBOUND"),
       { code: "NOT_CHECKED_CAUSE_NOT_PINNED", finding_ids: ["finding-notchecked-ebh"], detail: expect.stringContaining("finding-notchecked-ebh") },
     ]);
+    expectBindingInvariant(r);
     // The finding itself is reproduced from the attested execution, in today's wording.
     expect(r.fresh_findings.find((f) => f.finding_id === "finding-notchecked-ebh")?.explanation).toBe(standardNotCheckedExplanation("ebh"));
   });
@@ -755,7 +840,7 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     expect(r.mismatches.map((m) => m.code)).toEqual(["EVIDENCE_SET_MISMATCH"]);
   });
 
-  it("R1: byte identity -- an assessment without unavailable layers is unchanged by U30-R2 (golden id and hash) and re-executes to PASS without notices", async () => {
+  it("R1: byte identity -- an assessment without unavailable layers is unchanged by U30-R2 (golden id and hash) and re-executes to PASS without a NOT_CHECKED notice (U30-R6: only the legacy-unbound form of this bootstrap execution)", async () => {
     const repo = new InMemoryArtifactRepository();
     const result = await runAssessment(repo, "reexec-golden-1", [spatialEvidence("golden-1", "water")]);
     expect({ id: result.assessment!.artifact_id, hash: result.assessment!.content_hash.value }).toEqual(GOLDEN_R1);
@@ -763,7 +848,8 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: result.assessment!.artifact_id, artifactRepository: repo });
     expect(r.outcome).toBe("PASS");
     expect(r.mismatches).toEqual([]);
-    expect(r.notices).toEqual([]);
+    expect(r.notices).toEqual([legacyUnboundFormNotice("LEGACY_UNBOUND")]);
+    expect(r.verification_binding).toBe("LEGACY_UNBOUND_FORM");
   });
 
   it("R2: byte identity with two governed hits (water + ebh) -- golden id and hash unchanged", async () => {
@@ -1070,12 +1156,14 @@ describe("U30-R3 K2 on the canonical V4 chain: the assessment's authority subjec
     );
   }
 
-  it("25h: genuine V4 assessments (a hit; a NOT_CHECKED layer) re-execute to PASS -- the binding refuses nothing honest", async () => {
+  it("25h: genuine V4 assessments (a hit; a NOT_CHECKED layer) re-execute to PASS -- the binding refuses nothing honest (U30-R6: FULLY_BOUND, no legacy notice)", async () => {
     const { repo, A, B } = await twoCanonicalSubjects();
     for (const assessment of [A, B]) {
       const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: assessment.artifact_id, artifactRepository: repo });
       expect(r.mismatches).toEqual([]);
       expect(r.outcome).toBe("PASS");
+      expectFullyBound(r);
+      expect(r.notices).toEqual([]);
     }
   });
 
@@ -1243,6 +1331,8 @@ describe("U30-R3 K2 on the canonical V4 chain: the assessment's authority subjec
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
     expect(r.notices.map((n) => n.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]);
+    // U30-R6: the historical NOT_CHECKED wording is not an older artifact FORM -- a genuine V4 stays FULLY_BOUND.
+    expectFullyBound(r);
   });
 });
 
@@ -1280,7 +1370,9 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
       const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: historical.artifact_id, artifactRepository: repo });
       expect(r.mismatches).toEqual([]);
       expect(r.outcome).toBe("PASS");
-      expect(r.notices.map((n) => n.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]);
+      // U30-R6: this bootstrap (legacy site-scoped) execution's legacy-unbound form first, then the U30-R2 notice.
+      expect(r.notices.map((n) => n.code)).toEqual([LEGACY_UNBOUND_FORM_CODE, "NOT_CHECKED_CAUSE_NOT_PINNED"]);
+      expectBindingInvariant(r);
     });
   }
 
@@ -1581,24 +1673,27 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     const r = await verify(repo, forged);
     expect(r.outcome).toBe("DENY");
     expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+    expectUnboundDeny(r);
   });
 
-  it("25h/R1/R2 neighbours: genuine V4 assessments still PASS in the product configuration", async () => {
+  it("25h/R1/R2 neighbours: genuine V4 assessments still PASS in the product configuration (U30-R6: FULLY_BOUND)", async () => {
     const { repo, A, B } = await twoCanonical();
     productConfig();
     for (const assessment of [A, B]) {
       const r = await verify(repo, assessment);
       expect(r.mismatches).toEqual([]);
       expect(r.outcome).toBe("PASS");
+      expectFullyBound(r);
     }
   });
 
-  it("27f: a genuine historical V3 (V3-subject execution, issued identity, the subject's point) still PASSes in the product configuration", async () => {
+  it("27f: a genuine historical V3 (V3-subject execution, issued identity, the subject's point) still PASSes in the product configuration (U30-R6: FULLY_BOUND -- bound to its execution subject)", async () => {
     const { repo, H } = await historicalCanonicalV3("u30r4-h");
     productConfig();
     const r = await verify(repo, H);
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
+    expectFullyBound(r);
   });
 
   for (const [label, point] of [
@@ -1675,16 +1770,20 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
   });
 
-  it("27k: a bootstrap V3 assessment over a legacy site-scoped execution (the R1 shape) PASSes only under the explicit dev/test flag; the product configuration refuses it", async () => {
+  it("27k: a bootstrap V3 assessment over a legacy site-scoped execution (the R1 shape) PASSes only under the explicit dev/test flag -- U30-R6: as LEGACY_UNBOUND_FORM (LEGACY_UNBOUND) with the notice; the product configuration refuses it (UNBOUND, its own text)", async () => {
     devTestBootstrap();
     const repo = new InMemoryArtifactRepository();
     const result = await runAssessment(repo, "reexec-u30r4-legacy", [spatialEvidence("u30r4-legacy", "water")]);
-    expect((await verify(repo, result.assessment!)).outcome).toBe("PASS");
+    const accepted = await verify(repo, result.assessment!);
+    expect(accepted.outcome).toBe("PASS");
+    expectLegacyUnboundForm(accepted, "LEGACY_UNBOUND");
+    expect(legacyNoticesOf(accepted)[0]!.detail).toContain("explicit test bootstrap");
 
     productConfig();
     const r = await verify(repo, result.assessment!);
     expect(r.outcome).toBe("DENY");
     expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+    expectUnboundDeny(r);
   });
 
   it("27s: a legacy site-scoped execution stays UNBOUND (no V3 subject to bind) even when an identity sits at its legacy id -- never a subject MISMATCH the dev/test flag could not allow", async () => {
@@ -1695,7 +1794,9 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     const legacyIdentity = { artifact_id: "lu-identity-reexec-u30r4-legacy-identity", artifact_type: "execution_identity", references: [] };
     await repo.put({ artifact_id: legacyIdentity.artifact_id, content_hash: sha256ContentHash(legacyIdentity), body: legacyIdentity });
 
-    expect((await verify(repo, result.assessment!)).outcome).toBe("PASS");
+    const accepted = await verify(repo, result.assessment!);
+    expect(accepted.outcome).toBe("PASS");
+    expectLegacyUnboundForm(accepted, "LEGACY_UNBOUND");
     productConfig();
     expect((await verify(repo, result.assessment!)).mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
   });
@@ -1718,6 +1819,10 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     ["0", "test", "test", "UNBOUND"],
     ["true", "test", "ci", "UNBOUND"],
     ["", "test", "test", "UNBOUND"],
+    // U30-R6 (U30R5-VERIFICATION finding 2, mutant VM2): the flag is never trimmed -- only exactly "1" is the flag.
+    [" 1", "test", "test", "UNBOUND"],
+    ["1 ", "test", "ci", "UNBOUND"],
+    ["1\n", "test", "test", "UNBOUND"],
     ["1", "test", undefined, "REFUSED"], // R4: PASS
     ["1", "test", "", "REFUSED"], // R4: PASS
     ["1", "development", undefined, "REFUSED"], // R4: PASS -- the integrated runtime's configuration
@@ -1762,9 +1867,12 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
       if (expected === "PASS") {
         expect(r.mismatches).toEqual([]);
         expect(r.outcome).toBe("PASS");
+        // U30-R6: accepted only as the legacy-unbound form (identity never issued), with the notice.
+        expectLegacyUnboundForm(r, "LEGACY_UNBOUND");
       } else {
         expect(r.outcome).toBe("DENY");
         expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+        expectUnboundDeny(r);
       }
     });
   }
@@ -1826,12 +1934,14 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     return { repo, attempt, assessment };
   }
 
-  it("27q: a genuine historical V1 execution (V1 outcome at the legacy locator, no v2 outcome) with its V1 assessment still PASSes in the product configuration", async () => {
+  it("27q: a genuine historical V1 execution (V1 outcome at the legacy locator, no v2 outcome) with its V1 assessment still PASSes in the product configuration (U30-R6: LEGACY_UNBOUND_FORM, V1_FORM -- residual historical-v1-v2-unbound)", async () => {
     const { repo, assessment } = await historicalV1Execution("reexec-u30r4-v1-era");
     productConfig();
     const r = await verify(repo, assessment);
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
+    expectLegacyUnboundForm(r, "V1_FORM");
+    expect(legacyNoticesOf(r)[0]!.detail).toContain(assessment.payload.execution_outcome_ref.artifact_id);
   });
 
   it("27r: in that historical V1 execution, a V1 outcome minted under ANOTHER id for the same attempt -> DENY MANIFEST_ATTEMPT_MISMATCH (not the outcome the execution recorded)", async () => {
@@ -1846,23 +1956,27 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
   });
 
   // KNOWN_LIMITATION (U30R4-REPORT): verify is consistency, not authenticity; it needs write access to
-  // CAS + DB. These two forgeries PASS and are pinned so that closing them is a deliberate change.
-  it("KNOWN_LIMITATION 27m: A rewritten to V3 over its OWN outcome with its own point PASSes -- indistinguishable from a genuine V3 made while V3 was canonical", async () => {
+  // CAS (for most forms also a DB row). These two forgeries PASS and are pinned so that closing them is a deliberate
+  // change -- NOT approved behaviour (U30R5-VERIFICATION finding 7). U30-R6: neither is detectable at verify, so the
+  // PASS is FULLY_BOUND without a notice; only the KNOWN_LIMITATION covers them.
+  it("KNOWN_LIMITATION 27m -- NOT approved behaviour: A rewritten to V3 over its OWN outcome with its own point PASSes -- indistinguishable from a genuine V3 made while V3 was canonical (FULLY_BOUND, no notice possible)", async () => {
     const { repo, A } = await twoCanonical();
     productConfig();
     const forged = await storeUnderNewId(repo, A, relabelled(A.payload, "v3"));
     const r = await verify(repo, forged);
     expect(r.outcome).toBe("PASS");
     expect(forged.payload.findings).toEqual(A.payload.findings); // nothing it claims differs from A
+    expectFullyBound(r);
   });
 
-  it("KNOWN_LIMITATION 27n (R-2): B's whole result incl. B's point, relabelled V3 under A's project and property, PASSes -- the same residual as V4 itself", async () => {
+  it("KNOWN_LIMITATION 27n (R-2) -- NOT approved behaviour: B's whole result incl. B's point, relabelled V3 under A's project and property, PASSes -- the same residual as V4 itself (FULLY_BOUND, no notice possible)", async () => {
     const { repo, A, B } = await twoCanonical();
     productConfig();
     const forged = await storeUnderNewId(repo, A, relabelled(redirectedTo(A, B, { localization_geometry_ref: B.payload.localization_geometry_ref }), "v3"));
     const r = await verify(repo, forged);
     expect(r.outcome).toBe("PASS");
     expect(forged.payload.project_context_ref).toEqual(A.payload.project_context_ref);
+    expectFullyBound(r);
   });
 
   // ---------------------------------------------------------------------------------------------
@@ -1956,6 +2070,7 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     const a = await settle(verify(toProduction, assessment));
     expect(a.ok, "neither the gate nor the allowance may be read after the first await").toBe(true);
     expect((a as { value: Awaited<ReturnType<typeof verify>> }).value.outcome).toBe("PASS");
+    expectLegacyUnboundForm((a as { value: Awaited<ReturnType<typeof verify>> }).value, "LEGACY_UNBOUND");
 
     // (b) the product configuration at call time; the flag and a test process appear during the first CAS read.
     productConfig();
@@ -1968,6 +2083,7 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     });
     const b = await verify(toTest, assessment);
     expect(b.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+    expectUnboundDeny(b);
   });
 
   it("KNOWN_LIMITATION marker (LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY): the machine-readable record carries exactly the meaning and names every residual form -- NOT approved behaviour", async () => {
@@ -1988,8 +2104,10 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expect(Object.keys(packageRoot), "the marker is not a package-root export").not.toContain("LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION");
     expect(marker!.code).toBe("KNOWN_LIMITATION");
     expect(marker!.id).toBe("LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY");
+    // U30-R6 (U30R5-VERIFICATION finding 3): CAS write access is what every residual needs; a DB row only most of them
+    // (an identity minted after the fact, or an in-place overwrite of an assessment that is already current, needs none).
     expect(marker!.meaning_sv).toBe(
-      "verify är konsistens, inte äkthet; kräver skrivåtkomst till CAS + DB; kan inte stängas i grunden utan framåtriktad markör i körningskedjan eller attestationsverifiering",
+      "verify är konsistens, inte äkthet; kräver skrivåtkomst till CAS (för de flesta former även en DB-rad); kan inte stängas i grunden utan framåtriktad markör i körningskedjan eller attestationsverifiering",
     );
     expect(marker!.residuals.map((residual) => residual.id)).toEqual([
       "v1-format-outcome-redirect",
@@ -2003,6 +2121,26 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
       "historical-cause-text",
       "outcome-attestation-not-checked",
     ]);
+    // U30-R6: how a PASS of each form is marked -- never more than verify can detect (the pins below and 28n show it).
+    expect(Object.fromEntries(marker!.residuals.map((residual) => [residual.id, (residual as { verify_pass_marking?: unknown }).verify_pass_marking]))).toEqual({
+      "v1-format-outcome-redirect": "LEGACY_UNBOUND_FORM_NOTICE",
+      "v3-relabel-own-execution": "NOT_DETECTABLE_FULLY_BOUND",
+      "subject-axes-not-compared": "NOT_DETECTABLE_FULLY_BOUND",
+      "fabricated-chain-never-run": "DEPENDS_ON_FORM",
+      "historical-v1-v2-unbound": "LEGACY_UNBOUND_FORM_NOTICE",
+      "identity-minted-after-the-fact": "NOT_DETECTABLE_FULLY_BOUND",
+      "deleted-v2-outcome-minted-v1": "LEGACY_UNBOUND_FORM_NOTICE",
+      "in-place-overwrite": "DEPENDS_ON_FORM",
+      "historical-cause-text": "NOT_CHECKED_CAUSE_NOTICE_ONLY",
+      "outcome-attestation-not-checked": "EVERY_PASS_UNMARKED",
+    });
+    expect(marker!.residuals[5]!.requires_sv).toContain("ingen DB-rad");
+    expect(marker!.residuals[7]!.requires_sv).toContain("ingen DB-rad");
+    // U30R5-VERIFICATION finding 6: the V1 cut-off is the committer time of d8b18cd9, not a date.
+    expect(marker!.residuals[0]!.form_sv).toContain("före 2026-08-24 14:17:46");
+    expect(marker!.residuals[4]!.form_sv).toContain("före 2026-08-24 14:17:46");
+    expect(marker!.owner_decision).toContain("PRODUCT LIMITATION");
+    expect(marker!.owner_decision).toContain("BLOCKING before PRODUCT-PROVEN");
     for (const residual of marker!.residuals) {
       expect(residual.form_sv.length, residual.id).toBeGreaterThan(40);
       expect(residual.requires_sv.length, residual.id).toBeGreaterThan(10);
@@ -2075,6 +2213,10 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
         // marker in the execution chain or attestation verification exists, this must become a DENY.
         expect(r.mismatches).toEqual([]);
         expect(r.outcome).toBe("PASS");
+        // U30-R6 (owner: accepted until U51 as a PRODUCT LIMITATION, with the mandatory notice): the same PASS, now
+        // explicitly the legacy-unbound V1 form -- never the green FULLY_BOUND of the V4 it was rewritten from.
+        expectLegacyUnboundForm(r, "V1_FORM");
+        expect(legacyNoticesOf(r)[0]!.detail).toContain(minted.artifact_id);
       });
     }
   }
@@ -2095,6 +2237,7 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     // KNOWN_LIMITATION, pinned -- NOT approved behaviour (see above).
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
+    expectLegacyUnboundForm(r, "V1_FORM"); // U30-R6
   });
 
   it("KNOWN_LIMITATION (identity minted after the fact, U30R4-VERIFICATION V4) -- NOT approved behaviour: a bootstrap V3-subject execution is UNBOUND in the product configuration until someone mints the never-issued identity at the id its manifest names (one new CAS object, no WORM bypass) -> then PASS", async () => {
@@ -2120,6 +2263,9 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     // KNOWN_LIMITATION, pinned -- NOT approved behaviour: UNBOUND is not a hard gate against a writer of CAS.
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
+    // U30-R6: NOT detectable at verify -- the minted identity exists and derives the manifest, and verify checks no
+    // issuer chain (census class C10). The PASS is FULLY_BOUND without a notice; only the KNOWN_LIMITATION covers it.
+    expectFullyBound(r);
   });
 
   it("KNOWN_LIMITATION (deleted v2 outcome + minted V1 outcome, U30R4-VERIFICATION V5, R-3/R-4 class) -- NOT approved behaviour: a genuine V4 whose v2 outcome is removed in place and replaced by a minted V1 outcome at the legacy locator, its HIGH dropped -> PASS, still labelled V4", async () => {
@@ -2136,5 +2282,161 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     // KNOWN_LIMITATION, pinned -- NOT approved behaviour.
     expect(r.mismatches).toEqual([]);
     expect(r.outcome).toBe("PASS");
+    // U30-R6: the outcome FORM decides, never the label -- still labelled V4, still the V1 form.
+    expectLegacyUnboundForm(r, "V1_FORM");
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // U30-R6 (owner decision 2026-10-02/03, BINDING) -- the sweep and the UNBOUND text.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The binding strength the CAS artifacts STRUCTURALLY call for -- an independent, census-style classifier that never
+   * calls the verify code: a V1-format outcome (no capability_execution_ref) is V1_FORM; a v2 outcome over a manifest
+   * that is not V3-subject derived, or whose named identity is not in CAS, is LEGACY_UNBOUND; anything else is bound.
+   */
+  async function structuralBinding(repo: InMemoryArtifactRepository, assessment: LocalizationAssessmentArtifact) {
+    const store = (repo as unknown as { store: Map<string, unknown> }).store;
+    const outcome = await repo.resolve<Record<string, unknown> & { attempt_ref: Ref }>(assessment.payload.execution_outcome_ref);
+    if (!("capability_execution_ref" in outcome)) return "V1_FORM" as const;
+    const attempt = await repo.resolve<{ manifest_ref: Ref }>(outcome.attempt_ref);
+    if (!attempt.manifest_ref.artifact_id.startsWith("lu-manifest-v3-")) return "LEGACY_UNBOUND" as const;
+    const manifest = await repo.resolve<{ execution_identity_ref?: Ref }>(attempt.manifest_ref);
+    const identityId = manifest.execution_identity_ref?.artifact_id;
+    return identityId !== undefined && store.has(identityId) ? ("FULLY_BOUND" as const) : ("LEGACY_UNBOUND" as const);
+  }
+
+  it("28n (U30-R6 combination sweep): every form (genuine V4, historical V3, bootstrap legacy, bootstrap V3 subject without identity, minted V1-format chains, a genuine pre-cutoff V1 execution, a deleted v2 + minted V1 outcome) x every label x both configurations -> the invariant holds for EVERY result, and every PASS carries exactly the strength its CAS artifacts structurally call for", async () => {
+    type Case = { readonly label: string; readonly repo: InMemoryArtifactRepository; readonly assessment: LocalizationAssessmentArtifact };
+    const cases: Case[] = [];
+    const add = (label: string, repo: InMemoryArtifactRepository, assessment: LocalizationAssessmentArtifact) => cases.push({ label, repo, assessment });
+    const asLabels = async (name: string, repo: InMemoryArtifactRepository, base: LocalizationAssessmentArtifact, payload: Payload, labels: readonly ("v3" | "v2" | "v1")[]) => {
+      for (const to of labels) add(`${name} as ${to.toUpperCase()}`, repo, await storeUnderNewId(repo, base, relabelled(payload, to)));
+    };
+
+    // Genuine canonical V4 (A: a HIGH; B: no hit, a NOT_CHECKED layer) and its rewrites.
+    const canonical = await twoCanonical();
+    const { A, B } = canonical;
+    const canonicalRepo = canonical.repo as InMemoryArtifactRepository;
+    add("genuine V4 A", canonicalRepo, A);
+    add("genuine V4 B", canonicalRepo, B);
+    await asLabels("A own", canonicalRepo, A, A.payload, ["v3", "v2", "v1"]);
+    await asLabels("A -> B (A's point)", canonicalRepo, A, redirectedTo(A, B), ["v3", "v2"]);
+    await asLabels("A -> B (B's point)", canonicalRepo, A, redirectedTo(A, B, { localization_geometry_ref: B.payload.localization_geometry_ref }), ["v3"]);
+    for (const manifestId of ["lu-manifest-wu30r6-forged-site", `lu-manifest-v3-${"e".repeat(64)}`]) {
+      const minted = await mintV1FormatChain(canonicalRepo, manifestId);
+      const onMinted = withFindings({ ...A.payload, execution_outcome_ref: minted, evidence_refs: [], localization_geometry_ref: ELSEWHERE }, []);
+      add(`A kept V4 -> minted V1 chain ${manifestId.slice(0, 16)}`, canonicalRepo, await storeUnderNewId(canonicalRepo, A, onMinted));
+      await asLabels(`A -> minted V1 chain ${manifestId.slice(0, 16)}`, canonicalRepo, A, onMinted, ["v3", "v2", "v1"]);
+    }
+    const preCutoff = await historicalV1Execution("wu30r6-sweep-v1-era", canonicalRepo);
+    add("genuine pre-cutoff V1", canonicalRepo, preCutoff.assessment);
+    await asLabels("genuine pre-cutoff V1", canonicalRepo, preCutoff.assessment, preCutoff.assessment.payload, ["v3", "v2"]);
+    await asLabels(
+      "A -> genuine pre-cutoff V1 of another site",
+      canonicalRepo,
+      A,
+      withFindings({ ...A.payload, execution_outcome_ref: preCutoff.assessment.payload.execution_outcome_ref, evidence_refs: [], localization_geometry_ref: ELSEWHERE }, []),
+      ["v3", "v2", "v1"],
+    );
+
+    // A genuine V4 whose v2 outcome is removed in place and replaced by a minted V1 outcome (R-3/R-4 class).
+    const deleted = await twoCanonical();
+    const deletedRepo = deleted.repo as InMemoryArtifactRepository;
+    const deletedAttempt = await attemptOf(deletedRepo, deleted.A);
+    (deletedRepo as unknown as { store: Map<string, unknown> }).store.delete(deleted.A.payload.execution_outcome_ref.artifact_id);
+    const mintedOwn = await mintV1Outcome(deletedRepo, deletedAttempt);
+    const onOwnMinted = withFindings({ ...deleted.A.payload, execution_outcome_ref: mintedOwn, evidence_refs: [] }, []);
+    add("deleted v2 + minted V1, V4 label", deletedRepo, await storeUnderNewId(deletedRepo, deleted.A, onOwnMinted));
+    await asLabels("deleted v2 + minted V1", deletedRepo, deleted.A, onOwnMinted, ["v3", "v1"]);
+
+    // A historical canonical V3 (issued identity) and its downgrades.
+    const historical = await historicalCanonicalV3("wu30r6-sweep-h");
+    const historicalRepo = historical.repo as InMemoryArtifactRepository;
+    add("historical V3", historicalRepo, historical.H);
+    await asLabels("historical V3", historicalRepo, historical.H, historical.H.payload, ["v2", "v1"]);
+
+    // Bootstrap executions (no governed subject): legacy site-scoped, and a V3 subject whose identity was never issued.
+    const legacyRepo = new InMemoryArtifactRepository();
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const legacy = (await runAssessment(legacyRepo, "wu30r6-sweep-legacy", [spatialEvidence("wu30r6-sweep-legacy", "water")])).assessment!;
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    add("bootstrap legacy site-scoped V3", legacyRepo, legacy);
+    await asLabels("bootstrap legacy site-scoped", legacyRepo, legacy, legacy.payload, ["v2", "v1"]);
+    const bootV3 = await bootstrapV3SubjectRun("wu30r6-sweep-boot");
+    const bootRepo = bootV3.repo as InMemoryArtifactRepository;
+    add("bootstrap V3 subject, identity never issued", bootRepo, bootV3.assessment);
+    await asLabels("bootstrap V3 subject", bootRepo, bootV3.assessment, bootV3.assessment.payload, ["v1"]);
+
+    const tally: Record<string, number> = {};
+    const verdicts = new Map<string, Record<string, string>>();
+    for (const [configuration, enter] of [
+      ["strict production", strictProduction],
+      ["explicit test bootstrap", devTestBootstrap],
+    ] as const) {
+      for (const { label, repo, assessment } of cases) {
+        enter();
+        const r = await verify(repo, assessment);
+        const where = `[${configuration}] ${label}:`;
+        expectBindingInvariant(r, where);
+        const structural = await structuralBinding(repo, assessment);
+        if (r.outcome === "PASS") {
+          if (structural === "FULLY_BOUND") {
+            expect(r.verification_binding, where).toBe("FULLY_BOUND");
+          } else {
+            expect(r.verification_binding, where).toBe("LEGACY_UNBOUND_FORM");
+            expect(legacyNoticesOf(r)[0], where).toEqual(legacyUnboundFormNotice(structural));
+          }
+        }
+        const key = r.outcome === "PASS" ? `PASS ${r.verification_binding === "FULLY_BOUND" ? "FULLY_BOUND" : structural}` : "DENY";
+        tally[`${configuration}: ${key}`] = (tally[`${configuration}: ${key}`] ?? 0) + 1;
+        verdicts.set(label, { ...(verdicts.get(label) ?? {}), [configuration]: `${r.outcome} ${r.mismatches.map((m) => m.code).join(",")} ${structural}` });
+      }
+    }
+    // Non-vacuous: every class occurs (the counts are of this fixed matrix, not a target).
+    expect(tally["strict production: PASS FULLY_BOUND"]).toBeGreaterThanOrEqual(5);
+    expect(tally["strict production: PASS V1_FORM"]).toBeGreaterThanOrEqual(12);
+    expect(tally["strict production: PASS LEGACY_UNBOUND"]).toBeUndefined(); // the product configuration accepts no unbound execution
+    expect(tally["explicit test bootstrap: PASS LEGACY_UNBOUND"]).toBe(2);
+    expect(tally["strict production: DENY"]).toBeGreaterThanOrEqual(8);
+    // The configuration changes only whether an execution WITHOUT a governed subject is accepted: every other verdict is identical.
+    for (const [label, byConfiguration] of verdicts) {
+      if (byConfiguration["strict production"]!.endsWith("LEGACY_UNBOUND")) continue;
+      expect(byConfiguration["explicit test bootstrap"], label).toBe(byConfiguration["strict production"]);
+    }
+  }, 180_000);
+
+  it("28o (U30-R6, owner: UNBOUND gets its own text): EXECUTION_SUBJECT_UNBOUND carries a Swedish text distinct from deviation/tampering wording; no other mismatch carries one", async () => {
+    // UNBOUND in the product configuration, for both shapes of an execution without a governed subject.
+    const legacyRepo = new InMemoryArtifactRepository();
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const legacy = (await runAssessment(legacyRepo, "wu30r6-unbound-text", [spatialEvidence("wu30r6-unbound-text", "water")])).assessment!;
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    const boot = await bootstrapV3SubjectRun("wu30r6-unbound-text-v3");
+    strictProduction();
+    for (const r of [await verify(legacyRepo, legacy), await verify(boot.repo, boot.assessment)]) {
+      expectUnboundDeny(r);
+      const text = (r.mismatches[0] as { text_sv?: string }).text_sv!;
+      expect(text).not.toMatch(/manipul|förfalsk|inte samma resultat|avvikelse/i);
+      expect(text).toContain("Resultatet påstår inte att underlaget har ändrats");
+    }
+
+    // Every other DENY code: no text of its own (the generic presentation stays the consumer's).
+    const { repo, A, B } = await twoCanonical();
+    strictProduction();
+    const others = [
+      await verify(repo, await storeUnderNewId(repo, A, relabelled(redirectedTo(A, B), "v3"))), // EXECUTION_SUBJECT_MISMATCH
+      await verify(repo, await storeUnderNewId(repo, A, relabelled(A.payload, "v2"))), // CONTRACT_DOWNGRADE_REFUSED
+      await verify(repo, await storeUnderNewId(repo, A, redirectedTo(A, B))), // MANIFEST_ATTEMPT_MISMATCH (V4 authority)
+    ];
+    expect(others.map((r) => r.mismatches.map((m) => m.code)[0])).toEqual([
+      "EXECUTION_SUBJECT_MISMATCH",
+      "CONTRACT_DOWNGRADE_REFUSED",
+      "MANIFEST_ATTEMPT_MISMATCH",
+    ]);
+    for (const r of others) {
+      expectBindingInvariant(r);
+      for (const mismatch of r.mismatches) expect("text_sv" in mismatch, mismatch.code).toBe(false);
+    }
   });
 });

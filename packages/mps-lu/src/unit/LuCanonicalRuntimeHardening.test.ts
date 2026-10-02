@@ -175,7 +175,13 @@ describe("U30-R5 -- the canonical product gate refuses MPS_LU_BOOTSTRAP_ADMIT ou
 
       await expect(
         runCanonicalLuProductAssessment({ ...baseInput(touched), identity_subject_v3: validSubject() }),
-      ).rejects.toMatchObject({ name: "LuBootstrapAdmitFlagOutsideTestError", code: "BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST" });
+      ).rejects.toMatchObject({
+        name: "LuBootstrapAdmitFlagOutsideTestError",
+        code: "BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST",
+        // U30-R6 (U30R5-VERIFICATION finding 2, mutant VM5): the refusal names THIS gate, not verify's.
+        gate: "canonical_product_assessment",
+        message: expect.stringContaining("The canonical product assessment refuses to run"),
+      });
       expect(touched, "the general engine must not have been entered").toEqual([]);
     });
   }
@@ -215,6 +221,77 @@ describe("U30-R5 -- the canonical product gate refuses MPS_LU_BOOTSTRAP_ADMIT ou
         identity_subject_v3: validSubject(),
       });
       expect(result.admitted).toBe(false);
+    });
+  }
+});
+
+/**
+ * U30-R6 (owner decision 2026-10-02/03, A-R5-2 and A-R5-5): the flag gate is a package-root export, so the server and
+ * the LU workers can refuse to START with MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process -- the same rule,
+ * never a duplicate. Only the gate is exported. "Set" means present: an empty value counts as set.
+ */
+describe("U30-R6 -- the bootstrap-flag gate is exported from the package root; an empty flag counts as set", () => {
+  type Gate = "reexecution" | "canonical_product_assessment" | "process_startup";
+  const GATE_TEXT: Readonly<Record<Gate, string>> = {
+    reexecution: "The re-execution (verify) refuses to run",
+    canonical_product_assessment: "The canonical product assessment refuses to run",
+    process_startup: "The process start-up refuses to run",
+  };
+  const rootGate = () =>
+    (luPackageRoot as Record<string, unknown>).assertBootstrapAdmitFlagOnlyInExplicitTestProcess as
+      | ((env: Readonly<Record<string, string | undefined>>, gate: Gate) => void)
+      | undefined;
+
+  it("exactly the gate is exported: assertBootstrapAdmitFlagOnlyInExplicitTestProcess is a root export; the allowance, the test-process predicate and the error class are not", () => {
+    expect(typeof rootGate()).toBe("function");
+    const exported = Object.keys(luPackageRoot);
+    expect(exported).not.toContain("isBootstrapExecutionReplayAllowed");
+    expect(exported).not.toContain("isExplicitLuTestProcess");
+    expect(exported).not.toContain("LuBootstrapAdmitFlagOutsideTestError");
+    expect(exported).not.toContain("LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION");
+  });
+
+  for (const [label, env] of [
+    ["the flag present but EMPTY, nothing else set", { MPS_LU_BOOTSTRAP_ADMIT: "" }],
+    ["the flag present but EMPTY in a production process", { MPS_LU_BOOTSTRAP_ADMIT: "", NODE_ENV: "production", APP_ENV: "production" }],
+    ["the flag empty with NODE_ENV=test but APP_ENV unset", { MPS_LU_BOOTSTRAP_ADMIT: "", NODE_ENV: "test" }],
+    ["the flag \"1\" in the integrated runtime's configuration", { MPS_LU_BOOTSTRAP_ADMIT: "1", NODE_ENV: "development" }],
+    ["the flag \"0\" with APP_ENV=development", { MPS_LU_BOOTSTRAP_ADMIT: "0", NODE_ENV: "test", APP_ENV: "development" }],
+  ] as const) {
+    for (const gate of ["reexecution", "canonical_product_assessment", "process_startup"] as const) {
+      it(`root export, ${label}, gate ${gate} -> throws BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST naming that gate, never an environment value`, () => {
+        const assertGate = rootGate();
+        expect(typeof assertGate).toBe("function");
+        let thrown: unknown = null;
+        try {
+          assertGate!(env, gate);
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).toMatchObject({ name: "LuBootstrapAdmitFlagOutsideTestError", code: "BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST", gate });
+        const message = String((thrown as Error).message);
+        expect(message.startsWith("BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST:")).toBe(true);
+        expect(message).toContain(GATE_TEXT[gate]);
+        for (const other of Object.keys(GATE_TEXT) as Gate[]) {
+          if (other !== gate) expect(message).not.toContain(GATE_TEXT[other]);
+        }
+        expect(message).not.toMatch(/production|development/);
+      });
+    }
+  }
+
+  for (const [label, env] of [
+    ["the flag absent in a production process", { NODE_ENV: "production", APP_ENV: "production" }],
+    ["the flag absent, nothing set", {}],
+    ["the flag EMPTY in an explicit test process (APP_ENV test)", { MPS_LU_BOOTSTRAP_ADMIT: "", NODE_ENV: "test", APP_ENV: "test" }],
+    ["the flag \"1\" in an explicit test process (APP_ENV ci)", { MPS_LU_BOOTSTRAP_ADMIT: "1", NODE_ENV: "test", APP_ENV: "ci" }],
+  ] as const) {
+    it(`root export, ${label} -> does not throw for any gate`, () => {
+      const assertGate = rootGate();
+      expect(typeof assertGate).toBe("function");
+      for (const gate of ["reexecution", "canonical_product_assessment", "process_startup"] as const) {
+        expect(() => assertGate!(env, gate)).not.toThrow();
+      }
     });
   }
 });
