@@ -508,6 +508,43 @@ describe('canaries: changes to real files and lists are caught', () => {
     expect(problemsOf('prisma/migrations/20261003000001_ok/migration.sql', 'ALTER TABLE "User" ADD COLUMN y int;\nCREATE INDEX idx_y ON "User" (y);\n')).toEqual([]);
   });
 
+  // U30F2 H1 mutation round: scanner rules that survived a mutation because no canary exercised them.
+  it("a function parameter is the caller's value, never an outer loop element of the same name (scope shadowing)", () => {
+    // an outer loop over static, unprotected names; a function whose parameter has the same name writes with it
+    const js = (param: string) =>
+      `import pg from 'pg';\nfor (const table of ['public.scratch_1']) console.log(table);\nexport async function wipe(${param}) {\n  await new pg.Pool().query(\`TRUNCATE \${table}\`);\n}\n`;
+    expect(problemsOf('scripts/rogue/shadowed.mjs', js('table')).length).toBeGreaterThan(0);
+    expect(problemsOf('scripts/rogue/shadowed.ts', js('table: string')).length).toBeGreaterThan(0);
+    const py = "import psycopg2\ncur = psycopg2.connect('').cursor()\nfor table in ['public.scratch_1']:\n    print(table)\ndef wipe(table):\n    cur.execute(f'TRUNCATE {table}')\n";
+    expect(problemsOf('scripts/rogue/shadowed.py', py).length).toBeGreaterThan(0);
+    // control: the loop element itself, used inside the loop, is the static name
+    const own = "import pg from 'pg';\nfor (const table of ['public.scratch_1']) await new pg.Pool().query(`TRUNCATE ${table}`);\n";
+    expect(problemsOf('scripts/rogue/loop-own.mjs', own)).toEqual([]);
+  });
+
+  it('a relation gate covers only the value it checked: a statement with a second, unchecked target is caught', () => {
+    // the SQL is handed to a function the scan does not know, so only the literal surface sees it
+    const script = (sql: string) =>
+      "import { assertUngovernedDestructiveWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';\n" +
+      "import { handOff } from './hand-off';\nconst checked = process.argv[2]!;\nconst other = process.argv[3]!;\n" +
+      "assertUngovernedDestructiveWriteAllowed({ caller: 'scripts/rogue/gated.ts', operation: 'DROP', relation: checked });\n" +
+      `const sql = \`${sql}\`;\nawait handOff(sql);\n`;
+    expect(problemsOf('scripts/rogue/gated.ts', script('DROP TABLE IF EXISTS ${checked}'))).toEqual([]);
+    expect(problemsOf('scripts/rogue/gated.ts', script('DROP TABLE IF EXISTS ${checked}; DROP TABLE IF EXISTS ${other}')).length).toBeGreaterThan(0);
+  });
+
+  it('SQL piped on stdin is read: a pinned historical migration re-run through input: is caught; a harmless one is not', () => {
+    const viaStdin = (sql: string) => `import { readFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nspawnSync('psql', ['-v', 'ON_ERROR_STOP=1'], { input: ${sql} });\n`;
+    expect(problemsOf('scripts/rogue/rerun-004.ts', viaStdin("readFileSync('prisma/spatial/004_property_unit_core.sql', 'utf8')")).length).toBeGreaterThan(0);
+    expect(problemsOf('scripts/rogue/select-one.ts', viaStdin("'SELECT 1'"))).toEqual([]);
+  });
+
+  it('a Python loop over a literal list binds its element: static unprotected targets pass, a protected one is caught', () => {
+    const loop = (tables: string) => `import psycopg2\ncur = psycopg2.connect('').cursor()\nfor t in [${tables}]:\n    cur.execute(f'TRUNCATE {t}')\n`;
+    expect(problemsOf('scripts/rogue/loop-ok.py', loop("'public.scratch_1', 'public.scratch_2'"))).toEqual([]);
+    expect(problemsOf('scripts/rogue/loop-bad.py', loop("'public.scratch_1', 'env.sgu_well'")).length).toBeGreaterThan(0);
+  });
+
   it('a reviewed caller-guarded module imported by a new script fails', () => {
     const ctx = contextFor(REPO);
     const entry = REVIEWED_CHANNELS.find((e) => e.file === 'scripts/db/lib/applyRc6VersionedSpatialDdl.ts')!;
