@@ -29,6 +29,7 @@ import {
   type SiteAlternative,
 } from '../modules/localization/public';
 import { logger } from '../logger';
+import { isPersistentStorageFault, retrySentenceSv } from '../modules/localization/storageFaultClassification';
 
 const router = express.Router();
 
@@ -68,12 +69,41 @@ function invalidAssessmentId(res: express.Response): void {
   });
 }
 
+/**
+ * U20CDF2 (coordinator add-on 1; OD-R2, U30-R3 K1): packages/mps-lu's LuReExecutionStorageError is
+ * recognized by its stable code (it is deliberately not exported from the package root). A storage
+ * fault met while re-executing is a technical error, never a verification verdict and never a
+ * generic 500.
+ */
+const LU_REEXECUTION_STORAGE_FAULT = 'LU_REEXECUTION_STORAGE_FAULT';
+
+function isReExecutionStorageFault(error: unknown): error is { code: string; stage?: unknown; cause?: unknown } {
+  return Boolean(error) && typeof error === 'object' && (error as { code?: unknown }).code === LU_REEXECUTION_STORAGE_FAULT;
+}
+
 function handleOrchestratorError(error: unknown, res: express.Response): boolean {
   if (error instanceof LocalizationDataUnavailableError) {
     res.status(503).json({
       ok: false,
       error: error.message,
       code: error.code,
+    });
+    return true;
+  }
+  if (isReExecutionStorageFault(error)) {
+    // Only stable codes leave the server: the stage of the replay chain and whether a retry can help
+    // (a lasting fault -- object gone, torn index, corrupt bytes -- is not retryable).
+    const stage = typeof error.stage === 'string' && /^[a-z_]{1,40}$/.test(error.stage) ? error.stage : 'okänt';
+    const retryable = !isPersistentStorageFault(error.cause);
+    res.status(503).json({
+      ok: false,
+      error:
+        `Verifieringen kunde inte genomföras: ett tekniskt lagringsfel uppstod vid återexekveringen (steg: ${stage}). ` +
+        `Det är inget verifieringsutfall. ${retrySentenceSv(retryable)}`,
+      code: LU_REEXECUTION_STORAGE_FAULT,
+      failureClass: 'REEXECUTION_STORAGE_FAULT',
+      reasonCode: stage.toUpperCase(),
+      retryable,
     });
     return true;
   }

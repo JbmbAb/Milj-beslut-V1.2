@@ -160,6 +160,7 @@ import type { AuthUser } from '../../server/security/types';
 import { createTokenPair } from '../../server/security/auth';
 import localizationRoutes from '../../server/routes/localization.routes';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
+import { LuReExecutionStorageError } from '../../packages/mps-lu/src/execution/LuReExecutionStorageError';
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -1177,6 +1178,37 @@ describe('U20CDF2 (G3): an evidence outside the common normal form fails the fre
     const fresh = await s.runFresh();
     expect(fresh.executionMotor?.assessment_status).toBe('ASSESSED');
     expect(fresh.warnings).toEqual([]);
+  });
+});
+
+describe('U20CDF2 (coordinator add-on 1; OD-R2): a storage fault during re-execution is a technical 503, never a 500 or a verdict', () => {
+  const cases: Array<[string, unknown, boolean]> = [
+    ['a transient read error (EIO)', Object.assign(new Error('EIO: i/o error, read C:/cas/ab/cd'), { code: 'EIO' }), true],
+    ['a stored object gone from CAS (MIMERS_ARTIFACT_OBJECT_MISSING)', Object.assign(new Error('object missing'), { code: 'MIMERS_ARTIFACT_OBJECT_MISSING' }), false],
+    ['a torn index entry (MIMERS_ARTIFACT_INDEX_READ_FAILED / MALFORMED)', Object.assign(new Error('torn'), { code: 'MIMERS_ARTIFACT_INDEX_READ_FAILED', reason: 'MALFORMED' }), false],
+    ['corrupt bytes (CASIntegrityError)', Object.assign(new Error('digest mismatch'), { name: 'CASIntegrityError' }), false],
+  ];
+  it.each(cases)('%s -> 503 LU_REEXECUTION_STORAGE_FAULT, retryable as the fault is', async (_label, cause, retryable) => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    const currentId = fresh.executionMotor!.assessment_artifact_id!;
+    state.reExecute = async () => {
+      throw new LuReExecutionStorageError('pinned_evidence', { artifact_id: 'evidence-water-x', artifact_type: 'SPATIAL_EVIDENCE' }, 'resolve', { cause });
+    };
+    const res = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', `Bearer ${token()}`).send({ assessmentArtifactId: currentId });
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({
+      ok: false,
+      code: 'LU_REEXECUTION_STORAGE_FAULT',
+      failureClass: 'REEXECUTION_STORAGE_FAULT',
+      reasonCode: 'PINNED_EVIDENCE',
+      retryable,
+      error:
+        'Verifieringen kunde inte genomföras: ett tekniskt lagringsfel uppstod vid återexekveringen (steg: pinned_evidence). ' +
+        'Det är inget verifieringsutfall. ' +
+        (retryable ? 'Ett nytt försök kan lyckas.' : 'Felet är bestående och löses inte av ett nytt försök.'),
+    });
+    expect(JSON.stringify(res.body)).not.toMatch(/EIO|C:\/cas|digest mismatch|torn|evidence-water-x/);
   });
 });
 
