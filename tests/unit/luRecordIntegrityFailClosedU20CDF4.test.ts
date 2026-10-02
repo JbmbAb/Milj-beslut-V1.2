@@ -363,6 +363,8 @@ describe('U20CDF4: the 424 diagnostic is rebuilt from a whitelist at the HTTP bo
       stored_findings_unverified: {
         total: 3, highest_level: null,
         counts: { high: 1, medium: 0, low: 0, not_checked: 0, unknown_level: 1, malformed: 0 },
+        // W-U20CDF5 (L5): the cap's flag, always present on the wire.
+        truncated: false,
         entries: [
           { check: 'water', rule: 'LU-WATER-001', stored_level: 'HIGH', well_formed: true },
           { check: null, rule: null, stored_level: 'UNKNOWN', well_formed: false },

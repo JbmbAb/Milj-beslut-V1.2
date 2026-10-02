@@ -239,11 +239,12 @@ describe('U20CDF3 (U20CDF2 verification H4 / low 3): a stored finding with a sev
     expect(details.governedLayerChecks[1]).toMatchObject({ layer: 'ebh', status: 'CHECKED_HIT', reason: null });
   });
 
-  it('on a rule outside the M checks: named by its rule id', async () => {
+  it('on a rule outside the M checks: named by the neutral label, never by its id (W-U20CDF5, U20CDF4 verification L5)', async () => {
     const { statement } = await readBack(NEGATIVES, [unknown('LU-GOVERNED-001', 'high', 'finding-other')]);
     expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
     expect(statement.coverage_basis).toEqual(['UNKNOWN_SEVERITY:finding-other']);
-    expect(statement.statement_sv).toContain('okänd allvarlighetsgrad – LU-GOVERNED-001.');
+    expect(statement.statement_sv).toContain('okänd allvarlighetsgrad – regel utanför regelregistret.');
+    expect(statement.statement_sv).not.toContain('LU-GOVERNED-001');
   });
 
   it('the four governed values are not "unknown" (control)', async () => {

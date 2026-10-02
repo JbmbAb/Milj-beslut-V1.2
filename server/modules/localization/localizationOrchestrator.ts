@@ -44,14 +44,8 @@ import {
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
-import {
-  GOVERNED_DOCUMENT_CHECK_LAYER,
-  GOVERNED_DOCUMENT_CHECK_RULE_ID,
-  governedLayerOfRule,
-  isFindingObject,
-  isMalformedFinding,
-  type GovernedDocumentCheck,
-} from './governedLayerChecks';
+import { type GovernedDocumentCheck } from './governedLayerChecks';
+import { recordIntegrityDiagnostic, type RecordIntegrityDiagnostic } from './recordIntegrityDiagnostic';
 import {
   governedOverallStatement,
   MISSING_IN_BASIS_SV,
@@ -62,7 +56,7 @@ import {
   type PresentedGovernedLayerCheck,
   type PropertyRootDetails,
 } from './governedEvidenceDetails';
-import { governedLayerLabelSv, highestGovernedRiskLevel, storedRiskFindingsSv } from './governedCoverageStatement';
+import { governedLayerLabelSv, storedRiskFindingsSv } from './governedCoverageStatement';
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
@@ -565,46 +559,18 @@ function governedEvidenceIntegrityFailure(
 /** The machine code of the fail-closed answer (PRES-24; failureClass RECORD_INTEGRITY_ERROR). */
 export const ASSESSMENT_RECORD_INTEGRITY_CODE = 'ASSESSMENT_RECORD_INTEGRITY_ERROR';
 
-/** A stored finding's level as the diagnostic reports it -- the raw value of an unknown one is never echoed. */
-export type StoredFindingLevelUnverified = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_CHECKED' | 'UNKNOWN';
-
-/**
- * U20CDF4: the stored findings of a record that failed its integrity check, as NON-AUTHORITATIVE
- * diagnostic data in an envelope of its own -- deliberately NOT the shape of a LocalizationAssessment
- * or of the read-back (no `findings`, `risk_level`, `overallStatement`, `governedLayerChecks`,
- * `evidenceDetails`, no explanation text, no evidence refs). Every value is a count, a fixed level, a
- * governed check name or a plain identifier; nothing of the record's free text travels.
+/*
+ * U20CDF4: the stored findings of a record that failed its integrity check travel only as the
+ * NON-AUTHORITATIVE RecordIntegrityDiagnostic. W-U20CDF5: its builder and wire whitelist live in
+ * recordIntegrityDiagnostic.ts (shared with the fresh run, L1; capped and registry-only, L5) and are
+ * re-exported here unchanged.
  */
-export interface RecordIntegrityDiagnostic {
-  readonly authoritative: false;
-  readonly verified: false;
-  readonly note_sv: string;
-  readonly assessment_artifact_id: string;
-  /** The machine codes (without their ids) of what breaks the record, in order. */
-  readonly basis_codes: readonly string[];
-  readonly stored_findings_unverified: {
-    readonly total: number;
-    /** The highest HIGH/MEDIUM/LOW level stored -- unverified; null when none is stored. */
-    readonly highest_level: 'HIGH' | 'MEDIUM' | 'LOW' | null;
-    readonly counts: {
-      readonly high: number;
-      readonly medium: number;
-      readonly low: number;
-      readonly not_checked: number;
-      readonly unknown_level: number;
-      /** Entries that break the finding contract (MALFORMED_RECORD_ENTRY). */
-      readonly malformed: number;
-    };
-    readonly entries: readonly {
-      /** The governed check the stored rule belongs to (a spatial layer or 'document'); null otherwise. */
-      readonly check: string | null;
-      /** The stored rule id when it is a plain identifier; null otherwise. */
-      readonly rule: string | null;
-      readonly stored_level: StoredFindingLevelUnverified;
-      readonly well_formed: boolean;
-    }[];
-  };
-}
+export {
+  recordIntegrityDiagnosticWire,
+  RECORD_INTEGRITY_MAX_ENTRIES,
+  type RecordIntegrityDiagnostic,
+  type StoredFindingLevelUnverified,
+} from './recordIntegrityDiagnostic';
 
 /**
  * U20CDF4 (owner decision (4) point 1): a CURRENT governed assessment whose stored record is
@@ -626,61 +592,16 @@ export interface GovernedRecordIntegrityFailure {
   readonly record_integrity: RecordIntegrityDiagnostic;
 }
 
-const RECORD_INTEGRITY_NOTE_SV =
-  'Diagnostisk uppgift ur den lagrade posten: inte verifierad, inte auktoritativ och ingen bedömning. ' +
-  'Fynden får inte läsas som bedömningens resultat.';
-const BASIS_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
-const PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const STORED_LEVELS: readonly StoredFindingLevelUnverified[] = ['HIGH', 'MEDIUM', 'LOW', 'NOT_CHECKED'];
-const GOVERNED_CHECKS: readonly string[] = [
-  'water',
-  'ebh',
-  'protected_area',
-  'natura2000',
-  'water_protection_area',
-  GOVERNED_DOCUMENT_CHECK_LAYER,
-];
 const RISK_WORD_SV: Readonly<Record<string, string>> = { HIGH: 'hög', MEDIUM: 'måttlig', LOW: 'låg' };
-
-function storedFindingsUnverified(rawFindings: unknown): RecordIntegrityDiagnostic['stored_findings_unverified'] {
-  const list: readonly unknown[] = Array.isArray(rawFindings) ? rawFindings : [];
-  const entries = list.map((finding) => {
-    const object = isFindingObject(finding) ? finding : null;
-    const ruleId = object && typeof object.rule_id === 'string' && PLAIN_ID.test(object.rule_id) ? object.rule_id : null;
-    const level = object?.risk_level;
-    return {
-      check: ruleId === null ? null : ruleId === GOVERNED_DOCUMENT_CHECK_RULE_ID ? GOVERNED_DOCUMENT_CHECK_LAYER : governedLayerOfRule(ruleId),
-      rule: ruleId,
-      stored_level: (typeof level === 'string' && (STORED_LEVELS as readonly string[]).includes(level) ? level : 'UNKNOWN') as StoredFindingLevelUnverified,
-      well_formed: !isMalformedFinding(finding),
-    };
-  });
-  const count = (level: StoredFindingLevelUnverified) => entries.filter((entry) => entry.stored_level === level).length;
-  const highest = highestGovernedRiskLevel(entries.map((entry) => ({ risk_level: entry.stored_level })));
-  return {
-    total: entries.length,
-    highest_level: highest === 'HIGH' || highest === 'MEDIUM' || highest === 'LOW' ? highest : null,
-    counts: {
-      high: count('HIGH'),
-      medium: count('MEDIUM'),
-      low: count('LOW'),
-      not_checked: count('NOT_CHECKED'),
-      unknown_level: count('UNKNOWN'),
-      malformed: entries.filter((entry) => !entry.well_formed).length,
-    },
-    entries,
-  };
-}
 
 function recordIntegrityFailure(
   assessmentArtifactId: string,
   statement: GovernedOverallStatement,
   rawFindings: unknown,
 ): GovernedRecordIntegrityFailure {
-  const basisCodes = [
-    ...new Set(statement.coverage_basis.map((entry) => entry.split(':')[0]!).filter((code) => BASIS_CODE.test(code))),
-  ];
-  const stored = storedFindingsUnverified(rawFindings);
+  const diagnostic = recordIntegrityDiagnostic(assessmentArtifactId, statement.coverage_basis, rawFindings);
+  const basisCodes = diagnostic.basis_codes;
+  const stored = diagnostic.stored_findings_unverified;
   const named = storedRiskFindingsSv(Array.isArray(rawFindings) ? rawFindings : []);
   const storedSv = !Array.isArray(rawFindings)
     ? // W-U20CDF5 (L3): never "inga fynd" for a record whose findings cannot be read at all.
@@ -703,64 +624,7 @@ function recordIntegrityFailure(
     failureClass: 'RECORD_INTEGRITY_ERROR',
     reasonCode: basisCodes[0] ?? 'RECORD_INTEGRITY_ERROR',
     retryable: false,
-    record_integrity: {
-      authoritative: false,
-      verified: false,
-      note_sv: RECORD_INTEGRITY_NOTE_SV,
-      assessment_artifact_id: assessmentArtifactId,
-      basis_codes: basisCodes,
-      stored_findings_unverified: stored,
-    },
-  };
-}
-
-/**
- * U20CDF4: the 424's `record_integrity` as it may leave the server -- rebuilt field by field from a
- * whitelist (counts, fixed levels, governed check names, plain identifiers, the fixed note), so no
- * other field and no free text of the stored record can travel even if the object were extended.
- * Returns null for anything that is not such a diagnostic.
- */
-export function recordIntegrityDiagnosticWire(raw: unknown): RecordIntegrityDiagnostic | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const source = raw as Partial<RecordIntegrityDiagnostic> & { stored_findings_unverified?: Partial<RecordIntegrityDiagnostic['stored_findings_unverified']> };
-  const id = typeof source.assessment_artifact_id === 'string' && PLAIN_ID.test(source.assessment_artifact_id) ? source.assessment_artifact_id : null;
-  const stored = source.stored_findings_unverified;
-  if (id === null || !stored || typeof stored !== 'object') return null;
-  const n = (value: unknown) => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0);
-  const counts = (stored.counts ?? {}) as Partial<RecordIntegrityDiagnostic['stored_findings_unverified']['counts']>;
-  const highest = stored.highest_level === 'HIGH' || stored.highest_level === 'MEDIUM' || stored.highest_level === 'LOW' ? stored.highest_level : null;
-  const entries = Array.isArray(stored.entries) ? stored.entries : [];
-  return {
-    authoritative: false,
-    verified: false,
-    note_sv: RECORD_INTEGRITY_NOTE_SV,
-    assessment_artifact_id: id,
-    basis_codes: (Array.isArray(source.basis_codes) ? source.basis_codes : []).filter(
-      (code): code is string => typeof code === 'string' && BASIS_CODE.test(code),
-    ),
-    stored_findings_unverified: {
-      total: n(stored.total),
-      highest_level: highest,
-      counts: {
-        high: n(counts.high),
-        medium: n(counts.medium),
-        low: n(counts.low),
-        not_checked: n(counts.not_checked),
-        unknown_level: n(counts.unknown_level),
-        malformed: n(counts.malformed),
-      },
-      entries: entries.map((entry) => {
-        const e = (entry && typeof entry === 'object' ? entry : {}) as Partial<RecordIntegrityDiagnostic['stored_findings_unverified']['entries'][number]>;
-        return {
-          check: typeof e.check === 'string' && GOVERNED_CHECKS.includes(e.check) ? e.check : null,
-          rule: typeof e.rule === 'string' && PLAIN_ID.test(e.rule) ? e.rule : null,
-          stored_level: (typeof e.stored_level === 'string' && (STORED_LEVELS as readonly string[]).includes(e.stored_level)
-            ? e.stored_level
-            : 'UNKNOWN') as StoredFindingLevelUnverified,
-          well_formed: e.well_formed === true,
-        };
-      }),
-    },
+    record_integrity: diagnostic,
   };
 }
 

@@ -258,6 +258,16 @@ export function governedLayerOfRule(ruleId: string): string | null {
   return Object.keys(LAYER_RULE_IDS).find((layer) => LAYER_RULE_IDS[layer] === ruleId) ?? null;
 }
 
+/**
+ * W-U20CDF5 (U20CDF4 verification L5): the governed rule REGISTRY -- the five layer rules and
+ * LU-DOC-BESLUT-001, the only rule ids any LU producer has ever written (LURuleEngine's whole history). A
+ * stored rule id is echoed to a client only when it is one of these; anything else, a plain identifier
+ * included, is named by a neutral label.
+ */
+export function isGovernedRuleId(ruleId: unknown): ruleId is string {
+  return typeof ruleId === 'string' && (ruleId === GOVERNED_DOCUMENT_CHECK_RULE_ID || governedLayerOfRule(ruleId) !== null);
+}
+
 export interface LayerCheckFindingLike {
   readonly rule_id: string;
   readonly risk_level: string;

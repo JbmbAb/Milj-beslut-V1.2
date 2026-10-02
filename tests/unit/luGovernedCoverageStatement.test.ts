@@ -181,7 +181,8 @@ describe('U20CDF2 (G1): coverage that cannot be established is never "0 av M"; a
     const text = governedOverallStatementSv('MEDIUM', none, context);
     expect(text).toBe(
       'Ingen samlad risknivå kan presenteras – 0 av 3 kontroller genomförda. ' +
-        'Bedömningens lagrade fynd redovisas var för sig: risknivå måttlig – LU-GOVERNED-001.',
+        // W-U20CDF5 (U20CDF4 verification L5): a rule outside the governed registry is named, never echoed.
+        'Bedömningens lagrade fynd redovisas var för sig: risknivå måttlig – regel utanför regelregistret.',
     );
     expect(text).not.toMatch(/låg risk/i);
   });
