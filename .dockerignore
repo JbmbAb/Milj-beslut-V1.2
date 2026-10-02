@@ -18,3 +18,25 @@ _agent
 .agents
 Database
 scratch
+
+# Lokalt tillstånd som aldrig får hamna i en image. Ett bygge från
+# `git archive <SHA>` (deploy/onprem/build-image.sh) innehåller dem inte ändå;
+# raderna skyddar ett bygge från ett smutsigt arbetsträd.
+**/node_modules
+**/.env
+**/.env.*
+dist
+.audit-*
+.codex-verification
+.data
+.worktrees
+GEO_Master_Archive
+Claude outputs
+
+# Byggrecept och IaC behövs inte bland appens filer. Utanför kontexten
+# bygger en ändring i dem inte heller om applagren.
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+cloudbuild.yaml
+deploy
