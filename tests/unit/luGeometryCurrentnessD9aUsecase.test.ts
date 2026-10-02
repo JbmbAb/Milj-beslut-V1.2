@@ -176,16 +176,50 @@ describe('D9(a) + U12 through generate-report: successful run keeps provenance a
     // persisted inputs. A layer whose query failed (protected_area here) is seen through its NOT_CHECKED
     // finding -- reason NOT_CHECKED_FINDING, coverage_state SOURCE_UNAVAILABLE -- and the provider's
     // own reason text (here 'TABLE_MISSING') is no longer echoed; it stays in the finding.
-    // coverage_state / message_sv / coverage_limitation_sv are additions on top of the U12 fields.
+    // coverage_state / message_sv / coverage_limitation_sv / known_coverage_gaps are additions on top
+    // of the U12 fields. U20CDF (U20CD verification F11): exact objects again (U20-D had relaxed this
+    // to objectContaining), so an unexpected extra field fails here. This fixture's evidence names no
+    // provider, radius or ADMIT dataset version, hence the "saknas i underlaget" texts and no gaps.
+    const MISSING = 'Saknas i underlaget';
     expect(analysis.executionMotor?.governed_layer_checks).toEqual([
-      expect.objectContaining({ layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: 'evidence-water-x', reason: null, coverage_state: 'CHECKED_HIT' }),
-      expect.objectContaining({ layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-ebh-x', reason: null, coverage_state: 'CHECKED_NO_HIT' }),
-      expect.objectContaining({ layer: 'protected_area', rule_id: 'LU-PROTECTED-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NOT_CHECKED_FINDING', coverage_state: 'SOURCE_UNAVAILABLE' }),
-      expect.objectContaining({ layer: 'natura2000', rule_id: 'LU-NATURA2000-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-natura2000-x', reason: null, coverage_state: 'CHECKED_NO_HIT' }),
-      expect.objectContaining({ layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_EVIDENCE', coverage_state: 'NOT_CHECKED' }),
+      {
+        layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: 'evidence-water-x', reason: null,
+        coverage_state: 'CHECKED_HIT',
+        message_sv: 'Registrerad träff i Brunnar inom sökradien (radien saknas i underlaget): antal träffar saknas i underlaget (registerkontroll).',
+        coverage_limitation_sv: MISSING, known_coverage_gaps: [],
+      },
+      {
+        layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-ebh-x', reason: null,
+        coverage_state: 'CHECKED_NO_HIT',
+        message_sv: 'Ingen registrerad träff i Potentiellt förorenade områden (EBH) inom sökradien (radien saknas i underlaget) (registerkontroll, inte markundersökning).',
+        coverage_limitation_sv: MISSING, known_coverage_gaps: [],
+      },
+      {
+        layer: 'protected_area', rule_id: 'LU-PROTECTED-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NOT_CHECKED_FINDING',
+        coverage_state: 'SOURCE_UNAVAILABLE',
+        message_sv: 'Inte kontrollerat: källan för Skyddad natur kunde inte läsas när bedömningen gjordes (tekniskt fel i den styrda frågan). Ingen slutsats om lagret.',
+        coverage_limitation_sv: MISSING, known_coverage_gaps: [],
+      },
+      {
+        layer: 'natura2000', rule_id: 'LU-NATURA2000-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-natura2000-x', reason: null,
+        coverage_state: 'CHECKED_NO_HIT',
+        message_sv: 'Ingen registrerad träff i Natura 2000 inom sökradien (radien saknas i underlaget) (registerkontroll, inte markundersökning).',
+        coverage_limitation_sv: MISSING, known_coverage_gaps: [],
+      },
+      {
+        layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_EVIDENCE',
+        coverage_state: 'NOT_CHECKED',
+        message_sv: 'Inte kontrollerat: bedömningen innehåller ingen evidens för Vattenskyddsområde. Ingen slutsats om lagret.',
+        coverage_limitation_sv: MISSING, known_coverage_gaps: [],
+      },
       // K0: the document check is appended. This file's kernel mock returns an assessment without a
       // payload, so its pinned evidence refs cannot be read -> NOT_CHECKED, never a no-hit.
-      expect.objectContaining({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'PINNED_EVIDENCE_REFS_UNREADABLE' }),
+      {
+        layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'PINNED_EVIDENCE_REFS_UNREADABLE',
+        coverage_state: 'TECHNICAL_ERROR',
+        message_sv: 'Dokument och tidigare beslut: inte kontrollerat. Bedömningens evidensreferenser kunde inte läsas.',
+        coverage_limitation_sv: MISSING, known_coverage_gaps: [],
+      },
     ]);
     // NOT_CHECKED stays structured data, untouched: the finding and unresolvedChecks are still there.
     expect(analysis.executionMotor?.findings.some((f) => f.risk_level === 'NOT_CHECKED')).toBe(true);
