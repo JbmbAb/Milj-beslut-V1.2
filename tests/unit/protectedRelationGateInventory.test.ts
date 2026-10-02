@@ -45,6 +45,7 @@ import {
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { languageOf, scanFile, walkRepository, type ChannelSite, type FileScan } from './protectedWriteChannels';
 import * as channels from './protectedWriteChannels';
+import * as reviewedNs from './protectedWriteChannels.reviewed';
 import {
   GATE_IMPLEMENTATION,
   HISTORICAL_SQL,
@@ -251,8 +252,12 @@ interface RepositoryScan {
   readonly texts: Map<string, string>;
 }
 
+/** U30F4 (B5): every symbolic link the repository walk skipped (reported, never silent). */
+const REPO_LINKS: string[] = [];
+
 function scanRepository(root: string, definition: ProtectedRelationsDefinition = PROTECTED_RELATIONS): RepositoryScan {
-  const files = walkRepository(root, { excludedDirNames: ['node_modules', '.git'], excludedPrefixes: [], isTestSource: () => false }).filter(
+  const walkRules = { excludedDirNames: ['node_modules', '.git'], excludedPrefixes: [], isTestSource: () => false, links: REPO_LINKS };
+  const files = walkRepository(root, walkRules).filter(
     (f) => !EXCLUDED.some((re) => re.test(f)),
   );
   const scans = new Map<string, FileScan>();
@@ -840,6 +845,103 @@ describe('canaries: unknown or dynamic write channels fail closed (U30F3 M-2, ow
     ['sh: docker compose down WITHOUT -v keeps the volume', 'scripts/vrogue/c5.sh', '#!/bin/sh\ndocker compose -f docker-compose.yml down\n'],
   ])('control: %s passes', (_label, file, content) => {
     expect(problemsOf(file, content)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U30F4 (owner: close the cheap parts of B1, B2 and B5 now; the rest stays BLOCKERARE until DB-level protection)
+// ---------------------------------------------------------------------------------------------
+
+/** The decision key of a file type: its extension, or its whole name when it has none (Dockerfile, .gitignore). */
+function fileTypeKey(rel: string): string {
+  const base = rel.split('/').pop()!;
+  const ext = path.extname(base).toLowerCase();
+  return ext === '' ? base : ext;
+}
+
+/** File types without a decision: not scanned, not an unscanned executable type (listed per file), not decided data. */
+function fileTypeProblems(files: readonly string[]): string[] {
+  const decisions = ((reviewedNs as { FILE_TYPE_DECISIONS?: readonly { key: string }[] }).FILE_TYPE_DECISIONS ?? []).map((d) => d.key);
+  const listed = new Set(UNSCANNED_EXECUTABLES.map((u) => u.file));
+  const out: string[] = [];
+  for (const f of files) {
+    if (EXCLUDED.some((re) => re.test(f)) || languageOf(f) !== null) continue;
+    const key = fileTypeKey(f);
+    if (UNSCANNED_EXECUTABLE_TYPES.includes(key) || UNSCANNED_EXECUTABLE_TYPES.includes(path.extname(f).toLowerCase())) {
+      if (!listed.has(f) && !TEST_SOURCE.test(f)) out.push(`${f}: an unscanned executable type that is not listed`);
+    } else if (!decisions.includes(key)) out.push(`${f}: file type ${key} has no decision (scan it, list it as an unscanned executable type, or decide it is data)`);
+  }
+  return out;
+}
+
+/** Symbolic links the walk skipped that are not node_modules (a link would hide what it points at from the scan). */
+function unexpectedLinks(links: readonly string[]): string[] {
+  return links.filter((l) => !/(^|\/)node_modules$/.test(l));
+}
+
+const PY_ASYNCPG = "import sys, asyncpg\nasync def main():\n    conn = await asyncpg.connect('')\n";
+const PY_SQLA = "import sys\nfrom sqlalchemy import MetaData, Table, create_engine, text\nengine = create_engine('postgresql://')\nmd = MetaData()\n";
+
+describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflection forms, B5 file types and links', () => {
+  it.each([
+    ['B2 asyncpg fetch(dynamic)', 'scripts/vrogue/b2a.py', `${PY_ASYNCPG}    await conn.fetch(sys.argv[1])\n`],
+    ['B2 asyncpg fetchrow(dynamic)', 'scripts/vrogue/b2b.py', `${PY_ASYNCPG}    await conn.fetchrow(sys.argv[1])\n`],
+    ['B2 asyncpg fetchval(dynamic)', 'scripts/vrogue/b2c.py', `${PY_ASYNCPG}    await conn.fetchval(sys.argv[1])\n`],
+    ['B2 asyncpg prepare(dynamic)', 'scripts/vrogue/b2d.py', `${PY_ASYNCPG}    stmt = await conn.prepare(sys.argv[1])\n    await stmt.fetch()\n`],
+    ['B2 asyncpg cursor(dynamic)', 'scripts/vrogue/b2e.py', `${PY_ASYNCPG}    async for r in conn.cursor(sys.argv[1]):\n        print(r)\n`],
+    ['B2 asyncpg copy_from_query(dynamic)', 'scripts/vrogue/b2f.py', `${PY_ASYNCPG}    await conn.copy_from_query(sys.argv[1], output='o.csv')\n`],
+    ['B2 pandas pd.read_sql(dynamic)', 'scripts/vrogue/b2g.py', "import sys\nimport pandas as pd\npd.read_sql(sys.argv[1], 'postgresql://')\n"],
+    ['B2 pandas read_sql_query imported by name (dynamic)', 'scripts/vrogue/b2h.py', "import sys\nfrom pandas import read_sql_query\nread_sql_query(sys.argv[1], 'postgresql://')\n"],
+    ['B2 SQLAlchemy metadata.drop_all', 'scripts/vrogue/b2i.py', `${PY_SQLA}md.reflect(bind=engine, schema='env')\nmd.drop_all(engine)\n`],
+    ['B2 SQLAlchemy Table.drop', 'scripts/vrogue/b2j.py', `${PY_SQLA}Table('sgu_well', md, schema='env').drop(engine)\n`],
+    ['B2 SQLAlchemy ORM query(...).delete()', 'scripts/vrogue/b2k.py', `${PY_SQLA}from sqlalchemy.orm import Session\nwith Session(engine) as s:\n    s.query(Well).delete()\n`],
+    ['B2 SQLAlchemy conn.scalar(text(dynamic))', 'scripts/vrogue/b2l.py', `${PY_SQLA}with engine.begin() as conn:\n    conn.scalar(text(sys.argv[1]))\n`],
+    ['B2 psycopg2 callproc (the procedure body is not in the source)', 'scripts/vrogue/b2m.py', "import psycopg2\ncur = psycopg2.connect('').cursor()\ncur.callproc('wipe_layers')\n"],
+    ['B2 psycopg (3) cursor.stream(dynamic)', 'scripts/vrogue/b2n.py', "import sys, psycopg\nwith psycopg.connect('') as conn:\n    cur = conn.cursor()\n    for r in cur.stream(sys.argv[1]):\n        print(r)\n"],
+    ['B1 vm named import runInNewContext(dynamic)', 'scripts/vrogue/b1a.ts', "import { runInNewContext } from 'node:vm';\nrunInNewContext(process.argv[2]!);\n"],
+    ['B1 vm default import, new Script(dynamic)', 'scripts/vrogue/b1b.ts', "import vm2 from 'vm';\nnew vm2.Script(process.argv[2]!).runInThisContext();\n"],
+    ['B1 vm destructured require, new Script(dynamic)', 'scripts/vrogue/b1c.cjs', "const { Script } = require('node:vm');\nnew Script(process.argv[2]).runInThisContext();\n"],
+    ['B1 new Worker(code, { eval: true })', 'scripts/vrogue/b1d.ts', "import { Worker } from 'node:worker_threads';\nnew Worker(process.argv[2]!, { eval: true });\n"],
+    ['B1 indirect eval (0, eval)(x)', 'scripts/vrogue/b1e.ts', '(0, eval)(process.argv[2]!);\n'],
+    ['B1 Reflect.apply(eval, ...)', 'scripts/vrogue/b1f.ts', 'Reflect.apply(eval, undefined, [process.argv[2]]);\n'],
+    ["B1 globalThis['ev' + 'al'](x)", 'scripts/vrogue/b1g.ts', "globalThis['ev' + 'al'](process.argv[2]);\n"],
+  ])('%s -> caught', (_label, file, content) => {
+    expect(isScannedPath(file), file).toBe(true);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['pandas DataFrame.drop in a file without SQLAlchemy', 'scripts/vrogue/c6.py', "import pandas as pd\ndf = pd.DataFrame()\ndf = df.drop(columns=['a'])\n"],
+    ['asyncpg fetch of a static SELECT', 'scripts/vrogue/c7.py', `${PY_ASYNCPG}    await conn.fetch('SELECT 1')\n`],
+    ['a worker running a file, not code', 'scripts/vrogue/c8.ts', "import { Worker } from 'node:worker_threads';\nnew Worker(new URL('./w.mjs', import.meta.url));\n"],
+    ['an object key named eval', 'scripts/vrogue/c9.ts', 'export const opts = { eval: false };\n'],
+  ])('control: %s passes', (_label, file, content) => {
+    expect(problemsOf(file, content)).toEqual([]);
+  });
+
+  it('B5: every file type in the repository has a decision -- scanned, an unscanned executable type listed per file, or decided data', () => {
+    expect(fileTypeProblems(REPO.files)).toEqual([]);
+  });
+
+  it('B5: a new file of a type with no decision, or of an unscanned executable type (.service, .tf, .conf, .ini, .xml) that is not listed, fails', () => {
+    for (const f of ['deploy/rogue/wipe.service', 'infra/rogue/main.tf', 'deploy/rogue/pg.conf', 'deploy/rogue/tool.ini', 'deploy/rogue/job.xml', 'tools/rogue/run.newtype']) {
+      expect(fileTypeProblems([f]).length, f).toBeGreaterThan(0);
+    }
+    expect(fileTypeProblems(['docs/rogue/notes.md'])).toEqual([]);
+  });
+
+  it('B5: the walk never skips a symbolic link silently -- every link is reported, and only node_modules links are expected', () => {
+    const dirent = (name: string, kind: 'dir' | 'file' | 'link') => ({ name, isSymbolicLink: () => kind === 'link', isDirectory: () => kind === 'dir', isFile: () => kind === 'file' });
+    const tree: Record<string, ReturnType<typeof dirent>[]> = {
+      'virtual-root': [dirent('scripts', 'dir'), dirent('node_modules', 'link')],
+      'virtual-root/scripts': [dirent('ok.ts', 'file'), dirent('evil.ts', 'link')],
+    };
+    const links: string[] = [];
+    const rules = { excludedDirNames: [], excludedPrefixes: [], isTestSource: () => false, links, readdir: (dir: string) => tree[dir.replace(/\\/g, '/')] ?? [] };
+    expect(walkRepository('virtual-root', rules as never)).toEqual(['scripts/ok.ts']);
+    expect([...links].sort()).toEqual(['node_modules', 'scripts/evil.ts']);
+    expect(unexpectedLinks(links)).toEqual(['scripts/evil.ts']);
+    expect(unexpectedLinks(REPO_LINKS)).toEqual([]);
   });
 });
 
