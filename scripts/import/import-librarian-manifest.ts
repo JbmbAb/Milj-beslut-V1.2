@@ -39,8 +39,58 @@ import {
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { syncPropertyUnitFromEnv } from '../db/sync-property-unit-from-env';
+import type { ArtifactRepositoryPort } from '../../packages/mps-runtime/src/kernel/ExecutionKernel';
+import {
+  REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
+  SpatialDatasetRetentionError,
+  recordRetentionAtPromote,
+  retainOutgoingThenReplace,
+  type SqlPort,
+  type TransactionalSqlPort,
+} from '../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
 
 dotenv.config();
+
+type PrismaSqlClient = Pick<typeof prisma, '$queryRawUnsafe' | '$executeRawUnsafe'>;
+
+/** SPATIAL-DATASET-RETENTION-V1 SQL port over the Prisma client (or an interactive transaction client). */
+function prismaSqlPort(client: PrismaSqlClient): SqlPort {
+  return {
+    query: async <T,>(sql: string, params: readonly unknown[] = []) => ({
+      rows: (await client.$queryRawUnsafe<T[]>(sql, ...params)) as T[],
+    }),
+    execute: async (sql: string, params: readonly unknown[] = []) => {
+      await client.$executeRawUnsafe(sql, ...params);
+    },
+  };
+}
+
+function prismaTransactionalSqlPort(): TransactionalSqlPort {
+  return {
+    ...prismaSqlPort(prisma),
+    // Same transaction timeout as the TRUNCATE + INSERT promote always had.
+    transaction: (work) => prisma.$transaction((tx) => work(prismaSqlPort(tx)), { timeout: 600000 }),
+  };
+}
+
+/**
+ * PRES-05: the retention record goes to the ONE durable Mimers CAS (PRES-19), fail-closed: without
+ * it a `replace` promote is refused before anything is written.
+ */
+async function openRetentionCas(): Promise<ArtifactRepositoryPort> {
+  try {
+    const { MimersIntegration } = await import('../../packages/mps-runtime/src/mimers/MimersIntegration');
+    const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
+    return mimers.artifactRepository;
+  } catch (error) {
+    throw new SpatialDatasetRetentionError(
+      REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
+      'CAS_UNAVAILABLE',
+      `the durable Mimers CAS could not be opened for the retention record: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
 
 
 
@@ -442,6 +492,12 @@ async function processManifest(manifestPath: string) {
         `   - Promote audit: staging=${stagingRows.toLocaleString()}, prod_before=${prodRowsBefore.toLocaleString()}`,
       );
 
+      const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
+      const retentionTarget = { schema: target_schema, table: target_table };
+      // PRES-05 (U30-B): a `replace` promote needs the durable CAS for its retention records --
+      // opened (fail-closed) before anything is written to the ledger or the table.
+      const retentionRepo = promoteStrategy === 'replace' ? await openRetentionCas() : null;
+
       logger.info(`   - Promoting ${fullStagingTarget} -> ${target_schema}.${target_table}...`);
       await prisma.postgisImportBatch.update({
         where: { id: stagedBatch.id },
@@ -449,7 +505,6 @@ async function processManifest(manifestPath: string) {
       });
 
       try {
-        const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
         if (prodExists) {
           const insertSql = await buildPromoteInsertSql(
             prisma,
@@ -462,12 +517,24 @@ async function processManifest(manifestPath: string) {
             logger.info(`   - Promote strategy: append (no TRUNCATE)`);
             await prisma.$executeRawUnsafe(insertSql);
           } else {
-            await prisma.$transaction([
-              prisma.$executeRawUnsafe(`TRUNCATE ${target_schema}.${target_table};`),
-              prisma.$executeRawUnsafe(insertSql),
-            ], {
-              timeout: 600000,
+            // Retain the outgoing version (relation + digest + CAS record) BEFORE the TRUNCATE, in
+            // the same ACCESS EXCLUSIVE transaction; any failure refuses the promote with
+            // REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED and no TRUNCATE runs. No override.
+            const retention = await retainOutgoingThenReplace({
+              db: prismaTransactionalSqlPort(),
+              repo: retentionRepo!,
+              target: retentionTarget,
+              insertSql,
             });
+            if (retention.kind === 'RETAINED') {
+              logger.info(
+                `   - Outgoing version retained: ${retention.record.payload.retained_relation} ` +
+                  `(batch ${retention.record.payload.import_batch_id}, rows=${retention.record.payload.row_count}, ` +
+                  `record ${retention.record.artifact_id} ${retention.outcome}${retention.created_retained_relation ? ', relation created' : ''})`,
+              );
+            } else {
+              logger.warn(`   - No SUCCESS batch for ${target_schema}.${target_table}: no governed outgoing version to retain`);
+            }
           }
         } else {
           logger.info(`   - Prod table missing — bootstrapping from staging...`);
@@ -520,17 +587,9 @@ async function processManifest(manifestPath: string) {
           promotedTo: `${target_schema}.${target_table}`,
         });
 
-        if (retryFailed) {
-          await prisma.postgisImportBatch.deleteMany({
-            where: {
-              content_bundle_sha256: manifest.content_bundle_sha256,
-              target_schema,
-              target_table,
-              status: 'SUCCESS',
-              id: { not: stagedBatch.id },
-            },
-          });
-        }
+        // PRES-05 / PRES-06: --retry-failed no longer deletes earlier SUCCESS ledger rows for this
+        // version. They are the history the retention records and the runtime binding rest on;
+        // the latest SUCCESS row still wins (SpatialDatasetRuntimeBinding orders by completed_at).
 
         await prisma.postgisImportBatch.update({
           where: { id: stagedBatch.id },
@@ -543,6 +602,31 @@ async function processManifest(manifestPath: string) {
         });
 
         logger.info(`   ✅ Promote Successful (Atomic, QA verified).`);
+
+        if (retentionRepo) {
+          // Retention of the incoming version from birth: its staging relation, verified equal to
+          // live. The data is already promoted, so a failure here must not mark the batch FAILED;
+          // it is reported loudly (exit code 1) and the next promote / the retention CLI records it.
+          try {
+            const recorded = await recordRetentionAtPromote({
+              db: prismaSqlPort(prisma),
+              repo: retentionRepo,
+              target: retentionTarget,
+              incoming: { id: stagedBatch.id, content_bundle_sha256: manifest.content_bundle_sha256, dataset_version: manifest.version },
+            });
+            logger.info(
+              `   - Incoming version retention ${recorded.outcome}: ${recorded.record.payload.retained_relation} ` +
+                `(record ${recorded.record.artifact_id})`,
+            );
+          } catch (retentionError: unknown) {
+            const detail = retentionError instanceof Error ? retentionError.message : String(retentionError);
+            logger.error(
+              `   ❌ RETENTION_RECORD_AT_PROMOTE_FAILED for ${target_schema}.${target_table}@${manifest.content_bundle_sha256}: ${detail} ` +
+                `(promote stands; record it with scripts/ops/retain-spatial-dataset-versions.ts --target ${target_schema}.${target_table} --execute)`,
+            );
+            process.exitCode = 1;
+          }
+        }
 
         if (target_table === 'registerenhetsomradesytor') {
           logger.info(`   - Syncing core.property_unit from env.registerenhetsomradesytor...`);
