@@ -403,31 +403,92 @@ const realpathNative = fs.realpathSync.native;
 const lstatOriginal = fs.lstatSync;
 const readlinkOriginal = fs.readlinkSync;
 
+/** TDG-6: links the real-path lookup follows before the target is undecidable (a loop or a chain). */
+export const REAL_PATH_MAX_LINK_HOPS = 32;
+/** lstat answers that mean "no such entry here": the lookup goes on with the parent. */
+const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
+/**
+ * lstat answers for an entry that exists but cannot be inspected right now (Windows: a file pending deletion,
+ * an entry locked or denied). Tolerated for the TARGET itself only -- its location is then its parent's real
+ * path plus its name -- so a Windows retry on EPERM still sees EPERM; for an ancestor it is undecidable.
+ */
+const UNINSPECTABLE_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+/** A name that looks like an 8.3 short name (`STORAG~1`): never taken as written when it has no real path. */
+const SHORT_NAME = /~\d/;
+
+export type RealTarget = { readonly path: string } | { readonly undecidable: string } | null;
+
 /**
  * The real location a write to `canonical` reaches: the real path of its nearest existing ancestor (a
  * junction, a symbolic link -- dangling ones followed -- or an 8.3 short name resolved) plus the rest.
- * Null when nothing resolves. Uses only the unguarded originals.
+ * TDG-6 (TDG5-VERIFICATION finding 4): FAIL-CLOSED. It climbs to the nearest existing ancestor WITHOUT a level
+ * limit (it used to give up after 64 levels and answer "allowed"); it is `undecidable` -- the write is refused --
+ * after more than REAL_PATH_MAX_LINK_HOPS links, for a link that cannot be read, for an ancestor that cannot be
+ * inspected, for an 8.3-looking name without a real path, and for any other lookup error. Null only when
+ * nothing exists, not even the volume root: nothing can land there. Uses only the unguarded originals.
  */
-export function realTargetPath(canonical: string): string | null {
+export function realTargetPath(canonical: string): RealTarget {
   let probe = canonical;
   const rest: string[] = [];
-  for (let hops = 0; hops < 64; hops += 1) {
+  let hops = 0;
+  for (;;) {
     const real = safe(() => realpathNative(probe));
-    if (real !== null) return canonicalTargetPath(path.join(real, ...rest));
-    const stat = safe(() => lstatOriginal(probe));
-    if (stat?.isSymbolicLink()) {
-      const link = safe(() => readlinkOriginal(probe));
-      if (link !== null) {
-        probe = canonicalTargetPath(path.resolve(path.dirname(probe), link));
-        continue;
-      }
+    if (real !== null) return { path: canonicalTargetPath(path.join(real, ...rest)) };
+    let stat: fs.Stats | null = null;
+    let code: string | null = null;
+    try {
+      stat = lstatOriginal(probe);
+    } catch (error) {
+      code = errorCode(error);
     }
-    const parent = path.dirname(probe);
-    if (parent === probe) return null;
-    rest.unshift(path.basename(probe));
-    probe = parent;
+    const climb = () => {
+      const parent = path.dirname(probe);
+      if (parent === probe) return false;
+      rest.unshift(path.basename(probe));
+      probe = parent;
+      return true;
+    };
+    if (stat?.isSymbolicLink()) {
+      hops += 1;
+      if (hops > REAL_PATH_MAX_LINK_HOPS)
+        return { undecidable: `more than ${REAL_PATH_MAX_LINK_HOPS} links to follow from ${canonical}` };
+      let link: string;
+      try {
+        link = readlinkOriginal(probe);
+      } catch (error) {
+        return { undecidable: `the link ${probe} cannot be read (${errorCode(error)})` };
+      }
+      probe = canonicalTargetPath(path.resolve(path.dirname(probe), link));
+      continue;
+    }
+    const isTarget = rest.length === 0;
+    if (stat !== null || (code !== null && UNINSPECTABLE_CODES.has(code))) {
+      // it exists (or cannot be inspected now) but has no real path
+      if (SHORT_NAME.test(path.basename(probe)))
+        return { undecidable: `${probe} looks like an 8.3 short name and has no real path` };
+      if (stat === null && !isTarget) return { undecidable: `the ancestor ${probe} cannot be inspected (${code})` };
+      if (!climb()) return { undecidable: `the volume root ${probe} has no real path` };
+      continue;
+    }
+    if (code !== null && !ABSENT_CODES.has(code)) return { undecidable: `${code} looking up ${probe}` };
+    if (!climb()) return null; // not even the volume root exists: nothing can land there
   }
-  return null;
+}
+
+const rootRealForms = new Map<string, string | null>();
+/**
+ * TDG-6 (finding 4): a protected root's own real path when it differs from the root as written (an 8.3 name
+ * or a junction in the root's own path) -- the real target is compared with roots in their long form too.
+ * Memoized per process; only a metadata lookup of the root's existing part, never a listing, never a write.
+ */
+function rootRealForm(root: string): string | null {
+  const key = norm(root);
+  if (!rootRealForms.has(key)) {
+    if (rootRealForms.size > 20_000) rootRealForms.clear();
+    const real = realTargetPath(canonicalTargetPath(root));
+    rootRealForms.set(key, real !== null && 'path' in real && norm(real.path) !== key ? real.path : null);
+  }
+  return rootRealForms.get(key) ?? null;
 }
 
 const productTreeCache = new Map<string, boolean>();
@@ -534,11 +595,28 @@ export function testDataRootWriteRefusal(
   const trees = [...new Map(baseTrees.flatMap(treeForms).map((tree) => [norm(tree), tree])).values()];
   const testFile = options.testFile === undefined ? currentVitestTestFile() : options.testFile;
   const lexical = canonicalTargetPath(target);
-  const refusal = decide(operation, kind, lexical, target, trees, testFile);
+  const refusal = decide(operation, kind, lexical, target, trees, testFile, false);
   if (refusal || options.resolveLinks === false) return refusal;
+  // TDG-6 (finding 4): the real path is fail-closed, and it is compared with every root in its long form too
   const real = realTargetPath(lexical);
-  if (real === null || norm(real) === norm(lexical)) return null;
-  return decide(operation, kind, real, target, trees, testFile);
+  if (real === null) return null; // nothing exists there, not even the volume root: nothing can land
+  if ('undecidable' in real) return undecidableRefusal(operation, path.resolve(target), real.undecidable);
+  return decide(operation, kind, real.path, target, trees, testFile, true);
+}
+
+type RootEntry = { readonly abs: string; readonly root: string; readonly inTree: boolean };
+
+/** Every protected root now, normalized; with `realForms`, also by its real path where that differs. */
+function rootEntries(trees: readonly string[], realForms: boolean): RootEntry[] {
+  const entries: RootEntry[] = [];
+  const add = (root: string, inTree: boolean) => {
+    entries.push({ abs: norm(root), root, inTree });
+    const real = realForms ? rootRealForm(root) : null;
+    if (real !== null) entries.push({ abs: norm(real), root, inTree });
+  };
+  for (const tree of trees) for (const { root } of TEST_PROTECTED_RELATIVE_ROOTS) add(path.join(tree, root), true);
+  for (const root of protectedAbsoluteRootsNow()) add(root, false);
+  return entries;
 }
 
 function decide(
@@ -548,28 +626,15 @@ function decide(
   original: string,
   trees: readonly string[],
   testFile: string | null,
+  realForms: boolean,
 ): WriteRefusal | null {
   const abs = norm(candidate);
-  const refusal = (protectedRoot: string): WriteRefusal => ({
-    operation,
-    target: path.resolve(original),
-    protectedRoot,
-  });
-  for (const tree of trees) {
-    for (const { root } of TEST_PROTECTED_RELATIVE_ROOTS) {
-      const rootAbs = norm(path.join(tree, root));
-      const inside = isInsideOrSame(abs, rootAbs);
-      const ancestor = reachesAncestors(kind) && isInsideOrSame(rootAbs, abs);
-      if (!inside && !ancestor) continue;
-      if (inside && isExcepted(abs, kind, trees, testFile)) continue;
-      return refusal(path.join(tree, root));
-    }
-  }
-  for (const root of protectedAbsoluteRootsNow()) {
-    const rootAbs = norm(root);
-    if (isInsideOrSame(abs, rootAbs) || (reachesAncestors(kind) && isInsideOrSame(rootAbs, abs))) {
-      return refusal(root);
-    }
+  for (const entry of rootEntries(trees, realForms)) {
+    const inside = isInsideOrSame(abs, entry.abs);
+    const ancestor = reachesAncestors(kind) && isInsideOrSame(entry.abs, abs);
+    if (!inside && !ancestor) continue;
+    if (inside && entry.inTree && isExcepted(abs, kind, trees, testFile, realForms)) continue;
+    return { operation, target: path.resolve(original), protectedRoot: entry.root };
   }
   return null;
 }
@@ -577,23 +642,28 @@ function decide(
 /**
  * An exception allows `write` of exactly its file and `mkdir` of exactly the file's own ancestors, only
  * while its owner test file runs -- the owner compared by its FULL path, never by its name. A uniquely named
- * directory (mkdtemp), a removal, a recursive copy or a link is never excepted.
+ * directory (mkdtemp), a removal, a recursive copy or a link is never excepted. In the real-path pass the
+ * exception's file is also compared by its real path.
  */
 function isExcepted(
   abs: string,
   kind: WriteKind,
   trees: readonly string[],
   testFile: string | null,
+  realForms: boolean,
 ): boolean {
   if ((kind !== 'write' && kind !== 'mkdir') || !testFile) return false;
   const testAbs = norm(canonicalTargetPath(testFile));
   for (const tree of trees) {
     for (const exception of TEST_DATA_ROOT_WRITE_EXCEPTIONS) {
       if (testAbs !== norm(path.join(tree, exception.testFile))) continue;
-      const allowed = norm(path.join(tree, exception.path));
-      if (kind === 'write' && abs === allowed) return true;
-      // creating the exception's own parent directories -- nothing beside them
-      if (kind === 'mkdir' && abs !== allowed && isInsideOrSame(allowed, abs)) return true;
+      const file = path.join(tree, exception.path);
+      const real = realForms ? rootRealForm(file) : null;
+      for (const allowed of real === null ? [norm(file)] : [norm(file), norm(real)]) {
+        if (kind === 'write' && abs === allowed) return true;
+        // creating the exception's own parent directories -- nothing beside them
+        if (kind === 'mkdir' && abs !== allowed && isInsideOrSame(allowed, abs)) return true;
+      }
     }
   }
   return false;
