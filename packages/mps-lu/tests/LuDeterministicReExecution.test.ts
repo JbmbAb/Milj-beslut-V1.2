@@ -1280,6 +1280,7 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
     ["an over-long message that was never truncated", `Error: ${"a".repeat(201)}`],
     ["a truncation marker on a message of the wrong length", `Error: ${"a".repeat(201)}...`],
     ["a 203-unit message without the truncation marker", `Error: ${"a".repeat(203)}`],
+    ["a 202-unit message ending in the truncation marker", `Error: ${"a".repeat(199)}...`],
     ["no separator after the name", "QueryFailedError"],
     ["a colon without the following space", "Error:inga träffar"],
   ];
