@@ -172,14 +172,13 @@ async function ensurePipelineTables(): Promise<void> {
     },
   ];
 
+  // U30F3 H-1: env.sgu_landslide_feature and env.sgu_well are protected LU layers (protected-relations.v1.json).
+  // This script never creates them: versioned spatial DDL owns env/*, and a CREATE TABLE IF NOT EXISTS here made
+  // empty protected stubs that no admitted version backs. Their import tasks below are refused by the gate.
   const envTables = [
     {
       name: 'env.sgu_ground_layer',
       cols: 'id SERIAL PRIMARY KEY, source_key TEXT, source_object_id INTEGER, layer_code INTEGER, layer_label TEXT, mapping_name TEXT, map_type INTEGER, symbol INTEGER, area_sqm NUMERIC, length_m NUMERIC, raw_properties JSONB, geom GEOMETRY(MULTIPOLYGON, 3006), grid_id INTEGER, UNIQUE(source_key, grid_id)',
-    },
-    {
-      name: 'env.sgu_landslide_feature',
-      cols: 'id SERIAL PRIMARY KEY, source_key TEXT UNIQUE, source_object_id INTEGER, feature_code INTEGER, feature_label TEXT, symbol INTEGER, length_m NUMERIC, raw_properties JSONB, geom GEOMETRY(GEOMETRY, 3006)',
     },
     {
       name: 'env.sgu_soil_type',
@@ -188,10 +187,6 @@ async function ensurePipelineTables(): Promise<void> {
     {
       name: 'env.env_sgu_grundvatten_sarbarhet',
       cols: 'id SERIAL PRIMARY KEY, klass TEXT, beskrivning TEXT, geom GEOMETRY(MULTIPOLYGON, 3006)',
-    },
-    {
-      name: 'env.sgu_well',
-      cols: 'id SERIAL PRIMARY KEY, well_id INTEGER, property_designation TEXT, capacity NUMERIC, depth NUMERIC, use_type TEXT, geom GEOMETRY(POINT, 3006)',
     },
     {
       name: 'env.sgu_aktsamhetsomrade',
@@ -214,7 +209,8 @@ async function ensurePipelineTables(): Promise<void> {
   }
   console.log('Ensuring production tables exist in schema "env"...');
   for (const table of envTables) {
-    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ${table.name} (${table.cols});`);
+    // U30F3 H-1: through the gate like every other write of this script (a protected name is refused)
+    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `CREATE TABLE IF NOT EXISTS ${table.name} (${table.cols});`));
   }
 }
 

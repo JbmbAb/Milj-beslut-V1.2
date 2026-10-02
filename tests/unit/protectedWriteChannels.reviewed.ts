@@ -460,9 +460,9 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/import-sgu-risk-layers.ts",
     policy: "GATED_VIA",
-    markers: ["gatedSql\\(GATE_CALLER, targetInsertSql\\)"],
+    markers: ["gatedSql\\(GATE_CALLER, targetInsertSql\\)", "gatedSql\\(GATE_CALLER, `CREATE TABLE IF NOT EXISTS \\$\\{table\\.name\\}"],
     justification:
-      "The two INSERT literals are the sql: of the SGU landslide and well layer configs, passed to genericImport as targetInsertSql; genericImport refuses the target first (assertUngovernedDestructiveWriteAllowed) and runs exactly that value through gatedSql(GATE_CALLER, targetInsertSql). Both targets are protected, so the gate refuses them at run time.",
+      "The two INSERT literals are the sql: of the SGU landslide and well layer configs, passed to genericImport as targetInsertSql; genericImport refuses the target first (assertUngovernedDestructiveWriteAllowed) and runs exactly that value through gatedSql(GATE_CALLER, targetInsertSql). Both targets are protected, so the gate refuses them at run time. Re-reviewed U30F3 H-1: the fail-open fold cap hid an ungated CREATE TABLE IF NOT EXISTS over envTables that held env.sgu_landslide_feature and env.sgu_well (empty protected stubs no admitted version backs); both entries are removed (versioned spatial DDL owns env/*) and the env CREATE goes through gatedSql (second marker), so it is gated, not listed here.",
     sites: [
       "PROTECTED SQL_TEXT literal | ` INSERT INTO env.sgu_landslide_feature (source_key, source_object_id, feature_code, feature_label, symbol, length_m, raw_properties, geom) SELECT source_key, source_object_id, feature_code, feature_…",
       "PROTECTED SQL_TEXT literal | ` INSERT INTO env.sgu_well (well_id, property_designation, capacity, depth, use_type, geom) SELECT well_id, property_designation, capacity, depth, use_type, ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON…",
@@ -649,6 +649,16 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "Runs gdallocationinfo (tool path resolved at run time) to read one SGU soil raster value at a point; read-only, no database.",
     sites: [
       "DYNAMIC PROCESS spawn | spawn(tool, ['-valonly', '-l_srs', 'EPSG:4326', rasterPath, String(lng), String(lat)])",
+    ],
+  },
+  {
+    file: "src/infrastructure/geo/static-map-generator.ts",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F3 H-1 (the fold cap now fails closed): two SVG markup template literals (a layer <g> element and the <svg> document) whose interpolations (layer styles, width, height) have more combinations than the scan enumerates (FOLD_CAP_EXCEEDED). They are markup, not SQL or a command; the file's database channels are $queryRaw SELECT tagged templates (bind parameters, judged statically ALLOWED) and it has no process channel.",
+    sites: [
+      "UNRESOLVABLE SQL_TEXT literal | ` <g id=\"layer-${layer.layerName}\" fill=\"${layer.color}\" fill-opacity=\"${layer.fillOpacity}\" stroke=\"${layer.strokeColor}\" stroke-width=\"${layer.strokeWidth}\">\\n`",
+      "UNRESOLVABLE SQL_TEXT literal | `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?> <svg width=\"${width}\" height=\"${height}\" viewBox=\"0 0 ${width} ${height}\" xmlns=\"http://www.w3.org/2000/svg\"> <!-- Bakgrund --> <rect width=\"10…",
     ],
   },
 ];

@@ -641,7 +641,7 @@ function scopeKey(ctx: FoldContext, refPos: number): string {
 /**
  * U30F3 H-1 (U30F2-VERIFICATION H-1): the fold cap FAILS CLOSED. The cap bounds the work of folding an
  * expression into its possible values; it never decides what is judged. An expression with more possible
- * * values than FOLD_MAX_TEXTS keeps the values it has enumerated and gains the fold-cap mark, a value that stands
+ * values than FOLD_MAX_TEXTS keeps the values it has enumerated and gains the fold-cap mark, a value that stands
  * for "values this scan did not enumerate". A text holding the mark is at least UNRESOLVABLE
  * (FOLD_CAP_EXCEEDED) on every surface and channel -- a site that needs a reviewed entry, never ALLOWED and
  * never dropped -- and stays PROTECTED when one of the enumerated values is. (Before U30F3 the 17th value and
