@@ -7,6 +7,8 @@
  * Pure: the register has no imports. governedEvidenceDetails is imported for the single-source check;
  * its import of the mps-lu barrel is kept hermetic with the throwing prisma guard.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
@@ -47,6 +49,9 @@ describe('U20CDF: known coverage gaps -- one register, traceable, never a full-c
       basis_sv: 'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell',
       rechecked_against_current_table: false,
     });
+    // U20CDF2 (low 3): the source is a file IN the repository (a verified excerpt with provenance),
+    // which itself names the lane report it was taken from -- not a report outside the repository.
+    expect(gap.sources[0]).toMatch(/^docs\/architecture\/admit-v1\/KNOWN-COVERAGE-GAPS\.md:\d+/);
     expect(gap.sources.join(' ')).toMatch(/DB-LANE-RECONCILIATION-CRITIC\.md:103/);
     expect(knownCoverageGapsFor(HASH.natura2000).map((g) => g.kind)).toEqual(['CONTRACT_SCOPE', 'KNOWN_INCOMPLETE_DATA']);
   });
@@ -98,6 +103,32 @@ describe('U20CDF: known coverage gaps -- one register, traceable, never a full-c
     }
     for (const hash of [HASH.natura2000, HASH.protected_area, HASH.water_protection_area]) {
       expect(knownCoverageLimitationSv(hash)).toMatch(/kontrollen avser endast .*inläst.*, inte fullständig/);
+    }
+  });
+
+  // U20CDF2 (U20CDF verification G6.2): Dev-Gov and CI can follow every source -- each one names a
+  // file in this repository (path:line), the file exists and the cited lines exist. A pointer outside
+  // the repository (the lane reports under "Claude outputs/") is only a provenance note after one.
+  it('every source is a repository file with existing lines; the Natura excerpt is in the repository, marked not rechecked', () => {
+    const repoRoot = path.resolve(__dirname, '../..');
+    for (const gap of KNOWN_COVERAGE_GAPS) {
+      const repoSources = gap.sources.filter((source) => !/^Claude outputs\//.test(source));
+      expect(repoSources.length, gap.gap_id).toBeGreaterThan(0);
+      expect(gap.sources[0], gap.gap_id).not.toMatch(/Claude outputs/);
+      for (const source of repoSources) {
+        const match = /^([^\s:]+\.(?:md|json))(?::([\d,\s-]+))?/.exec(source);
+        expect(match, `${gap.gap_id}: ${source}`).not.toBeNull();
+        const file = path.join(repoRoot, match![1]!);
+        expect(existsSync(file), `${gap.gap_id}: ${match![1]} must exist in the repository`).toBe(true);
+        const lineCount = readFileSync(file, 'utf8').split(/\r?\n/).length;
+        for (const cited of (match![2] ?? '').split(/[,\s-]+/).filter(Boolean).map(Number)) {
+          expect(cited, `${gap.gap_id}: ${source}`).toBeLessThanOrEqual(lineCount);
+        }
+      }
+    }
+    const excerpt = readFileSync(path.join(repoRoot, 'docs/architecture/admit-v1/KNOWN-COVERAGE-GAPS.md'), 'utf8');
+    for (const fact of ['NATURA2000_SPA_103_OF_558_ABSENT', '103 av 558', 'FID 455–557', 'FID 0–454', '2026-09-25', 'ej omkontrollerad mot nuvarande tabell', 'DB-LANE-RECONCILIATION-CRITIC.md', 'D-5']) {
+      expect(excerpt, fact).toContain(fact);
     }
   });
 

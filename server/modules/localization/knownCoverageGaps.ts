@@ -85,13 +85,14 @@ export const KNOWN_COVERAGE_GAPS: readonly KnownCoverageGap[] = [
     basis_sv: 'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell',
     rechecked_against_current_table: false,
     sources: [
-      // Lane report outside the repository (main checkout, "Claude outputs/").
+      // U20CDF2 (U20CDF verification G6.2): the verified excerpt, with its provenance, IN the
+      // repository -- so Dev-Gov and CI can follow the claim. Still marked not rechecked.
+      'docs/architecture/admit-v1/KNOWN-COVERAGE-GAPS.md:7 ' +
+        '(NATURA2000_SPA_103_OF_558_ABSENT: utdrag med proveniens, 2026-09-25, ej omkontrollerad mot nuvarande tabell)',
+      // Provenance of that excerpt: the lane report outside the repository (main checkout, "Claude outputs/").
       'Claude outputs/db-provenance-lane-2026-09-25/DB-LANE-RECONCILIATION-CRITIC.md:103 ' +
-        '(P-9: env.natura2000_area = FID 0..454; 103 kodade områden, FID 455-557, saknas)',
-      'Claude outputs/db-provenance-lane-2026-09-25/DB-LANE-RECONCILIATION-CRITIC.md:41,44 ' +
-        '(källans .dbf: 558 poster)',
-      'Claude outputs/db-provenance-lane-2026-09-25/DB-LANE-RECONCILIATION-CRITIC.md:173 ' +
-        '(D-5: ägarbeslut om lagret öppet)',
+        '(P-9: env.natura2000_area = FID 0..454; 103 kodade områden, FID 455-557, saknas); :41, :44, :46 ' +
+        '(källans .dbf: 558 poster; live 455 rader); :173 (D-5: ägarbeslut om lagret öppet)',
     ],
   },
   {
