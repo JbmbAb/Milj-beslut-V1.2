@@ -64,6 +64,7 @@ import {
   type GovernedCheckCoverage,
   type GovernedRecordCoverageState,
   type GovernedStatementContext,
+  type PinnedEvidenceReadability,
 } from './governedCoverageStatement';
 import { readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
 import { knownCoverageGapsFor, knownCoverageLimitationSv, type KnownCoverageGap } from './knownCoverageGaps';
@@ -267,7 +268,14 @@ function spatialCheckMessageSv(
     case 'INCOMPLETE_EVIDENCE':
       return `Ofullständigt underlag: resultatet i evidensen för ${source} kunde inte tolkas. Ingen slutsats om lagret.`;
     case 'TECHNICAL_ERROR':
-      return `Tekniskt fel: evidensen för ${source} kunde inte läsas ur CAS. Ingen slutsats om lagret.`;
+      // U20CDF2 (G2): bound evidence that cannot be read is an integrity/technical error; a stored
+      // finding of the layer is still named (it is shown in full among the findings).
+      return (
+        `Tekniskt fel: den pinnade evidensen för ${source} kunde inte läsas ur CAS och kan inte verifieras. ` +
+        (storedRiskLevel
+          ? `Bedömningens lagrade fynd för lagret (${riskLevelPhraseSv(storedRiskLevel)}) redovisas var för sig.`
+          : 'Ingen slutsats om lagret.')
+      );
     default:
       return `Inte kontrollerat: bedömningen innehåller ingen evidens för ${source}. Ingen slutsats om lagret.`;
   }
@@ -849,6 +857,8 @@ export interface GovernedOverallStatement {
   readonly coverage_basis: readonly string[];
   /** The N-of-M count; null unless coverage_state is DETERMINED. */
   readonly coverage: GovernedCheckCoverage | null;
+  /** U20CDF2 (G2): present iff coverage_state is PINNED_EVIDENCE_UNREADABLE -- what could not be read, class, retryable. */
+  readonly pinned_evidence?: PinnedEvidenceReadability;
   readonly statement_sv: string;
 }
 
@@ -861,6 +871,11 @@ export interface GovernedAssessmentDetails {
    * without its presentation fields.
    */
   readonly documentCheck: GovernedDocumentCheck;
+  /**
+   * U20CDF2 (G2): what this read could not read among the pinned evidence refs, with its class
+   * (EVIDENCE_NOT_FOUND = lasting loss, not retryable; EVIDENCE_READ_ERROR = retryable).
+   */
+  readonly pinnedEvidence: PinnedEvidenceReadability;
   readonly propertyRoot: PropertyRootDetails;
   /** Fail-closed signal for the read-back and the PDF: content that was read failed its own identity. */
   readonly integrity:
@@ -886,6 +901,9 @@ export async function resolveGovernedAssessmentDetails(input: {
   const evidenceDetails: GovernedEvidenceDetail[] = [];
   const spatialEvidence: SpatialEvidenceArtifact[] = [];
   const unreadableArtifactIds: string[] = [];
+  // U20CDF2 (G2): the class of what could not be read (a corrupted read fails the read-back closed).
+  let anyNotFound = false;
+  let anyReadError = false;
   let spatialEvidenceUnreadable = false;
   let integrityFailure: GovernedAssessmentDetails['integrity'] = { ok: true };
 
@@ -895,6 +913,8 @@ export async function resolveGovernedAssessmentDetails(input: {
     if (read.kind !== 'read') {
       evidenceDetails.push(unreadableDetail(ref, cited, read.kind));
       unreadableArtifactIds.push(ref.artifact_id);
+      if (read.kind === 'not_found') anyNotFound = true;
+      if (read.kind === 'error') anyReadError = true;
       if (ref.artifact_type === 'SPATIAL_EVIDENCE') spatialEvidenceUnreadable = true;
       if (read.kind === 'corrupted' && integrityFailure.ok) {
         integrityFailure = { ok: false, failureClass: 'EVIDENCE_CORRUPTED', artifactId: ref.artifact_id };
@@ -935,6 +955,13 @@ export async function resolveGovernedAssessmentDetails(input: {
       unreadableArtifactIds,
     }),
     documentCheck: computeGovernedDocumentCheck(rawRefs, { unreadableArtifactIds }),
+    pinnedEvidence: {
+      pinned_total: refs.length,
+      unreadable_artifact_ids: [...unreadableArtifactIds].sort(),
+      // One lasting loss (not found) makes the record not retryable; only read errors may pass on retry.
+      technical_error_class: anyNotFound ? 'EVIDENCE_NOT_FOUND' : anyReadError ? 'EVIDENCE_READ_ERROR' : null,
+      retryable: anyNotFound ? false : anyReadError ? true : null,
+    },
     propertyRoot,
     integrity: integrityFailure,
   };
@@ -952,6 +979,7 @@ export function governedOverallStatement(
     coverage_state: assessed.coverage_state,
     coverage_basis: assessed.coverage_basis,
     coverage: assessed.coverage,
+    ...(assessed.pinned_evidence ? { pinned_evidence: assessed.pinned_evidence } : {}),
     statement_sv: governedOverallStatementSv(riskLevel, checks, context),
   };
 }

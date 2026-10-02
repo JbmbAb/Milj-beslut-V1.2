@@ -138,9 +138,30 @@ export function highestGovernedRiskLevel(findings: readonly { readonly risk_leve
  *  - DETERMINED: every governed layer is accounted for, consistently with the stored findings, as a
  *    current run records it -- "N av M" is stated;
  *  - HISTORICAL_COVERAGE_UNKNOWN: the record lacks the coverage metadata a current run writes;
+ *  - PINNED_EVIDENCE_UNREADABLE (U20CDF2 G2): the record is bound to evidence that cannot be read back
+ *    from CAS -- an integrity/technical error, not a new coverage computation (nothing is recounted
+ *    from what happens to be readable now; the stored findings are still named);
  *  - CHECKS_UNAVAILABLE: no layer checks at all.
  */
-export type GovernedRecordCoverageState = 'DETERMINED' | 'HISTORICAL_COVERAGE_UNKNOWN' | 'CHECKS_UNAVAILABLE';
+export type GovernedRecordCoverageState =
+  | 'DETERMINED'
+  | 'HISTORICAL_COVERAGE_UNKNOWN'
+  | 'PINNED_EVIDENCE_UNREADABLE'
+  | 'CHECKS_UNAVAILABLE';
+
+/**
+ * U20CDF2 (G2): what a read-back could not read among the assessment's pinned evidence refs. A ref
+ * that is not found is a lasting loss (EVIDENCE_NOT_FOUND, not retryable); a failed read of a present
+ * object may pass on retry (EVIDENCE_READ_ERROR, retryable) -- one lasting loss makes the whole
+ * record not retryable. Content that was read but failed its own identity is not here: that fails
+ * the read-back closed (424) before any statement is made.
+ */
+export interface PinnedEvidenceReadability {
+  readonly pinned_total: number;
+  readonly unreadable_artifact_ids: readonly string[];
+  readonly technical_error_class: 'EVIDENCE_NOT_FOUND' | 'EVIDENCE_READ_ERROR' | null;
+  readonly retryable: boolean | null;
+}
 
 export const HISTORICAL_COVERAGE_UNKNOWN_SV = 'Täckningsgrad kan inte fastställas för denna historiska bedömning.';
 const CHECKS_UNAVAILABLE_SV = 'Täckningsgrad kan inte fastställas: uppgift om genomförda kontroller saknas i underlaget.';
@@ -148,6 +169,8 @@ const CHECKS_UNAVAILABLE_SV = 'Täckningsgrad kan inte fastställas: uppgift om 
 export interface GovernedStatementContext {
   /** The assessment's stored findings -- the rule engine's outcome the risk level is derived from. */
   readonly findings: readonly { readonly rule_id: string; readonly risk_level: string }[];
+  /** Read-back only (U20CDF2 G2): what could not be read among the pinned evidence refs. */
+  readonly pinnedEvidence?: PinnedEvidenceReadability;
 }
 
 export interface GovernedCoverageAssessment {
@@ -156,6 +179,8 @@ export interface GovernedCoverageAssessment {
   readonly coverage_basis: readonly string[];
   /** The N-of-M count; null unless DETERMINED (never reconstructed from what happens to be readable). */
   readonly coverage: GovernedCheckCoverage | null;
+  /** Present iff coverage_state is PINNED_EVIDENCE_UNREADABLE and the read-back said what it could not read. */
+  readonly pinned_evidence?: PinnedEvidenceReadability;
 }
 
 /**
@@ -176,6 +201,26 @@ export interface GovernedCoverageAssessment {
 export function assessGovernedCoverage(checks: unknown, context: GovernedStatementContext): GovernedCoverageAssessment {
   if (!Array.isArray(checks) || checks.length === 0) {
     return { coverage_state: 'CHECKS_UNAVAILABLE', coverage_basis: [], coverage: null };
+  }
+  // U20CDF2 (G2): bound to evidence that cannot be read -- an integrity/technical error first of all.
+  const pinned = context?.pinnedEvidence;
+  if (pinned && pinned.unreadable_artifact_ids.length > 0) {
+    return {
+      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+      coverage_basis: pinned.unreadable_artifact_ids.map((id) => `PINNED_EVIDENCE_UNREADABLE:${id}`),
+      coverage: null,
+      pinned_evidence: pinned,
+    };
+  }
+  const unreadableRows = checks.filter(
+    (entry): entry is GovernedLayerCheck => Boolean(entry) && (entry as GovernedLayerCheck).reason === 'PINNED_EVIDENCE_UNREADABLE',
+  );
+  if (unreadableRows.length > 0) {
+    return {
+      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+      coverage_basis: unreadableRows.map((check) => `PINNED_EVIDENCE_UNREADABLE:${check.evidence_artifact_id ?? check.layer}`),
+      coverage: null,
+    };
   }
   const findings = Array.isArray(context?.findings) ? context.findings : [];
   const riskRules = new Set(findings.filter(isGovernedRiskFinding).map((finding) => finding.rule_id));
@@ -244,6 +289,22 @@ export function governedOverallStatementSv(riskLevel: string, checks: unknown, c
   const storedClause = stored ? ` Bedömningens lagrade fynd redovisas var för sig: ${stored}.` : '';
   if (assessed.coverage_state === 'CHECKS_UNAVAILABLE') return `${CHECKS_UNAVAILABLE_SV}${storedClause}`;
   if (assessed.coverage_state === 'HISTORICAL_COVERAGE_UNKNOWN') return `${HISTORICAL_COVERAGE_UNKNOWN_SV}${storedClause}`;
+  if (assessed.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') {
+    // U20CDF2 (G2; owner): never "0 av M" recounted from what is readable now, never an overall
+    // level that hides or replaces the stored findings; the error class and whether a retry can help.
+    const pinned = assessed.pinned_evidence;
+    const what = pinned
+      ? `${pinned.unreadable_artifact_ids.length} av ${pinned.pinned_total} bundna evidensobjekt kunde inte läsas ur CAS` +
+        (pinned.technical_error_class ? ` (${pinned.technical_error_class})` : '')
+      : 'bundna evidensobjekt kunde inte läsas ur CAS';
+    const retry =
+      pinned?.retryable === true
+        ? ' Ett nytt försök kan lyckas.'
+        : pinned?.retryable === false
+          ? ' Felet är bestående och löses inte av ett nytt försök.'
+          : '';
+    return `Den pinnade evidensen kan inte verifieras: ${what}.${retry} Täckningsgrad och samlad risknivå kan därför inte fastställas.${storedClause}`;
+  }
   const coverage = assessed.coverage!;
   if (coverage.checks_completed === 0) {
     // U20CDF (U20CD verification F2; DIRECTIVE-72H section 11; owner wording 2026-10-02): with no

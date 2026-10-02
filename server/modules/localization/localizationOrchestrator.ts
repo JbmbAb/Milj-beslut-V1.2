@@ -711,8 +711,10 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
   if (boundGeometry.ok === false) return boundGeometry;
   const verdict = governedVerdictFromFindings(assessment.payload.findings);
   // U20CDF2 (G1): coverage and risk from the same stored record -- its findings and its checks.
+  // U20CDF2 (G2): and what this read could not read among the pinned refs (integrity/technical error).
   const overallStatement = governedOverallStatement(verdict.overallRisk, details.governedLayerChecks, {
     findings: assessment.payload.findings,
+    pinnedEvidence: details.pinnedEvidence,
   });
 
   return {
@@ -845,6 +847,18 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
       kontroller_totalt: summary.overallStatement.coverage?.checks_total ?? null,
       kontroller_genomforda: summary.overallStatement.coverage?.checks_completed ?? null,
       text: summary.overallStatement.statement_sv,
+      // U20CDF2 (G2): the bound evidence cannot be verified -- said as a whole, with class and retry.
+      ...(summary.overallStatement.pinned_evidence
+        ? {
+            pinnad_evidens: {
+              verifierbar: false,
+              bundna_totalt: summary.overallStatement.pinned_evidence.pinned_total,
+              olasbara_artifact_ids: summary.overallStatement.pinned_evidence.unreadable_artifact_ids,
+              tekniskt_fel: summary.overallStatement.pinned_evidence.technical_error_class,
+              nytt_forsok_kan_lyckas: summary.overallStatement.pinned_evidence.retryable,
+            },
+          }
+        : {}),
     },
     // U20-D: the same governed layer checks as the fresh run and the read-back (SI-2 wording,
     // SI-3 coverage limitation per layer from the ADMIT v1 contracts).

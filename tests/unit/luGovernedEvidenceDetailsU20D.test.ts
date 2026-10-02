@@ -746,8 +746,100 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
       resolution: 'NOT_FOUND', technical_error_class: 'EVIDENCE_NOT_FOUND', binding_assurance: 'NONE',
     });
     expect(summary.governedLayerChecks.find((c) => c.layer === 'water')).toMatchObject({
-      status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR',
+      status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR', evidence_artifact_id: waterId,
     });
+    // U20CDF2 (G2): the record as a whole is an integrity/technical error, never a recount.
+    expect(summary.overallStatement).toMatchObject({
+      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+      coverage: null,
+      pinned_evidence: { pinned_total: 5, unreadable_artifact_ids: [waterId], technical_error_class: 'EVIDENCE_NOT_FOUND', retryable: false },
+    });
+  });
+
+  // U20CDF2 (U20CDF verification G2, probe H2 -- exact input): a fresh run reads "Hög risk …; 5 av 6";
+  // after its spatial evidence is removed from CAS the read-back and the PDF read "0 av 6" while the
+  // HIGH/MEDIUM findings are still stored. Owner: pinned evidence that cannot be read is an
+  // integrity/technical error, not a new coverage computation; the known risk never disappears.
+  it('G2: a current assessment whose pinned spatial evidence is gone from CAS -> PINNED_EVIDENCE_UNREADABLE (bestående, not retryable), findings named, never "0 av 6"', async () => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    expect(fresh.complianceAnalysis.summary).toBe('Hög risk i de kontroller som utfördes; underlaget är ofullständigt: 5 av 6 kontroller genomförda.');
+    const spatialIds = fresh.executionMotor!.evidence_details!.map((d) => d.evidence_artifact_id).sort();
+    expect(spatialIds).toHaveLength(5);
+    for (const id of spatialIds) s.repository.values.delete(id);
+    const storedFindings = (s.repository.values.get(fresh.executionMotor!.assessment_artifact_id!) as LocalizationAssessmentArtifact).payload.findings;
+    const EXPECTED_SV =
+      'Den pinnade evidensen kan inte verifieras: 5 av 5 bundna evidensobjekt kunde inte läsas ur CAS (EVIDENCE_NOT_FOUND). ' +
+      'Felet är bestående och löses inte av ett nytt försök. Täckningsgrad och samlad risknivå kan därför inte fastställas. ' +
+      'Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Natura 2000; risknivå måttlig – Brunnar.';
+
+    const summary = await readBack(s);
+    expect(summary.overallStatement).toEqual({
+      risk_level: 'HIGH',
+      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+      coverage_basis: spatialIds.map((id) => `PINNED_EVIDENCE_UNREADABLE:${id}`),
+      coverage: null,
+      pinned_evidence: { pinned_total: 5, unreadable_artifact_ids: spatialIds, technical_error_class: 'EVIDENCE_NOT_FOUND', retryable: false },
+      statement_sv: EXPECTED_SV,
+    });
+    // Per layer: a technical error, never "no hit" and never "not checked"; the stored risk is named on its row.
+    const rows = new Map(summary.governedLayerChecks.map((c) => [c.layer, c] as const));
+    for (const layer of ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area']) {
+      expect(rows.get(layer)).toMatchObject({ status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR' });
+      expect(rows.get(layer)!.message_sv).toMatch(/^Tekniskt fel: den pinnade evidensen för .* kunde inte läsas ur CAS och kan inte verifieras\./);
+    }
+    expect(rows.get('natura2000')!.message_sv).toContain('Bedömningens lagrade fynd för lagret (risknivå hög) redovisas var för sig.');
+    expect(rows.get('water')!.message_sv).toContain('Bedömningens lagrade fynd för lagret (risknivå måttlig) redovisas var för sig.');
+    expect(rows.get('ebh')!.message_sv).toContain('Ingen slutsats om lagret.');
+    expect(summary.findings).toEqual(storedFindings);
+    expect(summary.overall_summary).toMatchObject({ risk_level: 'HIGH', coverage_state: 'PINNED_EVIDENCE_UNREADABLE', checks_completed: null, checks_total: null });
+
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.overallStatement).toEqual(JSON.parse(JSON.stringify(summary.overallStatement)));
+
+    await exportCurrentLuAssessmentPdf(s.deps());
+    const data = capturedPdfData as PdfData;
+    expect(data.helhetsbedomning).toEqual({
+      risk_level: 'HIGH',
+      tackningsgrad: 'PINNED_EVIDENCE_UNREADABLE',
+      tackningsgrad_grund: summary.overallStatement.coverage_basis,
+      kontroller_totalt: null,
+      kontroller_genomforda: null,
+      text: EXPECTED_SV,
+      pinnad_evidens: {
+        verifierbar: false, bundna_totalt: 5, olasbara_artifact_ids: spatialIds, tekniskt_fel: 'EVIDENCE_NOT_FOUND', nytt_forsok_kan_lyckas: false,
+      },
+    });
+    expect(data.lagerkontroller.map((c) => c.tillstand)).toEqual([...Array(5).fill('TECHNICAL_ERROR'), 'NOT_CHECKED']);
+    for (const text of [JSON.stringify(res.body.overallStatement), JSON.stringify(data.helhetsbedomning), JSON.stringify(data.lagerkontroller)]) {
+      expect(text).not.toMatch(/\b\d+ av \d+ kontroller|Ingen samlad risknivå kan presenteras|ingen registrerad träff|låg risk/i);
+    }
+  });
+
+  it('G2: a pinned evidence whose read fails (not missing) -> EVIDENCE_READ_ERROR, retryable', async () => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    const ebhId = fresh.executionMotor!.evidence_details!.find((d) => d.layer === 'ebh')!.evidence_artifact_id;
+    const realResolve = s.repository.resolve.bind(s.repository);
+    s.repository.resolve = async <T,>(ref: ArtifactReference): Promise<T> => {
+      if (ref.artifact_id === ebhId) throw new Error('EIO: i/o error, read');
+      return (await realResolve(ref)) as T;
+    };
+    const summary = await readBack(s);
+    expect(summary.overallStatement).toMatchObject({
+      risk_level: 'HIGH',
+      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+      coverage: null,
+      pinned_evidence: { pinned_total: 5, unreadable_artifact_ids: [ebhId], technical_error_class: 'EVIDENCE_READ_ERROR', retryable: true },
+    });
+    expect(summary.overallStatement.statement_sv).toBe(
+      'Den pinnade evidensen kan inte verifieras: 1 av 5 bundna evidensobjekt kunde inte läsas ur CAS (EVIDENCE_READ_ERROR). ' +
+        'Ett nytt försök kan lyckas. Täckningsgrad och samlad risknivå kan därför inte fastställas. ' +
+        'Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Natura 2000; risknivå måttlig – Brunnar.',
+    );
+    expect(summary.governedLayerChecks.find((c) => c.layer === 'ebh')).toMatchObject({ reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR' });
+    expect(JSON.stringify(summary.overallStatement)).not.toContain('EIO');
   });
 
   it('a manipulated property-root observation fails the read-back closed (424 ROOT_PROVENANCE_TAMPERED)', async () => {

@@ -423,8 +423,21 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     const { coverage_state, coverage_limitation_sv: _limitation, known_coverage_gaps: _gaps, ...documentRow } = checks.at(-1)!;
     expect(coverage_state).toBe('TECHNICAL_ERROR');
     expect(documentRow).toEqual(readBack);
-    const statement = (summary as unknown as { overallStatement: { coverage: { not_completed_layers: string[] } } }).overallStatement;
-    expect(statement.coverage.not_completed_layers).toContain('document');
+    // U20CDF2 (U20CDF verification G2; owner): pinned refs whose CAS objects cannot be read make the
+    // whole record an integrity/technical error -- no N-of-M count is reconstructed from what happens
+    // to be readable (U20CDF asserted the count here, with 'document' among the not-completed layers).
+    const statement = (summary as unknown as {
+      overallStatement: { coverage_state: string; coverage: unknown; statement_sv: string; pinned_evidence: Record<string, unknown> };
+    }).overallStatement;
+    expect(statement.coverage_state).toBe('PINNED_EVIDENCE_UNREADABLE');
+    expect(statement.coverage).toBeNull();
+    expect(statement.pinned_evidence).toMatchObject({
+      unreadable_artifact_ids: expect.arrayContaining(['doc-evidence-k0', 'verified-fact-k0']),
+      technical_error_class: 'EVIDENCE_NOT_FOUND',
+      retryable: false,
+    });
+    expect(statement.statement_sv).toMatch(/^Den pinnade evidensen kan inte verifieras: /);
+    expect(statement.statement_sv).not.toMatch(/\b\d+ av \d+ kontroller|träff/);
 
     await exportCurrentLuAssessmentPdf(s.deps());
     expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({
