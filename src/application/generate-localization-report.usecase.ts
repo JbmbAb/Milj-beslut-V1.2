@@ -18,7 +18,6 @@ import { logger } from '../../server/logger';
 import type { AuthUser } from '../../server/security/types';
 import {
   LU_SPATIAL_CAPABILITY_KEY,
-  orchestrator,
   runCanonicalLuProductAssessment,
   deriveLuExecutionSeed,
   createLuRegistryRuntime,
@@ -299,6 +298,11 @@ export interface SiteAnalysisResult {
   dataSources: DataSourceStatus[];
   warnings: string[];
   sluObservationCount: number;
+  /**
+   * K0: the governed DocumentEvidence this run resolved from the caller's explicit
+   * `documentEvidenceRefs` (CAS-resolved, property-bound) -- `[]` when none were given. Never an
+   * ungoverned provider sweep.
+   */
   documentEvidence?: any[];
   executionMotor?: ExecutionMotorMeta;
 }
@@ -719,7 +723,8 @@ async function analyzeSite(
   let mpsFindings: AssessmentFinding[] = [];
   let executionMotor: ExecutionMotorMeta | undefined;
   let spatialRuntime: LocalizationSpatialRuntime | undefined;
-  let documentEvidence: any[] = [];
+  // K0: only governed DocumentEvidence resolved from explicit refs; never a provider sweep.
+  let documentEvidence: DocumentEvidenceArtifact[] = [];
   try {
     spatialRuntime = await createSpatialRuntime();
     const repo = spatialRuntime.artifactRepository;
@@ -820,25 +825,14 @@ async function analyzeSite(
       localization_geometry_ref: locationRef,
     };
 
-    try {
-      // Canonical refs are the only governed rule input. The legacy provider remains a
-      // presentation-only fallback when no governed evidence was selected for this assessment --
-      // now bound to the real canonical property/geometry, never a synthetic lat/lng bbox.
-      if (site.documentEvidenceRefs?.length) {
-        documentEvidence = [];
-      } else {
-        documentEvidence = await orchestrator.generateDocumentEvidence(
-          propRef,
-          // The real canonical property geometry may be a MultiPolygon (multi-part parcels);
-          // CanonicalGeometry's coordinates type only declares Polygon's 3-level nesting. The
-          // runtime shape is valid GeoJSON either way -- this is a pre-existing type-only gap in
-          // the shared domain type, not a runtime concern for this call site.
-          canonicalContext.geometry as unknown as Parameters<typeof orchestrator.generateDocumentEvidence>[1],
-        );
-      }
-    } catch (err) {
-      logger.warn(`Failed to generate document evidence for site ${site.id}`, { err: String(err) });
-    }
+    // K0 (DOC-EVIDENCE-CENSUS 2026-10-02): document evidence exists for this assessment ONLY as
+    // governed DocumentEvidence the caller selected explicitly (site.documentEvidenceRefs),
+    // resolved from CAS and admitted below. There is no fallback: without explicit refs no document
+    // evidence is created, none is sent in the API response and none reaches the kernel. The former
+    // "presentation-only" fallback (orchestrator.generateDocumentEvidence -> PostgisDocumentProvider,
+    // the default provider) swept every DocumentRecord of the property's municipality and packaged
+    // the rows as DOCUMENT_EVIDENCE with random ids and content_hash "uncalculated" -- ungoverned
+    // observations presented as evidence. Removed from the product path, not mitigated by env.
 
     // Magic Moment spatial contract: fixed 500 m buffer for water/ebh/protected_area.
     // Do not inherit legacy distanceToWater fallback (200 m) — that collapses EBH/protected hits.
@@ -871,9 +865,8 @@ async function analyzeSite(
       propRef.artifact_id,
       repo,
     );
-    if (site.documentEvidenceRefs?.length) {
-      documentEvidence = governedDocumentEvidence;
-    }
+    // K0: the response carries exactly the governed, resolved evidence -- [] when no refs were given.
+    documentEvidence = governedDocumentEvidence;
     const verifiedDocumentFacts = await resolveVerifiedDocumentFacts(governedDocumentEvidence, repo);
     const assessmentEvidenceRefs = Array.from(
       new Map(
