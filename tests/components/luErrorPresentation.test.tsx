@@ -412,6 +412,52 @@ describe('DEMO M2b presentLuError', () => {
     expect(view.technical).toContainEqual({ label: 'Grund', value: 'UNKNOWN_SEVERITY:f-1' });
   });
 
+  // -----------------------------------------------------------------------------------------------
+  // W-M2e item 3 (M2d verification finding 4): a SECOND lock on "never retry" -- configuration and
+  // lasting integrity faults never offer "Försök igen", even if an answer's flag says retryable:true.
+  // -----------------------------------------------------------------------------------------------
+  it.each([
+    // [code, failureClass, reasonCode, status]
+    ['LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED', 'VERIFIER_CONFIGURATION', 'LOCALIZATION_GEOMETRY_VERIFIER_CONFIGURATION', 503],
+    ['LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED', 'CURRENTNESS_STORAGE_INTEGRITY_FAULT', 'LOCALIZATION_GEOMETRY_CURRENTNESS_STORAGE_INTEGRITY_FAULT', 503],
+    ['ASSESSMENT_READ_ERROR', 'ASSESSMENT_STORAGE_INTEGRITY_FAULT', 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT', 503],
+    ['ASSESSMENT_READ_ERROR', 'ASSESSMENT_STORAGE_INTEGRITY_FAULT', 'CURRENT_BINDING_INTEGRITY_FAULT', 503],
+    ['ASSESSMENT_CURRENT_UNRESOLVED', 'CURRENT_BINDING_REFUSED', 'REJECT_PROJECT_CONTEXT_BINDING_V2', 409],
+    ['ASSESSMENT_CONTRACT_REFUSED', 'ASSESSMENT_CONTRACT_INVALID', 'REJECT_LOCALIZATION_ASSESSMENT_V4', 424],
+    ['GOVERNED_EVIDENCE_INTEGRITY_FAILED', 'EVIDENCE_TAMPERED', 'x', 424],
+    ['ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', 'LOCALIZATION_GEOMETRY_MISSING', 'x', 424],
+    ['SOME_FUTURE_CODE', 'VERIFIER_CONFIGURATION', 'x', 503],
+  ] as const)('W-M2e item 3: %s / %s is never retried, even with retryable:true', (code, failureClass, reasonCode, status) => {
+    for (const context of ['current-assessment', 'run', 'geometry-load', 'export', 'verify'] as const) {
+      const p = presentLuError(httpError(status, 'x', { code, failureClass, reasonCode, retryable: true }), context);
+      expect(p.retryable, `${code}/${failureClass} @${context}`).toBe(false);
+    }
+  });
+
+  it('W-M2e item 3: the second lock leaves transient faults retryable and holds for a run record and the overall line too', () => {
+    // Transient faults the server marks retryable stay retryable.
+    for (const failureClass of ['CURRENTNESS_RESOLUTION_ERROR', 'DERIVED_GEOMETRY_PERSISTENCE_FAILED']) {
+      expect(presentLuError(httpError(503, 'x', { code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED', failureClass, retryable: true }), 'run').retryable).toBe(true);
+    }
+    expect(presentLuError(httpError(503, 'x', { code: 'ASSESSMENT_READ_ERROR', failureClass: 'ASSESSMENT_READ_ERROR', reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR', retryable: true }), 'current-assessment').retryable).toBe(true);
+    // A run's FAILED_CLOSED record (executionMotor.localization_geometry).
+    expect(presentCurrentnessFailureClass('VERIFIER_CONFIGURATION', true)?.retryable).toBe(false);
+    expect(presentCurrentnessFailureClass('CURRENTNESS_STORAGE_INTEGRITY_FAULT', true)?.retryable).toBe(false);
+    expect(presentCurrentnessFailureClass('CURRENTNESS_RESOLUTION_ERROR', true)?.retryable).toBe(true);
+    // The overall line: unreadable pinned evidence is re-read only for a read error the server marks retryable.
+    const overall = (technical_error_class: unknown, retryable: unknown) =>
+      presentLuOverallStatement({
+        statement_sv: 'x',
+        coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+        pinned_evidence: { retryable, technical_error_class, unreadable_artifact_ids: ['e'] },
+      }).retryable;
+    expect(overall('EVIDENCE_READ_ERROR', true)).toBe(true);
+    expect(overall('EVIDENCE_NOT_FOUND', true)).toBe(false);
+    expect(overall(undefined, true)).toBe(false);
+    expect(overall('SOMETHING_NEW', true)).toBe(false);
+    expect(overall('EVIDENCE_READ_ERROR', false)).toBe(false);
+  });
+
   it('a client-side Swedish error is shown as written', () => {
     expect(presentLuError(new LuClientError('Slå upp en fastighet först.'), 'run').messageSv).toBe('Slå upp en fastighet först.');
   });

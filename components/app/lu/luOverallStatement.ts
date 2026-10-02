@@ -117,7 +117,10 @@ export function presentLuOverallStatement(raw: unknown): LuOverallStatementView 
     statementSv: statement,
     notices,
     tone,
-    retryable: coverageState === 'PINNED_EVIDENCE_UNREADABLE' && pinned?.retryable === true,
+    // W-M2e item 3 (second lock): re-reading can only help a READ error the server marks retryable --
+    // never EVIDENCE_NOT_FOUND (lasting) or a class this UI does not know.
+    retryable:
+      coverageState === 'PINNED_EVIDENCE_UNREADABLE' && pinned?.retryable === true && pinned?.technical_error_class === 'EVIDENCE_READ_ERROR',
     technical,
   };
 }

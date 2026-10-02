@@ -228,7 +228,13 @@ export function presentCurrentnessFailureClass(
   if (!entry) return null;
   return {
     messageSv: entry.messageSv,
-    retryable: entry.kind === 'REFUSED' ? false : typeof serverRetryable === 'boolean' ? serverRetryable : entry.retryable,
+    // W-M2e item 3: the second lock holds for a run's FAILED_CLOSED record too.
+    retryable:
+      entry.kind === 'REFUSED' || entry.kind === 'INTEGRITY' || isNeverRetry(failureClass)
+        ? false
+        : typeof serverRetryable === 'boolean'
+          ? serverRetryable
+          : entry.retryable,
   };
 }
 
@@ -489,6 +495,48 @@ const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, CodeText>> = {
   },
 };
 
+/**
+ * W-M2e item 3 (M2d verification finding 4): the SECOND lock on "never retry". The first is the server's
+ * own `retryable` flag; this client list holds even if an answer's flag says otherwise. Owner rules: a
+ * configuration error is never retried (OD-R3), a lasting storage/integrity fault is never retried
+ * (OD-R1/OD-R2), a refusal is never retried. A code, failure class or reason code on this list -- in an
+ * error answer, a run's FAILED_CLOSED record or the overall line -- never gets "Försök igen".
+ */
+export const LU_NEVER_RETRY: ReadonlySet<string> = new Set([
+  // configuration
+  'VERIFIER_CONFIGURATION',
+  // lasting storage / integrity faults
+  'CURRENTNESS_STORAGE_INTEGRITY_FAULT',
+  'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+  'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
+  'CURRENT_BINDING_INTEGRITY_FAULT',
+  'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
+  'EVIDENCE_TAMPERED',
+  'EVIDENCE_CORRUPTED',
+  'ROOT_PROVENANCE_TAMPERED',
+  'LOCALIZATION_GEOMETRY_MISSING',
+  'LOCALIZATION_GEOMETRY_TAMPERED',
+  'LOCALIZATION_GEOMETRY_NOT_BOUND',
+  'EVIDENCE_NOT_FOUND',
+  // refusals
+  'CURRENT_BINDING_REFUSED',
+  'ASSESSMENT_CONTRACT_REFUSED',
+  'ASSESSMENT_CONTRACT_INVALID',
+  'ASSESSMENT_CURRENT_AMBIGUOUS',
+  'ASSESSMENT_SELECTION_REFUSED',
+  'AMBIGUOUS_CURRENT_GEOMETRY',
+  'INVALID_SUPERSESSION_GRAPH',
+  'NO_VERIFIED_GEOMETRY_CANDIDATE',
+  'CURRENT_GEOMETRY_UNVERIFIED',
+  'INVALID_GEOMETRY_HEAD',
+  'PROPERTY_LOOKUP_AMBIGUOUS',
+]);
+
+/** W-M2e item 3: true when any of the given tokens is on the never-retry list. */
+export function isNeverRetry(...tokens: readonly unknown[]): boolean {
+  return tokens.some((token) => typeof token === 'string' && LU_NEVER_RETRY.has(token));
+}
+
 /** W-M2e item 2: a lookup that never reaches Object.prototype (a class named "constructor" is no entry). */
 function own<T>(table: Readonly<Record<string, T>>, key: string | null): T | undefined {
   return key !== null && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
@@ -623,10 +671,12 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   const lead = CONTEXT_LEAD[context];
   const technical = technicalRows(f);
   // W-M2d item 5: the server's own `retryable` decides when it sends one; a refusal never is.
+  // W-M2e item 3: second lock -- an integrity fault or a code/class/reason on LU_NEVER_RETRY never is either.
+  const neverRetry = isNeverRetry(f.code, f.failureClass, f.reasonCode);
   const make = (kind: LuErrorKind, messageSv: string, fallbackRetryable: boolean): LuErrorPresentation => ({
     kind,
     messageSv,
-    retryable: kind === 'REFUSED' ? false : (f.retryable ?? fallbackRetryable),
+    retryable: kind === 'REFUSED' || kind === 'INTEGRITY' || neverRetry ? false : (f.retryable ?? fallbackRetryable),
     technical,
   });
   const fromTable = (entry: CodeText) => make(entry.kind, entry.messageSv, entry.retryable);
