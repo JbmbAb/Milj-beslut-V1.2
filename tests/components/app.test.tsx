@@ -227,6 +227,27 @@ describe('App', () => {
     vi.unstubAllEnvs();
   });
 
+  it('DEMO M2b item 3: an unavailable BankID is plain Swedish -- the server message (env variable names) is never shown', async () => {
+    coreApiClientMocks.getToken.mockReturnValue('');
+    coreApiClientMocks.callApi.mockImplementation(async (endpoint: string) => {
+      if (endpoint === '/api/auth/bankid/status') {
+        return {
+          ok: true,
+          mode: 'test',
+          canInitiate: false,
+          message: 'BankID är inte aktiverat ännu: Missing env variable: BANKID_BASE_URL',
+          allowDevLogin: false,
+        };
+      }
+      return { ok: true };
+    });
+    renderApp();
+    expect(await screen.findByTestId('bankid-unavailable-message')).toHaveTextContent(
+      'BankID-inloggning är inte aktiverad i den här miljön.',
+    );
+    expect(screen.getByTestId('app-login')).not.toHaveTextContent(/BANKID_BASE_URL|Missing env variable/);
+  });
+
   it('renders the real AuthInterface (not an "unavailable" placeholder) when BankID canInitiate=true', async () => {
     coreApiClientMocks.getToken.mockReturnValue('');
     coreApiClientMocks.callApi.mockImplementation(async (endpoint: string) => {

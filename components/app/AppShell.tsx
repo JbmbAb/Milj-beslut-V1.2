@@ -147,8 +147,12 @@ export const AppShell: React.FC = () => {
             <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
               BankID är inte tillgängligt
             </p>
-            <p className="mt-2 text-sm text-slate-400">
-              {authConfig?.message || authConfigError || 'Inloggning kan inte startas just nu.'}
+            {/* DEMO M2b item 3: plain Swedish only. The server's status message can name internal
+                configuration (e.g. environment variable names) and is never shown on the login page. */}
+            <p data-testid="bankid-unavailable-message" className="mt-2 text-sm text-slate-400">
+              {authConfig
+                ? 'BankID-inloggning är inte aktiverad i den här miljön.'
+                : 'Inloggningsalternativen kunde inte läsas in. Försök igen om en stund.'}
             </p>
           </div>
         )}
@@ -184,10 +188,18 @@ export const AppShell: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6">
         <div className="w-full max-w-lg rounded-[2rem] border border-rose-400/20 bg-white/5 p-8 text-white">
           <p className="text-[11px] font-black uppercase tracking-[0.18em] text-rose-300">
-            Session kunde inte verifieras
+            Sessionen kunde inte verifieras
           </p>
-          <h1 className="mt-3 text-3xl font-black tracking-tight">Startflodet ar inte redo</h1>
-          <p className="mt-4 text-sm text-slate-300">{sessionError || 'Okant fel vid bootstrap.'}</p>
+          <h1 className="mt-3 text-3xl font-black tracking-tight">Mimer kunde inte starta</h1>
+          <p data-testid="session-error-message" className="mt-4 text-sm text-slate-300">
+            Sessionen eller startinformationen kunde inte läsas in. Försök igen, eller logga in på nytt.
+          </p>
+          {sessionError ? (
+            <details data-testid="session-error-technical" className="mt-3 text-xs text-slate-400">
+              <summary className="cursor-pointer">Teknisk information</summary>
+              <p className="mt-1 font-mono break-all">{sessionError}</p>
+            </details>
+          ) : null}
           <div className="mt-6 flex gap-3">
             <button
               type="button"
@@ -196,14 +208,14 @@ export const AppShell: React.FC = () => {
               }}
               className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-900"
             >
-              Forsok igen
+              Försök igen
             </button>
             <button
               type="button"
               onClick={clearSessionAndReset}
               className="rounded-xl border border-white/10 px-4 py-3 text-sm font-black text-slate-200"
             >
-              Logga in pa nytt
+              Logga in på nytt
             </button>
           </div>
         </div>

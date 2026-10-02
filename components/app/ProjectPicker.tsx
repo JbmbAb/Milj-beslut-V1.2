@@ -19,6 +19,23 @@ export interface ProjectPickerProps {
  * The server (GET /api/app/bootstrap) remains sole authority for which projects the user may
  * see here -- this component only ever offers exactly the `projects` array it was given.
  */
+/**
+ * DEMO M2b item 3: the Prisma ProjectStatus enum is never shown raw. An active project needs no
+ * suffix; the other statuses are said in Swedish; an unknown value is said to be unknown.
+ */
+const PROJECT_STATUS_SUFFIX_SV: Readonly<Record<string, string>> = {
+  ACTIVE: '',
+  DRAFT: 'utkast',
+  COMPLETED: 'avslutat',
+  CLOSED: 'stängt',
+  ARCHIVED: 'arkiverat',
+};
+
+export function projectOptionLabel(project: Pick<AppBootstrapProjectSummary, 'propertyDesignation' | 'status'>): string {
+  const suffix = PROJECT_STATUS_SUFFIX_SV[project.status] ?? 'okänd status';
+  return suffix ? `${project.propertyDesignation} (${suffix})` : project.propertyDesignation;
+}
+
 export const ProjectPicker: React.FC<ProjectPickerProps> = ({ projects, activeProjectId, onSelect }) => {
   if (projects.length === 0) {
     return (
@@ -43,7 +60,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({ projects, activePr
       >
         {projects.map((project) => (
           <option key={project.id} value={project.id}>
-            {project.propertyDesignation} ({project.status})
+            {projectOptionLabel(project)}
           </option>
         ))}
       </select>

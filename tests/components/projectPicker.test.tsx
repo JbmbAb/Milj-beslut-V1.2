@@ -46,8 +46,23 @@ describe('ProjectPicker', () => {
     const select = screen.getByTestId('project-picker-select');
     expect(select).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(2);
-    expect(screen.getByText('Demo 1:1 (ACTIVE)')).toBeInTheDocument();
-    expect(screen.getByText('Demo 2:2 (ACTIVE)')).toBeInTheDocument();
+    // DEMO M2b item 3: no raw enum in the header -- an active project needs no suffix.
+    expect(screen.getByRole('option', { name: 'Demo 1:1' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Demo 2:2' })).toBeInTheDocument();
+    expect(screen.queryByText(/ACTIVE/)).not.toBeInTheDocument();
+  });
+
+  it('DEMO M2b item 3: non-active statuses are Swedish, an unknown status is said to be unknown, never shown raw', () => {
+    const projects = [
+      { ...project('p1', 'Demo 1:1'), status: 'ARCHIVED' },
+      { ...project('p2', 'Demo 2:2'), status: 'DRAFT' },
+      { ...project('p3', 'Demo 3:3'), status: 'SOMETHING_NEW' },
+    ];
+    render(<ProjectPicker projects={projects} activeProjectId="p1" onSelect={vi.fn()} />);
+    expect(screen.getByRole('option', { name: 'Demo 1:1 (arkiverat)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Demo 2:2 (utkast)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Demo 3:3 (okänd status)' })).toBeInTheDocument();
+    expect(screen.queryByText(/ARCHIVED|DRAFT|SOMETHING_NEW/)).not.toBeInTheDocument();
   });
 
   it('selecting a project calls onSelect with that project id only (server remains authority on the next fetch)', async () => {
