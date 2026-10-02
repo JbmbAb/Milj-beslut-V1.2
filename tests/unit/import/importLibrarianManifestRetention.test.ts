@@ -59,6 +59,15 @@ const h = vi.hoisted(() => {
         return last ? [{ id: last.id, content_bundle_sha256: last.content_bundle_sha256, dataset_version: last.dataset_version }] : [];
       }
       if (s.startsWith('SELECT to_regclass')) return [{ exists: state.tables.has(String(params[0]).replace(/"/g, '')) }];
+      // U30F2 H3: the first-import trail reads (the whole ledger of the target, the retained relations by prefix).
+      if (s.startsWith('SELECT id, status, content_bundle_sha256 FROM "PostgisImportBatch"')) {
+        state.log.push('query:target-ledger');
+        return state.batches.filter((b) => b.target_schema === params[0] && b.target_table === params[1]).map((b) => ({ id: b.id, status: b.status, content_bundle_sha256: b.content_bundle_sha256 }));
+      }
+      if (s.includes('FROM pg_class c JOIN pg_namespace n')) {
+        const [schema, prefix] = params as string[];
+        return [...state.tables.keys()].filter((k) => k.startsWith(`${schema}.${prefix}`)).map((k) => ({ relname: k.slice(schema!.length + 1) }));
+      }
       if (s.startsWith('SELECT EXISTS (SELECT 1 FROM')) {
         const m = s.match(/FROM "([^"]+)"\."([^"]+)"/)!;
         state.log.push(`has-rows:${m[1]}.${m[2]}`);
@@ -148,7 +157,7 @@ vi.mock('../../../scripts/import/importLibrarianQa', async (importOriginal) => (
 }));
 
 import { retentionRecordId, type SpatialDatasetRetentionRecord } from '../../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
-import { buildPromoteInsertSql } from '../../../scripts/import/importLibrarianQa';
+import { buildPromoteInsertSql, tableExists } from '../../../scripts/import/importLibrarianQa';
 
 const LIVE_COLUMNS = [
   { name: 'id', type: 'integer', typname: 'int4' },
@@ -356,5 +365,29 @@ describe('U30F2 M3: promote reads the version from the relation it was staged in
     await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_PROMOTE_STAGING_RELATION_MISSING/);
     expect(h.state.updates).toEqual([]);
     expect(h.state.log).not.toContain('TRUNCATE');
+  });
+});
+
+describe('U30F2 H3: a MISSING live table is not a first import either', () => {
+  it('the bootstrap (CREATE TABLE ... AS from staging) is refused without a committed admission; nothing is created', async () => {
+    seed();
+    h.state.batches.splice(h.state.batches.findIndex((b) => b.id === 'batch-v1'), 1); // no SUCCESS batch
+    h.state.tables.delete('env.sgu_well');
+    vi.mocked(tableExists).mockResolvedValueOnce(false);
+    const { processManifest } = await loadScript();
+    await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_FIRST_IMPORT_NOT_ADMITTED \[NO_ADMISSION\]/);
+    expect(h.state.tables.has('env.sgu_well')).toBe(false);
+    expect(h.state.log.some((e) => /^ctas:env\./.test(e))).toBe(false);
+    expect(h.state.updates.map((u) => u.status)).toEqual(['PROMOTE_STARTED', 'FAILED']);
+  });
+
+  it('an emptied live table with an earlier version still in lm_staging is refused (the empty-table loophole is closed in the script path too)', async () => {
+    seed();
+    h.state.batches.splice(h.state.batches.findIndex((b) => b.id === 'batch-v1'), 1);
+    h.state.tables.set('env.sgu_well', { ...h.state.tables.get('env.sgu_well')!, digest: { row_count: 0, digest: '0'.repeat(64) } });
+    const { processManifest } = await loadScript();
+    await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_FIRST_IMPORT_NOT_ADMITTED/);
+    expect(h.state.log).not.toContain('TRUNCATE');
+    expect(h.state.log).not.toContain('INSERT');
   });
 });

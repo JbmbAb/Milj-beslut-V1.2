@@ -7,8 +7,10 @@ import {
   type SpatialEngineFingerprint,
 } from "../../mps-lu/src/artifacts/SpatialEngineFingerprint";
 import { committedRetentionDigestPrecondition } from "./RetentionDigestPrecondition";
+import { committedFirstImportAdmissions, type FirstImportAdmission } from "./FirstImportAdmission";
 import {
   currentRetainedRelationNaming,
+  isRetainedRelationDigestSuffix,
   retainedRelationDigestLengths,
   retainedRelationNamingOf,
   retainedRelationNamings,
@@ -90,6 +92,8 @@ export type SpatialDatasetRetentionFailureReason =
   | "LEDGER_ROW_COUNT_MISMATCH"
   /** F4: the target is a digest-time precondition target that is unmeasured or over the lock budget. */
   | "DIGEST_TIME_PRECONDITION_UNMET"
+  /** U30F2 H3: no SUCCESS batch and an empty or missing live table, but no admitted, trace-free first import. */
+  | "FIRST_IMPORT_NOT_ADMITTED"
   | "RETAINED_RELATION_MISSING"
   | "NO_COMMON_COLUMNS"
   | "DIGEST_MISMATCH"
@@ -384,6 +388,41 @@ export async function resolveRetainedRelationClaim(repo: ArtifactRepositoryPort,
   const artifactId = retainedRelationClaimId(relation);
   try {
     return await repo.resolve<RetainedRelationClaim>({ artifact_id: artifactId, artifact_type: SPATIAL_DATASET_RETAINED_RELATION_CLAIM });
+  } catch (error) {
+    if (error instanceof Error && error.message === `Artifact not found: ${artifactId}`) return null;
+    throw error;
+  }
+}
+
+/**
+ * U30F2 H3: the TARGET's retention claim, keyed by the target alone. Written (once, WORM) before the
+ * first relation claim of any version of the target, so "this target has had a recorded retained
+ * version" stays findable in CAS even if the ledger rows and the relations are gone: such a target is
+ * never initialised again as a first import.
+ */
+export const SPATIAL_DATASET_TARGET_RETENTION_CLAIM = "SPATIAL_DATASET_TARGET_RETENTION_CLAIM" as const;
+export const SPATIAL_DATASET_TARGET_RETENTION_CLAIM_CONTRACT_V1 = "spatial-dataset-target-retention-claim-v1" as const;
+
+export interface TargetRetentionClaimPayload {
+  readonly contract_version: typeof SPATIAL_DATASET_TARGET_RETENTION_CLAIM_CONTRACT_V1;
+  readonly target: QualifiedTable;
+  readonly first_content_bundle_sha256: string;
+  readonly first_retained_relation: string;
+  readonly first_retention_record_id: string;
+}
+
+export function targetRetentionClaimId(target: QualifiedTable): string {
+  assertIdentifier(target.schema, "schema");
+  assertIdentifier(target.table, "table");
+  const digest = createHash("sha256").update(`${SPATIAL_DATASET_TARGET_RETENTION_CLAIM_CONTRACT_V1}\u0000${target.schema}.${target.table}`, "utf8").digest("hex");
+  return `spatial-dataset-target-retention-claim-${digest.slice(0, 40)}`;
+}
+
+/** The target's claim, or null when none exists; any other read failure propagates. */
+export async function resolveTargetRetentionClaim(repo: ArtifactRepositoryPort, target: QualifiedTable): Promise<unknown | null> {
+  const artifactId = targetRetentionClaimId(target);
+  try {
+    return await repo.resolve({ artifact_id: artifactId, artifact_type: SPATIAL_DATASET_TARGET_RETENTION_CLAIM });
   } catch (error) {
     if (error instanceof Error && error.message === `Artifact not found: ${artifactId}`) return null;
     throw error;
@@ -766,6 +805,7 @@ async function ensureRetainedRelationClaim(
   record: SpatialDatasetRetentionRecord,
   rejectCode: SpatialDatasetRetentionError["code"],
 ): Promise<void> {
+  await ensureTargetRetentionClaim(repo, record, rejectCode);
   const relation = parseQualifiedTable(record.payload.retained_relation);
   const claimId = retainedRelationClaimId(relation);
   let claim: RetainedRelationClaim | null;
@@ -812,8 +852,155 @@ async function ensureRetainedRelationClaim(
   }
 }
 
+/** U30F2 H3: the target's claim exists before any relation claim of the target (written once, never rewritten). */
+async function ensureTargetRetentionClaim(
+  repo: ArtifactRepositoryPort,
+  record: SpatialDatasetRetentionRecord,
+  rejectCode: SpatialDatasetRetentionError["code"],
+): Promise<void> {
+  const target = record.payload.target;
+  const claimId = targetRetentionClaimId(target);
+  let existing: unknown | null;
+  try {
+    existing = await resolveTargetRetentionClaim(repo, target);
+  } catch (error) {
+    throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `reading target claim ${claimId}: ${describe(error)}`, { cause: error });
+  }
+  if (existing) return;
+  const payload: TargetRetentionClaimPayload = {
+    contract_version: SPATIAL_DATASET_TARGET_RETENTION_CLAIM_CONTRACT_V1,
+    target: { schema: target.schema, table: target.table },
+    first_content_bundle_sha256: record.payload.content_bundle_sha256,
+    first_retained_relation: record.payload.retained_relation,
+    first_retention_record_id: record.artifact_id,
+  };
+  const body = { artifact_id: claimId, artifact_type: SPATIAL_DATASET_TARGET_RETENTION_CLAIM, content_hash: sha256ContentHash(payload), payload };
+  try {
+    await repo.put({ artifact_id: claimId, content_hash: body.content_hash, body });
+  } catch (error) {
+    throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `writing target claim ${claimId}: ${describe(error)}`, { cause: error });
+  }
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+// ---------------------------------------------------------------------------------------------
+// U30F2 H3: first import = an explicit admission + no trace of an earlier version
+// ---------------------------------------------------------------------------------------------
+
+export const REJECT_FIRST_IMPORT_NOT_ADMITTED = "REJECT_FIRST_IMPORT_NOT_ADMITTED" as const;
+
+export type FirstImportRefusalReason =
+  | "NO_INCOMING_VERSION"
+  | "NO_ADMISSION"
+  | "ADMISSION_VERSION_MISMATCH"
+  | "PRIOR_SUCCESS_BATCH"
+  | "PRIOR_LEDGER_VERSION"
+  | "PRIOR_RETAINED_RELATION"
+  | "PRIOR_RETENTION_CLAIM"
+  | "PRIOR_RETENTION_RECORD"
+  | "CAS_UNAVAILABLE";
+
+export interface IncomingVersion {
+  readonly batch_id?: string;
+  readonly content_bundle_sha256: string;
+}
+
+/** What made the first import admissible (returned to the caller and logged). */
+export interface FirstImportAdmissionEvidence extends FirstImportAdmission {
+  readonly target: string;
+  readonly ledger_rows_of_incoming_version: number;
+}
+
+/**
+ * The verifiable initialisation mode (owner decision 2026-10-02): a target without a SUCCESS batch may
+ * be initialised only when ALL hold --
+ *   1. first-import-admissions.v1.json (reviewed commit) admits this target AND this exact version;
+ *   2. the WHOLE ledger of the target has no SUCCESS row and no row of any other version;
+ *   3. the retained-staging schema holds no retained relation (any naming scheme) of another version;
+ *   4. CAS holds no target retention claim, no relation claim on the incoming version's names and no
+ *      retention record (v2 or legacy v1) of the incoming version -- and CAS is readable.
+ * Never derived from a row count. Every failing condition is reported; any one refuses.
+ */
+export async function assertFirstImportAdmitted(input: {
+  readonly db: SqlPort;
+  readonly repo: ArtifactRepositoryPort | null;
+  readonly target: QualifiedTable;
+  readonly incoming?: IncomingVersion | null;
+  readonly code?: SpatialDatasetRetentionError["code"];
+}): Promise<FirstImportAdmissionEvidence> {
+  const code = input.code ?? REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED;
+  const { db, repo, target } = input;
+  quoteTable(target);
+  const name = formatQualifiedTable(target);
+  const refuse = (reasons: ReadonlyArray<readonly [FirstImportRefusalReason, string]>, cause?: unknown) =>
+    new SpatialDatasetRetentionError(
+      code,
+      "FIRST_IMPORT_NOT_ADMITTED",
+      `${REJECT_FIRST_IMPORT_NOT_ADMITTED} ${reasons.map(([r, d]) => `[${r}]: ${d}`).join("; ")} -- ${name} has no SUCCESS batch and an empty or missing ` +
+        "live table; that alone is never a first import. Nothing truncated, nothing created.",
+      { cause },
+    );
+  const incoming = input.incoming;
+  if (!incoming || !SHA256_HEX.test(incoming.content_bundle_sha256)) {
+    throw refuse([["NO_INCOMING_VERSION", "the incoming version's full content_bundle_sha256 was not given"]]);
+  }
+  const sha = incoming.content_bundle_sha256;
+  const reasons: Array<readonly [FirstImportRefusalReason, string]> = [];
+
+  const admission = committedFirstImportAdmissions().admissions[name];
+  if (!admission) reasons.push(["NO_ADMISSION", `first-import-admissions.v1.json admits no first import of ${name}`]);
+  else if (admission.content_bundle_sha256 !== sha) {
+    reasons.push(["ADMISSION_VERSION_MISMATCH", `the admission is for ${admission.content_bundle_sha256}, the incoming version is ${sha}`]);
+  }
+
+  let ledger: Array<{ id: string; status: string; content_bundle_sha256: string }>;
+  let relations: string[];
+  try {
+    ledger = (
+      await db.query<{ id: string; status: string; content_bundle_sha256: string }>(
+        `SELECT id, status, content_bundle_sha256 FROM "PostgisImportBatch" WHERE target_schema = $1 AND target_table = $2`,
+        [target.schema, target.table],
+      )
+    ).rows;
+    relations = (
+      await db.query<{ relname: string }>(
+        `SELECT c.relname AS relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = $1 AND left(c.relname::text, length($2::text)) = $2::text`,
+        [RETAINED_RELATION_SCHEMA, `${target.table}_`],
+      )
+    ).rows.map((r) => String(r.relname));
+  } catch (error) {
+    throw new SpatialDatasetRetentionError(code, "DATABASE_ERROR", `checking the first-import trail of ${name}: ${describe(error)}`, { cause: error });
+  }
+  const success = ledger.filter((r) => r.status === "SUCCESS");
+  if (success.length > 0) reasons.push(["PRIOR_SUCCESS_BATCH", `SUCCESS batch(es) ${success.map((r) => r.id).join(", ")}`]);
+  const others = ledger.filter((r) => r.content_bundle_sha256 !== sha);
+  if (others.length > 0) {
+    reasons.push(["PRIOR_LEDGER_VERSION", `ledger rows of other versions: ${others.map((r) => `${r.id} ${r.status} ${r.content_bundle_sha256}`).join(", ")}`]);
+  }
+  const own = new Set(retainedRelationCandidatesFor(target, sha).map((c) => c.relation.table));
+  const foreign = relations.filter((r) => isRetainedRelationDigestSuffix(r.slice(target.table.length + 1)) && !own.has(r));
+  if (foreign.length > 0) reasons.push(["PRIOR_RETAINED_RELATION", `retained relations of other versions: ${foreign.map((r) => `${RETAINED_RELATION_SCHEMA}.${r}`).join(", ")}`]);
+
+  if (!repo) reasons.push(["CAS_UNAVAILABLE", "the durable CAS is not available, so an earlier recorded version cannot be ruled out"]);
+  else {
+    try {
+      if (await resolveTargetRetentionClaim(repo, target)) reasons.push(["PRIOR_RETENTION_CLAIM", `target claim ${targetRetentionClaimId(target)}`]);
+      for (const c of retainedRelationCandidatesFor(target, sha)) {
+        if (await resolveRetainedRelationClaim(repo, c.relation)) reasons.push(["PRIOR_RETENTION_CLAIM", `relation claim on ${formatQualifiedTable(c.relation)}`]);
+      }
+      if ((await resolveRetentionRecord(repo, target, sha)) || (await resolveLegacyV1RetentionRecord(repo, target, sha))) {
+        reasons.push(["PRIOR_RETENTION_RECORD", `a retention record of ${name}@${sha} exists`]);
+      }
+    } catch (error) {
+      reasons.push(["CAS_UNAVAILABLE", `CAS read failed: ${describe(error)}`]);
+    }
+  }
+  if (reasons.length > 0) throw refuse(reasons);
+  return { ...admission!, target: name, ledger_rows_of_incoming_version: ledger.length };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -882,10 +1069,10 @@ export async function ensureOutgoingVersionRetained(input: {
 export type ReplaceRetentionStatus =
   | { readonly kind: "RETAINED"; readonly outcome: EnsureRecordOutcome; readonly record: SpatialDatasetRetentionRecord; readonly created_retained_relation: boolean }
   /**
-   * F5: first import into an EMPTY live table (no SUCCESS batch, no row -- checked again under the
-   * exclusive lock): nothing exists that could be replaced.
+   * F5 + U30F2 H3: first import into an empty live table -- no SUCCESS batch, no row, AND an admitted,
+   * trace-free first import (assertFirstImportAdmitted), all checked again under the exclusive lock.
    */
-  | { readonly kind: "FIRST_IMPORT_EMPTY_LIVE" };
+  | { readonly kind: "FIRST_IMPORT_ADMITTED"; readonly admission: FirstImportAdmissionEvidence };
 
 /**
  * PRES-05 replace: retain the outgoing version, then TRUNCATE + INSERT.
@@ -900,8 +1087,12 @@ export type ReplaceRetentionStatus =
  * F5 (U30F): the ledger's SUCCESS batch is the only admission identity that says WHAT is being
  * replaced. When there is none and the live table holds rows, the promote is refused
  * (NO_SUCCESS_BATCH_FOR_LIVE_DATA) -- no TRUNCATE, no promotion -- even if CAS holds a retention
- * record for some version: a CAS record never stands in for the batch identity. Only a first import
- * into an empty live table (FIRST_IMPORT_EMPTY_LIVE) proceeds without a SUCCESS batch.
+ * record for some version: a CAS record never stands in for the batch identity.
+ *
+ * U30F2 H3: an empty live table is NOT by itself a first import. Without a SUCCESS batch the promote
+ * proceeds only as an ADMITTED first import (assertFirstImportAdmitted: committed admission for this
+ * exact version, no ledger row of another version, no retained relation of another version, no CAS
+ * trace), checked in phase A and again under the exclusive lock.
  */
 export async function retainOutgoingThenReplace(input: {
   readonly db: TransactionalSqlPort;
@@ -909,6 +1100,8 @@ export async function retainOutgoingThenReplace(input: {
   readonly target: QualifiedTable;
   /** The named-column `INSERT INTO target (...) SELECT ... FROM staging` statement. */
   readonly insertSql: string;
+  /** The version being promoted (needed when the target has no SUCCESS batch: the first-import admission binds it). */
+  readonly incoming?: IncomingVersion | null;
 }): Promise<ReplaceRetentionStatus> {
   const { db, repo, target, insertSql } = input;
   const reject = (reason: SpatialDatasetRetentionFailureReason, message: string, cause?: unknown) =>
@@ -933,6 +1126,7 @@ export async function retainOutgoingThenReplace(input: {
     targetSql = quoteTable(target);
     outgoing = await findCurrentSuccessBatch(db, target);
     if (!outgoing && (await relationHasRows(db, target))) throw noSuccessBatch();
+    if (!outgoing) await assertFirstImportAdmitted({ db, repo, target, incoming: input.incoming });
     if (outgoing) {
       const sha = outgoing.content_bundle_sha256;
       if (!(await resolveRetainedRelation(db, target, sha)).exists) {
@@ -978,7 +1172,8 @@ export async function retainOutgoingThenReplace(input: {
     } else {
       // F5: re-checked under the exclusive lock -- rows that arrived since phase A are not replaced.
       if (await relationHasRows(tx, target)) throw noSuccessBatch();
-      status = { kind: "FIRST_IMPORT_EMPTY_LIVE" };
+      // H3: the admission and the absence of every trace, again under the exclusive lock.
+      status = { kind: "FIRST_IMPORT_ADMITTED", admission: await assertFirstImportAdmitted({ db: tx, repo, target, incoming: input.incoming }) };
     }
     await tx.execute(`TRUNCATE ${targetSql}`);
     await tx.execute(insertSql);

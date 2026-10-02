@@ -1,0 +1,5 @@
+{
+  "contract": "spatial-first-import-admissions-v1",
+  "purpose": "U30F2 H3 (owner decision 2026-10-02): an EMPTY or MISSING live table is never by itself a 'first import'. A promote may initialise a target without a SUCCESS batch only when this reviewed file admits that exact target AND that exact incoming version (full content_bundle_sha256), with who, when, why and the evidence, AND the gate finds no trace of an earlier version: no ledger row of the target at all (no SUCCESS of any version, no row of another version), no retained relation of any other version in the retained-staging schema, no retention record or relation claim for the incoming version and no target retention claim in CAS. A dataset version that happened to be emptied (COUNT(*) = 0) is never re-classified as a first import. Adding an entry is a reviewed commit; there is no runtime override, no environment switch and no flag.",
+  "admissions": {}
+}

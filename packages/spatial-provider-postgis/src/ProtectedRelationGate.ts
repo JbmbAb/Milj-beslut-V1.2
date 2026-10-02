@@ -540,6 +540,8 @@ export function refuseRetiredDestructiveScript(script: string): never {
 export {
   retainOutgoingThenReplace,
   recordRetentionAtPromote,
+  assertFirstImportAdmitted,
+  REJECT_FIRST_IMPORT_NOT_ADMITTED,
   REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
 } from "./SpatialDatasetRetention";
 /** lm_staging: per-relation protection before every DROP (cleanup-staging) and every overwrite (import-staging). */

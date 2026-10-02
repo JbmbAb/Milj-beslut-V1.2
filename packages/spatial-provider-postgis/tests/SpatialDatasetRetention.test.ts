@@ -1,5 +1,18 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+/**
+ * U30F2 H3: the committed first-import admissions file is the only source on the refusing path; a test
+ * that needs an admitted first import replaces the loader (module seam), never a runtime parameter.
+ */
+const admissionsHolder = vi.hoisted(() => ({ doc: null as null | { contract: string; admissions: Record<string, unknown> } }));
+vi.mock("../src/FirstImportAdmission", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/FirstImportAdmission")>();
+  return {
+    ...original,
+    committedFirstImportAdmissions: () => (admissionsHolder.doc ? original.parseFirstImportAdmissions(admissionsHolder.doc) : original.committedFirstImportAdmissions()),
+  };
+});
 import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
 import { sha256ContentHash, type ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
 import {
@@ -22,6 +35,7 @@ import {
   retainedRelationClaimId,
   retainedRelationFor,
   retentionRecordId,
+  targetRetentionClaimId,
   type ImportBatchRow,
   type MaterializedDigest,
   type RelationColumn,
@@ -77,6 +91,8 @@ class FakeDb implements TransactionalSqlPort {
   failOn: RegExp | null = null;
   /** Answer of the "live has rows" probe on its Nth call (1-based), to simulate a concurrent insert. */
   hasRowsOverride: { onCall: number; value: boolean } | null = null;
+  /** U30F2 H3: every ledger row of the target (any status); default = the SUCCESS batches. */
+  ledgerRows: { id: string; status: string; content_bundle_sha256: string }[] | null = null;
   private currentLookups = 0;
   private hasRowsLookups = 0;
 
@@ -87,6 +103,15 @@ class FakeDb implements TransactionalSqlPort {
       const name = String(params[0]);
       const hit = this.successBatches.some((b) => [8, 24].some((n) => `${TARGET.table}_${b.content_bundle_sha256.slice(0, n)}` === name));
       return { rows: [{ protected: hit }] as T[] };
+    }
+    if (s.startsWith('SELECT id, status, content_bundle_sha256 FROM "PostgisImportBatch"')) {
+      this.log.push("query:target-ledger");
+      return { rows: (this.ledgerRows ?? this.successBatches.map((b) => ({ id: b.id, status: "SUCCESS", content_bundle_sha256: b.content_bundle_sha256 }))) as T[] };
+    }
+    if (s.includes("FROM pg_class c JOIN pg_namespace n")) {
+      const [schema, prefix] = params as string[];
+      this.log.push("query:retained-trail");
+      return { rows: [...this.tables.keys()].filter((k) => k.startsWith(`${schema}.${prefix}`)).map((k) => ({ relname: k.slice(schema!.length + 1) })) as T[] };
     }
     if (s.includes('FROM "PostgisImportBatch"') && s.includes("LIMIT 1")) {
       this.currentLookups += 1;
@@ -277,6 +302,8 @@ describe("retainOutgoingThenReplace: the PRES-05 gate before TRUNCATE", () => {
       "query:current-batch",
       "digest:env.sgu_well",
       "digest:lm_staging.sgu_well_2b4b514f",
+      // U30F2 H3: the target's claim (written once, before its first relation claim)
+      `cas:put:${targetRetentionClaimId(TARGET)}`,
       `cas:put:${retainedRelationClaimId({ schema: "lm_staging", table: "sgu_well_2b4b514f" })}`,
       `cas:put:${recordId}`,
       "TRUNCATE",
@@ -421,31 +448,37 @@ describe("retainOutgoingThenReplace: the PRES-05 gate before TRUNCATE", () => {
     expect(db.log).not.toContain("TRUNCATE");
   });
 
-  it("F5: first import (no SUCCESS batch, live table empty) proceeds, the emptiness re-checked under the exclusive lock", async () => {
+  it("H3 (U30F2): an EMPTY live table alone is not a first import -> REJECT FIRST_IMPORT_NOT_ADMITTED [NO_ADMISSION], no TRUNCATE", async () => {
     const db = retainedScenario();
     db.successBatches = [];
+    db.tables.delete(`lm_staging.${V1_LEGACY}`);
     db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: { row_count: 0, digest: "0".repeat(64) } });
-    const status = await retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL });
-    expect(status).toEqual({ kind: "FIRST_IMPORT_EMPTY_LIVE" });
-    expect(db.log).toEqual([
-      "query:current-batch",
-      "has-rows:env.sgu_well",
-      "BEGIN",
-      "lock:ACCESS EXCLUSIVE",
-      "query:current-batch",
-      "has-rows:env.sgu_well",
-      "TRUNCATE",
-      "INSERT",
-      "COMMIT",
-    ]);
+    const error = await rejection(
+      retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL, incoming: { batch_id: "batch-v2", content_bundle_sha256: HASH_V2 } }),
+    );
+    expect(error.code).toBe(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED);
+    expect(error.reason).toBe("FIRST_IMPORT_NOT_ADMITTED");
+    expect(error.message).toContain("REJECT_FIRST_IMPORT_NOT_ADMITTED [NO_ADMISSION]");
+    expect(db.log).not.toContain("TRUNCATE");
+    expect(db.log).not.toContain("INSERT");
   });
 
-  it("F5: rows appearing in an empty live table between the phases -> REJECT, no TRUNCATE", async () => {
+  it("F5: rows appearing in an empty live table between the phases -> REJECT, no TRUNCATE (even for an admitted first import, U30F2 H3)", async () => {
     const db = retainedScenario();
     db.successBatches = [];
+    db.ledgerRows = [{ id: "batch-v2", status: "PROMOTE_STARTED", content_bundle_sha256: HASH_V2 }];
+    db.tables.delete(`lm_staging.${V1_LEGACY}`);
     db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: { row_count: 0, digest: "0".repeat(64) } });
     db.hasRowsOverride = { onCall: 2, value: true };
-    const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL }));
+    admissionsHolder.doc = {
+      contract: "spatial-first-import-admissions-v1",
+      admissions: { "env.sgu_well": { content_bundle_sha256: HASH_V2, admitted_by: "owner (test)", admitted_at: "2026-10-02", reason: "a newly admitted LU layer in this test", evidence: "test fixture" } },
+    };
+    const error = await rejection(
+      retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL, incoming: { batch_id: "batch-v2", content_bundle_sha256: HASH_V2 } }),
+    ).finally(() => {
+      admissionsHolder.doc = null;
+    });
     expect(error.reason).toBe("NO_SUCCESS_BATCH_FOR_LIVE_DATA");
     expect(db.log).not.toContain("TRUNCATE");
     expect(db.log[db.log.length - 1]).toBe("ROLLBACK");
@@ -829,5 +862,192 @@ describe("U30F2 M3: retained relation naming, versioned (RETAINED_RELATION_NAME_
     expect(await isRetainedRelationProtected(db, { schema: "lm_staging", table: V1_V2NAME })).toBe(true);
     expect(await isRetainedRelationProtected(db, { schema: "lm_staging", table: V1_LEGACY })).toBe(true);
     expect(await isRetainedRelationProtected(db, { schema: "lm_staging", table: "sgu_well_2b4b514f8b18a1a614d9aeaf" })).toBe(false);
+  });
+});
+
+describe("U30F2 H3: a first import needs an explicit admission and no trace of an earlier version", () => {
+  const EMPTY: MaterializedDigest = { row_count: 0, digest: "0".repeat(64) };
+  const INCOMING = { batch_id: "batch-v2", content_bundle_sha256: HASH_V2 };
+  function admit(sha = HASH_V2) {
+    admissionsHolder.doc = {
+      contract: "spatial-first-import-admissions-v1",
+      admissions: {
+        "env.sgu_well": { content_bundle_sha256: sha, admitted_by: "owner (test)", admitted_at: "2026-10-02", reason: "a newly admitted LU layer in this test", evidence: "test fixture" },
+      },
+    };
+  }
+  /** A brand-new target: no SUCCESS batch, empty live, only the incoming version's own staging relation. */
+  function newTarget(): FakeDb {
+    const db = retainedScenario();
+    db.successBatches = [];
+    db.ledgerRows = [{ id: "batch-v2", status: "PROMOTE_STARTED", content_bundle_sha256: HASH_V2 }];
+    db.tables.delete(`lm_staging.${V1_LEGACY}`);
+    db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: EMPTY });
+    return db;
+  }
+  const run = (db: FakeDb, repo: ArtifactRepositoryPort = loggingRepo(db), incoming: typeof INCOMING | undefined = INCOMING) =>
+    retainOutgoingThenReplace({ db, repo, target: TARGET, insertSql: INSERT_SQL, incoming });
+  const refused = async (db: FakeDb, sub: string, repo?: ArtifactRepositoryPort, incoming?: typeof INCOMING) => {
+    const error = await rejection(run(db, repo ?? loggingRepo(db), incoming === undefined ? INCOMING : incoming));
+    expect(error.reason).toBe("FIRST_IMPORT_NOT_ADMITTED");
+    expect(error.message).toContain(`[${sub}]`);
+    expect(db.log).not.toContain("TRUNCATE");
+    return error;
+  };
+
+  it("admitted (exact target and version) with a clean trail -> FIRST_IMPORT_ADMITTED, the whole check repeated under the exclusive lock", async () => {
+    admit();
+    try {
+      const db = newTarget();
+      const status = await run(db);
+      expect(status).toMatchObject({ kind: "FIRST_IMPORT_ADMITTED", admission: { content_bundle_sha256: HASH_V2, admitted_by: "owner (test)" } });
+      expect(db.log).toEqual([
+        "query:current-batch",
+        "has-rows:env.sgu_well",
+        "query:target-ledger",
+        "query:retained-trail",
+        "BEGIN",
+        "lock:ACCESS EXCLUSIVE",
+        "query:current-batch",
+        "has-rows:env.sgu_well",
+        "query:target-ledger",
+        "query:retained-trail",
+        "TRUNCATE",
+        "INSERT",
+        "COMMIT",
+      ]);
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("the verifier's case: an earlier version (record, claim, retained relation in CAS and lm_staging), its SUCCESS row lost, live emptied -> refused", async () => {
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db: retainedScenario(), repo: store, target: TARGET, insertSql: INSERT_SQL });
+    expect(await resolveRetentionRecord(store, TARGET, HASH_V1)).not.toBeNull();
+    admit();
+    try {
+      const db = retainedScenario();
+      db.successBatches = [];
+      db.ledgerRows = [
+        { id: "batch-v1", status: "FAILED", content_bundle_sha256: HASH_V1 }, // was SUCCESS
+        { id: "batch-v2", status: "PROMOTE_STARTED", content_bundle_sha256: HASH_V2 },
+      ];
+      db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: EMPTY });
+      const error = await refused(db, "PRIOR_LEDGER_VERSION", loggingRepo(db, store));
+      expect(error.message).toContain("[PRIOR_RETAINED_RELATION]");
+      expect(error.message).toContain("[PRIOR_RETENTION_CLAIM]");
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("each trace alone refuses: another version's ledger row", async () => {
+    admit();
+    try {
+      const db = newTarget();
+      db.ledgerRows = [...db.ledgerRows!, { id: "old-failed", status: "FAILED", content_bundle_sha256: HASH_V1 }];
+      await refused(db, "PRIOR_LEDGER_VERSION");
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("each trace alone refuses: a SUCCESS row for the target in the ledger read (of any version)", async () => {
+    admit();
+    try {
+      const db = newTarget();
+      db.ledgerRows = [{ id: "batch-v2", status: "SUCCESS", content_bundle_sha256: HASH_V2 }];
+      await refused(db, "PRIOR_SUCCESS_BATCH");
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("each trace alone refuses: another version's retained relation, legacy (8 hex) or current (24 hex)", async () => {
+    admit();
+    try {
+      for (const name of [V1_LEGACY, V1_V2NAME]) {
+        const db = newTarget();
+        db.tables.set(`lm_staging.${name}`, { columns: STAGING_COLUMNS, digest: D_V1 });
+        await refused(db, "PRIOR_RETAINED_RELATION");
+      }
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("each trace alone refuses: a target retention claim in CAS (an earlier version was recorded, ledger and relations gone)", async () => {
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db: retainedScenario(), repo: store, target: TARGET, insertSql: INSERT_SQL });
+    admit();
+    try {
+      const db = newTarget();
+      await refused(db, "PRIOR_RETENTION_CLAIM", loggingRepo(db, store));
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("each trace alone refuses: a retention record or relation claim already naming the incoming version", async () => {
+    const store = new InMemoryArtifactRepository();
+    const db0 = new FakeDb();
+    db0.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: D_OTHER });
+    db0.tables.set("lm_staging.sgu_well_aaaabbbb", { columns: STAGING_COLUMNS, digest: D_OTHER });
+    await recordRetentionAtPromote({ db: db0, repo: store, target: TARGET, incoming: batch("batch-v2", HASH_V2) });
+    admit();
+    try {
+      const db = newTarget();
+      await refused(db, "PRIOR_RETENTION_RECORD", loggingRepo(db, store));
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("no admission, an admission for another version, or no incoming identity -> refused; the CAS unreadable -> refused", async () => {
+    await refused(newTarget(), "NO_ADMISSION");
+    admit(HASH_V1);
+    try {
+      await refused(newTarget(), "ADMISSION_VERSION_MISMATCH");
+    } finally {
+      admissionsHolder.doc = null;
+    }
+    admit();
+    try {
+      const db = newTarget();
+      const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL }));
+      expect(error.message).toContain("[NO_INCOMING_VERSION]");
+      await refused(newTarget(), "CAS_UNAVAILABLE", failingRepo("resolve"));
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("a trace appearing between the phases is seen under the exclusive lock -> refused, no TRUNCATE", async () => {
+    admit();
+    try {
+      const db = newTarget();
+      const original = db.transaction.bind(db);
+      db.transaction = async (work) => {
+        db.tables.set(`lm_staging.${V1_LEGACY}`, { columns: STAGING_COLUMNS, digest: D_V1 });
+        return original(work);
+      };
+      await refused(db, "PRIOR_RETAINED_RELATION");
+      expect(db.log).toContain("lock:ACCESS EXCLUSIVE");
+    } finally {
+      admissionsHolder.doc = null;
+    }
+  });
+
+  it("the committed admissions file admits nothing today, and a malformed entry is refused (fail-closed)", async () => {
+    const { committedFirstImportAdmissions, parseFirstImportAdmissions } = await vi.importActual<typeof import("../src/FirstImportAdmission")>("../src/FirstImportAdmission");
+    expect(committedFirstImportAdmissions().admissions).toEqual({});
+    for (const bad of [
+      { contract: "x", admissions: {} },
+      { contract: "spatial-first-import-admissions-v1", admissions: { "env.sgu_well": { content_bundle_sha256: "2b4b514f" } } },
+      { contract: "spatial-first-import-admissions-v1", admissions: { "env.sgu_well": { content_bundle_sha256: HASH_V1, admitted_by: "x", admitted_at: "2026-10-02", reason: "short", evidence: "e" } } },
+    ]) {
+      expect(() => parseFirstImportAdmissions(bad)).toThrow(/FIRST_IMPORT_ADMISSIONS_INVALID/);
+    }
   });
 });

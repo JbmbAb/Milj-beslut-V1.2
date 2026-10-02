@@ -57,6 +57,7 @@ import {
 import {
   CLEANUP_SKIPPED_RETAINED_RELATION,
   REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
+  assertFirstImportAdmitted,
   assertStagingImportOverwriteAllowed,
   dropStagingRelationGoverned,
   planStagingCleanup,
@@ -552,8 +553,10 @@ async function processManifest(manifestPath: string) {
       );
 
       // PRES-05 (U30-B): a `replace` promote needs the durable CAS for its retention records --
-      // opened (fail-closed) before anything is written to the ledger or the table.
-      const retentionRepo = promoteStrategy === 'replace' ? await openRetentionCas() : null;
+      // opened (fail-closed) before anything is written to the ledger or the table. U30F2 H3: so does a
+      // bootstrap of a missing live table (its first-import admission is checked against CAS).
+      const retentionRepo = promoteStrategy === 'replace' || !prodExists ? await openRetentionCas() : null;
+      const incoming = { batch_id: stagedBatch.id, content_bundle_sha256: manifest.content_bundle_sha256 };
 
       logger.info(`   - Promoting ${fullStagingTarget} -> ${target_schema}.${target_table}...`);
       await prisma.postgisImportBatch.update({
@@ -582,6 +585,7 @@ async function processManifest(manifestPath: string) {
               repo: retentionRepo!,
               target: retentionTarget,
               insertSql,
+              incoming,
             });
             if (retention.kind === 'RETAINED') {
               logger.info(
@@ -590,13 +594,19 @@ async function processManifest(manifestPath: string) {
                   `record ${retention.record.artifact_id} ${retention.outcome}${retention.created_retained_relation ? ', relation created' : ''})`,
               );
             } else {
-              // F5: only reachable for an EMPTY live table (checked under the exclusive lock). A live
-              // table with rows but no SUCCESS batch is refused inside retainOutgoingThenReplace.
-              logger.info(`   - First import: ${target_schema}.${target_table} was empty and has no SUCCESS batch; nothing to retain`);
+              // F5 + U30F2 H3: only an ADMITTED first import into an empty live table gets here (both
+              // checked again under the exclusive lock); an empty table alone is refused inside.
+              logger.info(
+                `   - First import (admitted by ${retention.admission.admitted_by} on ${retention.admission.admitted_at}: ${retention.admission.reason}); ` +
+                  `${target_schema}.${target_table} was empty, no SUCCESS batch and no trace of an earlier version`,
+              );
             }
           }
         } else {
-          logger.info(`   - Prod table missing — bootstrapping from staging...`);
+          // U30F2 H3: a MISSING live table is not by itself a first import either: the committed admission
+          // for this exact version and the absence of every earlier trace are required.
+          const admission = await assertFirstImportAdmitted({ db: prismaSqlPort(prisma), repo: retentionRepo, target: retentionTarget, incoming });
+          logger.info(`   - Prod table missing — bootstrapping from staging (first import admitted by ${admission.admitted_by} on ${admission.admitted_at})...`);
           await prisma.$executeRawUnsafe(
             `CREATE TABLE ${target_schema}.${target_table} AS SELECT * FROM ${stagingSchema}.${stagingTable}`,
           );
