@@ -12,7 +12,7 @@ import { setActiveProjectId } from '../../../services/coreApiClient';
 import { LuWorkspace } from './LuWorkspace';
 import { LuProgressSteps } from './LuProgressSteps';
 import { LuErrorNotice } from './LuErrorNotice';
-import { LuClientError, PROPERTY_LOOKUP_AMBIGUOUS_SV, presentLuError, type LuErrorPresentation } from './luErrorPresentation';
+import { LuClientError, describeBootstrapFailure, presentLuError, type LuErrorPresentation } from './luErrorPresentation';
 
 /**
  * DEMO M2a items 6+7: plain-Swedish bootstrap status. Every step state comes from the durable
@@ -26,41 +26,8 @@ const BOOTSTRAP_STATUS_SV: Record<string, string> = {
   FAILED: 'misslyckades',
 };
 
-/**
- * W-M2d items 5 + 6: every failure code the project-context bootstrap worker records
- * (server/modules/localization/luProjectContextBootstrap.ts, PropertyLookupAmbiguousError) with a
- * Swedish reason and whether a new attempt can change anything. A lasting gap in the property data,
- * a refusal to choose between rows or a project without owner is never offered "Försök igen"; a
- * technical failure is. Nothing beyond what the code says is claimed, and no action is invented.
- */
-const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string; readonly retryable: boolean }>> = {
-  PROPERTY_LOOKUP_AMBIGUOUS: { reasonSv: PROPERTY_LOOKUP_AMBIGUOUS_SV, retryable: false },
-  PROPERTY_LOOKUP_NOT_EXACT: {
-    reasonSv: 'Fastighetsbeteckningen gav ingen exakt träff i fastighetsunderlaget, så fastigheten kan inte knytas till lokaliseringen.',
-    retryable: false,
-  },
-  PROPERTY_GEOMETRY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar gräns (geometri) för fastigheten.', retryable: false },
-  PROPERTY_CENTROID_UNAVAILABLE: { reasonSv: 'Fastighetens mittpunkt kunde inte beräknas.', retryable: false },
-  PROPERTY_PROVENANCE_INCOMPLETE: {
-    reasonSv: 'Fastighetsunderlaget saknar uppgifter om fastighetsuppgiftens källa (källa, nyckel eller uppdateringsdatum).',
-    retryable: false,
-  },
-  PROPERTY_MUNICIPALITY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar kommun för fastigheten.', retryable: false },
-  PROJECT_NOT_FOUND: { reasonSv: 'Lokaliseringen hittades inte.', retryable: false },
-  NO_LEGITIMATE_OWNER: { reasonSv: 'Lokaliseringen saknar en behörig ägare och kan därför inte förberedas.', retryable: false },
-  FRESH_VERIFICATION_FAILED: {
-    reasonSv: 'Den nyss skapade kopplingen mellan lokaliseringen och fastigheten klarade inte kontrollen.',
-    retryable: true,
-  },
-  BOOTSTRAP_EXECUTION_ERROR: { reasonSv: 'Ett tekniskt fel uppstod när fastigheten skulle knytas till lokaliseringen.', retryable: true },
-};
-
-function describeBootstrapFailure(failureCode: string | null): { readonly reasonSv: string; readonly retryable: boolean } {
-  const known = failureCode ? BOOTSTRAP_FAILURE[failureCode] : undefined;
-  if (known) return known;
-  if (failureCode && /NOT_FOUND/i.test(failureCode)) return { reasonSv: 'Fastigheten hittades inte i fastighetsunderlaget.', retryable: false };
-  return { reasonSv: 'Fastigheten kunde inte knytas till lokaliseringen.', retryable: true };
-}
+// W-M2d items 5 + 6 / W-M2e item 2: the Swedish reason and retry decision of every bootstrap failure
+// code live in luErrorPresentation.ts (describeBootstrapFailure), where the inventory test reads them.
 
 /**
  * PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B (UI wiring).

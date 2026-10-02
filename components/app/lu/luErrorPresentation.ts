@@ -78,6 +78,8 @@ export const LU_SERVER_MESSAGE = {
   ASSESSMENT_NOT_BOUND: 'Governed LU assessment is not bound to this project.',
   NOT_AUTHORIZED: 'Not authorized for this project.',
   PRESENTATION_REJECT_PREFIX: 'REJECT_LOCALIZATION_PRESENTATION',
+  /** localizationGeometryService.ts: 404 `No canonical project context available: <raw text>` (W-M2e item 2). */
+  NO_CANONICAL_PROJECT_CONTEXT_PREFIX: 'No canonical project context available:',
 } as const;
 
 const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
@@ -222,13 +224,17 @@ export function presentCurrentnessFailureClass(
   failureClass: unknown,
   serverRetryable: unknown,
 ): { readonly messageSv: string; readonly retryable: boolean } | null {
-  const entry = typeof failureClass === 'string' ? CURRENTNESS_TEXT[failureClass] : undefined;
+  const entry = typeof failureClass === 'string' ? own(CURRENTNESS_TEXT, failureClass) : undefined;
   if (!entry) return null;
   return {
     messageSv: entry.messageSv,
     retryable: entry.kind === 'REFUSED' ? false : typeof serverRetryable === 'boolean' ? serverRetryable : entry.retryable,
   };
 }
+
+/** W-M2d item 6: an exact designation the property data holds on more than one row (PROPERTY_LOOKUP_AMBIGUOUS). */
+export const PROPERTY_LOOKUP_AMBIGUOUS_SV =
+  'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.';
 
 /**
  * W-M2e item 1 (M2d verification finding 1): the Swedish reason of a run that produced no assessment,
@@ -239,24 +245,122 @@ export function presentCurrentnessFailureClass(
  * no assessment, no verdict. The record carries no retry flag, so nothing is said about a new attempt.
  */
 const RUN_REASON_TEXT: Readonly<Record<string, string>> = {
-  REJECT_SPATIAL_EVIDENCE_FORM:
-    'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades. Ingen bedömning skapades.',
+  REJECT_SPATIAL_EVIDENCE_FORM: 'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades',
 };
+
+/**
+ * W-M2e item 2 (coordinator, U20CDF3): the violation the spatial evidence gate names as the second
+ * reason code (governedSpatialEvidenceForm.ts SpatialQueryOutcomeViolation), said neutrally -- what
+ * was wrong with the form, not who caused it. A violation this UI does not know adds nothing.
+ */
+const SPATIAL_FORM_VIOLATION_SV: Readonly<Record<string, string>> = {
+  DATASET_MISSING: 'en evidens saknar lagernamn',
+  RESULT_MISSING: 'resultat saknas i evidensen',
+  RESULT_KIND_NOT_ADMITTED: 'evidensen anger en resultattyp som inte är tillåten',
+  EXISTS_NOT_BOOLEAN: 'träffuppgiften är inte ett sant/falskt-värde',
+  MATCH_COUNT_NOT_A_COUNT: 'antalet träffar är inget giltigt antal',
+  MATCH_COUNT_CONTRADICTS_EXISTS: 'antalet träffar motsäger träffuppgiften',
+  RESULT_FIELD_NOT_ADMITTED: 'resultatet innehåller fält utanför kontraktet',
+  MAX_FEATURES_NOT_A_COUNT: 'träfftaket är inget giltigt antal',
+  MATCH_COUNT_EXCEEDS_MAX_FEATURES: 'antalet träffar överstiger träfftaket',
+  UNAVAILABLE_WITHOUT_DATASET: 'en uppgift om otillgängligt lager saknar lagernamn',
+  EVIDENCE_AND_UNAVAILABLE: 'samma lager redovisas både med evidens och som otillgängligt',
+  DATASET_NOT_REQUESTED: 'svaret gäller ett lager som inte efterfrågades',
+  DUPLICATE_LAYER_OUTCOME: 'samma lager redovisas mer än en gång',
+  LAYER_NOT_ANSWERED: 'ett efterfrågat lager redovisas varken med evidens eller som otillgängligt',
+};
+
+/** A run's / an assessment's governed status (executionMotor.assessment_status), in Swedish. */
+const ASSESSMENT_STATUS_LABEL: Readonly<Record<string, string>> = {
+  ASSESSED: 'Bedömd',
+  NOT_ASSESSED: 'Ej bedömd',
+  GOVERNANCE_DENIED: 'Ej bedömd – nekad av styrning',
+  EXECUTION_FAILED: 'Ej bedömd – körning misslyckades',
+};
+
+/** W-M2e item 2 (moved from LuWorkspace.tsx; own entries only): the status label, or "Okänd status". */
+export function presentLuAssessmentStatus(status: unknown): string {
+  return (typeof status === 'string' ? own(ASSESSMENT_STATUS_LABEL, status) : undefined) ?? 'Okänd status';
+}
+
+/** W-M2e item 2 (inventory): the statuses with a label of their own. */
+export const LU_ASSESSMENT_STATUS_TEXTS: readonly string[] = Object.freeze(Object.keys(ASSESSMENT_STATUS_LABEL));
+
+/** W-M2e item 2 (inventory): run reason codes and spatial-form violations with a text of their own. */
+export const LU_RUN_REASON_TEXTS: readonly string[] = Object.freeze(Object.keys(RUN_REASON_TEXT));
+export const LU_SPATIAL_FORM_VIOLATION_TEXTS: readonly string[] = Object.freeze(Object.keys(SPATIAL_FORM_VIOLATION_SV));
 
 /** W-M2e item 1: the first reason code of a run record that has a Swedish text here, or null. */
 export function presentLuRunReason(reasonCodes: unknown): { readonly code: string; readonly messageSv: string } | null {
   if (!Array.isArray(reasonCodes)) return null;
-  for (const code of reasonCodes) {
-    if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(RUN_REASON_TEXT, code)) {
-      return { code, messageSv: RUN_REASON_TEXT[code]! };
-    }
-  }
-  return null;
+  const index = reasonCodes.findIndex((code) => typeof code === 'string' && own(RUN_REASON_TEXT, code) !== undefined);
+  if (index < 0) return null;
+  const code = reasonCodes[index] as string;
+  const next = reasonCodes[index + 1];
+  const violation = code === 'REJECT_SPATIAL_EVIDENCE_FORM' && typeof next === 'string' ? own(SPATIAL_FORM_VIOLATION_SV, next) : undefined;
+  return { code, messageSv: `${own(RUN_REASON_TEXT, code)!}${violation ? ` (${violation})` : ''}. Ingen bedömning skapades.` };
 }
 
-/** W-M2d item 6: an exact designation the property data holds on more than one row (PROPERTY_LOOKUP_AMBIGUOUS). */
-export const PROPERTY_LOOKUP_AMBIGUOUS_SV =
-  'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.';
+/**
+ * W-M2d items 5 + 6, W-M2e item 2 (moved here from PropertyFirstLuEntry.tsx so the inventory test
+ * reads it): every failure code the project-context bootstrap worker records
+ * (server/modules/localization/luProjectContextBootstrap.ts, PropertyLookupAmbiguousError,
+ * W-BOOT projectContextBootstrapBindingGate.ts) with a Swedish reason and whether a new attempt can
+ * change anything. The queue stores no retry flag, so it is decided here per code: a lasting gap in
+ * the property data, a refusal or a lasting integrity fault is never offered "Försök igen"; a
+ * technical failure is. Nothing beyond what the code says is claimed, and no action is invented.
+ */
+const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string; readonly retryable: boolean }>> = {
+  PROPERTY_LOOKUP_AMBIGUOUS: { reasonSv: PROPERTY_LOOKUP_AMBIGUOUS_SV, retryable: false },
+  PROPERTY_LOOKUP_NOT_EXACT: {
+    reasonSv: 'Fastighetsbeteckningen gav ingen exakt träff i fastighetsunderlaget, så fastigheten kan inte knytas till lokaliseringen.',
+    retryable: false,
+  },
+  PROPERTY_GEOMETRY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar gräns (geometri) för fastigheten.', retryable: false },
+  PROPERTY_CENTROID_UNAVAILABLE: { reasonSv: 'Fastighetens mittpunkt kunde inte beräknas.', retryable: false },
+  PROPERTY_PROVENANCE_INCOMPLETE: {
+    reasonSv: 'Fastighetsunderlaget saknar uppgifter om fastighetsuppgiftens källa (källa, nyckel eller uppdateringsdatum).',
+    retryable: false,
+  },
+  PROPERTY_MUNICIPALITY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar kommun för fastigheten.', retryable: false },
+  // W-M2e item 2: the request named another property than the localization's own.
+  PROPERTY_MISMATCH: { reasonSv: 'Fastighetsbeteckningen i begäran stämmer inte med lokaliseringens egen fastighet.', retryable: false },
+  PROJECT_NOT_FOUND: { reasonSv: 'Lokaliseringen hittades inte.', retryable: false },
+  NO_LEGITIMATE_OWNER: { reasonSv: 'Lokaliseringen saknar en behörig ägare och kan därför inte förberedas.', retryable: false },
+  FRESH_VERIFICATION_FAILED: {
+    reasonSv: 'Den nyss skapade kopplingen mellan lokaliseringen och fastigheten klarade inte kontrollen.',
+    retryable: true,
+  },
+  BOOTSTRAP_EXECUTION_ERROR: { reasonSv: 'Ett tekniskt fel uppstod när fastigheten skulle knytas till lokaliseringen.', retryable: true },
+  // W-M2e item 2 (W-BOOT ca2bfdbb): the localization already has a registered binding that could not be
+  // read or verified -- the worker created no new one in its place (OD-R1/OD-R2).
+  CURRENT_BINDING_READ_ERROR: {
+    reasonSv:
+      'Lokaliseringens befintliga koppling till fastigheten kunde inte läsas på grund av ett tekniskt fel. Ingen ny koppling skapades i dess ställe.',
+    retryable: true,
+  },
+  CURRENT_BINDING_INTEGRITY_FAULT: {
+    reasonSv:
+      'Lokaliseringens befintliga koppling till fastigheten kunde inte läsas eller bekräftas (bestående lagrings- eller integritetsfel). ' +
+      'Ingen ny koppling skapades i dess ställe.',
+    retryable: false,
+  },
+  CURRENT_BINDING_REFUSED: {
+    reasonSv: 'Lokaliseringens befintliga koppling till fastigheten underkändes vid kontrollen. Ingen ny koppling skapades i dess ställe.',
+    retryable: false,
+  },
+};
+
+/** W-M2e item 2 (inventory): bootstrap failure codes with a text of their own. */
+export const LU_BOOTSTRAP_FAILURE_TEXTS: readonly string[] = Object.freeze(Object.keys(BOOTSTRAP_FAILURE));
+
+/** W-M2d items 5 + 6: the Swedish reason of a bootstrap failure code and whether "Försök igen" is offered. */
+export function describeBootstrapFailure(failureCode: string | null): { readonly reasonSv: string; readonly retryable: boolean } {
+  const known = own(BOOTSTRAP_FAILURE, failureCode);
+  if (known) return known;
+  if (failureCode && /NOT_FOUND/i.test(failureCode)) return { reasonSv: 'Fastigheten hittades inte i fastighetsunderlaget.', retryable: false };
+  return { reasonSv: 'Fastigheten kunde inte knytas till lokaliseringen.', retryable: true };
+}
 
 /** U20-D/U20CDF: the read-back's own bound point could not be verified (ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED). */
 const ASSESSED_POINT_TEXT: Readonly<Record<string, CodeText>> = {
@@ -365,13 +469,154 @@ const CONTRACT_REFUSAL_TEXT: CodeText = {
 };
 
 /** U20-D: content read for the evidence/root details failed its own identity (GOVERNED_EVIDENCE_INTEGRITY_FAILED). */
-const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, string>> = {
-  EVIDENCE_TAMPERED: 'Bedömningens underlag klarade inte integritetskontrollen: en evidens stämmer inte med sin egen identitet. Bedömningen visas därför inte.',
-  EVIDENCE_CORRUPTED:
-    'Bedömningens underlag klarade inte integritetskontrollen: en evidens lagrade innehåll stämmer inte med sin innehållshash. Bedömningen visas därför inte.',
-  ROOT_PROVENANCE_TAMPERED:
-    'Bedömningens underlag klarade inte integritetskontrollen: fastighetsrotens artefakter stämmer inte med sin identitet. Bedömningen visas därför inte.',
+const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, CodeText>> = {
+  EVIDENCE_TAMPERED: {
+    kind: 'INTEGRITY',
+    messageSv: 'Bedömningens underlag klarade inte integritetskontrollen: en evidens stämmer inte med sin egen identitet. Bedömningen visas därför inte.',
+    retryable: false,
+  },
+  EVIDENCE_CORRUPTED: {
+    kind: 'INTEGRITY',
+    messageSv:
+      'Bedömningens underlag klarade inte integritetskontrollen: en evidens lagrade innehåll stämmer inte med sin innehållshash. Bedömningen visas därför inte.',
+    retryable: false,
+  },
+  ROOT_PROVENANCE_TAMPERED: {
+    kind: 'INTEGRITY',
+    messageSv:
+      'Bedömningens underlag klarade inte integritetskontrollen: fastighetsrotens artefakter stämmer inte med sin identitet. Bedömningen visas därför inte.',
+    retryable: false,
+  },
 };
+
+/** W-M2e item 2: a lookup that never reaches Object.prototype (a class named "constructor" is no entry). */
+function own<T>(table: Readonly<Record<string, T>>, key: string | null): T | undefined {
+  return key !== null && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
+/**
+ * W-M2e item 2: one machine `code` of an LU error answer with a Swedish text of its own -- `classes`
+ * are its failure classes with a text of their own, `fallback` is the code's text for any other class.
+ */
+interface CodePresenter {
+  readonly classes: Readonly<Record<string, CodeText>>;
+  readonly fallback: (f: ErrorFields, lead: string) => CodeText;
+}
+
+const fixed = (kind: LuErrorKind, retryable: boolean, text: (lead: string) => string) => (_f: ErrorFields, lead: string): CodeText => ({
+  kind,
+  messageSv: text(lead),
+  retryable,
+});
+
+const LIVE_LANTMATERIET_OFF = fixed(
+  'TECHNICAL',
+  false,
+  (lead) => `${lead} Fastighetsuppslag mot Lantmäteriet är avstängt i den här miljön; endast det lokala fastighetsunderlaget används.`,
+);
+const PROPERTY_NOT_IN_DATA = fixed('NOT_FOUND', false, (lead) => `${lead} Fastigheten hittades inte i fastighetsunderlaget. Kontrollera beteckningen.`);
+
+/**
+ * W-M2e item 2 (M2d verification finding 1: "every error code has its own Swedish text" kept drifting):
+ * the table IS the presentation -- presentLuError reads it, and the exhaustive inventory test
+ * (tests/unit/luErrorCodeInventory.test.ts) reads its keys. A code the server can send that has
+ * neither an entry here nor a reviewed fallback entry in that test fails the test.
+ */
+const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
+  LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED: {
+    classes: CURRENTNESS_TEXT,
+    fallback: (f) => {
+      const refused = f.status === 409;
+      return { kind: refused ? 'REFUSED' : 'TECHNICAL', messageSv: 'Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.', retryable: !refused };
+    },
+  },
+  ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED: {
+    classes: ASSESSED_POINT_TEXT,
+    fallback: fixed('INTEGRITY', false, () => 'Bedömningens kontrollpunkt kunde inte bekräftas. Bedömningen visas därför inte.'),
+  },
+  GOVERNED_EVIDENCE_INTEGRITY_FAILED: {
+    classes: EVIDENCE_INTEGRITY_TEXT,
+    fallback: fixed('INTEGRITY', false, () => 'Bedömningens underlag klarade inte integritetskontrollen. Bedömningen visas därför inte.'),
+  },
+  ASSESSMENT_ID_MISMATCH: {
+    classes: {},
+    fallback: fixed(
+      'INCOHERENT',
+      false,
+      (lead) =>
+        `${lead} Den visade bedömningen är inte längre projektets aktuella bedömning, och ingen annan bedömning används i dess ställe. Läs in bedömningen på nytt.`,
+    ),
+  },
+  INVALID_ASSESSMENT_ARTIFACT_ID: {
+    classes: {},
+    fallback: fixed('TECHNICAL', false, (lead) => `${lead} Begäran innehöll ett ogiltigt bedömnings-id.`),
+  },
+  // U20CDF2 add-on 2 / W-APR: the (possibly current) assessment could not be read -- a technical or
+  // integrity fault, never "no assessment"; the server's flag says whether a retry can help.
+  ASSESSMENT_READ_ERROR: {
+    classes: ASSESSMENT_READ_TEXT,
+    fallback: fixed(
+      'TECHNICAL',
+      true,
+      (lead) => `${lead} Projektets aktuella bedömning kunde inte fastställas på grund av ett tekniskt fel. En äldre bedömning visas inte i stället.`,
+    ),
+  },
+  // W-M2e item 1 (W-APR add-on 3): the selection was refused -- per class, never "motstridigt".
+  ASSESSMENT_CURRENT_UNRESOLVED: {
+    classes: SELECTION_REFUSAL_TEXT,
+    fallback: () => SELECTION_REFUSAL_DEFAULT,
+  },
+  // W-M2e item 1 (W-APR add-on 3): a contract-VERSION refusal, never "stämmer inte med sin lagrade identitet".
+  ASSESSMENT_CONTRACT_REFUSED: {
+    classes: { ASSESSMENT_CONTRACT_INVALID: CONTRACT_REFUSAL_TEXT },
+    fallback: () => CONTRACT_REFUSAL_TEXT,
+  },
+  // U20CDF2 add-on 1: a storage fault during re-execution is no verification verdict.
+  LU_REEXECUTION_STORAGE_FAULT: {
+    classes: {},
+    fallback: (f) =>
+      f.retryable === false
+        ? {
+            kind: 'INTEGRITY',
+            messageSv:
+              'Reproducerbarheten kunde inte kontrolleras: ett bestående lagringsfel uppstod vid läsning av lagrade artefakter. Det är inget kontrollutfall, och felet försvinner inte vid ett nytt försök.',
+            retryable: false,
+          }
+        : {
+            kind: 'TECHNICAL',
+            messageSv:
+              'Reproducerbarheten kunde inte kontrolleras just nu: ett tekniskt fel uppstod vid läsning av lagrade artefakter. Det är inget kontrollutfall; ett nytt försök kan lyckas.',
+            retryable: true,
+          },
+  },
+  LIVE_LANTMATERIET_DISABLED: { classes: {}, fallback: LIVE_LANTMATERIET_OFF },
+  LIVE_LANTMATERIET_REQUIRED: { classes: {}, fallback: LIVE_LANTMATERIET_OFF },
+  // W-M2d item 6 (U20-A): the exact designation is on several rows of the property data (about 22 700
+  // designations); the server refuses to choose one. Not the user's search, not retryable.
+  PROPERTY_LOOKUP_AMBIGUOUS: { classes: {}, fallback: fixed('REFUSED', false, () => PROPERTY_LOOKUP_AMBIGUOUS_SV) },
+  LOCAL_PROPERTY_NOT_FOUND: { classes: {}, fallback: PROPERTY_NOT_IN_DATA },
+  PROPERTY_NOT_FOUND: { classes: {}, fallback: PROPERTY_NOT_IN_DATA },
+  LOCALIZATION_DATA_UNAVAILABLE: {
+    classes: {},
+    fallback: fixed('TECHNICAL', true, (lead) => `${lead} För många datakällor var otillgängliga. Försök igen senare.`),
+  },
+};
+
+/** W-M2e item 2 (inventory): every error `code` with a text of its own, with its classes that have one. */
+export const LU_ERROR_CODE_TEXTS: Readonly<Record<string, readonly string[]>> = Object.freeze(
+  Object.fromEntries(Object.entries(CODE_PRESENTERS).map(([code, p]) => [code, Object.keys(p.classes)])),
+);
+
+/**
+ * W-M2e item 2: the geometry routes answer every failure to resolve the project's canonical context
+ * (no verified binding yet, a binding refused at verification, or one that could not be read) with
+ * 404 "No canonical project context available: <raw text>". The UI cannot tell which, so it states
+ * only what holds for all of them -- never "Det som efterfrågades finns inte".
+ */
+const NO_CANONICAL_PROJECT_CONTEXT_SV = 'Projektets koppling till fastigheten kunde inte fastställas, så kontrollpunkten kan inte användas.';
+
+/** W-M2e item 2 (inventory): machine tokens that start a server message with a text of its own here. */
+export const LU_MESSAGE_PREFIX_TOKENS_WITH_TEXT: readonly string[] = Object.freeze(['REJECT_LOCALIZATION_PRESENTATION']);
 
 export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPresentation {
   const f = readFields(err);
@@ -389,85 +634,12 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   // A Swedish message written by this UI itself.
   if (f.isClientError && f.message) return make('TECHNICAL', f.message, true);
 
-  if (f.code === 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED') {
-    const entry = f.failureClass ? CURRENTNESS_TEXT[f.failureClass] : undefined;
-    if (entry) return fromTable(entry);
-    const refused = f.status === 409;
-    return make(refused ? 'REFUSED' : 'TECHNICAL', 'Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.', !refused);
-  }
-  if (f.code === 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED') {
-    const entry = f.failureClass ? ASSESSED_POINT_TEXT[f.failureClass] : undefined;
-    return entry
-      ? fromTable(entry)
-      : make('INTEGRITY', 'Bedömningens kontrollpunkt kunde inte bekräftas. Bedömningen visas därför inte.', false);
-  }
-  if (f.code === 'GOVERNED_EVIDENCE_INTEGRITY_FAILED') {
-    return make(
-      'INTEGRITY',
-      (f.failureClass && EVIDENCE_INTEGRITY_TEXT[f.failureClass]) ||
-        'Bedömningens underlag klarade inte integritetskontrollen. Bedömningen visas därför inte.',
-      false,
-    );
-  }
-  if (f.code === 'ASSESSMENT_ID_MISMATCH') {
-    return make(
-      'INCOHERENT',
-      `${lead} Den visade bedömningen är inte längre projektets aktuella bedömning, och ingen annan bedömning används i dess ställe. Läs in bedömningen på nytt.`,
-      false,
-    );
-  }
-  if (f.code === 'INVALID_ASSESSMENT_ARTIFACT_ID') {
-    return make('TECHNICAL', `${lead} Begäran innehöll ett ogiltigt bedömnings-id.`, false);
-  }
-  if (f.code === 'ASSESSMENT_READ_ERROR') {
-    // U20CDF2 add-on 2 / W-APR: the (possibly current) assessment could not be read -- a technical
-    // or integrity fault, never "no assessment"; the server's flag says whether a retry can help.
-    const entry = f.failureClass ? ASSESSMENT_READ_TEXT[f.failureClass] : undefined;
-    return entry
-      ? fromTable(entry)
-      : make('TECHNICAL', `${lead} Projektets aktuella bedömning kunde inte fastställas på grund av ett tekniskt fel. En äldre bedömning visas inte i stället.`, true);
-  }
-  if (f.code === 'ASSESSMENT_CURRENT_UNRESOLVED') {
-    // W-M2e item 1 (W-APR add-on 3): the selection was refused -- per class, never "motstridigt".
-    return fromTable((f.failureClass && SELECTION_REFUSAL_TEXT[f.failureClass]) || SELECTION_REFUSAL_DEFAULT);
-  }
-  if (f.code === 'ASSESSMENT_CONTRACT_REFUSED') {
-    // W-M2e item 1 (W-APR add-on 3): a contract-VERSION refusal, never "stämmer inte med sin lagrade identitet".
-    return fromTable(CONTRACT_REFUSAL_TEXT);
-  }
-  if (f.code === 'LU_REEXECUTION_STORAGE_FAULT') {
-    // U20CDF2 add-on 1: a storage fault during re-execution is no verification verdict.
-    return f.retryable === false
-      ? make(
-          'INTEGRITY',
-          'Reproducerbarheten kunde inte kontrolleras: ett bestående lagringsfel uppstod vid läsning av lagrade artefakter. Det är inget kontrollutfall, och felet försvinner inte vid ett nytt försök.',
-          false,
-        )
-      : make(
-          'TECHNICAL',
-          'Reproducerbarheten kunde inte kontrolleras just nu: ett tekniskt fel uppstod vid läsning av lagrade artefakter. Det är inget kontrollutfall; ett nytt försök kan lyckas.',
-          true,
-        );
-  }
-  if (f.code === 'LIVE_LANTMATERIET_DISABLED' || f.code === 'LIVE_LANTMATERIET_REQUIRED') {
-    return make(
-      'TECHNICAL',
-      `${lead} Fastighetsuppslag mot Lantmäteriet är avstängt i den här miljön; endast det lokala fastighetsunderlaget används.`,
-      false,
-    );
-  }
-  if (f.code === 'PROPERTY_LOOKUP_AMBIGUOUS') {
-    // W-M2d item 6 (U20-A): the exact designation is on several rows of the property data (about
-    // 22 700 designations); the server refuses to choose one. Not the user's search, not retryable.
-    return make('REFUSED', PROPERTY_LOOKUP_AMBIGUOUS_SV, false);
-  }
-  if (f.code === 'LOCAL_PROPERTY_NOT_FOUND' || f.code === 'PROPERTY_NOT_FOUND') {
-    return make('NOT_FOUND', `${lead} Fastigheten hittades inte i fastighetsunderlaget. Kontrollera beteckningen.`, false);
-  }
-  if (f.code === 'LOCALIZATION_DATA_UNAVAILABLE') {
-    return make('TECHNICAL', `${lead} För många datakällor var otillgängliga. Försök igen senare.`, true);
-  }
+  const presenter = own(CODE_PRESENTERS, f.code);
+  if (presenter) return fromTable(own(presenter.classes, f.failureClass) ?? presenter.fallback(f, lead));
 
+  if (f.message.startsWith(LU_SERVER_MESSAGE.NO_CANONICAL_PROJECT_CONTEXT_PREFIX)) {
+    return make('NOT_FOUND', `${lead} ${NO_CANONICAL_PROJECT_CONTEXT_SV}`, false);
+  }
   if (f.message === LU_SERVER_MESSAGE.NO_CURRENT_ASSESSMENT) {
     if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NO_CURRENT, true);
     return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det finns ingen sparad bedömning.`, false);
@@ -501,12 +673,15 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.status === 403 || f.message === LU_SERVER_MESSAGE.NOT_AUTHORIZED) {
     return make('UNAUTHORIZED', `${lead} Du saknar behörighet till det här projektet.`, false);
   }
-  if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget stämmer inte med sin lagrade identitet och visas därför inte.`, false);
+  // W-M2e items 1-2: a 424 without a code of its own is a failed dependency check of some kind (tamper,
+  // binding, contract version, viewer capability): the text claims no particular cause.
+  if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget kunde inte bekräftas och visas därför inte.`, false);
   if (f.status === 404) {
     if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NOT_FOUND, true);
     return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det som efterfrågades finns inte.`, false);
   }
-  if (f.status === 409) return make('REFUSED', `${lead} Åtgärden nekades eftersom underlaget är motstridigt.`, false);
+  // W-M2e items 1-2: a 409 without a code of its own is a refusal -- not necessarily contradictory data.
+  if (f.status === 409) return make('REFUSED', `${lead} Servern nekade åtgärden.`, false);
   if (f.status === 429) return make('TECHNICAL', `${lead} För många förfrågningar just nu – vänta en stund och försök igen.`, true);
   if (f.status === 400) {
     if (context === 'property-lookup' || context === 'property-search') {

@@ -8,7 +8,6 @@ import {
   checkDefinitionForLayer,
   checkDefinitionForRule,
   checkEvidenceBinding,
-  governedCheckLabelSv,
   knowledgeStateForError,
   limitedCoverageLayersOf,
   parseServerArray,
@@ -24,6 +23,7 @@ import {
   LuClientError,
   isNoCurrentAssessmentError,
   presentCurrentnessFailureClass,
+  presentLuAssessmentStatus,
   presentLuError,
   presentLuRunReason,
   presentLuIncoherence,
@@ -33,6 +33,7 @@ import { LuControlPanel } from './LuControlPanel';
 import { LuErrorNotice } from './LuErrorNotice';
 import { presentLuOverallStatement, type LuOverallTone } from './luOverallStatement';
 import { useLuRunOutcome, type LuRunOutcomeRecord } from './luSessionMemory';
+import { presentLuVerifyNotice, type LuVerifyNotice } from './luVerifyNotice';
 import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
 
 /** W-M2d item 2: the assessment line is never green -- complete is neutral, anything else is marked. */
@@ -50,12 +51,7 @@ const CesiumMapView = lazy(() => import('../../CesiumMapView'));
  * Never a dash or a blank: both read as a low-risk finding. The caseworker must be able to tell
  * "not assessed" from "assessed".
  */
-const ASSESSMENT_STATUS_LABEL: Record<string, string> = {
-  ASSESSED: 'Bedömd',
-  NOT_ASSESSED: 'Ej bedömd',
-  GOVERNANCE_DENIED: 'Ej bedömd – nekad av styrning',
-  EXECUTION_FAILED: 'Ej bedömd – körning misslyckades',
-};
+// W-M2e item 2: the run/assessment status labels live in luErrorPresentation.ts (presentLuAssessmentStatus).
 
 /**
  * W-M2d item 1: shown only when the read-back carries no `governedLayerChecks` (e.g. an older
@@ -205,7 +201,7 @@ type GovernedResult = {
 type RunOutcome = LuRunOutcomeRecord;
 
 /** W-M2d item 4: one machine notice of a verification (LuReExecutionResult.notices). */
-type VerifyNotice = { code: string; finding_ids: readonly string[] };
+type VerifyNotice = LuVerifyNotice;
 
 function parseVerifyNotices(raw: unknown): VerifyNotice[] {
   if (!Array.isArray(raw)) return [];
@@ -217,23 +213,8 @@ function parseVerifyNotices(raw: unknown): VerifyNotice[] {
   });
 }
 
-const NOT_CHECKED_FINDING_PREFIX = 'finding-notchecked-';
-
-/**
- * W-M2d item 4 (owner 2026-10-02 night): the Swedish line of one verification notice, shown directly
- * under the result. NOT_CHECKED_CAUSE_NOT_PINNED: the layer's NOT_CHECKED finding was reproduced, but
- * its stored cause was never pinned and cannot be reproduced. Codes stay in the technical section.
- */
-function verifyNoticeSv(notice: VerifyNotice): string {
-  if (notice.code === 'NOT_CHECKED_CAUSE_NOT_PINNED') {
-    const layers = notice.finding_ids
-      .filter((id) => id.startsWith(NOT_CHECKED_FINDING_PREFIX))
-      .map((id) => governedCheckLabelSv(id.slice(NOT_CHECKED_FINDING_PREFIX.length)));
-    const which = layers.length === 0 ? 'ett eller flera lager' : layers.length === 1 ? `lagret ${layers[0]}` : `lagren ${layers.join(', ')}`;
-    return `Orsaken till att ${which} inte kontrollerades sparades inte vid bedömningen och kan inte återskapas.`;
-  }
-  return 'Kontrollen gav en notis som inte kan visas här – se teknisk information.';
-}
+/** W-M2d item 4 / W-M2e item 2: the notice's Swedish line (luVerifyNotice.ts). */
+const verifyNoticeSv = presentLuVerifyNotice;
 
 /** How the run that produced no assessment ended, as the end of a sentence. */
 function runOutcomeClause(status: string): string {
@@ -1229,7 +1210,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             <p>
               Senaste körningen{formatClock(runOutcome.endedAt) ? ` (kl. ${formatClock(runOutcome.endedAt)})` : ''}:{' '}
               <span data-testid="lu-run-outcome-status" className="font-semibold">
-                {ASSESSMENT_STATUS_LABEL[runOutcome.status] ?? 'Okänd status'}
+                {presentLuAssessmentStatus(runOutcome.status)}
               </span>
             </p>
             {runOutcome.messageSv ? <p data-testid="lu-run-outcome-message">{runOutcome.messageSv}</p> : null}
@@ -1581,7 +1562,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             <p className="text-sm">
               Status:{' '}
               <span data-testid="lu-assessment-status" className="font-semibold">
-                {ASSESSMENT_STATUS_LABEL[governed.assessmentStatus] ?? 'Okänd status'}
+                {presentLuAssessmentStatus(governed.assessmentStatus)}
               </span>
             </p>
             {retrievedAtOf(governed.evidenceDetails) ? (

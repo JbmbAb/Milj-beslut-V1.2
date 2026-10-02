@@ -53,6 +53,13 @@ const ATTENTION_LABEL_BY_RISK_LEVEL: Readonly<Record<string, string>> = {
   NOT_CHECKED: "Ej kontrollerad",
 };
 
+/** W-M2e item 2: the label of a level the engine produces; never an Object.prototype member ("constructor"). */
+function attentionLabelOf(riskLevel: unknown): string | undefined {
+  return typeof riskLevel === "string" && Object.prototype.hasOwnProperty.call(ATTENTION_LABEL_BY_RISK_LEVEL, riskLevel)
+    ? ATTENTION_LABEL_BY_RISK_LEVEL[riskLevel]
+    : undefined;
+}
+
 /**
  * Never throws and never silently drops a finding: an unrecognized `rule_id` maps to the explicit
  * UNKNOWN category rather than being mis-categorized or hidden, so a new engine rule that ships
@@ -63,7 +70,7 @@ export function presentLuFinding(finding: LuFindingPresentationInput): LuFinding
   return {
     category: known?.category ?? "UNKNOWN",
     categoryLabel: known?.categoryLabel ?? "Övrigt",
-    attentionLabel: ATTENTION_LABEL_BY_RISK_LEVEL[finding.risk_level] ?? "Okänd nivå",
+    attentionLabel: attentionLabelOf(finding.risk_level) ?? "Okänd nivå",
   };
 }
 
@@ -86,7 +93,7 @@ export function presentLuFindingSummary(finding: {
   if (definition?.hitMeaning) {
     // DEMO M2b: the rule's hit meaning is only stated for a level the engine actually produces;
     // an unknown level is never presented as a hit.
-    if (ATTENTION_LABEL_BY_RISK_LEVEL[finding.risk_level]) return definition.hitMeaning;
+    if (attentionLabelOf(finding.risk_level)) return definition.hitMeaning;
     return "Fyndets nivå kunde inte tolkas – se teknisk information.";
   }
   // DEMO M2c item 3 (M2b verifier finding 6): an unchecked finding of a rule this UI does not know

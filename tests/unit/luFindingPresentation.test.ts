@@ -59,4 +59,14 @@ describe('LU-RESULT-PRESENTATION-MODEL-V1', () => {
     expect(summary).not.toMatch(/finns inom sökradien/);
     expect(presentLuFinding({ rule_id: 'LU-WATER-001', risk_level: 'SOMETHING_NEW' }).attentionLabel).toBe('Okänd nivå');
   });
+
+  it('W-M2e item 2 (U20CDF3 low 3): every unknown severity form -- also an Object.prototype name -- is "Okänd nivå", never a hit, never echoed', () => {
+    for (const risk_level of ['high', ' HIGH', 'CRITICAL', '', 'constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const presentation = presentLuFinding({ rule_id: 'LU-WATER-001', risk_level });
+      expect(presentation.attentionLabel).toBe('Okänd nivå');
+      const summary = presentLuFindingSummary({ rule_id: 'LU-WATER-001', risk_level, explanation: 'x' });
+      expect(summary).toBe('Fyndets nivå kunde inte tolkas – se teknisk information.');
+      if (risk_level.trim()) expect(summary).not.toContain(risk_level.trim());
+    }
+  });
 });

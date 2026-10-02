@@ -2093,8 +2093,10 @@ describe('LuWorkspace W-M2d', () => {
     await user.click(await screen.findByTestId('lu-run'));
     expect(await screen.findByTestId('lu-run-outcome-status')).toHaveTextContent('Ej bedömd – körning misslyckades');
     const message = screen.getByTestId('lu-run-outcome-message');
+    // W-M2e item 2 (coordinator, U20CDF3): the violation the gate names is said neutrally.
     expect(message).toHaveTextContent(
-      'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades. Ingen bedömning skapades.',
+      'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades ' +
+        '(träffuppgiften är inte ett sant/falskt-värde). Ingen bedömning skapades.',
     );
     expect(message).not.toHaveTextContent(/REJECT_|EXISTS_NOT_BOOLEAN|ExecutionKernel/);
     // The server sends no retry flag for this record: the UI claims nothing about a new attempt.

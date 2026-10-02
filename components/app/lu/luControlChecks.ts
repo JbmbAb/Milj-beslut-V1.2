@@ -269,6 +269,17 @@ const GAP_KIND_LABEL_SV: Readonly<Record<string, string>> = {
   KNOWN_INCOMPLETE_DATA: 'Känd lucka i underlaget',
 };
 
+/** W-M2e item 2 (inventory): the gap kinds with a label of their own. */
+export const LU_KNOWN_GAP_KIND_TEXTS: readonly string[] = Object.freeze(Object.keys(GAP_KIND_LABEL_SV));
+
+/**
+ * W-M2e item 2 (inventory): the evidence binding assurance with a text of its own here -- the dataset
+ * version is outside the ADMIT v1 contracts (chip suffix + LU_UNKNOWN_VERSION_NOTE). Every other
+ * assurance is the server's own binding_note_sv, shown as the server writes it.
+ */
+export const LU_UNKNOWN_VERSION_ASSURANCE = 'HASH_BOUND_CONTRACT_UNKNOWN';
+export const LU_BINDING_ASSURANCE_TEXTS: readonly string[] = Object.freeze([LU_UNKNOWN_VERSION_ASSURANCE]);
+
 function knownGapViews(raw: unknown): LuKnownGapView[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry, index): LuKnownGapView[] => {
@@ -277,7 +288,7 @@ function knownGapViews(raw: unknown): LuKnownGapView[] {
     const kind = str(gap.kind) ?? 'OKÄND';
     const asOf = str(gap.as_of);
     const statement = str(gap.text_sv) ?? MISSING;
-    const label = GAP_KIND_LABEL_SV[kind] ?? 'Annan känd begränsning';
+    const label = (Object.prototype.hasOwnProperty.call(GAP_KIND_LABEL_SV, kind) ? GAP_KIND_LABEL_SV[kind] : undefined) ?? 'Annan känd begränsning';
     return [
       {
         id: str(gap.gap_id) ?? `gap-${index}`,
@@ -301,6 +312,9 @@ const STATE_BY_COVERAGE: Readonly<Record<string, LuKnowledgeState>> = {
   INCOMPLETE_EVIDENCE: 'UNCERTAIN',
   TECHNICAL_ERROR: 'TECHNICAL_ERROR',
 };
+
+/** W-M2e item 2 (inventory): the per-check coverage states with a knowledge state (and label) of their own. */
+export const LU_CHECK_COVERAGE_STATES: readonly string[] = Object.freeze(Object.keys(STATE_BY_COVERAGE));
 
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v : null;
@@ -404,20 +418,19 @@ function transportRow(def: LuCheckDefinition, assessment: Exclude<LuAssessmentPr
 }
 
 /** Presentation of an evidence detail's integrity field -- consistency, never authenticity. */
+const INTEGRITY_SV: Readonly<Record<string, string>> = {
+  CONTENT_HASH_VERIFIED: 'Innehållet stämmer med evidensens innehållshash',
+  STRUCTURAL_ONLY: 'Endast strukturellt kontrollerad (typ, id och innehållshash finns)',
+  TAMPERED: 'Klarade inte integritetskontrollen',
+  CORRUPTED: 'Klarade inte integritetskontrollen',
+  NOT_INTERPRETED: 'Tolkas inte i denna vy',
+};
+
+/** W-M2e item 2 (inventory): the evidence integrity values with a text of their own. */
+export const LU_EVIDENCE_INTEGRITY_TEXTS: readonly string[] = Object.freeze(Object.keys(INTEGRITY_SV));
+
 function integritySv(value: unknown): string {
-  switch (value) {
-    case 'CONTENT_HASH_VERIFIED':
-      return 'Innehållet stämmer med evidensens innehållshash';
-    case 'STRUCTURAL_ONLY':
-      return 'Endast strukturellt kontrollerad (typ, id och innehållshash finns)';
-    case 'TAMPERED':
-    case 'CORRUPTED':
-      return 'Klarade inte integritetskontrollen';
-    case 'NOT_INTERPRETED':
-      return 'Tolkas inte i denna vy';
-    default:
-      return MISSING;
-  }
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(INTEGRITY_SV, value) ? INTEGRITY_SV[value]! : MISSING;
 }
 
 /** Details + technical rows of one server evidence detail (GovernedEvidenceDetail). */
@@ -517,7 +530,9 @@ function serverRow(
   const layer = str(entry.layer);
   const status = str(entry.status);
   const coverageState = str(entry.coverage_state);
-  const mapped = coverageState ? STATE_BY_COVERAGE[coverageState] : undefined;
+  // W-M2e item 2: own entries only -- a state named "constructor" is unknown, never a mapped one.
+  const mapped =
+    coverageState && Object.prototype.hasOwnProperty.call(STATE_BY_COVERAGE, coverageState) ? STATE_BY_COVERAGE[coverageState] : undefined;
   // A checked state the machine status contradicts is never shown as checked (fail safe, never green).
   const contradictory =
     (mapped === 'HIT' && status !== 'CHECKED_HIT') || (mapped === 'NO_HIT' && status !== 'CHECKED_NO_HIT');
@@ -542,7 +557,7 @@ function serverRow(
     detail !== null &&
     str(detail.artifact_type) === 'SPATIAL_EVIDENCE' &&
     !str(detail.technical_error_class) &&
-    (detail.contract === null || detail.binding_assurance === 'HASH_BOUND_CONTRACT_UNKNOWN');
+    (detail.contract === null || detail.binding_assurance === LU_UNKNOWN_VERSION_ASSURANCE);
   const rows = evidenceRows(detail, label);
   const details = [
     ...(rows.details.length > 0

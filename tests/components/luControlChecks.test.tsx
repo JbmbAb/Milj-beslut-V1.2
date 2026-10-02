@@ -283,6 +283,25 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
     expect(c.protected_area!.summary).toBe('Saknas i underlaget: kontrolltillståndet saknas i svaret.');
   });
 
+  it('W-M2e item 2: a coverage_state named like an Object.prototype member is an unknown state (UNCERTAIN), never a mapped one', () => {
+    const { readBack } = present();
+    for (const coverage_state of ['constructor', 'toString', '__proto__']) {
+      const rows = presentLuControlChecks({
+        property,
+        assessment: PRESENT,
+        server: {
+          layerChecks: readBack.governedLayerChecks.map((check) => (check.layer === 'water' ? { ...check, coverage_state } : check)),
+          evidenceDetails: readBack.evidenceDetails,
+          limitedCoverageLayers: [],
+        },
+      });
+      const water = rows.find((row) => row.key === 'water')!;
+      expect(water.state).toBe('UNCERTAIN');
+      expect(water.stateLabel).toBe('Ofullständigt underlag');
+      expect(water.summary).toBe('Servern redovisar ett okänt kontrolltillstånd.');
+    }
+  });
+
   it('a layer only the server reports is shown as the server states it, without its raw id in main text; garbage never crashes or goes green', () => {
     const { readBack } = present();
     const checks = presentLuControlChecks({

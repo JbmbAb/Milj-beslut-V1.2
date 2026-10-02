@@ -111,6 +111,23 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
     expect(screen.getByTestId('pf-retry')).toBeInTheDocument();
   });
 
+  it.each([
+    ['CURRENT_BINDING_INTEGRITY_FAULT', 'bestående lagrings- eller integritetsfel', false],
+    ['CURRENT_BINDING_REFUSED', 'underkändes vid kontrollen', false],
+    ['CURRENT_BINDING_READ_ERROR', 'på grund av ett tekniskt fel', true],
+    ['PROPERTY_MISMATCH', 'stämmer inte med lokaliseringens egen fastighet', false],
+  ] as const)('W-M2e item 2 (W-BOOT): bootstrap failure %s has its own reason; a lasting one offers no retry', async (failureCode, text, retry) => {
+    const user = userEvent.setup();
+    client.listPropertyProjects.mockResolvedValue([]);
+    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode, failureDetail: 'Projektets aktuella bindning ...' });
+    await searchAndCreate(user);
+    const reason = await screen.findByTestId('pf-bootstrap-failure-reason');
+    expect(reason).toHaveTextContent(text);
+    expect(reason).not.toHaveTextContent(/Fastigheten kunde inte knytas till lokaliseringen\.|[A-Z]{3,}_[A-Z_]{3,}/);
+    if (retry) expect(screen.getByTestId('pf-retry')).toBeInTheDocument();
+    else expect(screen.queryByTestId('pf-retry')).not.toBeInTheDocument();
+  });
+
   it('DEMO M2b item 3: a failed search or create is plain Swedish; the raw server text stays collapsed', async () => {
     const user = userEvent.setup();
     client.listPropertyProjects.mockRejectedValueOnce(Object.assign(new Error('Not authorized for this project.'), { status: 403 }));

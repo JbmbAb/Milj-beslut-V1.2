@@ -3,10 +3,14 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   LuClientError,
+  describeBootstrapFailure,
   isNoCurrentAssessmentError,
+  presentCurrentnessFailureClass,
   presentLuError,
+  presentLuRunReason,
 } from '../../components/app/lu/luErrorPresentation';
 import { LuErrorNotice } from '../../components/app/lu/LuErrorNotice';
+import { presentLuOverallStatement } from '../../components/app/lu/luOverallStatement';
 
 // DEMO M2b item 3. Pure mapping + one tiny component. No network, no database.
 const httpError = (status: number, message: string, extra: Record<string, unknown> = {}) =>
@@ -21,7 +25,9 @@ describe('DEMO M2b presentLuError', () => {
     [httpError(403, 'Not authorized for this project.'), 'verify', 'UNAUTHORIZED', 'Du saknar behörighet till det här projektet.'],
     [httpError(401, 'Unauthorized'), 'export', 'UNAUTHORIZED', 'Sessionen har gått ut'],
     [httpError(500, 'Cannot read properties of undefined'), 'run', 'TECHNICAL', 'Bedömningen kunde inte köras. Ett tekniskt fel uppstod på servern.'],
-    [httpError(424, 'Unsupported assessment contract version 9'), 'current-assessment', 'INTEGRITY', 'Underlaget stämmer inte med sin lagrade identitet'],
+    // W-M2e item 1-2 (M2d verification finding 1): a 424 without a code of its own names no cause --
+    // this one is a contract-version failure, which the old text called an identity mismatch.
+    [httpError(424, 'Unsupported assessment contract version 9'), 'current-assessment', 'INTEGRITY', 'Underlaget kunde inte bekräftas och visas därför inte.'],
     [new TypeError('Failed to fetch'), 'viewer-evidence', 'TECHNICAL', 'Servern kunde inte nås eller svarade oväntat.'],
     [httpError(503, 'Otillräcklig datakvalitet för plats site-1 i strikt läge.', { code: 'LOCALIZATION_DATA_UNAVAILABLE' }), 'run', 'TECHNICAL', 'För många datakällor var otillgängliga'],
   ] as const)('%s (%s) -> %s, plain Swedish main text', (err, context, kind, text) => {
@@ -315,6 +321,95 @@ describe('DEMO M2b presentLuError', () => {
     expect(contract.retryable).toBe(false);
     expect(contract.messageSv).toContain('bedömningskontrakt');
     expect(contract.messageSv).not.toMatch(/lagrade identitet/);
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // W-M2e item 2: the gaps the exhaustive inventory found -- generic texts that claimed a cause, the
+  // geometry routes' "no canonical project context" 404, bootstrap codes without a text (W-BOOT), the
+  // spatial-form violation, the record integrity state (U20CDF3), prototype keys as classes.
+  // -----------------------------------------------------------------------------------------------
+  it('W-M2e item 2: a 409 or 424 without a code of its own claims no particular cause', () => {
+    for (const context of ['current-assessment', 'viewer-evidence', 'export', 'verify', 'geometry-save'] as const) {
+      const refused = presentLuError(httpError(409, 'REJECT_PROJECT_CONTEXT_BINDING_CONFLICT: x'), context);
+      expect(refused.kind).toBe('REFUSED');
+      expect(refused.messageSv).toMatch(/Servern nekade åtgärden\.$/);
+      expect(refused.messageSv).not.toMatch(/motstridig/);
+      const failed = presentLuError(httpError(424, 'REJECT_VIEWER_CAPABILITY_EXPIRED: x'), context);
+      expect(failed.kind).toBe('INTEGRITY');
+      expect(failed.retryable).toBe(false);
+      expect(failed.messageSv).toMatch(/Underlaget kunde inte bekräftas och visas därför inte\.$/);
+      expect(failed.messageSv).not.toMatch(/lagrade identitet|REJECT_/);
+    }
+  });
+
+  it('W-M2e item 2: the geometry routes\' "No canonical project context available" 404 never says the thing does not exist', () => {
+    for (const context of ['geometry-load', 'geometry-save', 'geometry-retry'] as const) {
+      const p = presentLuError(
+        httpError(404, 'No canonical project context available: REJECT_PROJECT_CONTEXT_BINDING_V2: signature does not verify'),
+        context,
+      );
+      expect(p.kind).toBe('NOT_FOUND');
+      expect(p.retryable).toBe(false);
+      expect(p.messageSv).toContain('Projektets koppling till fastigheten kunde inte fastställas, så kontrollpunkten kan inte användas.');
+      expect(p.messageSv).not.toMatch(/finns inte|REJECT_|signature/);
+      expect(p.technical.map((r) => r.value).join(' ')).toContain('REJECT_PROJECT_CONTEXT_BINDING_V2');
+    }
+  });
+
+  it('W-M2e item 2: a class or code named like an Object.prototype member is never read as an entry', () => {
+    for (const failureClass of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const p = presentLuError(
+        httpError(503, 'x', { code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED', failureClass, retryable: true }),
+        'run',
+      );
+      expect(p.messageSv).toBe('Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.');
+      expect(typeof p.kind).toBe('string');
+      expect(presentCurrentnessFailureClass(failureClass, true)).toBeNull();
+      expect(describeBootstrapFailure(failureClass)).toEqual({ reasonSv: 'Fastigheten kunde inte knytas till lokaliseringen.', retryable: true });
+    }
+    expect(presentLuError(httpError(503, 'x', { code: 'constructor' }), 'run').messageSv).toBe('Bedömningen kunde inte köras. Ett tekniskt fel uppstod på servern.');
+  });
+
+  it.each([
+    // [bootstrap failureCode, required text, retryable]
+    ['CURRENT_BINDING_READ_ERROR', 'kunde inte läsas på grund av ett tekniskt fel. Ingen ny koppling skapades i dess ställe.', true],
+    ['CURRENT_BINDING_INTEGRITY_FAULT', 'bestående lagrings- eller integritetsfel', false],
+    ['CURRENT_BINDING_REFUSED', 'underkändes vid kontrollen. Ingen ny koppling skapades i dess ställe.', false],
+    ['PROPERTY_MISMATCH', 'stämmer inte med lokaliseringens egen fastighet', false],
+  ] as const)('W-M2e item 2 (W-BOOT): bootstrap failure %s has its own text and retry decision', (code, text, retryable) => {
+    const d = describeBootstrapFailure(code);
+    expect(d.reasonSv).toContain(text);
+    expect(d.retryable).toBe(retryable);
+    expect(d.reasonSv).not.toMatch(/aldrig|signatur|[A-Z]{3,}_[A-Z_]{3,}/);
+  });
+
+  it('W-M2e item 2 (U20CDF3): a rejected spatial form names its violation neutrally; LAYER_NOT_ANSWERED included', () => {
+    expect(presentLuRunReason(['REJECT_SPATIAL_EVIDENCE_FORM', 'LAYER_NOT_ANSWERED'])?.messageSv).toBe(
+      'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades ' +
+        '(ett efterfrågat lager redovisas varken med evidens eller som otillgängligt). Ingen bedömning skapades.',
+    );
+    // An unknown violation adds nothing; no violation at all adds nothing.
+    expect(presentLuRunReason(['REJECT_SPATIAL_EVIDENCE_FORM', 'SOMETHING_NEW'])?.messageSv).toBe(
+      'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades. Ingen bedömning skapades.',
+    );
+    expect(presentLuRunReason(['EXECUTION_KERNEL_ERROR'])).toBeNull();
+    expect(presentLuRunReason('REJECT_SPATIAL_EVIDENCE_FORM')).toBeNull();
+  });
+
+  it('W-M2e item 2 (U20CDF3): RECORD_INTEGRITY_ERROR has its own label, the technical tone, no retry -- never "Okänt täckningstillstånd" or green', () => {
+    const view = presentLuOverallStatement({
+      statement_sv: 'Integritetsfel: bedömningens lagrade underlag är motsägelsefullt ... Lagrade fynd: ...',
+      coverage_state: 'RECORD_INTEGRITY_ERROR',
+      coverage_basis: ['UNKNOWN_SEVERITY:f-1'],
+      coverage: null,
+      risk_level: 'LOW',
+    });
+    expect(view.stateLabelSv).toBe('Integritetsfel i den lagrade bedömningen – fynden visas var för sig');
+    expect(view.tone).toBe('technical');
+    expect(view.retryable).toBe(false);
+    expect(view.statementSv).toContain('Integritetsfel');
+    expect(view.notices).toEqual([]);
+    expect(view.technical).toContainEqual({ label: 'Grund', value: 'UNKNOWN_SEVERITY:f-1' });
   });
 
   it('a client-side Swedish error is shown as written', () => {

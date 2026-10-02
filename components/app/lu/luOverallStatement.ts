@@ -41,7 +41,17 @@ const COVERAGE_STATE_LABEL_SV: Readonly<Record<string, string | null>> = {
   HISTORICAL_COVERAGE_UNKNOWN: 'Täckningsgrad okänd – historisk bedömning',
   PINNED_EVIDENCE_UNREADABLE: 'Tekniskt fel – den bundna evidensen kan inte läsas',
   CHECKS_UNAVAILABLE: 'Täckningsgrad okänd – uppgift om kontrollerna saknas',
+  // W-M2e item 2 (U20CDF3, coordinator): the STORED record is an invalid combination (a NOT_CHECKED
+  // finding next to evidence, evidence outside the governed layers, an unknown severity, a layer
+  // evidenced twice) -- no count and no overall level; the stored findings are still listed one by one.
+  RECORD_INTEGRITY_ERROR: 'Integritetsfel i den lagrade bedömningen – fynden visas var för sig',
 };
+
+/** W-M2e item 2 (inventory): the record coverage states with a label of their own (DETERMINED needs none). */
+export const LU_OVERALL_COVERAGE_STATES: readonly string[] = Object.freeze(Object.keys(COVERAGE_STATE_LABEL_SV));
+
+/** W-M2e item 2: states that are a technical or integrity fault of the record (purple, never retried by the UI on its own). */
+const TECHNICAL_TONE_STATES: ReadonlySet<string> = new Set(['PINNED_EVIDENCE_UNREADABLE', 'RECORD_INTEGRITY_ERROR']);
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
@@ -86,7 +96,7 @@ export function presentLuOverallStatement(raw: unknown): LuOverallStatementView 
   const notDeterminedCount = coverage ? num(coverage.checks_not_completed) : null;
   const limitedCount = coverage ? num(coverage.checks_completed_with_limited_coverage) : null;
   const complete = coverageState === 'DETERMINED' && notDeterminedCount === 0 && limitedCount === 0;
-  const tone: LuOverallTone = coverageState === 'PINNED_EVIDENCE_UNREADABLE' ? 'technical' : complete ? 'complete' : 'qualified';
+  const tone: LuOverallTone = TECHNICAL_TONE_STATES.has(coverageState) ? 'technical' : complete ? 'complete' : 'qualified';
 
   const technical: { label: string; value: string }[] = [
     { label: 'Täckningskod', value: coverageState },
