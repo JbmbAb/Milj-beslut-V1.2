@@ -910,3 +910,42 @@ describe('V20CDF2-PROJECTION-PROBE (H1), inverted by W-APR', () => {
     });
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 6): the candidate read kept a second classification of its own --
+// "Artifact not found: <another id>" and a WORM violation were READ_ERROR (retryable) here while the
+// shared classification (readFaultClassification.ts) says lasting. It now delegates; READ_ERROR stays
+// READ_ERROR.
+// ------------------------------------------------------------------------------------------------
+describe('W-CATCH3: the candidate read uses the shared classification (no second copy)', () => {
+  async function candidateFault(thrown: () => Error) {
+    const s = await setup();
+    const index = new FakeAssessmentProjectionIndex();
+    const assessment = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    const original = s.repository.resolve.bind(s.repository);
+    s.repository.resolve = (async <T,>(reference: ArtifactReference): Promise<T> => {
+      if (reference.artifact_id === assessment.artifact_id) throw thrown();
+      return original<T>(reference);
+    }) as typeof s.repository.resolve;
+    const error = await resolveCurrentAssessmentProjection({
+      projectId: PROJECT_ID,
+      artifactRepository: s.repository,
+      currentBindingProvider: s.currentBindingProvider(),
+      index,
+    }).then(() => null, (e: unknown) => e as Error & { faults?: unknown; retryable?: unknown });
+    return { error, id: assessment.artifact_id };
+  }
+  it('"Artifact not found: <another id>" while reading the candidate -> MISSING_FROM_CAS, lasting (was READ_ERROR, retryable)', async () => {
+    const { error, id } = await candidateFault(() => new Error('Artifact not found: some-referenced-artifact'));
+    expect(error).toMatchObject({ code: 'ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE', retryable: false, faults: [{ assessmentArtifactId: id, reason: 'MISSING_FROM_CAS', retryable: false }] });
+  });
+  it('a WORM violation while reading the candidate -> STORAGE_INTEGRITY_FAULT, lasting (was READ_ERROR, retryable)', async () => {
+    const { error, id } = await candidateFault(() => new Error('WORM violation: x'));
+    expect(error).toMatchObject({ retryable: false, faults: [{ assessmentArtifactId: id, reason: 'STORAGE_INTEGRITY_FAULT', retryable: false }] });
+  });
+  it('control: EIO while reading the candidate -> READ_ERROR, retryable (unchanged)', async () => {
+    const { error, id } = await candidateFault(() => Object.assign(new Error('EIO: i/o error'), { code: 'EIO' }));
+    expect(error).toMatchObject({ retryable: true, faults: [{ assessmentArtifactId: id, reason: 'READ_ERROR', retryable: true }] });
+  });
+});

@@ -349,3 +349,29 @@ describe('W-CATCH2 (A): presentation helpers', () => {
     }
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 13, classification details): a timeout or an abort has unknown
+// persistence -- it is a READ_ERROR (retryable) in both phases, never "refused at verification"
+// (409, "bestående"). Errors without a code that come from verifying an object that WAS read
+// (SyntaxError, TypeError, an unknown Error subclass) stay REFUSED, as before.
+// ------------------------------------------------------------------------------------------------
+describe('W-CATCH3: a timeout or an abort is a read of unknown persistence, in both phases', () => {
+  const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+  const abort = () => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+  for (const [what, make] of [['TimeoutError', timeout], ['AbortError', abort]] as const) {
+    it(`${what} without a code -> READ_ERROR (retryable) when reading AND when verifying`, () => {
+      expect(classifyReadFault(make(), 'read')).toEqual({ faultClass: 'READ_ERROR', retryable: true, refusalCode: null });
+      expect(classifyReadFault(make(), 'verify')).toEqual({ faultClass: 'READ_ERROR', retryable: true, refusalCode: null });
+    });
+    it(`${what} as the cause of a refusal-shaped wrapper -> READ_ERROR (a read inside the verification)`, () => {
+      expect(classifyReadFault(new Error('REJECT_X_UNAVAILABLE', { cause: make() }), 'verify').faultClass).toBe('READ_ERROR');
+    });
+  }
+  it('control: SyntaxError / TypeError / an unknown Error subclass while verifying stay REFUSED (unchanged)', () => {
+    class SomethingElse extends Error {}
+    for (const error of [new SyntaxError('Unexpected token'), new TypeError('x is not a function'), new SomethingElse('?')]) {
+      expect(classifyReadFault(error, 'verify')).toEqual({ faultClass: 'REFUSED', retryable: false, refusalCode: null });
+    }
+  });
+});
