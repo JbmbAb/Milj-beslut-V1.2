@@ -46,6 +46,25 @@ function failureBody(result: { readonly error: string }): Record<string, unknown
   };
 }
 
+/**
+ * U20-D: the optional explicit assessment id for export/verify. Absent -> unchanged behaviour (the
+ * project's current assessment). Present -> must be one well-formed artifact id; the orchestrator
+ * then refuses (409 ASSESSMENT_ID_MISMATCH) unless it is exactly the current, verified assessment.
+ */
+function optionalAssessmentArtifactId(raw: unknown): { ok: true; value: string | undefined } | { ok: false } {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, value: undefined };
+  if (typeof raw !== 'string' || raw.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(raw)) return { ok: false };
+  return { ok: true, value: raw };
+}
+
+function invalidAssessmentId(res: express.Response): void {
+  res.status(400).json({
+    ok: false,
+    error: 'assessmentArtifactId must be a single artifact id.',
+    code: 'INVALID_ASSESSMENT_ARTIFACT_ID',
+  });
+}
+
 function handleOrchestratorError(error: unknown, res: express.Response): boolean {
   if (error instanceof LocalizationDataUnavailableError) {
     res.status(503).json({
@@ -381,6 +400,12 @@ router.get(
         localizationGeometry: result.localizationGeometry,
         // K0: machine-readable document check from the assessment's pinned evidence refs.
         documentCheck: result.documentCheck,
+        // U20-D (additions only): the same layer checks as the fresh run, every pinned evidence
+        // resolved from CAS, the property root, and the coverage-qualified overall statement.
+        governedLayerChecks: result.governedLayerChecks,
+        evidenceDetails: result.evidenceDetails,
+        propertyRoot: result.propertyRoot,
+        overallStatement: result.overallStatement,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
@@ -397,6 +422,8 @@ router.get(
  * refs) -- never re-runs the kernel, never accepts client-supplied findings/coordinates as
  * report authority. Deliberately GET (no body): the client identifies only the project, exactly
  * matching the read-only nature of this export.
+ * U20-D: optional `?assessmentArtifactId=` binds the export to the assessment the UI shows; the
+ * answer names the exported assessment in `X-Assessment-Artifact-Id`.
  */
 router.get(
   '/api/localization/:projectId/export-assessment-pdf',
@@ -404,14 +431,22 @@ router.get(
   rateLimitByUser(15, 60_000),
   async (req, res, next) => {
     try {
+      const expected = optionalAssessmentArtifactId(req.query.assessmentArtifactId);
+      if (expected.ok === false) {
+        invalidAssessmentId(res);
+        return;
+      }
       const result = await exportCurrentLuAssessmentPdf({
         authUser: req.authUser!,
         projectId: String(req.params.projectId || ''),
+        expectedAssessmentArtifactId: expected.value,
       });
       if (result.ok === false) {
         res.status(result.status).json(failureBody(result));
         return;
       }
+      // U20-D: which assessment this PDF is (also printed in the PDF's verification block).
+      res.setHeader('X-Assessment-Artifact-Id', result.assessmentArtifactId);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
       res.send(result.buffer);
@@ -430,6 +465,8 @@ router.get(
  * project (same identity resolution as current-assessment/export-assessment-pdf), then hands that
  * one id to H15 unchanged. No body content is read as report authority: the client identifies only
  * the project.
+ * U20-D: an optional `assessmentArtifactId` (body or query) binds the verification to the
+ * assessment the UI shows; any other current assessment is refused with 409, never verified instead.
  */
 router.post(
   '/api/localization/:projectId/verify-assessment',
@@ -437,9 +474,15 @@ router.post(
   rateLimitByUser(15, 60_000),
   async (req, res, next) => {
     try {
+      const expected = optionalAssessmentArtifactId(req.body?.assessmentArtifactId ?? req.query.assessmentArtifactId);
+      if (expected.ok === false) {
+        invalidAssessmentId(res);
+        return;
+      }
       const result = await verifyCurrentLuAssessment({
         authUser: req.authUser!,
         projectId: String(req.params.projectId || ''),
+        expectedAssessmentArtifactId: expected.value,
       });
       if (result.ok === false) {
         res.status(result.status).json(failureBody(result));

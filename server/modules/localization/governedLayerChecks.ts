@@ -12,6 +12,10 @@
  *
  * K0: the document check (`computeGovernedDocumentCheck` below) uses the same shape with
  * `layer: 'document'`, but is derived from the assessment's pinned evidence refs only.
+ *
+ * U20-D: the product calls this through governedEvidenceDetails.presentedGovernedLayerChecks for
+ * the fresh run, the read-back and the PDF alike, over the PERSISTED inputs (stored evidence +
+ * stored findings); a layer whose query failed is seen through its NOT_CHECKED finding there.
  */
 export type GovernedLayerCheckStatus = 'CHECKED_NO_HIT' | 'CHECKED_HIT' | 'NOT_CHECKED';
 
@@ -153,6 +157,16 @@ export function computeGovernedLayerChecks(input: {
 
     const existsValues = layerEvidence.map((e) => (e.payload.result_semantics?.result as { exists?: unknown } | undefined)?.exists);
     if (existsValues.some((v) => typeof v !== 'boolean')) return notChecked('UNRECOGNIZED_RESULT', layerEvidence[0]!.artifact_id);
+    // U20-D (M2b findings 8 and 9): the server decides these, so no client has to. An evidence that
+    // declares a result semantics other than the one admitted kind, or whose observed match count
+    // contradicts its own `exists`, cannot be read as checked -- with or without a hit.
+    const unreadable = layerEvidence.find((e) => {
+      const semantics = e.payload.result_semantics as { kind?: unknown; result?: { exists?: unknown; match_count_observed?: unknown } } | undefined;
+      if (semantics?.kind !== undefined && semantics.kind !== 'EXISTENCE_WITHIN_DISTANCE') return true;
+      const count = semantics?.result?.match_count_observed;
+      return typeof count === 'number' && (count > 0) !== semantics?.result?.exists;
+    });
+    if (unreadable) return notChecked('UNRECOGNIZED_RESULT', unreadable.artifact_id);
 
     const hit = layerEvidence.find((_, i) => existsValues[i] === true);
     return {

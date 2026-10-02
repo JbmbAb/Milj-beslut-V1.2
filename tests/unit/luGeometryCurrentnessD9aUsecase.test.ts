@@ -172,12 +172,17 @@ describe('D9(a) + U12 through generate-report: successful run keeps provenance a
         provenance: 'derived_from_property_boundary', derived_in_this_request: true, failure_class: null,
       },
     });
+    // U20-D: the fresh run uses the same presentedGovernedLayerChecks as the read-back, over the
+    // persisted inputs. A layer whose query failed (protected_area here) is seen through its NOT_CHECKED
+    // finding -- reason NOT_CHECKED_FINDING, coverage_state SOURCE_UNAVAILABLE -- and the provider's
+    // own reason text (here 'TABLE_MISSING') is no longer echoed; it stays in the finding.
+    // coverage_state / message_sv / coverage_limitation_sv are additions on top of the U12 fields.
     expect(analysis.executionMotor?.governed_layer_checks).toEqual([
-      { layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: 'evidence-water-x', reason: null },
-      { layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-ebh-x', reason: null },
-      { layer: 'protected_area', rule_id: 'LU-PROTECTED-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'TABLE_MISSING' },
-      { layer: 'natura2000', rule_id: 'LU-NATURA2000-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-natura2000-x', reason: null },
-      { layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_EVIDENCE' },
+      expect.objectContaining({ layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: 'evidence-water-x', reason: null, coverage_state: 'CHECKED_HIT' }),
+      expect.objectContaining({ layer: 'ebh', rule_id: 'LU-EBH-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-ebh-x', reason: null, coverage_state: 'CHECKED_NO_HIT' }),
+      expect.objectContaining({ layer: 'protected_area', rule_id: 'LU-PROTECTED-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NOT_CHECKED_FINDING', coverage_state: 'SOURCE_UNAVAILABLE' }),
+      expect.objectContaining({ layer: 'natura2000', rule_id: 'LU-NATURA2000-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-natura2000-x', reason: null, coverage_state: 'CHECKED_NO_HIT' }),
+      expect.objectContaining({ layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_EVIDENCE', coverage_state: 'NOT_CHECKED' }),
       // K0: the document check is appended. This file's kernel mock returns an assessment without a
       // payload, so its pinned evidence refs cannot be read -> NOT_CHECKED, never a no-hit.
       expect.objectContaining({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'PINNED_EVIDENCE_REFS_UNREADABLE' }),

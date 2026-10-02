@@ -38,6 +38,17 @@ import type { LocalizationGeometryProjectionIndex } from '../../repositories/loc
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
 import { computeGovernedDocumentCheck, type GovernedDocumentCheck } from './governedLayerChecks';
+import {
+  governedOverallStatement,
+  MISSING_IN_BASIS_SV,
+  resolveGovernedAssessmentDetails,
+  type GovernedEvidenceDetail,
+  type GovernedOverallStatement,
+  type PresentedGovernedLayerCheck,
+  type PropertyRootDetails,
+} from './governedEvidenceDetails';
+import { governedLayerLabelSv } from './governedCoverageStatement';
+import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
 export class LocalizationDataUnavailableError extends Error {
@@ -323,51 +334,62 @@ export async function resolveLuViewerPresentation(input: {
 }
 
 /**
- * LU-ASSESSMENT-PERSISTENCE-READ-V1 (backend half).
- *
- * Read-only counterpart to `resolveLuViewerPresentation`: same discovery chain (project
- * authorization -> current-geometry-aware `resolveCurrentAssessmentProjection`), but returns the
- * assessment's own governed `findings`/`rule_refs`/`evidence_refs` rather than rendering geojson.
- * Deliberately does NOT require a configured ViewerCapability -- reading findings is not the same
- * product concern as rendering the map, and gating one on the other would be a wrong dependency.
- *
- * This is a read of an assessment that was ALREADY produced and persisted by a prior governed
- * kernel run (via GovernedAssessmentPersistence) -- it never runs the kernel, never re-evaluates
- * rules, and is not a second assessment path. The tamper/binding verification below mirrors
- * `resolveGovernedLocalizationPresentation` exactly (never trusts even `resolveCurrentAssessmentProjection`'s
- * own re-verified selection without re-verifying again at the point of use).
+ * U20-D addition: the export and verify paths may be bound to an explicit assessment id (the one
+ * the UI is showing). Anything other than the project's current, verified assessment is refused --
+ * never a silent switch to another assessment.
  */
-export async function resolveCurrentLuAssessmentSummary(input: {
+export interface AssessmentIdMismatchFailure {
+  readonly ok: false;
+  readonly status: 409;
+  readonly error: string;
+  readonly code: 'ASSESSMENT_ID_MISMATCH';
+  readonly failureClass: 'ASSESSMENT_NOT_CURRENT';
+  readonly reasonCode: 'REQUESTED_ASSESSMENT_IS_NOT_THE_CURRENT_ASSESSMENT';
+}
+
+/** U20-D: content read for the evidence/root details failed its own identity -> fail closed. */
+export interface GovernedEvidenceIntegrityFailure {
+  readonly ok: false;
+  readonly status: 424;
+  readonly error: string;
+  readonly code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED';
+  readonly failureClass: 'EVIDENCE_TAMPERED' | 'EVIDENCE_CORRUPTED' | 'ROOT_PROVENANCE_TAMPERED';
+  readonly reasonCode: string;
+}
+
+type CurrentAssessmentInput = {
   readonly authUser: AuthUser;
   readonly projectId: string;
   readonly artifactRepository?: ArtifactRepositoryPort;
   readonly currentBindingProvider?: ProjectContextBindingProvider;
   readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
   readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
-}): Promise<
-  | {
-      ok: true;
-      assessmentArtifactId: string;
-      findings: LocalizationAssessmentArtifact['payload']['findings'];
-      ruleRefs: LocalizationAssessmentArtifact['payload']['rule_refs'];
-      evidenceRefs: LocalizationAssessmentArtifact['payload']['evidence_refs'];
-      systemSummary: string;
-      /** LU-REPORT-EXPORT-UI-V1. The assessment's own governed context refs -- for a caller (e.g.
-       *  PDF export) that needs human-readable property/project identity without trusting
-       *  anything client-supplied. Resolving these further is a CAS read, not a re-execution. */
-      propertyContextRef: LocalizationAssessmentArtifact['payload']['property_ref'];
-      projectContextRef: LocalizationAssessmentArtifact['payload']['project_context_ref'];
-      /** DEMO M1a / D9(a): which geometry this assessment was produced for, and how it came about. */
-      localizationGeometry: LuAssessmentGeometryProvenance;
-      /**
-       * K0: the machine-readable document check, derived from this assessment's own pinned
-       * evidence_refs -- the same object the fresh generate-report run showed as its
-       * `governed_layer_checks` element `layer: 'document'`. Never CHECKED_NO_HIT in v1.
-       */
-      documentCheck: GovernedDocumentCheck;
-    }
+  /**
+   * U20-D: when given, the resolved current assessment must be exactly this one, or the call fails
+   * closed with 409 ASSESSMENT_ID_MISMATCH. Omitted: unchanged behaviour (the current assessment).
+   */
+  readonly expectedAssessmentArtifactId?: string;
+};
+
+type CurrentAssessmentFailure =
   | { ok: false; status: number; error: string }
   | LocalizationGeometryCurrentnessFailureResponse
+  | AssessmentIdMismatchFailure;
+
+/**
+ * The identity resolution shared by the read-back, the PDF and verify: project authorization ->
+ * current geometry -> current assessment projection -> CAS read -> tamper / contract / binding
+ * verification. Never runs the kernel. verify uses only this (not the evidence details), so its
+ * PASS/DENY semantics are exactly as before.
+ */
+async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Promise<
+  | {
+      ok: true;
+      assessment: LocalizationAssessmentArtifact;
+      artifactRepository: ArtifactRepositoryPort;
+      currentGeometry: CurrentLocalizationGeometry | null;
+    }
+  | CurrentAssessmentFailure
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
@@ -408,6 +430,19 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     assessmentArtifactId = projection.assessmentArtifactId;
   } catch {
     return { ok: false, status: 404, error: 'No current governed LU assessment is available for this project.' };
+  }
+
+  if (input.expectedAssessmentArtifactId !== undefined && input.expectedAssessmentArtifactId !== assessmentArtifactId) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        'Den begärda bedömningen är inte projektets aktuella styrda bedömning. Ingen annan bedömning ' +
+        'används i dess ställe; ladda om bedömningen och försök igen.',
+      code: 'ASSESSMENT_ID_MISMATCH',
+      failureClass: 'ASSESSMENT_NOT_CURRENT',
+      reasonCode: 'REQUESTED_ASSESSMENT_IS_NOT_THE_CURRENT_ASSESSMENT',
+    };
   }
 
   let assessment: LocalizationAssessmentArtifact;
@@ -452,6 +487,81 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     return { ok: false, status: 424, error: 'Governed LU assessment is not bound to this project.' };
   }
 
+  return { ok: true, assessment, artifactRepository, currentGeometry: currentGeometry.current };
+}
+
+/**
+ * LU-ASSESSMENT-PERSISTENCE-READ-V1 (backend half).
+ *
+ * Read-only counterpart to `resolveLuViewerPresentation`: same discovery chain (project
+ * authorization -> current-geometry-aware `resolveCurrentAssessmentProjection`), but returns the
+ * assessment's own governed `findings`/`rule_refs`/`evidence_refs` rather than rendering geojson.
+ * Deliberately does NOT require a configured ViewerCapability -- reading findings is not the same
+ * product concern as rendering the map, and gating one on the other would be a wrong dependency.
+ *
+ * This is a read of an assessment that was ALREADY produced and persisted by a prior governed
+ * kernel run (via GovernedAssessmentPersistence) -- it never runs the kernel, never re-evaluates
+ * rules, and is not a second assessment path. The tamper/binding verification mirrors
+ * `resolveGovernedLocalizationPresentation` exactly (never trusts even `resolveCurrentAssessmentProjection`'s
+ * own re-verified selection without re-verifying again at the point of use).
+ *
+ * U20-D: also returns the governed layer checks (the same array the fresh run shows), the details
+ * of every pinned evidence and the property root, all resolved from CAS by governedEvidenceDetails,
+ * plus the coverage-qualified overall statement. Content that was read but fails its own identity
+ * fails the whole read-back closed (424); content that could not be read is reported per entry.
+ */
+export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessmentInput): Promise<
+  | {
+      ok: true;
+      assessmentArtifactId: string;
+      findings: LocalizationAssessmentArtifact['payload']['findings'];
+      ruleRefs: LocalizationAssessmentArtifact['payload']['rule_refs'];
+      evidenceRefs: LocalizationAssessmentArtifact['payload']['evidence_refs'];
+      systemSummary: string;
+      /** LU-REPORT-EXPORT-UI-V1. The assessment's own governed context refs -- for a caller (e.g.
+       *  PDF export) that needs human-readable property/project identity without trusting
+       *  anything client-supplied. Resolving these further is a CAS read, not a re-execution. */
+      propertyContextRef: LocalizationAssessmentArtifact['payload']['property_ref'];
+      projectContextRef: LocalizationAssessmentArtifact['payload']['project_context_ref'];
+      /** DEMO M1a / D9(a): which geometry this assessment was produced for, and how it came about. */
+      localizationGeometry: LuAssessmentGeometryProvenance;
+      /**
+       * K0: the machine-readable document check, derived from this assessment's own pinned
+       * evidence_refs -- the same object the fresh generate-report run showed as its
+       * `governed_layer_checks` element `layer: 'document'`. Never CHECKED_NO_HIT in v1.
+       */
+      documentCheck: GovernedDocumentCheck;
+      /** U20-D: the same array as the fresh run's `executionMotor.governed_layer_checks`. */
+      governedLayerChecks: readonly PresentedGovernedLayerCheck[];
+      /** U20-D: one entry per pinned evidence ref, resolved from CAS. */
+      evidenceDetails: readonly GovernedEvidenceDetail[];
+      /** U20-D (K5): the property root's provenance and assurance. */
+      propertyRoot: PropertyRootDetails;
+      /** U20-D / OD-K0-1: the risk level only together with the governed check coverage. */
+      overallStatement: GovernedOverallStatement;
+    }
+  | CurrentAssessmentFailure
+  | GovernedEvidenceIntegrityFailure
+> {
+  const core = await resolveCurrentLuAssessmentCore(input);
+  if (core.ok === false) return core;
+  const { assessment, artifactRepository, currentGeometry } = core;
+
+  const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
+  if (details.integrity.ok === false) {
+    return {
+      ok: false,
+      status: 424,
+      error:
+        `Bedömningens underlag klarade inte integritetskontrollen (${details.integrity.failureClass}: ` +
+        `${details.integrity.artifactId}). Bedömningen visas inte.`,
+      code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
+      failureClass: details.integrity.failureClass,
+      reasonCode: details.integrity.failureClass,
+    };
+  }
+  const verdict = governedVerdictFromFindings(assessment.payload.findings);
+
   return {
     ok: true,
     assessmentArtifactId: assessment.artifact_id,
@@ -467,11 +577,15 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     // (read from the CAS-verified geometry artifact, never from a client or a projection row).
     localizationGeometry: {
       artifact_id: assessment.payload.localization_geometry_ref?.artifact_id ?? null,
-      provenance: currentGeometry.current?.geometry.payload.provenance ?? null,
-      provenance_label_sv: localizationGeometryProvenanceLabelSv(currentGeometry.current?.geometry.payload.provenance),
+      provenance: currentGeometry?.geometry.payload.provenance ?? null,
+      provenance_label_sv: localizationGeometryProvenanceLabelSv(currentGeometry?.geometry.payload.provenance),
     },
     // K0: from the tamper-verified assessment's pinned refs only (no live read, not from findings).
     documentCheck: computeGovernedDocumentCheck(assessment.payload.evidence_refs),
+    governedLayerChecks: details.governedLayerChecks,
+    evidenceDetails: details.evidenceDetails,
+    propertyRoot: details.propertyRoot,
+    overallStatement: governedOverallStatement(verdict.overallRisk, details.governedLayerChecks),
   };
 }
 
@@ -493,15 +607,8 @@ export async function resolveCurrentLuAssessmentSummary(input: {
  * (dishonest). This is a smaller, honest report: only what the persisted assessment and its own
  * governed context refs actually contain.
  */
-export async function exportCurrentLuAssessmentPdf(input: {
-  readonly authUser: AuthUser;
-  readonly projectId: string;
-  readonly artifactRepository?: ArtifactRepositoryPort;
-  readonly currentBindingProvider?: ProjectContextBindingProvider;
-  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
-  readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
-}): Promise<
-  | { ok: true; buffer: Buffer; filename: string }
+export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput): Promise<
+  | { ok: true; buffer: Buffer; filename: string; assessmentArtifactId: string }
   | { ok: false; status: number; error: string }
 > {
   const summary = await resolveCurrentLuAssessmentSummary(input);
@@ -563,6 +670,30 @@ export async function exportCurrentLuAssessmentPdf(input: {
       underlag_artifact_id: summary.documentCheck.evidence_artifact_id,
       beskrivning: summary.documentCheck.message_sv,
     },
+    // U20-D / OD-K0-1: the risk level never alone -- always with how many governed checks were done.
+    helhetsbedomning: {
+      risk_level: summary.overallStatement.risk_level,
+      kontroller_totalt: summary.overallStatement.coverage?.checks_total ?? null,
+      kontroller_genomforda: summary.overallStatement.coverage?.checks_completed ?? null,
+      text: summary.overallStatement.statement_sv,
+    },
+    // U20-D: the same governed layer checks as the fresh run and the read-back (SI-2 wording,
+    // SI-3 coverage limitation per layer from the ADMIT v1 contracts).
+    lagerkontroller: summary.governedLayerChecks.map((check) => ({
+      kontroll: governedLayerLabelSv(check.layer),
+      lager: check.layer,
+      regel: check.rule_id,
+      status: check.status,
+      tillstand: check.coverage_state,
+      orsak: check.reason,
+      underlag_artifact_id: check.evidence_artifact_id,
+      beskrivning: check.message_sv,
+      tackning: check.coverage_limitation_sv,
+    })),
+    // U20-D (K3/C10): per pinned evidence -- dataset version, radius, result, cap, time, binding.
+    evidensdetaljer: summary.evidenceDetails.map(pdfEvidenceDetail),
+    // U20-D (K5): the property root and its honest, lower assurance.
+    fastighetsrot: pdfPropertyRoot(summary.propertyRoot),
     findings: summary.findings.map((f) => ({
       finding_id: f.finding_id,
       rule_id: f.rule_id,
@@ -590,7 +721,53 @@ export async function exportCurrentLuAssessmentPdf(input: {
 
   const buffer = await buildJsonPdfBuffer(pdfData.title, `Projekt ${pdfData.projectId}`, pdfData);
   const safeId = pdfData.projectId.replace(/[^a-zA-Z0-9-_åäöÅÄÖ]+/g, '-').slice(0, 40) || 'projekt';
-  return { ok: true, buffer, filename: `lokaliseringsbedomning-${safeId}.pdf` };
+  return { ok: true, buffer, filename: `lokaliseringsbedomning-${safeId}.pdf`, assessmentArtifactId: summary.assessmentArtifactId };
+}
+
+/** U20-D / SI-3: what is missing reads "Saknas i underlaget", never an empty field or a zero. */
+function orMissing<T>(value: T | null | undefined): T | string {
+  return value === null || value === undefined ? MISSING_IN_BASIS_SV : value;
+}
+
+function pdfEvidenceDetail(detail: GovernedEvidenceDetail) {
+  return {
+    evidens_artifact_id: detail.evidence_artifact_id,
+    typ: detail.artifact_type,
+    lager: detail.layer ? governedLayerLabelSv(detail.layer) : MISSING_IN_BASIS_SV,
+    kalla: orMissing(detail.provider),
+    datasetversion: orMissing(detail.dataset_version_hash),
+    versionsetikett: orMissing(detail.layer_version_label),
+    kontrakt_kalla: orMissing(detail.contract?.source_id),
+    importbatch: orMissing(detail.import_batch_id),
+    sokradie_m: orMissing(detail.query?.distance_meters),
+    fragesubjekt: orMissing(detail.query?.location_ref?.artifact_id ?? detail.query?.property_context_ref?.artifact_id),
+    resultat: detail.message_sv,
+    antal_traffar: orMissing(detail.result?.match_count_observed),
+    tak_natt: orMissing(detail.result?.cap_reached),
+    hamtad: orMissing(detail.retrieved_at),
+    bindning: detail.binding_assurance,
+    bindning_beskrivning: detail.binding_note_sv,
+    tackning: detail.coverage_limitation_sv,
+    integritet: orMissing(detail.integrity),
+    tekniskt_fel: detail.technical_error_class,
+    fynd: detail.cited_by_finding_ids,
+  };
+}
+
+function pdfPropertyRoot(root: PropertyRootDetails) {
+  return {
+    status: root.status,
+    fastighet: orMissing(root.property_designation),
+    kalla: orMissing(root.source_dataset),
+    nyckel: orMissing(root.source_key),
+    kalla_uppdaterad: orMissing(root.source_updated_at),
+    uppslag_artifact_id: orMissing(root.observation_artifact_id),
+    kontraktsversion: orMissing(root.observation_contract_version),
+    datasetbindning: orMissing(root.dataset_binding),
+    sakerhet: root.assurance,
+    tekniskt_fel: root.technical_error_class,
+    beskrivning: root.message_sv,
+  };
 }
 
 /**
@@ -611,26 +788,20 @@ export async function exportCurrentLuAssessmentPdf(input: {
  * or in H15 itself. No PostGIS/current-runtime-state dependency is introduced: H15 resolves
  * everything it needs from CAS-pinned artifacts only, exactly as it already did before this unit.
  */
-export async function verifyCurrentLuAssessment(input: {
-  readonly authUser: AuthUser;
-  readonly projectId: string;
-  readonly artifactRepository?: ArtifactRepositoryPort;
-  readonly currentBindingProvider?: ProjectContextBindingProvider;
-  readonly assessmentProjectionIndex?: ProjectAssessmentProjectionIndex;
-  readonly localizationGeometryIndex?: LocalizationGeometryProjectionIndex;
-}): Promise<
+export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): Promise<
   | { ok: true; outcome: 'PASS' | 'DENY'; assessmentArtifactId: string; mismatches: readonly LuReExecutionMismatch[] }
   | { ok: false; status: number; error: string }
 > {
-  const summary = await resolveCurrentLuAssessmentSummary(input);
-  if (summary.ok === false) {
-    return summary;
+  // U20-D: identity resolution only (plus the optional explicit-id binding) -- not the evidence
+  // details, so a tampered evidence still reaches H15 and comes back as DENY/TAMPERED_EVIDENCE.
+  const core = await resolveCurrentLuAssessmentCore(input);
+  if (core.ok === false) {
+    return core;
   }
 
-  const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
   const result = await reExecuteLocalizationAssessment({
-    assessmentArtifactId: summary.assessmentArtifactId,
-    artifactRepository,
+    assessmentArtifactId: core.assessment.artifact_id,
+    artifactRepository: core.artifactRepository,
   });
 
   return {

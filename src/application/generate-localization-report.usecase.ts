@@ -50,11 +50,15 @@ import {
   resolvedGeometryProvenanceRecord,
   type LocalizationGeometryProvenanceRecord,
 } from '../../server/modules/localization/localizationGeometryCurrentness';
+import type { GovernedLayerCheck } from '../../server/modules/localization/governedLayerChecks';
 import {
-  computeGovernedDocumentCheck,
-  computeGovernedLayerChecks,
-  type GovernedLayerCheck,
-} from '../../server/modules/localization/governedLayerChecks';
+  LU_V1_GOVERNED_SPATIAL_LAYERS,
+  presentedGovernedLayerChecks,
+  resolveGovernedAssessmentDetails,
+  type GovernedAssessmentDetails,
+  type GovernedEvidenceDetail,
+  type PropertyRootDetails,
+} from '../../server/modules/localization/governedEvidenceDetails';
 import {
   governedOverallStatementSv,
   summarizeGovernedCheckCoverage,
@@ -147,6 +151,19 @@ export interface ExecutionMotorMeta {
    * CHECKED_HIT; never CHECKED_NO_HIT. The read-back returns the same object as `documentCheck`.
    */
   governed_layer_checks?: readonly GovernedLayerCheck[];
+  /**
+   * U20-D: per pinned evidence of the persisted assessment, read back from CAS (layer, dataset
+   * version hash, query radius/subject, result and cap, retrieval time, binding strength, ADMIT v1
+   * coverage limitation, citing findings). The read-back returns the same entries as
+   * `evidenceDetails`. Present only for an ASSESSED run; `null` with `evidence_details_error` when
+   * the details could not be produced (never silently absent).
+   */
+  evidence_details?: readonly GovernedEvidenceDetail[] | null;
+  evidence_details_error?: 'EVIDENCE_DETAILS_UNAVAILABLE';
+  /** U20-D (K5): the property root's provenance and its honest, lower assurance. */
+  property_root?: PropertyRootDetails;
+  /** U20-D: integrity of the content read for the details (the read-back fails closed on `ok: false`). */
+  evidence_integrity?: GovernedAssessmentDetails['integrity'];
 }
 
 /**
@@ -970,15 +987,9 @@ async function analyzeSite(
       property_ref: propRef,
       location_ref: locationRef,
       buffer_distance_meters: magicMomentBufferMeters,
-      layers: [
-        { name: 'water', version_hash: 'v1.0' },
-        { name: 'ebh', version_hash: 'v1.0' },
-        { name: 'protected_area', version_hash: 'v1.0' },
-        // LU-BREADTH-01 Track A: already-governed layers (real SUCCESS PostgisImportBatch rows),
-        // newly wired into the product query.
-        { name: 'natura2000', version_hash: 'v1.0' },
-        { name: 'water_protection_area', version_hash: 'v1.0' },
-      ] as const,
+      // water / ebh / protected_area, plus (LU-BREADTH-01 Track A) the already-governed natura2000
+      // and water_protection_area. U20-D: one list, shared with the read-back's layer checks.
+      layers: LU_V1_GOVERNED_SPATIAL_LAYERS.map((name) => ({ name, version_hash: 'v1.0' })),
       budget: {
         max_layers: 8,
         max_features_per_layer: 50,
@@ -1112,21 +1123,40 @@ async function analyzeSite(
       localization_geometry: geometryProvenance,
       ...(kernelResult.admitted && assessment_artifact_id
         ? {
-            governed_layer_checks: [
-              ...computeGovernedLayerChecks({
-                requestedLayers: queryRequest.layers.map((l) => l.name),
-                evidence: mpsEvidence,
-                unavailableLayers: mpsUnavailableLayers ?? [],
-                findings: mpsFindings,
-              }),
-              // K0: the document check, from the PERSISTED assessment's pinned evidence_refs --
-              // never from this request's draft refs, a live read or the findings -- so the
-              // read-back and the PDF (which derive it from the same refs) show the same thing.
-              computeGovernedDocumentCheck(kernelResult.assessment?.payload?.evidence_refs),
-            ],
+            // U20-D: the same function the read-back and the PDF use, over the same inputs -- the
+            // spatial evidence and findings this run persisted, and (K0) the PERSISTED assessment's
+            // pinned evidence_refs for the document check. A layer whose query failed shows through
+            // its NOT_CHECKED finding (coverage_state SOURCE_UNAVAILABLE), not through the
+            // provider's raw error text.
+            governed_layer_checks: presentedGovernedLayerChecks({
+              spatialEvidence: mpsEvidence,
+              findings: mpsFindings,
+              pinnedEvidenceRefs: kernelResult.assessment?.payload?.evidence_refs,
+            }),
           }
         : {}),
     };
+
+    // U20-D: evidence and property-root details of the persisted assessment, read back from CAS by
+    // the same module as the read-back/PDF. Presentation only: whatever happens here can never
+    // change the status, the verdict or the assessment, and a failure is reported, not thrown.
+    if (kernelResult.admitted && assessment_artifact_id && kernelResult.assessment) {
+      try {
+        const details = await resolveGovernedAssessmentDetails({
+          assessment: kernelResult.assessment,
+          artifactRepository: repo,
+        });
+        executionMotor = {
+          ...executionMotor,
+          evidence_details: details.evidenceDetails,
+          property_root: details.propertyRoot,
+          evidence_integrity: details.integrity,
+        };
+      } catch (err) {
+        logger.warn('Governed evidence details could not be resolved for the fresh run', { site: site.id, err: String(err) });
+        executionMotor = { ...executionMotor, evidence_details: null, evidence_details_error: 'EVIDENCE_DETAILS_UNAVAILABLE' };
+      }
+    }
 
   } catch (err: any) {
     if (err instanceof LocalizationGeometryCurrentnessError) {

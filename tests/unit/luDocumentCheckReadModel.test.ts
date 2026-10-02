@@ -339,9 +339,15 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     expect(summary.ok).toBe(true);
     const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
     expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
-    // Derived from the pinned refs alone: the document artifacts are not even in CAS and were never resolved.
-    expect(s.repository.resolvedTypes).not.toContain('DOCUMENT_EVIDENCE');
-    expect(s.repository.resolvedTypes).not.toContain('VERIFIED_DOCUMENT_FACT');
+    // Derived from the pinned refs alone: the document artifacts are not even in CAS. U20-D's evidence
+    // details now try to read every pinned ref and report these two honestly as EVIDENCE_NOT_FOUND --
+    // and the document check is unaffected by that (it never depends on resolving them).
+    const details = (summary as unknown as { evidenceDetails: Array<Record<string, unknown>> }).evidenceDetails;
+    for (const id of ['doc-evidence-k0', 'verified-fact-k0']) {
+      expect(details.find((d) => d.evidence_artifact_id === id)).toMatchObject({
+        resolution: 'NOT_FOUND', technical_error_class: 'EVIDENCE_NOT_FOUND',
+      });
+    }
 
     await exportCurrentLuAssessmentPdf(s.deps());
     expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({ status: 'CHECKED_HIT', orsak: null, underlag_artifact_id: 'doc-evidence-k0' });
@@ -377,6 +383,8 @@ describe('K0b: HTTP GET /api/localization/:projectId/current-assessment (real ro
     expect(res.status).toBe(200);
     expect(Object.keys(res.body)).toEqual([
       'ok', 'assessmentArtifactId', 'findings', 'ruleRefs', 'evidenceRefs', 'systemSummary', 'localizationGeometry', 'documentCheck',
+      // U20-D: additions after every pre-existing field.
+      'governedLayerChecks', 'evidenceDetails', 'propertyRoot', 'overallStatement',
     ]);
     expect(res.body.assessmentArtifactId).toBe(assessment.artifact_id);
     expect(res.body.documentCheck).toMatchObject(DOCUMENT_NOT_CHECKED);
