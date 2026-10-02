@@ -682,8 +682,79 @@ describe('canaries: destructive CLI entry points and attacker-chosen test names 
     expect(problemsOf(file, `${PG_POOL}await pool.query('TRUNCATE env.sgu_well');\n`).length).toBeGreaterThan(0);
   });
 
-  it('KNOWN LIMIT (pinned, owner decision): the test trees and *.test.* files stay test sources -- an operator script named *.test.ts or placed under tests/ is not scanned (V74); TEST-DB-GUARD holds them only when vitest runs them', () => {
-    for (const file of ['tests/ops/purge.ts', 'packages/spatial-provider-postgis/tests/helper.ts', 'scripts/db/purge.test.ts']) expect(isScannedPath(file), file).toBe(false);
+  it('owner decision (U30F3 M-2, sharpened): a file is a test source only when a configured test runner runs it -- an operator script named *.test.ts outside every runner glob, or placed in a test tree without a test name (V74), is scanned and caught', () => {
+    for (const file of ['tests/ops/purge.ts', 'packages/spatial-provider-postgis/tests/helper-purge.ts', 'scripts/db/purge.test.ts', 'server/services/purge.test.ts']) {
+      expect(isScannedPath(file), file).toBe(true);
+      expect(problemsOf(file, `${PG_POOL}await pool.query('TRUNCATE env.sgu_well');\n`).length, file).toBeGreaterThan(0);
+    }
+  });
+
+  it('control: files a configured runner runs stay test sources', () => {
+    for (const file of ['tests/unit/protectedRelationGateInventory.test.ts', 'packages/spatial-provider-postgis/tests/ProtectedRelationGate.test.ts', 'tests/e2e/admin-flow.spec.ts', 'scripts/audit/master-boundary-audit.test.ts', 'packages/alpha-runtime/src/__tests__/pfas_scenario.test.ts']) {
+      expect(isScannedPath(file), file).toBe(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U30F3 M-2 (owner decision 2026-10-02, sharpened): unknown or dynamic write channels fail closed. The
+// verifier's 26 missed forms (U30F2-VERIFICATION M-2) that the first M-2 round left open, and the same classes
+// in more spellings: a channel is recognised by the MODULE it comes from, not by a receiver's name.
+// ---------------------------------------------------------------------------------------------
+
+const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
+const KNEX = "import knexFactory from 'knex';\nconst k = knexFactory({ client: 'pg' });\n";
+
+describe('canaries: unknown or dynamic write channels fail closed (U30F3 M-2, owner decision)', () => {
+  it.each([
+    ['V27 knex instance named k, raw() with base64 SQL', 'scripts/vrogue/v27.ts', `${KNEX}await k.raw(Buffer.from('${b64('TRUNCATE env.sgu_well')}', 'base64').toString());\n`],
+    ['V28 knex raw() with a static SQL that starts with ;', 'scripts/vrogue/v28.ts', `${KNEX}await k.raw(';TRUNCATE env.sgu_well');\n`],
+    ['V29 knex query builder: DELETE without WHERE via .del()', 'scripts/vrogue/v29.ts', `${KNEX}await k('env.sgu_well').del();\n`],
+    ['V30 knex schema builder: dropTableIfExists', 'scripts/vrogue/v30.ts', `${KNEX}await k.schema.withSchema('env').dropTableIfExists('sgu_well');\n`],
+    ['V31 pg-promise transaction t.none(dynamic SQL)', 'scripts/vrogue/v31.ts', "import pgp from 'pg-promise';\nconst db = pgp()(process.env.X!);\nawait db.tx(async (t) => { await t.none(process.argv[2]!); });\n"],
+    ['V32 postgres.js instance named s, unsafe(dynamic)', 'scripts/vrogue/v32.ts', "import postgres from 'postgres';\nconst s = postgres(process.env.X!);\nawait s.unsafe(process.argv[2]!);\n"],
+    ['V33 shelljs exec(dynamic command)', 'scripts/vrogue/v33.ts', "import shell from 'shelljs';\nshell.exec(Buffer.from(process.argv[2]!, 'base64').toString());\n"],
+    ['V34 child_process renamed import: execSync as run, dynamic', 'scripts/vrogue/v34.ts', "import { execSync as run } from 'node:child_process';\nrun(`psql -c \"${process.argv[2]}\"`);\n"],
+    ['V35 child_process via a namespace import, dynamic', 'scripts/vrogue/v35.ts', "import * as nodeCp from 'node:child_process';\nnodeCp.spawnSync('psql', ['-c', process.argv[2]!]);\n"],
+    ['V36 child_process bracket access, dynamic', 'scripts/vrogue/v36.ts', "import * as child_process from 'node:child_process';\nchild_process['execSync'](process.argv[2]!);\n"],
+    ['V37 eval of decoded code', 'scripts/vrogue/v37.ts', `eval(Buffer.from('${b64("require('child_process').execSync('psql -c \"TRUNCATE env.sgu_well\"')")}', 'base64').toString());\n`],
+    ['V39 Python conn.cursor().execute(dynamic)', 'scripts/vrogue/v39.py', "import sys, psycopg2\nconn = psycopg2.connect('')\nconn.cursor().execute(sys.argv[1])\n"],
+    ['V40 Python import subprocess as sp; sp.run(psql, dynamic)', 'scripts/vrogue/v40.py', "import sys\nimport subprocess as sp\nsp.run(['psql', '-c', sys.argv[1]], check=True)\n"],
+    ['V41 Python from subprocess import run as r; r(...) dynamic', 'scripts/vrogue/v41.py', "import sys\nfrom subprocess import run as r\nr(['psql', '-c', sys.argv[1]], check=True)\n"],
+    ['V42 Python SQLAlchemy exec_driver_sql(dynamic)', 'scripts/vrogue/v42.py', "import sys\nfrom sqlalchemy import create_engine\nwith create_engine('postgresql://').begin() as conn:\n    conn.exec_driver_sql(sys.argv[1])\n"],
+    ['V43 Python asyncpg copy_records_to_table into env.sgu_well (static)', 'scripts/vrogue/v43.py', "import asyncpg\nasync def main(rows):\n    conn = await asyncpg.connect('')\n    await conn.copy_records_to_table('sgu_well', schema_name='env', records=rows)\n"],
+    ['V46 Python with-cursor named c, c.copy (psycopg3) dynamic', 'scripts/vrogue/v46.py', "import sys, psycopg\nwith psycopg.connect('') as conn:\n    with conn.cursor() as c:\n        with c.copy(sys.argv[1]) as cp:\n            cp.write(b'')\n"],
+    ['V64 sh: docker compose down -v (removes the postgres volume)', 'scripts/vrogue/v64.sh', '#!/bin/sh\ndocker compose -f docker-compose.yml down -v\n'],
+    ['V74 a script under tests/ops/ (no test name, no runner runs it)', 'tests/ops/purge.ts', `${PG_POOL}await pool.query('TRUNCATE env.sgu_well');\n`],
+    ['JS: pg-cursor over dynamic SQL', 'scripts/vrogue/g1.ts', "import Cursor from 'pg-cursor';\nimport pg from 'pg';\nconst c = new pg.Client();\nc.query(new Cursor(process.argv[2]!));\n"],
+    ['JS: require of a computed module name', 'scripts/vrogue/g2.cjs', "const m = require(process.env.MOD);\nm.run(process.argv[2]);\n"],
+    ['JS: dynamic import() of a computed module name', 'scripts/vrogue/g3.mjs', "const m = await import(process.env.MOD);\nawait m.default(process.argv[2]);\n"],
+    ['JS: a raw SQL function used as a value', 'scripts/vrogue/g4.ts', `${PRISMA}const run = p.$executeRawUnsafe.bind(p);\nawait run(process.argv[2]!);\n`],
+    ['JS: default import of child_process, method through the binding (dynamic)', 'scripts/vrogue/g5.ts', "import cp from 'child_process';\ncp.execSync(process.argv[2]!);\n"],
+    ['JS: require of child_process bound to a name, dynamic', 'scripts/vrogue/g6.cjs', "const proc = require('child_process');\nproc.spawnSync(process.argv[2], []);\n"],
+    ['JS: destructured require with a rename, dynamic', 'scripts/vrogue/g7.cjs', "const { execSync: sh } = require('node:child_process');\nsh(process.argv[2]);\n"],
+    ['JS: new Function over decoded code', 'scripts/vrogue/g8.ts', `new Function(Buffer.from('${b64('return 1')}', 'base64').toString())();\n`],
+    ['Python: psycopg2.extras.execute_values(cur, dynamic)', 'scripts/vrogue/g9.py', "import sys, psycopg2\nfrom psycopg2.extras import execute_values\ncur = psycopg2.connect('').cursor()\nexecute_values(cur, sys.argv[1], [])\n"],
+    ['Python: pexpect spawning a dynamic command', 'scripts/vrogue/g10.py', "import sys, pexpect\npexpect.run(sys.argv[1])\n"],
+    ['Python: asyncio.create_subprocess_shell(dynamic)', 'scripts/vrogue/g11.py', "import sys, asyncio\nasync def main():\n    await asyncio.create_subprocess_shell(sys.argv[1])\n"],
+    ['Python: __import__ of subprocess', 'scripts/vrogue/g12.py', "import sys\n__import__('subprocess').run(sys.argv[1], shell=True)\n"],
+    ['Python: getattr on the subprocess module', 'scripts/vrogue/g13.py', "import sys, subprocess\ngetattr(subprocess, 'run')(sys.argv[1], shell=True)\n"],
+    ['Python: exec of dynamic code', 'scripts/vrogue/g14.py', "import sys\nexec(sys.argv[1])\n"],
+    ['PowerShell: a scriptblock created from a dynamic string', 'scripts/vrogue/g15.ps1', 'param([string]$c)\n& ([scriptblock]::Create($c))\n'],
+  ])('%s -> caught', (_label, file, content) => {
+    expect(isScannedPath(file), file).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ROOT, file))).toBe(false);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['JS: named child_process import used statically', 'scripts/vrogue/c1.ts', "import { spawnSync } from 'node:child_process';\nspawnSync('git', ['status']);\n"],
+    ['JS: a namespace import of child_process used statically', 'scripts/vrogue/c2.ts', "import * as cp from 'node:child_process';\ncp.spawnSync('git', ['status']);\n"],
+    ['Python: import subprocess as sp used statically', 'scripts/vrogue/c3.py', "import subprocess as sp\nsp.run(['git', 'status'], check=True)\n"],
+    ['Python: shutil.copy and dict.copy are file / object copies', 'scripts/vrogue/c4.py', "import shutil\nshutil.copy('a.txt', 'b.txt')\nd = {}.copy()\n"],
+    ['sh: docker compose down WITHOUT -v keeps the volume', 'scripts/vrogue/c5.sh', '#!/bin/sh\ndocker compose -f docker-compose.yml down\n'],
+  ])('control: %s passes', (_label, file, content) => {
+    expect(problemsOf(file, content)).toEqual([]);
   });
 });
 
