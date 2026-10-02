@@ -3,7 +3,10 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 let membershipAllowed = true;
 vi.mock('../../server/repositories/projectAccessRepository', () => ({
   assertProjectMembership: vi.fn(async () => {
-    if (!membershipAllowed) throw new Error('REJECT_PROJECT_MEMBERSHIP: not a member');
+    // W-U20CDF5 (B1; W-CATCH2 #14): the denial is the access check's own TYPED denial (projectAccessRepository
+    // ProjectAccessDeniedError, matched by its code) -- the only failure answered 403. An untyped error is a
+    // failed read of the access facts (503 PROJECT_ACCESS_UNRESOLVED / 409 for a refusal), never "not authorized".
+    if (!membershipAllowed) throw Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED', name: 'ProjectAccessDeniedError' });
   }),
 }));
 

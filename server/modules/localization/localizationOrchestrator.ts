@@ -60,7 +60,7 @@ import { governedLayerLabelSv, storedRiskFindingsSv } from './governedCoverageSt
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
-import { readFaultHttpStatus, readFaultOfClass, readFaultSentenceSv, type ReadFaultClass } from './readFaultClassification';
+import { projectAccessFailure, readFaultHttpStatus, readFaultOfClass, readFaultSentenceSv, type ReadFaultClass } from './readFaultClassification';
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
@@ -408,8 +408,10 @@ export async function resolveLuViewerPresentation(input: {
 
   try {
     await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
-  } catch {
-    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  } catch (error) {
+    // W-U20CDF5 (B1; W-CATCH2 #14 class): 403 only for the access check's own typed denial; a failed READ of
+    // the access facts (a database that cannot answer) is 503 PROJECT_ACCESS_UNRESOLVED, never "not authorized".
+    return projectAccessFailure(error);
   }
 
   const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
@@ -998,8 +1000,10 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
 
   try {
     await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
-  } catch {
-    return { ok: false, status: 403, error: 'Not authorized for this project.' };
+  } catch (error) {
+    // W-U20CDF5 (B1; W-CATCH2 #14 class): 403 only for the access check's own typed denial; a failed READ of
+    // the access facts (a database that cannot answer) is 503 PROJECT_ACCESS_UNRESOLVED, never "not authorized".
+    return projectAccessFailure(error);
   }
 
   const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
