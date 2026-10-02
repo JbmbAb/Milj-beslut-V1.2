@@ -176,6 +176,9 @@ describe('D9(a) + U12 through generate-report: successful run keeps provenance a
       { layer: 'protected_area', rule_id: 'LU-PROTECTED-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'TABLE_MISSING' },
       { layer: 'natura2000', rule_id: 'LU-NATURA2000-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-natura2000-x', reason: null },
       { layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_EVIDENCE' },
+      // K0: the document check is appended. This file's kernel mock returns an assessment without a
+      // payload, so its pinned evidence refs cannot be read -> NOT_CHECKED, never a no-hit.
+      expect.objectContaining({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'PINNED_EVIDENCE_REFS_UNREADABLE' }),
     ]);
     // NOT_CHECKED stays structured data, untouched: the finding and unresolvedChecks are still there.
     expect(analysis.executionMotor?.findings.some((f) => f.risk_level === 'NOT_CHECKED')).toBe(true);

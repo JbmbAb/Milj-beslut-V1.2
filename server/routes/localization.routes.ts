@@ -376,6 +376,8 @@ router.get(
         evidenceRefs: result.evidenceRefs,
         systemSummary: result.systemSummary,
         localizationGeometry: result.localizationGeometry,
+        // K0: machine-readable document check from the assessment's pinned evidence refs.
+        documentCheck: result.documentCheck,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;

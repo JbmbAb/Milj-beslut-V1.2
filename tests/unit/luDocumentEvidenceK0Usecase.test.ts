@@ -223,3 +223,83 @@ describe('K0a: no ungoverned document evidence without explicit governed refs', 
     expect(kernelInput.assessment_draft.system_summary).toContain('0 document evidence');
   });
 });
+
+/**
+ * K0b: the machine-readable document check in the fresh generate-report response, derived from the
+ * PINNED evidence refs of the persisted assessment (kernelResult.assessment.payload.evidence_refs).
+ * tests/unit/luDocumentCheckReadModel.test.ts asserts the same object for the read-back and the PDF.
+ */
+const DOCUMENT_NOT_CHECKED = {
+  layer: 'document',
+  rule_id: 'LU-DOC-BESLUT-001',
+  status: 'NOT_CHECKED',
+  evidence_artifact_id: null,
+  reason: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED',
+} as const;
+
+function documentCheckOf(report: Awaited<ReturnType<typeof runReport>>) {
+  const checks = (report.siteAnalyses[0]!.executionMotor?.governed_layer_checks ?? []) as unknown as ReadonlyArray<Record<string, unknown>>;
+  return checks.filter((c) => c.layer === 'document');
+}
+
+describe('K0b: document check in the fresh generate-report response', () => {
+  it('no governed document refs -> exactly one "document" check: NOT_CHECKED, NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED, never no-hit', async () => {
+    const report = await runReport();
+    const analysis = report.siteAnalyses[0]!;
+    expect(analysis.executionMotor?.assessment_status).toBe('ASSESSED');
+
+    const [check, ...more] = documentCheckOf(report);
+    expect(more).toEqual([]);
+    expect(check).toMatchObject(DOCUMENT_NOT_CHECKED);
+    expect(check!.message_sv).toMatch(/^Dokument och tidigare beslut: inte kontrollerat\./);
+    expect(check!.status).not.toBe('CHECKED_NO_HIT');
+
+    // Presentation on top, never a replacement: the spatial checks are all still there, and the
+    // document check adds no finding and no unresolved check (no rule-level NOT_CHECKED, OD-DOC-3).
+    const layers = (analysis.executionMotor?.governed_layer_checks ?? []).map((c) => c.layer);
+    expect(layers).toEqual(['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area', 'document']);
+    expect(analysis.executionMotor?.findings).toEqual([]);
+    expect((analysis.complianceAnalysis as { unresolvedChecks?: unknown[] }).unresolvedChecks).toEqual([]);
+  });
+
+  it('is derived from the persisted assessment\'s PINNED refs, not from the request draft', async () => {
+    // The request selected no documents (draft refs are spatial only) but the persisted artifact pins
+    // DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT: the check follows the artifact.
+    kernelMock.mockImplementationOnce(async (input: { assessment_draft: { evidence_refs: unknown[] } }) => ({
+      admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
+      findings: [], finding_ids: [],
+      assessment: {
+        artifact_id: 'assessment-k0-pinned',
+        payload: {
+          evidence_refs: [
+            ...input.assessment_draft.evidence_refs,
+            { artifact_id: 'doc-evidence-b', artifact_type: 'DOCUMENT_EVIDENCE' },
+            { artifact_id: 'doc-evidence-a', artifact_type: 'DOCUMENT_EVIDENCE' },
+            { artifact_id: 'verified-fact-1', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+          ],
+        },
+      },
+    }));
+    const report = await runReport();
+    const draftRefs = (kernelMock.mock.calls[0]![0] as { assessment_draft: { evidence_refs: Array<{ artifact_type: string }> } })
+      .assessment_draft.evidence_refs;
+    expect(draftRefs.some((r) => r.artifact_type === 'DOCUMENT_EVIDENCE')).toBe(false);
+
+    expect(documentCheckOf(report)).toEqual([
+      expect.objectContaining({
+        layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'CHECKED_HIT',
+        evidence_artifact_id: 'doc-evidence-a', reason: null,
+      }),
+    ]);
+  });
+
+  it('a run without a governed assessment gets no invented document check (governed_layer_checks stays absent)', async () => {
+    kernelMock.mockResolvedValueOnce({
+      admitted: false, reason_codes: ['CAPABILITY_DENIED'], attempt_id: null, outcome_id: null, manifest_id: null,
+      findings: [], finding_ids: [], assessment: null,
+    });
+    const report = await runReport();
+    expect(report.siteAnalyses[0]!.executionMotor?.assessment_status).toBe('GOVERNANCE_DENIED');
+    expect(report.siteAnalyses[0]!.executionMotor?.governed_layer_checks).toBeUndefined();
+  });
+});

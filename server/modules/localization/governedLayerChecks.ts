@@ -9,6 +9,9 @@
  *
  * Silence is never "checked": a requested layer with neither evidence nor an unavailable entry is
  * NOT_CHECKED (reason NO_EVIDENCE), never CHECKED_NO_HIT.
+ *
+ * K0: the document check (`computeGovernedDocumentCheck` below) uses the same shape with
+ * `layer: 'document'`, but is derived from the assessment's pinned evidence refs only.
  */
 export type GovernedLayerCheckStatus = 'CHECKED_NO_HIT' | 'CHECKED_HIT' | 'NOT_CHECKED';
 
@@ -36,6 +39,91 @@ interface LayerEvidenceLike {
     readonly source_metadata: { readonly dataset: string };
     readonly result_semantics: { readonly result: unknown };
   };
+}
+
+/**
+ * K0 (DOC-EVIDENCE-CENSUS 2026-10-02; owner recommendation OD-DOC-3: derived in the read model, not
+ * a rule finding) -- the governed document check ("Dokument och tidigare beslut"), returned as the
+ * element `layer: 'document'` next to the spatial layer checks.
+ *
+ * Derived ONLY from the assessment's PINNED `evidence_refs` -- the refs inside the persisted,
+ * content-addressed LocalizationAssessmentArtifact -- never from a live read, never from the request
+ * draft and never from stored findings. A fresh run, a read-back (re-open) and the PDF compute it
+ * from the same pinned refs and therefore show the same thing.
+ *
+ * v1 states:
+ *  - CHECKED_HIT  at least one DOCUMENT_EVIDENCE and at least one VERIFIED_DOCUMENT_FACT are pinned
+ *                 (exactly the inputs LU-DOC-BESLUT-001 reads). Other documents for the property are
+ *                 still unchecked, and message_sv says so.
+ *  - NOT_CHECKED  otherwise, with a machine-readable reason.
+ * Never CHECKED_NO_HIT: in v1 no governed document corpus establishes coverage for a property, so
+ * the absence of pinned document evidence means "not checked", never "checked, nothing found". It
+ * is not a risk level either: it never reads as LOW/green and does not touch overallRisk,
+ * permitProbability, findings or unresolvedChecks (presentation on top, never a replacement).
+ */
+export const GOVERNED_DOCUMENT_CHECK_LAYER = 'document';
+export const GOVERNED_DOCUMENT_CHECK_RULE_ID = 'LU-DOC-BESLUT-001';
+
+export type GovernedDocumentCheckReason =
+  | 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED'
+  | 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED'
+  | 'PINNED_EVIDENCE_REFS_UNREADABLE';
+
+export interface GovernedDocumentCheck extends GovernedLayerCheck {
+  readonly layer: typeof GOVERNED_DOCUMENT_CHECK_LAYER;
+  readonly rule_id: typeof GOVERNED_DOCUMENT_CHECK_RULE_ID;
+  readonly status: Exclude<GovernedLayerCheckStatus, 'CHECKED_NO_HIT'>;
+  readonly reason: GovernedDocumentCheckReason | null;
+  /** Swedish presentation of status + reason. status/reason stay the machine-readable truth. */
+  readonly message_sv: string;
+}
+
+const DOCUMENT_CHECK_MESSAGE_SV: Readonly<Record<GovernedDocumentCheckReason | 'CHECKED_HIT', string>> = {
+  CHECKED_HIT:
+    'Dokument och tidigare beslut: kontrollerat – träff. Bedömningen innehåller verifierat dokumentbevis ' +
+    '(se fynd). Övriga dokument för fastigheten är inte kontrollerade.',
+  NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED:
+    'Dokument och tidigare beslut: inte kontrollerat. Bedömningen innehåller inget verifierat dokumentbevis ' +
+    'för fastigheten. Att inga dokumentfynd visas betyder inte att det saknas tidigare beslut.',
+  DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED:
+    'Dokument och tidigare beslut: inte kontrollerat. Bedömningen innehåller dokumentunderlag men inget ' +
+    'mänskligt verifierat dokumentfaktum, så underlaget har inte prövats mot regeln om tidigare beslut.',
+  PINNED_EVIDENCE_REFS_UNREADABLE:
+    'Dokument och tidigare beslut: inte kontrollerat. Bedömningens evidensreferenser kunde inte läsas.',
+};
+
+function pinnedIdsOfType(refs: readonly unknown[], artifactType: string): string[] {
+  const ids: string[] = [];
+  for (const ref of refs) {
+    if (!ref || typeof ref !== 'object') continue;
+    const { artifact_id: id, artifact_type: type } = ref as { artifact_id?: unknown; artifact_type?: unknown };
+    if (type === artifactType && typeof id === 'string' && id.length > 0) ids.push(id);
+  }
+  return ids.sort();
+}
+
+/** @param pinnedEvidenceRefs the persisted assessment's own `payload.evidence_refs`. */
+export function computeGovernedDocumentCheck(pinnedEvidenceRefs: unknown): GovernedDocumentCheck {
+  const make = (
+    status: GovernedDocumentCheck['status'],
+    reason: GovernedDocumentCheckReason | null,
+    evidenceArtifactId: string | null,
+  ): GovernedDocumentCheck => ({
+    layer: GOVERNED_DOCUMENT_CHECK_LAYER,
+    rule_id: GOVERNED_DOCUMENT_CHECK_RULE_ID,
+    status,
+    evidence_artifact_id: evidenceArtifactId,
+    reason,
+    message_sv: DOCUMENT_CHECK_MESSAGE_SV[reason ?? 'CHECKED_HIT'],
+  });
+
+  if (!Array.isArray(pinnedEvidenceRefs)) return make('NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null);
+  const documentEvidenceIds = pinnedIdsOfType(pinnedEvidenceRefs, 'DOCUMENT_EVIDENCE');
+  if (documentEvidenceIds.length === 0) return make('NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null);
+  if (pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT').length === 0) {
+    return make('NOT_CHECKED', 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED', documentEvidenceIds[0]!);
+  }
+  return make('CHECKED_HIT', null, documentEvidenceIds[0]!);
 }
 
 export function computeGovernedLayerChecks(input: {

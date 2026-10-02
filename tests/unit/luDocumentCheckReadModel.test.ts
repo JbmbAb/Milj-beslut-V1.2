@@ -1,0 +1,416 @@
+/**
+ * K0b (DOC-EVIDENCE-CENSUS 2026-10-02) -- the machine-readable document check in the read model.
+ *
+ * The document check is derived ONLY from the persisted assessment's pinned `evidence_refs`, so the
+ * read-back (GET current-assessment -> resolveCurrentLuAssessmentSummary) and the PDF
+ * (exportCurrentLuAssessmentPdf) show exactly what the fresh generate-report run showed
+ * (tests/unit/luDocumentEvidenceK0Usecase.test.ts asserts the same object for the fresh run).
+ *
+ * v1: NOT_CHECKED with a machine-readable reason, or CHECKED_HIT when DOCUMENT_EVIDENCE plus a
+ * VERIFIED_DOCUMENT_FACT are pinned. Never CHECKED_NO_HIT, never a risk level.
+ *
+ * Hermetic: server/db/prisma is the throwing guard; every index is in memory; CAS is in memory.
+ * Setup mirrors tests/unit/exportCurrentLuAssessmentPdf.test.ts.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
+vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
+  PrismaLocalizationGeometryProjectionIndex: class {
+    async register() {}
+    async listForProject() { return []; }
+  },
+}));
+vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => ({
+  PrismaLocalizationGeometrySupersessionIndex: class {
+    async register() {}
+    async listForProject() { return []; }
+  },
+}));
+vi.mock('../../server/repositories/projectAccessRepository', () => ({
+  assertProjectMembership: vi.fn(async () => undefined),
+}));
+// HTTP-level case only: the route builds its own repository / indexes / verifier, so they are
+// pointed at this file's in-memory instances (same pattern as the M1a HTTP test).
+const routeState = vi.hoisted(() => ({
+  repository: null as unknown,
+  bindingIndex: null as unknown,
+  projectionIndex: null as unknown,
+  verification: null as unknown,
+}));
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  MimersIntegration: { create: vi.fn(async () => ({ artifactRepository: routeState.repository })) },
+}));
+vi.mock('../../server/repositories/projectContextBindingRepository', () => ({
+  PrismaProjectContextBindingIndex: class {
+    register(...args: unknown[]) { return (routeState.bindingIndex as { register: (...a: unknown[]) => unknown }).register(...args); }
+    resolve(...args: unknown[]) { return (routeState.bindingIndex as { resolve: (...a: unknown[]) => unknown }).resolve(...args); }
+    registerSupersession() { return Promise.resolve(); }
+    listBindingRefs(projectId: string) { return (routeState.bindingIndex as { listBindingRefs: (p: string) => unknown }).listBindingRefs(projectId); }
+    listSupersessionRefs() { return Promise.resolve([]); }
+  },
+}));
+vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () => ({
+  PrismaProjectAssessmentProjectionIndex: class {
+    register(...args: unknown[]) { return (routeState.projectionIndex as { register: (...a: unknown[]) => unknown }).register(...args); }
+    listForProject(projectId: string) { return (routeState.projectionIndex as { listForProject: (p: string) => unknown }).listForProject(projectId); }
+  },
+}));
+vi.mock('../../server/security/projectContextBindingIssuerKey', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getProjectContextBindingIssuerVerifier: () => routeState.verification,
+}));
+let capturedPdfData: unknown;
+vi.mock('../../server/services/pdfExportService', () => ({
+  buildJsonPdfBuffer: async (_title: string, _subtitle: string | undefined, data: unknown) => {
+    capturedPdfData = data;
+    return Buffer.from('fake-pdf-bytes-for-test');
+  },
+}));
+
+import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import type { ArtifactReference } from '../../packages/mps-compliance/src/artifacts/ArtifactReference';
+import { sha256ContentHash } from '../../packages/mps-compliance/src/canonical/sha256Canonical';
+import {
+  createProjectContextBindingArtifact,
+  createProjectContextBindingIssuerArtifact,
+  createProjectContextBindingSupersessionIssuerArtifact,
+  createGovernedLocalizationAssessment,
+  createProductLuPropertyContextArtifact,
+  createProductLuProjectContextArtifact,
+  type AssessmentFinding,
+} from '@miljobeslut/mps-lu';
+import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
+import { installOwnerIssuedProjectContextBinding } from '../../server/modules/localization/installProjectContextBinding';
+import { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
+import { attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
+import { attestProjectContextBindingSupersessionIssuerArtifact } from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
+import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
+import type { ProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
+import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
+import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
+import { computeGovernedDocumentCheck } from '../../server/modules/localization/governedLayerChecks';
+import {
+  exportCurrentLuAssessmentPdf,
+  resolveCurrentLuAssessmentSummary,
+} from '../../server/modules/localization/localizationOrchestrator';
+import type { AuthUser } from '../../server/security/types';
+import { createTokenPair } from '../../server/security/auth';
+import localizationRoutes from '../../server/routes/localization.routes';
+import express from 'express';
+import request from 'supertest';
+import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
+
+class MemoryRepository {
+  readonly values = new Map<string, unknown>();
+  readonly resolvedTypes: string[] = [];
+  async put(artifact: { artifact_id: string; body: unknown }): Promise<void> {
+    this.values.set(artifact.artifact_id, artifact.body);
+  }
+  async resolve<T>(reference: ArtifactReference): Promise<T> {
+    this.resolvedTypes.push(reference.artifact_type);
+    const value = this.values.get(reference.artifact_id);
+    if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
+    return value as T;
+  }
+}
+
+class MemoryBindingIndex implements ProjectContextBindingIndex {
+  private readonly byProjectAndContext = new Map<string, string>();
+  private readonly bindingsByProject = new Map<string, ArtifactReference[]>();
+  private key(projectId: string, context: ArtifactReference): string {
+    return `${projectId}:${context.artifact_type}:${context.artifact_id}`;
+  }
+  async register(binding: ReturnType<typeof createProjectContextBindingArtifact>): Promise<void> {
+    this.byProjectAndContext.set(this.key(binding.payload.project_id, binding.payload.project_context_ref), binding.artifact_id);
+    const list = this.bindingsByProject.get(binding.payload.project_id) ?? [];
+    if (!list.some((r) => r.artifact_id === binding.artifact_id)) {
+      list.push({ artifact_id: binding.artifact_id, artifact_type: binding.artifact_type });
+      this.bindingsByProject.set(binding.payload.project_id, list);
+    }
+  }
+  async resolve(projectId: string, context: ArtifactReference): Promise<string> {
+    const bindingId = this.byProjectAndContext.get(this.key(projectId, context));
+    if (!bindingId) throw new Error('no binding');
+    return bindingId;
+  }
+  async registerSupersession(): Promise<void> {}
+  async listBindingRefs(projectId: string): Promise<readonly ArtifactReference[]> {
+    return this.bindingsByProject.get(projectId) ?? [];
+  }
+  async listSupersessionRefs(): Promise<readonly ArtifactReference[]> {
+    return [];
+  }
+  async findProjectContextRef(): Promise<ArtifactReference> {
+    throw new Error('not used by the read-back path under test');
+  }
+}
+
+class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex {
+  private counter = 0;
+  private readonly rowsByProject = new Map<string, ProjectAssessmentProjectionRow[]>();
+  async register(row: {
+    projectId: string; assessmentArtifactId: string; assessmentArtifactType: string;
+    projectContextRef: ArtifactReference; bindingArtifactId: string; releaseArtifactId: string;
+    localizationGeometryArtifactId?: string | null;
+  }): Promise<void> {
+    const list = this.rowsByProject.get(row.projectId) ?? [];
+    this.counter += 1;
+    list.push({
+      projectId: row.projectId, assessmentArtifactId: row.assessmentArtifactId, assessmentArtifactType: row.assessmentArtifactType,
+      projectContextRefId: row.projectContextRef.artifact_id, projectContextRefType: row.projectContextRef.artifact_type,
+      bindingArtifactId: row.bindingArtifactId, releaseArtifactId: row.releaseArtifactId,
+      localizationGeometryArtifactId: row.localizationGeometryArtifactId ?? null, createdAt: new Date(this.counter * 1000),
+    });
+    this.rowsByProject.set(row.projectId, list);
+  }
+  async listForProject(projectId: string): Promise<readonly ProjectAssessmentProjectionRow[]> {
+    return [...(this.rowsByProject.get(projectId) ?? [])].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+}
+
+const PROJECT_ID = 'project-k0-document-check';
+const propertyBinding = { artifact_id: 'project-property-binding-k0', artifact_type: 'project_property_binding' } as const;
+const geometryRef = { artifact_id: 'geometry-k0', artifact_type: 'CANONICAL_GEOMETRY' } as const;
+const pcbIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-issuer-k0-document-check-test');
+const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provider.keyId, pcbIssuerKey.publicKey);
+const pcbIssuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: pcbIssuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
+const pcbAuthority = { artifact_id: pcbIssuer.artifact_id, artifact_type: pcbIssuer.artifact_type } as const;
+const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-k0-document-check-test');
+const RELEASE_REF = { artifact_id: 'product-release-k0', artifact_type: 'product_release' } as const;
+const AUTH_USER: AuthUser = { id: 'user-k0', organisationId: 'org-k0', bankidId: 'bankid:k0', role: 'CONSULTANT' };
+
+const SPATIAL_REFS: ArtifactReference[] = [
+  { artifact_id: 'evidence-water-k0', artifact_type: 'SPATIAL_EVIDENCE' },
+  { artifact_id: 'evidence-ebh-k0', artifact_type: 'SPATIAL_EVIDENCE' },
+];
+
+/** Same object the fresh run must show (tests/unit/luDocumentEvidenceK0Usecase.test.ts). */
+const DOCUMENT_NOT_CHECKED = {
+  layer: 'document',
+  rule_id: 'LU-DOC-BESLUT-001',
+  status: 'NOT_CHECKED',
+  evidence_artifact_id: null,
+  reason: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED',
+} as const;
+
+async function setup() {
+  const repository = new MemoryRepository();
+  const bindingIndex = new MemoryBindingIndex();
+  await repository.put({ artifact_id: pcbIssuer.artifact_id, body: pcbIssuer });
+
+  process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
+  process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
+  __resetProjectContextBindingSupersessionVerifierForTests(null);
+  const supersessionIssuerUnsigned = createProjectContextBindingSupersessionIssuerArtifact({
+    issuer_key_id: pcbSupersessionIssuerKey.provider.keyId,
+    owner_authority_ref: pcbAuthority,
+  });
+  const supersessionIssuer = {
+    ...supersessionIssuerUnsigned,
+    attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: supersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
+  };
+  await repository.put({ artifact_id: supersessionIssuer.artifact_id, body: supersessionIssuer });
+
+  const propertyContext = createProductLuPropertyContextArtifact({
+    property_identity: 'property-identity-k0',
+    property_ref: 'UPPSALA K0 1:1',
+    official_name: 'Uppsala K0 1:1',
+    geometry_ref: geometryRef,
+    municipality: 'Uppsala',
+    coordinates: [59.85, 17.63],
+    project_property_binding_ref: propertyBinding,
+  });
+  await repository.put({ artifact_id: propertyContext.artifact_id, body: propertyContext });
+  const propertyContextRef = { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type } as const;
+
+  const projectContext = createProductLuProjectContextArtifact({
+    project_id: PROJECT_ID,
+    project_name: 'K0 document check project',
+    description: 'Test project for the K0 document check',
+    created_by: AUTH_USER.id,
+    property_context_ref: propertyContextRef,
+    project_property_binding_ref: propertyBinding,
+  });
+  await repository.put({ artifact_id: projectContext.artifact_id, body: projectContext });
+  const contextRef = { artifact_id: projectContext.artifact_id, artifact_type: projectContext.artifact_type } as const;
+
+  const bindingUnsigned = createProjectContextBindingArtifact({
+    project_id: PROJECT_ID, project_context_ref: contextRef, project_property_binding_ref: propertyBinding,
+    binding_version: 'project-context-binding-v2', authority_ref: pcbAuthority, created_at: '2026-10-02T00:00:00.000Z',
+  });
+  const binding = { ...bindingUnsigned, attestation: await attestProjectContextBindingArtifact({ artifact: bindingUnsigned, issuer: pcbIssuer, signing: pcbIssuerKey.provider }) };
+  await installOwnerIssuedProjectContextBinding({ artifactRepository: repository, index: bindingIndex, binding, verification: pcbVerification });
+  const bindingRef = { artifact_id: binding.artifact_id, artifact_type: binding.artifact_type } as const;
+
+  const projectionIndex = new FakeAssessmentProjectionIndex();
+
+  /** A real governed assessment pinning exactly `evidenceRefs`, persisted and registered as current. */
+  async function persistCurrentAssessment(evidenceRefs: readonly ArtifactReference[], findings: readonly AssessmentFinding[] = []) {
+    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `k0-${Date.now()}-${Math.random()}` });
+    security.bindPrincipal('lu.site_assessment.actor');
+    const outcome = {
+      outcome_id: `outcome-k0-${Date.now()}-${Math.random()}`, artifact_type: 'execution_outcome' as const,
+      attempt_ref: { artifact_id: 'attempt-k0', artifact_type: 'execution_attempt' },
+      result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
+    };
+    const attestation = security.attestOutcome(outcome.content_hash);
+    const assessment = createGovernedLocalizationAssessment({
+      draft: {
+        site_id: 'site-k0', project_context_ref: contextRef, property_ref: propertyContextRef,
+        evidence_refs: evidenceRefs, system_summary: `k0 summary ${Math.random()}`,
+      },
+      findings, outcome, attestation,
+    });
+    await repository.put({ artifact_id: assessment.artifact_id, body: assessment });
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: bindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    return assessment;
+  }
+
+  const deps = () => ({
+    authUser: AUTH_USER,
+    projectId: PROJECT_ID,
+    artifactRepository: repository as never,
+    currentBindingProvider: new ProjectContextBindingProvider(repository as never, bindingIndex, pcbVerification),
+    assessmentProjectionIndex: projectionIndex,
+  });
+
+  return { repository, bindingIndex, projectionIndex, persistCurrentAssessment, deps };
+}
+
+type PdfData = { dokumentkontroll?: Record<string, unknown>; limitations?: string[] };
+
+beforeEach(() => {
+  capturedPdfData = undefined;
+  hermeticPrismaTouches.length = 0;
+});
+
+afterEach(() => {
+  expect(hermeticPrismaTouches).toEqual([]);
+});
+
+describe('K0b: document check in read-back and PDF (derived from the pinned evidence refs)', () => {
+  it('no document evidence pinned -> read-back and PDF both: NOT_CHECKED, NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', async () => {
+    const s = await setup();
+    const assessment = await s.persistCurrentAssessment(SPATIAL_REFS);
+
+    const summary = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(summary.ok).toBe(true);
+    if (summary.ok !== true) return;
+    expect(summary.assessmentArtifactId).toBe(assessment.artifact_id);
+    const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
+    expect(readBack).toMatchObject(DOCUMENT_NOT_CHECKED);
+    expect(readBack!.message_sv).toMatch(/^Dokument och tidigare beslut: inte kontrollerat\./);
+    // Same function, same pinned refs: the read-back IS the fresh-run object for this assessment.
+    expect(readBack).toEqual(computeGovernedDocumentCheck(assessment.payload.evidence_refs));
+
+    const pdf = await exportCurrentLuAssessmentPdf(s.deps());
+    expect(pdf.ok).toBe(true);
+    const data = capturedPdfData as PdfData;
+    expect(data.dokumentkontroll).toEqual({
+      kontroll: 'document',
+      regel: 'LU-DOC-BESLUT-001',
+      status: 'NOT_CHECKED',
+      orsak: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED',
+      underlag_artifact_id: null,
+      beskrivning: readBack!.message_sv,
+    });
+    // Existing fields stay (presentation on top, never a replacement).
+    expect(data.limitations).toContain('Inget dokumentunderlag (t.ex. tidigare beslut) ingår ännu i denna bedömning.');
+    // Never "checked, no hit" and never a risk grade anywhere in the exported document check.
+    expect(JSON.stringify(data.dokumentkontroll)).not.toMatch(/CHECKED_NO_HIT|ingen träff|LOW/);
+  });
+
+  it('DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT pinned -> CHECKED_HIT in read-back and PDF, without any live read of the document', async () => {
+    const s = await setup();
+    await s.persistCurrentAssessment([
+      ...SPATIAL_REFS,
+      { artifact_id: 'doc-evidence-k0', artifact_type: 'DOCUMENT_EVIDENCE' },
+      { artifact_id: 'verified-fact-k0', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+    ]);
+    const summary = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(summary.ok).toBe(true);
+    const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
+    expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
+    // Derived from the pinned refs alone: the document artifacts are not even in CAS and were never resolved.
+    expect(s.repository.resolvedTypes).not.toContain('DOCUMENT_EVIDENCE');
+    expect(s.repository.resolvedTypes).not.toContain('VERIFIED_DOCUMENT_FACT');
+
+    await exportCurrentLuAssessmentPdf(s.deps());
+    expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({ status: 'CHECKED_HIT', orsak: null, underlag_artifact_id: 'doc-evidence-k0' });
+  });
+
+  it('stored findings do not move the check: an LU-DOC-BESLUT-001 finding without pinned document refs stays NOT_CHECKED', async () => {
+    const s = await setup();
+    const docFinding: AssessmentFinding = {
+      finding_id: 'finding-doc-beslut-x', rule_id: 'LU-DOC-BESLUT-001', rule_version: '1.0', risk_level: 'MEDIUM',
+      explanation: 'x', evidence_refs: [],
+    };
+    await s.persistCurrentAssessment(SPATIAL_REFS, [docFinding]);
+    const summary = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect((summary as unknown as { documentCheck?: unknown }).documentCheck).toMatchObject(DOCUMENT_NOT_CHECKED);
+  });
+});
+
+describe('K0b: HTTP GET /api/localization/:projectId/current-assessment (real router + requireAuth)', () => {
+  it('the read-back body carries documentCheck next to every pre-existing field', async () => {
+    const s = await setup();
+    const assessment = await s.persistCurrentAssessment(SPATIAL_REFS);
+    routeState.repository = s.repository;
+    routeState.bindingIndex = s.bindingIndex;
+    routeState.projectionIndex = s.projectionIndex;
+    routeState.verification = pcbVerification;
+    const app = express();
+    app.use(express.json());
+    app.use(localizationRoutes);
+    const token = createTokenPair({ id: AUTH_USER.id, organisationId: AUTH_USER.organisationId, bankidId: AUTH_USER.bankidId, role: 'ADMIN' }).accessToken;
+
+    const res = await request(app).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body)).toEqual([
+      'ok', 'assessmentArtifactId', 'findings', 'ruleRefs', 'evidenceRefs', 'systemSummary', 'localizationGeometry', 'documentCheck',
+    ]);
+    expect(res.body.assessmentArtifactId).toBe(assessment.artifact_id);
+    expect(res.body.documentCheck).toMatchObject(DOCUMENT_NOT_CHECKED);
+    expect(res.body.documentCheck).toEqual(computeGovernedDocumentCheck(assessment.payload.evidence_refs));
+  });
+});
+
+describe('K0b: computeGovernedDocumentCheck (pure)', () => {
+  const DE = (id: string) => ({ artifact_id: id, artifact_type: 'DOCUMENT_EVIDENCE' });
+  const VF = (id: string) => ({ artifact_id: id, artifact_type: 'VERIFIED_DOCUMENT_FACT' });
+  const SE = (id: string) => ({ artifact_id: id, artifact_type: 'SPATIAL_EVIDENCE' });
+
+  it.each<[string, unknown, string, string | null, string | null]>([
+    ['no refs', [], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
+    ['spatial only', [SE('s1')], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
+    ['verified fact without document evidence', [VF('f1')], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
+    ['document evidence without verified fact', [SE('s1'), DE('d1')], 'NOT_CHECKED', 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED', 'd1'],
+    ['document evidence + verified fact', [DE('d2'), VF('f1'), DE('d1')], 'CHECKED_HIT', null, 'd1'],
+    ['refs not an array', undefined, 'NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null],
+    ['refs an object', { artifact_type: 'DOCUMENT_EVIDENCE' }, 'NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null],
+    ['malformed entries are ignored, never counted', [null, 7, { artifact_type: 'DOCUMENT_EVIDENCE' }, { artifact_id: '', artifact_type: 'DOCUMENT_EVIDENCE' }], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
+  ])('%s', (_label, refs, status, reason, evidenceId) => {
+    const check = computeGovernedDocumentCheck(refs);
+    expect(check).toMatchObject({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status, reason, evidence_artifact_id: evidenceId });
+    expect(check.message_sv).toMatch(/^Dokument och tidigare beslut: /);
+  });
+
+  it('never CHECKED_NO_HIT and never a "no hit" text, for any combination of pinned ref types', () => {
+    const pool = [SE('s1'), DE('d1'), VF('f1'), { artifact_id: 'x', artifact_type: 'OTHER' }];
+    for (let mask = 0; mask < 1 << pool.length; mask += 1) {
+      const refs = pool.filter((_, i) => mask & (1 << i));
+      const check = computeGovernedDocumentCheck(refs);
+      expect(['NOT_CHECKED', 'CHECKED_HIT']).toContain(check.status);
+      expect(check.message_sv).not.toMatch(/ingen träff|inga avvikelser/i);
+    }
+  });
+});

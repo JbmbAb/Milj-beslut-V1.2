@@ -37,6 +37,7 @@ import {
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
+import { computeGovernedDocumentCheck, type GovernedDocumentCheck } from './governedLayerChecks';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
 export class LocalizationDataUnavailableError extends Error {
@@ -369,6 +370,12 @@ export async function resolveCurrentLuAssessmentSummary(input: {
       projectContextRef: LocalizationAssessmentArtifact['payload']['project_context_ref'];
       /** DEMO M1a / D9(a): which geometry this assessment was produced for, and how it came about. */
       localizationGeometry: LuAssessmentGeometryProvenance;
+      /**
+       * K0: the machine-readable document check, derived from this assessment's own pinned
+       * evidence_refs -- the same object the fresh generate-report run showed as its
+       * `governed_layer_checks` element `layer: 'document'`. Never CHECKED_NO_HIT in v1.
+       */
+      documentCheck: GovernedDocumentCheck;
     }
   | { ok: false; status: number; error: string }
   | LocalizationGeometryCurrentnessFailureResponse
@@ -474,6 +481,8 @@ export async function resolveCurrentLuAssessmentSummary(input: {
       provenance: currentGeometry.current?.geometry.payload.provenance ?? null,
       provenance_label_sv: localizationGeometryProvenanceLabelSv(currentGeometry.current?.geometry.payload.provenance),
     },
+    // K0: from the tamper-verified assessment's pinned refs only (no live read, not from findings).
+    documentCheck: computeGovernedDocumentCheck(assessment.payload.evidence_refs),
   };
 }
 
@@ -555,6 +564,15 @@ export async function exportCurrentLuAssessmentPdf(input: {
       geometri_artifact_id: summary.localizationGeometry.artifact_id,
       provenance: summary.localizationGeometry.provenance,
       beskrivning: summary.localizationGeometry.provenance_label_sv,
+    },
+    // K0: the machine-readable document check -- the same object as the read-back's documentCheck.
+    dokumentkontroll: {
+      kontroll: summary.documentCheck.layer,
+      regel: summary.documentCheck.rule_id,
+      status: summary.documentCheck.status,
+      orsak: summary.documentCheck.reason,
+      underlag_artifact_id: summary.documentCheck.evidence_artifact_id,
+      beskrivning: summary.documentCheck.message_sv,
     },
     findings: summary.findings.map((f) => ({
       finding_id: f.finding_id,

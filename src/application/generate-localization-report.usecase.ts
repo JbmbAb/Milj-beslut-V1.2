@@ -44,7 +44,11 @@ import {
   resolvedGeometryProvenanceRecord,
   type LocalizationGeometryProvenanceRecord,
 } from '../../server/modules/localization/localizationGeometryCurrentness';
-import { computeGovernedLayerChecks, type GovernedLayerCheck } from '../../server/modules/localization/governedLayerChecks';
+import {
+  computeGovernedDocumentCheck,
+  computeGovernedLayerChecks,
+  type GovernedLayerCheck,
+} from '../../server/modules/localization/governedLayerChecks';
 
 export interface SiteAlternative {
   id: string;
@@ -128,6 +132,9 @@ export interface ExecutionMotorMeta {
    * DEMO M1a / U12. Per governed layer: CHECKED_NO_HIT / CHECKED_HIT / NOT_CHECKED, derived from
    * this run's own governed evidence. Present only for an ASSESSED run. Adds a signal; the
    * NOT_CHECKED findings and `unresolvedChecks` remain the structured source of truth.
+   * K0: the last element is the document check (`layer: 'document'`, see GovernedDocumentCheck),
+   * derived from the persisted assessment's pinned evidence_refs: NOT_CHECKED with a reason, or
+   * CHECKED_HIT; never CHECKED_NO_HIT. The read-back returns the same object as `documentCheck`.
    */
   governed_layer_checks?: readonly GovernedLayerCheck[];
 }
@@ -983,12 +990,18 @@ async function analyzeSite(
       localization_geometry: geometryProvenance,
       ...(kernelResult.admitted && assessment_artifact_id
         ? {
-            governed_layer_checks: computeGovernedLayerChecks({
-              requestedLayers: queryRequest.layers.map((l) => l.name),
-              evidence: mpsEvidence,
-              unavailableLayers: mpsUnavailableLayers ?? [],
-              findings: mpsFindings,
-            }),
+            governed_layer_checks: [
+              ...computeGovernedLayerChecks({
+                requestedLayers: queryRequest.layers.map((l) => l.name),
+                evidence: mpsEvidence,
+                unavailableLayers: mpsUnavailableLayers ?? [],
+                findings: mpsFindings,
+              }),
+              // K0: the document check, from the PERSISTED assessment's pinned evidence_refs --
+              // never from this request's draft refs, a live read or the findings -- so the
+              // read-back and the PDF (which derive it from the same refs) show the same thing.
+              computeGovernedDocumentCheck(kernelResult.assessment?.payload?.evidence_refs),
+            ],
           }
         : {}),
     };
