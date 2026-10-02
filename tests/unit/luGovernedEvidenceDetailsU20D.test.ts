@@ -531,6 +531,9 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     // OD-K0-1: the overall risk only together with its coverage (HIGH from the natura2000 finding).
     expect(summary.overallStatement).toEqual({
       risk_level: 'HIGH',
+      // U20CDF2 (G1): a current record -- every layer accounted for, findings and evidence consistent.
+      coverage_state: 'DETERMINED',
+      coverage_basis: [],
       coverage: {
         checks_total: 6, checks_completed: 4, checks_not_completed: 2, not_completed_layers: ['water_protection_area', 'document'],
         // U20CDF (F6): completed checks resting on a basis with known coverage gaps.
@@ -546,6 +549,7 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
       derived: true,
       derivation: 'governedVerdictFromFindings + governed layer checks (stored)',
       risk_level: 'HIGH',
+      coverage_state: 'DETERMINED',
       checks_completed: 4,
       checks_total: 6,
       not_completed_layers: ['water_protection_area', 'document'],
@@ -578,7 +582,9 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     expect(data.lagerkontroller.map((c) => c.tillstand)).toEqual(summary.governedLayerChecks.map((c) => c.coverage_state));
     expect(data.lagerkontroller.map((c) => c.beskrivning)).toEqual(summary.governedLayerChecks.map((c) => c.message_sv));
     expect(data.evidensdetaljer.map((d) => d.evidens_artifact_id)).toEqual(summary.evidenceDetails.map((d) => d.evidence_artifact_id));
-    expect(data.helhetsbedomning).toMatchObject({ risk_level: 'HIGH', kontroller_totalt: 6, kontroller_genomforda: 4, text: summary.overallStatement.statement_sv });
+    expect(data.helhetsbedomning).toMatchObject({
+      risk_level: 'HIGH', tackningsgrad: 'DETERMINED', kontroller_totalt: 6, kontroller_genomforda: 4, text: summary.overallStatement.statement_sv,
+    });
     expect(data.lokalisering).toMatchObject({ koordinater_wgs84_lng_lat: [17.63, 59.85], koordinater_sweref99tm_n_e: [6640000, 648000], srid: 3006 });
   });
 
@@ -827,11 +833,23 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     for (const check of summary.governedLayerChecks.slice(0, 5)) {
       expect(check.message_sv).toMatch(/^Inte kontrollerat: bedömningen innehåller ingen evidens för /);
     }
-    // U20CDF (U20CD verification F2): with no completed check the text names no risk level at all
-    // (the machine value risk_level stays what governedVerdictFromFindings derives).
-    expect(summary.overallStatement.statement_sv).toBe('Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.');
-    expect(summary.overallStatement.statement_sv).not.toMatch(/låg risk/i);
+    // U20CDF2 (U20CDF verification G1; owner's locked specification): this older record says nothing
+    // about any governed layer (no pinned evidence, no NOT_CHECKED finding), so its coverage cannot be
+    // established -- it is never presented as "0 av 6" (which U20CDF did here, and the owner rejected).
+    // No risk level is named (the machine value risk_level stays what governedVerdictFromFindings derives).
+    expect(summary.overallStatement).toMatchObject({
+      coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN',
+      coverage: null,
+      statement_sv: 'Täckningsgrad kan inte fastställas för denna historiska bedömning.',
+    });
+    expect(summary.overallStatement.coverage_basis).toEqual(
+      ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((layer) => `LAYER_NOT_RECORDED:${layer}`),
+    );
+    expect(summary.overallStatement.statement_sv).not.toMatch(/låg risk|\b0 av \d/i);
     expect(summary.overallStatement.risk_level).toBe('LOW');
+    expect(summary.overall_summary).toMatchObject({
+      coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', checks_completed: null, checks_total: null, not_completed_layers: null,
+    });
     expect(summary.overall_summary.statement_sv).toBe(summary.overallStatement.statement_sv);
     expect(summary.localizationGeometry).toMatchObject({
       artifact_id: null, bound_geometry_status: 'NOT_RECORDED', coordinates_wgs84: null, coordinates_sweref99tm: null, srid: null,
@@ -840,14 +858,75 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     await exportCurrentLuAssessmentPdf(s.deps());
     const data = capturedPdfData as PdfData;
     expect(data.helhetsbedomning).toMatchObject({
-      kontroller_genomforda: 0,
-      text: 'Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.',
+      tackningsgrad: 'HISTORICAL_COVERAGE_UNKNOWN',
+      kontroller_totalt: null,
+      kontroller_genomforda: null,
+      text: 'Täckningsgrad kan inte fastställas för denna historiska bedömning.',
     });
-    expect(JSON.stringify(data.helhetsbedomning)).not.toMatch(/låg risk/i);
+    expect(JSON.stringify(data.helhetsbedomning)).not.toMatch(/låg risk|\b0 av \d/i);
     expect(data.evidensdetaljer).toEqual([]);
     expect(data.fastighetsrot).toMatchObject({ status: 'NOT_RECORDED', kalla: 'Saknas i underlaget', nyckel: 'Saknas i underlaget' });
     expect(String((data.fastighetsrot as { beskrivning: string }).beskrivning)).toMatch(/Rotens datasetbindning saknas/);
     expect(data.lokalisering).toMatchObject({ koordinater_wgs84_lng_lat: 'Saknas i underlaget', srid: 'Saknas i underlaget' });
+  });
+
+  // U20CDF2 (U20CDF verification G1, probe H1 -- exact input): an older assessment without pinned
+  // evidence and a stored HIGH ebh finding used to read "Ingen samlad risknivå kan presenteras – 0 av
+  // 6 kontroller genomförda." in the read-back and the PDF, with ebh as NOT_CHECKED.
+  it('G1: an older assessment with a stored HIGH finding -> HISTORICAL_COVERAGE_UNKNOWN, the finding in full, never "0 av 6"', async () => {
+    const s = await setup({ legacyContext: true });
+    const stored = {
+      finding_id: 'finding-ebh-historical', rule_id: 'LU-EBH-001', rule_version: '2.0', risk_level: 'HIGH',
+      explanation: 'Potentiellt förorenat område inom sökradie', evidence_refs: [],
+    };
+    await s.persistBareAssessment([stored]);
+    const EXPECTED_SV =
+      'Täckningsgrad kan inte fastställas för denna historiska bedömning. ' +
+      'Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Potentiellt förorenade områden (EBH).';
+
+    const summary = await readBack(s);
+    expect(summary.overallStatement).toEqual({
+      risk_level: 'HIGH',
+      coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN',
+      coverage_basis: [
+        'LAYER_NOT_RECORDED:water', 'FINDING_WITHOUT_CONSISTENT_EVIDENCE:ebh', 'LAYER_NOT_RECORDED:protected_area',
+        'LAYER_NOT_RECORDED:natura2000', 'LAYER_NOT_RECORDED:water_protection_area',
+      ],
+      coverage: null,
+      statement_sv: EXPECTED_SV,
+    });
+    // The stored finding is shown in full, and its layer counts as processed (never NOT_CHECKED).
+    expect(summary.findings).toEqual([stored]);
+    const ebh = summary.governedLayerChecks.find((c) => c.layer === 'ebh')!;
+    expect(ebh).toMatchObject({ status: 'CHECKED_HIT', coverage_state: 'CHECKED_HIT', reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE', evidence_artifact_id: null });
+    expect(ebh.message_sv).toBe(
+      'Träff enligt bedömningens lagrade fynd för Potentiellt förorenade områden (EBH) (risknivå hög). Bedömningen innehåller ' +
+        'ingen konsistent evidens för lagret som belägger träffen (evidensen saknas, är negativ, kan inte tolkas eller står ' +
+        'bredvid ett fynd om att lagret inte kunde kontrolleras).',
+    );
+    expect(summary.overall_summary).toMatchObject({ risk_level: 'HIGH', coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', checks_completed: null, statement_sv: EXPECTED_SV });
+
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.overallStatement).toEqual(JSON.parse(JSON.stringify(summary.overallStatement)));
+    expect(res.body.findings).toEqual([stored]);
+
+    await exportCurrentLuAssessmentPdf(s.deps());
+    const data = capturedPdfData as PdfData;
+    expect(data.helhetsbedomning).toEqual({
+      risk_level: 'HIGH',
+      tackningsgrad: 'HISTORICAL_COVERAGE_UNKNOWN',
+      tackningsgrad_grund: summary.overallStatement.coverage_basis,
+      kontroller_totalt: null,
+      kontroller_genomforda: null,
+      text: EXPECTED_SV,
+    });
+    expect((data as unknown as { findings: unknown[] }).findings).toEqual([
+      { finding_id: stored.finding_id, rule_id: 'LU-EBH-001', rule_version: '2.0', risk_level: 'HIGH', explanation: stored.explanation },
+    ]);
+    for (const text of [JSON.stringify(res.body.overallStatement), JSON.stringify(data.helhetsbedomning)]) {
+      expect(text).not.toMatch(/\b0 av \d|låg risk|Ingen samlad risknivå/i);
+    }
   });
 });
 

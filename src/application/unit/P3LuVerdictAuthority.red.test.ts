@@ -138,6 +138,21 @@ const SITE = { id: "site-a", name: "Alternativ A", lat: 59.33, lng: 18.06 };
  * into the catch block and the denial branch is never exercised — the tests would then pass
  * for the wrong reason.
  */
+/**
+ * U20CDF2: the provider answers for every governed layer, as the real provider does (evidence or an
+ * unavailable entry per requested layer). Here: an executed negative existence query each. A provider
+ * that says nothing about a layer leaves a record whose coverage cannot be established (see
+ * governedCoverageStatement.ts) -- not what these verdict-authority tests are about.
+ */
+const NEGATIVE_EVIDENCE = ["water", "ebh", "protected_area", "natura2000", "water_protection_area"].map((layer) => ({
+  artifact_id: `evidence-${layer}-p3`,
+  artifact_type: "SPATIAL_EVIDENCE",
+  payload: {
+    source_metadata: { dataset: layer },
+    result_semantics: { kind: "EXISTENCE_WITHIN_DISTANCE", result: { exists: false, match_count_observed: 0, max_features_per_layer: 50 } },
+  },
+}));
+
 function spatialRuntimeStub() {
   return {
     artifactRepository: {
@@ -147,7 +162,7 @@ function spatialRuntimeStub() {
     },
     resolveSpatialProvider: vi.fn(() => ({
       // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
-      query: vi.fn(async () => ({ evidence: [], unavailable_layers: [] })),
+      query: vi.fn(async () => ({ evidence: NEGATIVE_EVIDENCE, unavailable_layers: [] })),
     })),
     wgs84ToSweref99: vi.fn(async () => [6580000, 674000] as const),
     close: vi.fn(async () => undefined),
@@ -352,11 +367,15 @@ describe("🔴 P3-LU-CANONICAL-CHAIN-01 — LU_VERDICT_AUTHORITY_V1", () => {
       expect(analysis.complianceAnalysis.overallRisk).toBe("MEDIUM");
       expect(analysis.complianceAnalysis.permitProbability).toBe(0.5);
       // U20-C / OD-K0-1: the summary text is the governed, coverage-qualified statement (never the
-      // bare level and never the live engine's "live verdict A/B"). U20CDF (F2, owner wording): this
-      // fixture's provider returns no evidence, so 0 of 6 governed checks completed and the text names
-      // no level at all; the machine values above still prove the verdict comes from the governed finding.
-      expect(analysis.complianceAnalysis.summary).toBe('Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.');
-      expect(analysis.complianceAnalysis.summary).not.toMatch(/live verdict|låg risk/i);
+      // bare level and never the live engine's "live verdict A/B"). U20CDF2 (G1; owner invariant):
+      // the governed MEDIUM finding is never dropped from the overall text -- the earlier "0 av 6"
+      // with no level at all (U20CDF) is the form the owner rejected. The provider now answers for
+      // all five layers (negative), the document check is not done: 5 of 6, MEDIUM named.
+      expect(analysis.complianceAnalysis.summary).toBe(
+        "Måttlig risk i de kontroller som utfördes; underlaget är ofullständigt: 5 av 6 kontroller genomförda.",
+      );
+      expect(analysis.complianceAnalysis.summary).not.toMatch(/live verdict|låg risk|\b0 av \d/i);
+      expect(analysis.executionMotor?.governed_coverage_state).toBe("DETERMINED");
     }
   });
 

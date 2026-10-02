@@ -61,8 +61,9 @@ import {
   type PropertyRootDetails,
 } from '../../server/modules/localization/governedEvidenceDetails';
 import {
+  assessGovernedCoverage,
   governedOverallStatementSv,
-  summarizeGovernedCheckCoverage,
+  type GovernedRecordCoverageState,
 } from '../../server/modules/localization/governedCoverageStatement';
 
 export interface SiteAlternative {
@@ -152,6 +153,14 @@ export interface ExecutionMotorMeta {
    * CHECKED_HIT; never CHECKED_NO_HIT. The read-back returns the same object as `documentCheck`.
    */
   governed_layer_checks?: readonly GovernedLayerCheck[];
+  /**
+   * U20CDF2 (U20CDF verification G1): whether this run's record lets its coverage be established
+   * (DETERMINED) or not (HISTORICAL_COVERAGE_UNKNOWN / CHECKS_UNAVAILABLE), with the machine codes
+   * why -- the same assessGovernedCoverage the read-back and the PDF use. Present with
+   * governed_layer_checks.
+   */
+  governed_coverage_state?: GovernedRecordCoverageState;
+  governed_coverage_basis?: readonly string[];
   /**
    * U20-D: per pinned evidence of the persisted assessment, read back from CAS (layer, dataset
    * version hash, query radius/subject, result and cap, retrieval time, binding strength, ADMIT v1
@@ -876,6 +885,22 @@ export function redactInternalDiagnostic(text: unknown): string | null {
     .slice(0, DIAGNOSTIC_MAX_LENGTH);
 }
 
+/**
+ * U20CDF2 (G1): the fresh run's layer checks plus its coverage state, from the same rows and the
+ * same findings the read-back uses (assessGovernedCoverage).
+ */
+function freshGovernedCoverage(
+  checks: readonly GovernedLayerCheck[],
+  findings: readonly AssessmentFinding[],
+): Pick<ExecutionMotorMeta, 'governed_layer_checks' | 'governed_coverage_state' | 'governed_coverage_basis'> {
+  const assessed = assessGovernedCoverage(checks, { findings });
+  return {
+    governed_layer_checks: checks,
+    governed_coverage_state: assessed.coverage_state,
+    governed_coverage_basis: assessed.coverage_basis,
+  };
+}
+
 /** U20-C: the Swedish summary of a site without a governed assessment (no verdict, no legacy text). */
 function nonVerdictSummarySv(status: LuAssessmentStatus | undefined): string {
   switch (status) {
@@ -1190,11 +1215,14 @@ async function analyzeSite(
             // pinned evidence_refs for the document check. A layer whose query failed shows through
             // its NOT_CHECKED finding (coverage_state SOURCE_UNAVAILABLE), not through the
             // provider's raw error text.
-            governed_layer_checks: presentedGovernedLayerChecks({
-              spatialEvidence: mpsEvidence,
-              findings: mpsFindings,
-              pinnedEvidenceRefs: kernelResult.assessment?.payload?.evidence_refs,
-            }),
+            ...freshGovernedCoverage(
+              presentedGovernedLayerChecks({
+                spatialEvidence: mpsEvidence,
+                findings: mpsFindings,
+                pinnedEvidenceRefs: kernelResult.assessment?.payload?.evidence_refs,
+              }),
+              mpsFindings,
+            ),
           }
         : {}),
     };
@@ -1289,7 +1317,10 @@ async function analyzeSite(
       restrictions: [],
       rules: [],
       ...verdict,
-      summary: governedOverallStatementSv(verdict.overallRisk, executionMotor?.governed_layer_checks),
+      // U20CDF2 (G1): coverage and risk from the same record -- the run's checks and its findings.
+      summary: governedOverallStatementSv(verdict.overallRisk, executionMotor?.governed_layer_checks, {
+        findings: executionMotor?.findings ?? [],
+      }),
       assessment_status: 'ASSESSED',
     };
   } else {
@@ -1541,9 +1572,11 @@ export class GenerateLocalizationReportUseCase {
                     bestAlternative.executionMotor?.assessment_artifact_id ?? null,
                   bestPermitProbability: bestAlternative.complianceAnalysis.permitProbability,
                   overallRisk: bestAlternative.complianceAnalysis.overallRisk,
-                  bestCheckCoverage: summarizeGovernedCheckCoverage(
-                    bestAlternative.executionMotor?.governed_layer_checks,
-                  ),
+                  // U20CDF2 (G1): the count only for a record whose coverage can be established.
+                  bestCoverageState: bestAlternative.executionMotor?.governed_coverage_state ?? null,
+                  bestCheckCoverage: assessGovernedCoverage(bestAlternative.executionMotor?.governed_layer_checks, {
+                    findings: bestAlternative.executionMotor?.findings ?? [],
+                  }).coverage,
                 }
               : {}),
             warningCount: reportWarnings.length,

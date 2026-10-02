@@ -119,6 +119,12 @@ export interface LocalizationPdfData {
      * genomförda."). Present IFF the site carries a governed verdict.
      */
     overall_statement_sv?: string;
+    /**
+     * U20CDF2 (G1): next to overall_statement_sv, whether the run's coverage could be established
+     * (DETERMINED) or not (HISTORICAL_COVERAGE_UNKNOWN / CHECKS_UNAVAILABLE). Present IFF both the
+     * statement and the run's coverage state are.
+     */
+    overall_coverage_state?: string;
     /** U20-C (K0 verification finding 1): the governed layer checks, document check included; null without a governed run. */
     governed_layer_checks: readonly GovernedLayerCheck[] | null;
     /** Why a site carries no verdict, so the PDF can state it rather than leave a blank. */
@@ -282,7 +288,12 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
           : {}),
         // U20-C / OD-K0-1: the qualified statement travels with the verdict, never the bare level.
         ...(isGovernedVerdict(analysis.complianceAnalysis)
-          ? { overall_statement_sv: analysis.complianceAnalysis.summary }
+          ? {
+              overall_statement_sv: analysis.complianceAnalysis.summary,
+              ...(analysis.executionMotor?.governed_coverage_state
+                ? { overall_coverage_state: analysis.executionMotor.governed_coverage_state }
+                : {}),
+            }
           : {}),
         governed_layer_checks: analysis.executionMotor?.governed_layer_checks ?? null,
         assessment_status: analysis.executionMotor?.assessment_status ?? 'NOT_ASSESSED',

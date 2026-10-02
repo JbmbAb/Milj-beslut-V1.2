@@ -205,9 +205,11 @@ export interface DerivedOverallSummary {
   readonly derived: true;
   readonly derivation: 'governedVerdictFromFindings + governed layer checks (stored)';
   readonly risk_level: string;
+  /** U20CDF2 (G1): DETERMINED, or why the record's coverage cannot be established; counts null then. */
+  readonly coverage_state: GovernedOverallStatement['coverage_state'];
   readonly checks_completed: number | null;
   readonly checks_total: number | null;
-  readonly not_completed_layers: readonly string[];
+  readonly not_completed_layers: readonly string[] | null;
   /** Layers whose checked dataset carries an ADMIT v1 coverage limitation (e.g. Natura 2000: SPA only). */
   readonly coverage_limited_layers: readonly string[];
   readonly document_check_status: string | null;
@@ -223,9 +225,10 @@ function derivedOverallSummary(
     derived: true,
     derivation: 'governedVerdictFromFindings + governed layer checks (stored)',
     risk_level: statement.risk_level,
+    coverage_state: statement.coverage_state,
     checks_completed: statement.coverage?.checks_completed ?? null,
     checks_total: statement.coverage?.checks_total ?? null,
-    not_completed_layers: statement.coverage?.not_completed_layers ?? [],
+    not_completed_layers: statement.coverage?.not_completed_layers ?? null,
     coverage_limited_layers: checks
       .filter((check) => check.coverage_limitation_sv !== MISSING_IN_BASIS_SV)
       .map((check) => check.layer),
@@ -707,7 +710,10 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
   const boundGeometry = await resolveBoundLocalizationGeometry(assessment, artifactRepository, String(input.projectId || '').trim());
   if (boundGeometry.ok === false) return boundGeometry;
   const verdict = governedVerdictFromFindings(assessment.payload.findings);
-  const overallStatement = governedOverallStatement(verdict.overallRisk, details.governedLayerChecks);
+  // U20CDF2 (G1): coverage and risk from the same stored record -- its findings and its checks.
+  const overallStatement = governedOverallStatement(verdict.overallRisk, details.governedLayerChecks, {
+    findings: assessment.payload.findings,
+  });
 
   return {
     ok: true,
@@ -833,6 +839,9 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
     // U20-D / OD-K0-1: the risk level never alone -- always with how many governed checks were done.
     helhetsbedomning: {
       risk_level: summary.overallStatement.risk_level,
+      // U20CDF2 (G1): machine-readable coverage state; the counts are null unless DETERMINED.
+      tackningsgrad: summary.overallStatement.coverage_state,
+      tackningsgrad_grund: summary.overallStatement.coverage_basis,
       kontroller_totalt: summary.overallStatement.coverage?.checks_total ?? null,
       kontroller_genomforda: summary.overallStatement.coverage?.checks_completed ?? null,
       text: summary.overallStatement.statement_sv,

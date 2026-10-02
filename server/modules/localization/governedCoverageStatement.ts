@@ -13,16 +13,33 @@
  *                  5 av 6 kontroller genomförda."   (owner-approved form, OD-K0-1)
  *   complete   -> "Låg risk i de kontroller som utfördes; 6 av 6 kontroller genomförda, varav 4 med
  *                  begränsad täckning."   (U20CDF F6; without the clause when none is limited)
- *   unknown    -> "Låg risk i de kontroller som utfördes; uppgift om antalet genomförda
- *                  kontroller saknas i underlaget."
  *   none done  -> "Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda."
  *                  (U20CDF, owner wording: no risk level is named when no check completed)
+ *
+ * U20CDF2 (U20CDF verification G1; owner's locked specification 2026-10-02 night): "N av M" is only
+ * stated for a record whose coverage can be established -- assessGovernedCoverage below, over the
+ * same rows the single layer-check derivation produced and the same stored findings the risk level
+ * comes from (one record, one contract):
+ *   historical -> "Täckningsgrad kan inte fastställas för denna historiska bedömning."
+ *                  (coverage_state HISTORICAL_COVERAGE_UNKNOWN: the record says nothing about a
+ *                  governed layer, or holds a combination no current run produces); never "0 av M"
+ *   no checks  -> "Täckningsgrad kan inte fastställas: uppgift om genomförda kontroller saknas i
+ *                  underlaget." (CHECKS_UNAVAILABLE; formerly "Låg risk ...", LOW 2)
+ * and a known risk is never dropped: wherever no overall level is named (no checks, historical, 0 of
+ * M), the stored HIGH/MEDIUM/LOW findings are named after the statement ("Bedömningens lagrade fynd
+ * redovisas var för sig: risknivå hög – ...").
  *
  * Presentation only. The machine-readable risk level, permitProbability, findings,
  * unresolvedChecks and the checks themselves are untouched; this text is derived from them and
  * never feeds back into them.
  */
-import type { GovernedLayerCheck } from './governedLayerChecks';
+import {
+  GOVERNED_DOCUMENT_CHECK_LAYER,
+  GOVERNED_DOCUMENT_CHECK_RULE_ID,
+  governedLayerOfRule,
+  isGovernedRiskFinding,
+  type GovernedLayerCheck,
+} from './governedLayerChecks';
 
 /** Swedish display names for the governed checks. Unknown layers are shown by their id. */
 const GOVERNED_LAYER_LABEL_SV: Readonly<Record<string, string>> = {
@@ -112,21 +129,129 @@ export function highestGovernedRiskLevel(findings: readonly { readonly risk_leve
   return RISK_LEVEL_ORDER.find((level) => findings.some((f) => f?.risk_level === level)) ?? null;
 }
 
+// ---------------------------------------------------------------------------------------------
+// U20CDF2 (G1): can the coverage of this record be established at all?
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The machine-readable coverage state of one assessment record (PRES-24: new token, owner wording):
+ *  - DETERMINED: every governed layer is accounted for, consistently with the stored findings, as a
+ *    current run records it -- "N av M" is stated;
+ *  - HISTORICAL_COVERAGE_UNKNOWN: the record lacks the coverage metadata a current run writes;
+ *  - CHECKS_UNAVAILABLE: no layer checks at all.
+ */
+export type GovernedRecordCoverageState = 'DETERMINED' | 'HISTORICAL_COVERAGE_UNKNOWN' | 'CHECKS_UNAVAILABLE';
+
+export const HISTORICAL_COVERAGE_UNKNOWN_SV = 'Täckningsgrad kan inte fastställas för denna historiska bedömning.';
+const CHECKS_UNAVAILABLE_SV = 'Täckningsgrad kan inte fastställas: uppgift om genomförda kontroller saknas i underlaget.';
+
+export interface GovernedStatementContext {
+  /** The assessment's stored findings -- the rule engine's outcome the risk level is derived from. */
+  readonly findings: readonly { readonly rule_id: string; readonly risk_level: string }[];
+}
+
+export interface GovernedCoverageAssessment {
+  readonly coverage_state: GovernedRecordCoverageState;
+  /** Machine codes of what makes the coverage undeterminable, in check order; [] when DETERMINED. */
+  readonly coverage_basis: readonly string[];
+  /** The N-of-M count; null unless DETERMINED (never reconstructed from what happens to be readable). */
+  readonly coverage: GovernedCheckCoverage | null;
+}
+
+/**
+ * Reads the rows of the single layer-check derivation (computeGovernedLayerChecks /
+ * computeGovernedDocumentCheck) together with the stored findings. A current run -- provider outcome
+ * in the normal form, rule engine over it, everything pinned -- never yields any of these, so each
+ * one marks a record that does not carry a current run's coverage metadata:
+ *  - LAYER_NOT_RECORDED:<layer>  the record says nothing about a governed layer (no evidence, no
+ *    NOT_CHECKED finding): the real provider answers for every requested layer, so only an older
+ *    producer leaves this (e.g. before negative results were persisted, or before the layer existed);
+ *  - FINDING_WITHOUT_CONSISTENT_EVIDENCE:<layer>  a stored risk finding without the consistent
+ *    evidence a current run pins with it (the layer still counts as processed);
+ *  - EVIDENCE_NOT_IN_NORMAL_FORM:<layer>  stored evidence the fresh-run gate would have rejected;
+ *  - HIT_WITHOUT_FINDING:<layer>  a hit the layer's rule did not turn into a finding;
+ *  - DOCUMENT_FINDING_WITHOUT_PINNED_DOCUMENTS  an LU-DOC-BESLUT-001 finding without the pinned
+ *    document evidence + verified fact it rests on.
+ */
+export function assessGovernedCoverage(checks: unknown, context: GovernedStatementContext): GovernedCoverageAssessment {
+  if (!Array.isArray(checks) || checks.length === 0) {
+    return { coverage_state: 'CHECKS_UNAVAILABLE', coverage_basis: [], coverage: null };
+  }
+  const findings = Array.isArray(context?.findings) ? context.findings : [];
+  const riskRules = new Set(findings.filter(isGovernedRiskFinding).map((finding) => finding.rule_id));
+  const basis: string[] = [];
+  let documentCheck: GovernedLayerCheck | null = null;
+  for (const entry of checks) {
+    if (!entry || typeof entry !== 'object') continue;
+    const check = entry as GovernedLayerCheck;
+    if (check.layer === GOVERNED_DOCUMENT_CHECK_LAYER) {
+      documentCheck = check;
+      continue;
+    }
+    if (check.reason === 'NO_EVIDENCE') basis.push(`LAYER_NOT_RECORDED:${check.layer}`);
+    else if (check.reason === 'FINDING_WITHOUT_CONSISTENT_EVIDENCE') basis.push(`FINDING_WITHOUT_CONSISTENT_EVIDENCE:${check.layer}`);
+    else if (check.reason === 'UNRECOGNIZED_RESULT') basis.push(`EVIDENCE_NOT_IN_NORMAL_FORM:${check.layer}`);
+    else if (check.status === 'CHECKED_HIT' && check.rule_id && !riskRules.has(check.rule_id)) {
+      basis.push(`HIT_WITHOUT_FINDING:${check.layer}`);
+    }
+  }
+  if (riskRules.has(GOVERNED_DOCUMENT_CHECK_RULE_ID) && documentCheck?.status !== 'CHECKED_HIT') {
+    basis.push('DOCUMENT_FINDING_WITHOUT_PINNED_DOCUMENTS');
+  }
+  if (basis.length > 0) return { coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', coverage_basis: basis, coverage: null };
+  return { coverage_state: 'DETERMINED', coverage_basis: [], coverage: summarizeGovernedCheckCoverage(checks) };
+}
+
+const STORED_FINDING_LABEL_ORDER = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area', GOVERNED_DOCUMENT_CHECK_LAYER];
+
+/**
+ * The stored HIGH/MEDIUM/LOW findings in words, highest level first, each with the checks (or, for a
+ * rule outside them, the rule id) it comes from: "risknivå hög – Natura 2000; risknivå måttlig –
+ * Brunnar". null when there is none.
+ */
+export function storedRiskFindingsSv(findings: readonly { readonly rule_id: string; readonly risk_level: string }[]): string | null {
+  const parts: string[] = [];
+  const order = (key: string) => {
+    const index = STORED_FINDING_LABEL_ORDER.indexOf(key);
+    return index >= 0 ? `0${index}` : `1${key}`;
+  };
+  for (const level of RISK_LEVEL_ORDER) {
+    const keys = new Set<string>();
+    for (const finding of findings) {
+      if (finding?.risk_level !== level) continue;
+      const layer = finding.rule_id === GOVERNED_DOCUMENT_CHECK_RULE_ID ? GOVERNED_DOCUMENT_CHECK_LAYER : governedLayerOfRule(finding.rule_id);
+      keys.add(layer ?? `rule:${finding.rule_id}`);
+    }
+    if (keys.size === 0) continue;
+    const labels = [...keys]
+      .sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0))
+      .map((key) => (key.startsWith('rule:') ? key.slice('rule:'.length) : governedLayerLabelSv(key)));
+    parts.push(`${riskLevelPhraseSv(level)} – ${labels.join(', ')}`);
+  }
+  return parts.length > 0 ? parts.join('; ') : null;
+}
+
 /**
  * @param riskLevel the governed overallRisk (unchanged machine value).
  * @param checks    the governed layer checks of the same assessment (spatial + document).
+ * @param context   U20CDF2: the same assessment's stored findings.
  */
-export function governedOverallStatementSv(riskLevel: string, checks: unknown): string {
+export function governedOverallStatementSv(riskLevel: string, checks: unknown, context: GovernedStatementContext): string {
   const risk = RISK_LEVEL_SV[riskLevel] ?? `Risknivå ${riskLevel}`;
-  const coverage = summarizeGovernedCheckCoverage(checks);
-  if (!coverage) {
-    return `${risk} i de kontroller som utfördes; uppgift om antalet genomförda kontroller saknas i underlaget.`;
-  }
+  const assessed = assessGovernedCoverage(checks, context);
+  const stored = storedRiskFindingsSv(Array.isArray(context?.findings) ? context.findings : []);
+  // U20CDF2 (owner: a known risk never disappears): named wherever no overall level is stated.
+  const storedClause = stored ? ` Bedömningens lagrade fynd redovisas var för sig: ${stored}.` : '';
+  if (assessed.coverage_state === 'CHECKS_UNAVAILABLE') return `${CHECKS_UNAVAILABLE_SV}${storedClause}`;
+  if (assessed.coverage_state === 'HISTORICAL_COVERAGE_UNKNOWN') return `${HISTORICAL_COVERAGE_UNKNOWN_SV}${storedClause}`;
+  const coverage = assessed.coverage!;
   if (coverage.checks_completed === 0) {
     // U20CDF (U20CD verification F2; DIRECTIVE-72H section 11; owner wording 2026-10-02): with no
     // completed check there is nothing a risk level could be about -- "Låg risk ... 0 av 6" would be
     // the collapse to LOW the directive forbids. No level is named; the machine value is untouched.
-    return `Ingen samlad risknivå kan presenteras – 0 av ${coverage.checks_total} kontroller genomförda.`;
+    // In a current record no M-layer finding can stand beside 0 of M (a finding makes its layer
+    // completed); a finding of another rule is still named, never dropped.
+    return `Ingen samlad risknivå kan presenteras – 0 av ${coverage.checks_total} kontroller genomförda.${storedClause}`;
   }
   if (coverage.checks_not_completed > 0) {
     // Owner-approved form (OD-K0-1, 2026-10-02): N = completed checks, M = all checks.

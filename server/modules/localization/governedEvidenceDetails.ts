@@ -56,12 +56,14 @@ import {
   type GovernedLayerCheck,
 } from './governedLayerChecks';
 import {
+  assessGovernedCoverage,
   governedLayerLabelSv,
   governedOverallStatementSv,
   highestGovernedRiskLevel,
   riskLevelPhraseSv,
-  summarizeGovernedCheckCoverage,
   type GovernedCheckCoverage,
+  type GovernedRecordCoverageState,
+  type GovernedStatementContext,
 } from './governedCoverageStatement';
 import { readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
 import { knownCoverageGapsFor, knownCoverageLimitationSv, type KnownCoverageGap } from './knownCoverageGaps';
@@ -842,6 +844,10 @@ async function resolvePropertyRoot(
 export interface GovernedOverallStatement {
   /** governedVerdictFromFindings over the stored findings: the same machine value as the fresh run. */
   readonly risk_level: string;
+  /** U20CDF2 (G1): whether this record's coverage can be established (see assessGovernedCoverage). */
+  readonly coverage_state: GovernedRecordCoverageState;
+  readonly coverage_basis: readonly string[];
+  /** The N-of-M count; null unless coverage_state is DETERMINED. */
   readonly coverage: GovernedCheckCoverage | null;
   readonly statement_sv: string;
 }
@@ -935,10 +941,17 @@ export async function resolveGovernedAssessmentDetails(input: {
 }
 
 /** The coverage-qualified overall statement (owner decision OD-K0-1) for a stored assessment. */
-export function governedOverallStatement(riskLevel: string, checks: readonly GovernedLayerCheck[]): GovernedOverallStatement {
+export function governedOverallStatement(
+  riskLevel: string,
+  checks: readonly GovernedLayerCheck[],
+  context: GovernedStatementContext,
+): GovernedOverallStatement {
+  const assessed = assessGovernedCoverage(checks, context);
   return {
     risk_level: riskLevel,
-    coverage: summarizeGovernedCheckCoverage(checks),
-    statement_sv: governedOverallStatementSv(riskLevel, checks),
+    coverage_state: assessed.coverage_state,
+    coverage_basis: assessed.coverage_basis,
+    coverage: assessed.coverage,
+    statement_sv: governedOverallStatementSv(riskLevel, checks, context),
   };
 }

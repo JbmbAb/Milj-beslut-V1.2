@@ -362,46 +362,89 @@ describe('U20CDF (U30-R2 follow-up): the raw diagnostic of a failed layer query 
 });
 
 describe('U20CDF (U20CD verification F2): no check completed -> no risk level in any text', () => {
-  // 0 of 6: the provider returned no evidence for any layer and the document check is NOT_CHECKED.
-  // The machine verdict is unchanged (no findings -> LOW / 0.95), but no text may say "Låg risk".
+  // 0 of 6: every layer's governed query failed and the document check is NOT_CHECKED.
   // Owner wording (2026-10-02): the word "låg risk" must not occur at all.
+  // U20CDF2 (G1): the provider now reports each layer as unavailable and the kernel returns the rule
+  // engine's NOT_CHECKED finding for each -- a current record that accounts for every layer, so "0 av
+  // 6" is the established count. (Before, the provider said nothing about any layer: a record whose
+  // coverage cannot be established, which is never presented as "0 av 6" -- see the last case.)
   const NONE_COMPLETED = 'Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.';
+  const NOT_CHECKED_FINDINGS = LAYERS.map((layer, i) => ({
+    finding_id: `finding-notchecked-${layer}`,
+    rule_id: ['LU-WATER-001', 'LU-EBH-001', 'LU-PROTECTED-001', 'LU-NATURA2000-001', 'LU-WATERPROTECTION-001'][i]!,
+    rule_version: '2.0', risk_level: 'NOT_CHECKED',
+    explanation: `Lagret "${layer}" kunde inte kontrolleras: källan kunde inte frågas vid bedömningen. Ej kontrollerbart - underlag saknas.`,
+    evidence_refs: [],
+  }));
   beforeEach(() => {
-    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: [] });
+    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: LAYERS.map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' })) });
+    kernelMock.mockResolvedValue({
+      admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
+      findings: NOT_CHECKED_FINDINGS, finding_ids: NOT_CHECKED_FINDINGS.map((f) => f.finding_id),
+      assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
+    });
   });
 
-  it('generate-report: summary, reasoning and the audit description state that no assessment can be made', async () => {
+  // U20CDF2: with the record a current run writes, NOT_CHECKED findings withhold permitProbability
+  // (SEM-1 / K-35 M5), so the site is not ranked: the reasoning and the audit description then say
+  // that no ranking is available (they used to repeat the summary only because the old fixture's
+  // record had no NOT_CHECKED finding). No text may name a risk level.
+  it('generate-report: the summary states that no assessment can be made; no text names a risk level', async () => {
     const res = await post('/api/localization/generate-report');
     expect(res.status).toBe(200);
     const site = res.body.siteAnalyses[0];
     expect(site.executionMotor.governed_layer_checks.map((c: { status: string }) => c.status)).toEqual(
       Array(6).fill('NOT_CHECKED'),
     );
+    expect(site.complianceAnalysis.summary).toBe(NONE_COMPLETED);
+    expect(res.body.summary.reasoning).toBe(
+      'Ingen rangordning tillgänglig: inget av 1 alternativ har en governad bedömning (LocalizationAssessmentArtifact saknas).',
+    );
     const description = String(vi.mocked(auditTrail.logAction).mock.calls[0]![5]);
     for (const text of [site.complianceAnalysis.summary, res.body.summary.reasoning, description]) {
-      expect(text).toContain(NONE_COMPLETED);
       expect(text).not.toMatch(/låg risk|måttlig risk|hög risk|i de kontroller som utfördes/i);
     }
-    // Presentation only: the machine-readable values are exactly as before.
+    // Presentation only: the machine-readable values are the governed verdict's (NOT_CHECKED findings ->
+    // LOW with permitProbability withheld, SEM-1 / K-35 M5).
     expect(site.complianceAnalysis.overallRisk).toBe('LOW');
-    expect(site.complianceAnalysis.permitProbability).toBe(0.95);
+    expect(site.complianceAnalysis.permitProbability).toBeNull();
+    expect(site.complianceAnalysis.unresolvedChecks).toHaveLength(5);
+    expect(site.executionMotor.governed_coverage_state).toBe('DETERMINED');
+    expect(site.executionMotor.governed_coverage_basis).toEqual([]);
     const details = (vi.mocked(auditTrail.logAction).mock.calls[0]![6] as { details: Record<string, unknown> }).details;
-    expect(details.overallRisk).toBe('LOW');
-    expect(details.bestCheckCoverage).toEqual({
-      checks_total: 6, checks_completed: 0, checks_not_completed: 6,
-      not_completed_layers: [...LAYERS, 'document'],
-      checks_completed_with_limited_coverage: 0, limited_coverage_layers: [],
-    });
+    // Not ranked -> audited by status only (RED-8): no risk, no coverage, no probability for it.
+    for (const key of ['overallRisk', 'bestCoverageState', 'bestCheckCoverage', 'bestPermitProbability']) {
+      expect(Object.prototype.hasOwnProperty.call(details, key)).toBe(false);
+    }
   });
 
-  it('generate-pdf-data: overall_statement_sv and the reasoning say the same, never "Låg risk"', async () => {
+  it('generate-pdf-data: overall_statement_sv says no assessment can be made, with its coverage state; never "Låg risk"', async () => {
     const res = await post('/api/localization/generate-pdf-data');
     expect(res.status).toBe(200);
     const site = res.body.pdfData.sites[0];
     expect(site.overall_statement_sv).toBe(NONE_COMPLETED);
-    expect(res.body.pdfData.summary.reasoning).toContain(NONE_COMPLETED);
+    expect(site.overall_coverage_state).toBe('DETERMINED');
     expect(JSON.stringify([site.overall_statement_sv, res.body.pdfData.summary.reasoning])).not.toMatch(/låg risk/i);
     expect(site.overallRisk).toBe('LOW');
+  });
+
+  it('U20CDF2 (G1): a provider that says nothing about any layer leaves a record whose coverage cannot be established -- never "0 av 6", never a risk level', async () => {
+    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: [] });
+    kernelMock.mockResolvedValue({
+      admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1', findings: [], finding_ids: [],
+      assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: [], findings: [] } },
+    });
+    const res = await post('/api/localization/generate-report');
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor.governed_coverage_state).toBe('HISTORICAL_COVERAGE_UNKNOWN');
+    const details = (vi.mocked(auditTrail.logAction).mock.calls[0]![6] as { details: Record<string, unknown> }).details;
+    expect(details.bestCoverageState).toBe('HISTORICAL_COVERAGE_UNKNOWN');
+    expect(details.bestCheckCoverage).toBeNull();
+    const description = String(vi.mocked(auditTrail.logAction).mock.calls[0]![5]);
+    for (const text of [site.complianceAnalysis.summary, res.body.summary.reasoning, description]) {
+      expect(text).toContain('Täckningsgrad kan inte fastställas');
+      expect(text).not.toMatch(/\b0 av \d|låg risk|måttlig risk|hög risk|i de kontroller som utfördes/i);
+    }
   });
 });
 
