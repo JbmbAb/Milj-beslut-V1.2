@@ -730,9 +730,11 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     const verified = await verifyCurrentLuAssessment(s.deps());
     expect(verified).toMatchObject({ ok: true, outcome: 'DENY', notices: [] });
     // U20CDF: a neutral Swedish result text on top of the machine outcome (no manipulation tone).
+    // U20CDF2 (add-on 3; owner): verify is replay/consistency verification, not proof of authenticity.
     expect((verified as { outcome_sv: string }).outcome_sv).toBe(
-      'Bedömningen kunde inte verifieras: återexekveringen gav inte samma resultat som den sparade bedömningen.',
+      'Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.',
     );
+    expect((verified as { outcome_sv: string }).outcome_sv).not.toMatch(/verifierats|identisk|intakt|äkt|manipul|förfalsk/i);
     expect((verified as unknown as { mismatches: Array<{ code: string }> }).mismatches.map((m) => m.code)).toContain('TAMPERED_EVIDENCE');
   });
 
@@ -1050,7 +1052,9 @@ describe('U20-D: export and verify bound to an explicit assessment id', () => {
     expect(verifyOk.body).toMatchObject({ ok: true, outcome: 'PASS', assessmentArtifactId: currentId });
     // U20CDF (U30-R2 follow-up): the machine notices travel with the answer; none here.
     expect(verifyOk.body.notices).toEqual([]);
-    expect(verifyOk.body.outcome_sv).toBe('Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.');
+    // U20CDF2 (add-on 3; owner): consistency/replay wording -- never "verifierad/identisk/intakt".
+    expect(verifyOk.body.outcome_sv).toBe('Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna.');
+    expect(verifyOk.body.outcome_sv).not.toMatch(/identisk|intakt|äkt|har verifierats/i);
 
     const malformed = await request(app()).get(`/api/localization/${PROJECT_ID}/export-assessment-pdf?assessmentArtifactId=${encodeURIComponent('a b;c')}`).set(auth);
     expect(malformed.status).toBe(400);
@@ -1120,10 +1124,10 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, outcome: 'PASS', mismatches: [], notices: [notice] });
     expect(res.body.outcome_sv).toBe(
-      'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt, men orsaken till att ' +
+      'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att ' +
         'lagret inte kontrollerades sparades inte (Skyddad natur).',
     );
-    expect(res.body.outcome_sv).not.toMatch(/manipul|förfalsk/i);
+    expect(res.body.outcome_sv).not.toMatch(/manipul|förfalsk|identisk|intakt|äkt/i);
 
     // Two layers -> plural, both named.
     state.reExecute = async (real, args) => ({
@@ -1132,7 +1136,7 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
     });
     const two = await verifyCurrentLuAssessment(s.deps());
     expect((two as { outcome_sv: string }).outcome_sv).toBe(
-      'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt, men orsaken till att ' +
+      'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att ' +
         'lagren inte kontrollerades sparades inte (Natura 2000, Brunnar).',
     );
   });

@@ -1060,18 +1060,25 @@ const NOT_CHECKED_FINDING_ID_PREFIX = 'finding-notchecked-';
  * carries NOT_CHECKED_CAUSE_NOT_PINNED is identical in layer, rule, version, risk level and evidence,
  * but the cause text of the listed NOT_CHECKED layers was never saved -- the text says so instead of
  * an unqualified "identiskt". Neutral wording; nothing here suggests tampering.
+ *
+ * U20CDF2 (coordinator add-on 3; owner 2026-10-02, U30R3 decision 2): verify is REPLAY/CONSISTENCY
+ * verification -- the re-execution matches the pinned artifacts -- not proof of authenticity (no
+ * attestation check yet). The text says exactly that ("Reproducerbarhet verifierad – resultatet
+ * matchar de pinnade artefakterna"), never "verifierad/identisk/intakt" about the assessment itself;
+ * the notices are shown under it as before. The machine fields (outcome, mismatches, notices) are
+ * unchanged.
  */
 export function verifyOutcomeSv(
   outcome: 'PASS' | 'DENY',
   notices: LuReExecutionResult['notices'],
 ): string {
   if (outcome !== 'PASS') {
-    return 'Bedömningen kunde inte verifieras: återexekveringen gav inte samma resultat som den sparade bedömningen.';
+    return 'Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.';
   }
   const unpinned = notices
     .filter((notice) => notice.code === 'NOT_CHECKED_CAUSE_NOT_PINNED')
     .flatMap((notice) => notice.finding_ids);
-  const passed = 'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt';
+  const passed = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna';
   if (unpinned.length === 0) return `${passed}.`;
   const layers = unpinned
     .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
