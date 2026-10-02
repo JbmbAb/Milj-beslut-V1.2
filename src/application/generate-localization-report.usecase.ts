@@ -51,7 +51,11 @@ import {
   type LocalizationGeometryProvenanceRecord,
 } from '../../server/modules/localization/localizationGeometryCurrentness';
 import type { GovernedLayerCheck } from '../../server/modules/localization/governedLayerChecks';
-import { assertGovernedSpatialQueryOutcome } from '../../server/modules/localization/governedSpatialEvidenceForm';
+import {
+  assertGovernedSpatialQueryOutcome,
+  GovernedSpatialEvidenceFormError,
+  SPATIAL_QUERY_OUTCOME_VIOLATION_SV,
+} from '../../server/modules/localization/governedSpatialEvidenceForm';
 import {
   LU_V1_GOVERNED_SPATIAL_LAYERS,
   presentedGovernedLayerChecks,
@@ -62,6 +66,7 @@ import {
 } from '../../server/modules/localization/governedEvidenceDetails';
 import {
   assessGovernedCoverage,
+  governedLayerLabelSv,
   governedOverallStatementSv,
   type GovernedRecordCoverageState,
 } from '../../server/modules/localization/governedCoverageStatement';
@@ -1304,6 +1309,40 @@ async function analyzeSite(
         assessment_status: err.kind === 'REFUSED' ? 'GOVERNANCE_DENIED' : 'EXECUTION_FAILED',
         findings: [],
         localization_geometry: failedClosedGeometryProvenanceRecord(err),
+      };
+    } else if (err instanceof GovernedSpatialEvidenceFormError) {
+      // U20CDF3 (U20CDF2 verification H6 / low 6): the gate stopped the run BEFORE the kernel and the
+      // rule engine -- reported as exactly that (its own code + the violation, Swedish text), never as
+      // an "ExecutionKernel error" / EXECUTION_KERNEL_ERROR. No assessment, no verdict.
+      logger.warn('Governed LU spatial query outcome rejected before the rule engine', {
+        site: site.id,
+        code: err.code,
+        violation: err.violation,
+        layer: err.layer,
+      });
+      // A layer is named only when it is a governed one (never an arbitrary provider string).
+      const layerSv =
+        err.layer !== null && (LU_V1_GOVERNED_SPATIAL_LAYERS as readonly string[]).includes(err.layer)
+          ? ` för lagret ${governedLayerLabelSv(err.layer)}`
+          : '';
+      warnings.push(
+        `Spatialt underlag avvisat: ${SPATIAL_QUERY_OUTCOME_VIOLATION_SV[err.violation]}${layerSv} ` +
+          `(${err.code}: ${err.violation}). Ingen bedömning gjordes; regelmotorn nåddes aldrig.`,
+      );
+      executionMotor = {
+        admitted: false,
+        reason_codes: [err.code, err.violation],
+        attempt_id: null,
+        outcome_id: null,
+        manifest_id: null,
+        ticket_id: null,
+        finding_ids: [],
+        assessment_artifact_id: null,
+        assessment_projection_registered: null,
+        property_context_id: null,
+        assessment_status: 'EXECUTION_FAILED',
+        findings: [],
+        ...(geometryProvenance ? { localization_geometry: geometryProvenance } : {}),
       };
     } else {
       const msg = err?.message || String(err);

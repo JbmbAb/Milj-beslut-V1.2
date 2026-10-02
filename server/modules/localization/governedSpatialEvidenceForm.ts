@@ -73,10 +73,46 @@ export function readSpatialEvidenceForm(evidence: unknown): SpatialEvidenceForm 
   return { valid: true, dataset, exists: result.exists, match_count: count };
 }
 
+/** The query-outcome level violations of the fresh-run gate (on top of the per-evidence ones). */
+export type SpatialQueryOutcomeViolation =
+  | SpatialEvidenceFormViolation
+  | 'UNAVAILABLE_WITHOUT_DATASET'
+  | 'EVIDENCE_AND_UNAVAILABLE';
+
+/** Swedish description of each violation (the machine code stays the truth, in parentheses). */
+export const SPATIAL_QUERY_OUTCOME_VIOLATION_SV: Readonly<Record<SpatialQueryOutcomeViolation, string>> = {
+  DATASET_MISSING: 'en evidens saknar lagernamn',
+  RESULT_MISSING: 'resultat saknas i evidensen',
+  RESULT_KIND_NOT_ADMITTED: 'evidensen anger en resultattyp som inte är tillåten',
+  EXISTS_NOT_BOOLEAN: 'träffuppgiften är inte ett sant/falskt-värde',
+  MATCH_COUNT_NOT_A_COUNT: 'antalet träffar är inget giltigt antal',
+  MATCH_COUNT_CONTRADICTS_EXISTS: 'antalet träffar motsäger träffuppgiften',
+  UNAVAILABLE_WITHOUT_DATASET: 'en uppgift om otillgängligt lager saknar lagernamn',
+  EVIDENCE_AND_UNAVAILABLE: 'samma lager redovisas både med evidens och som otillgängligt',
+};
+
 /**
- * The fresh-run gate: throws `REJECT_SPATIAL_EVIDENCE_FORM: <dataset> <violation>` for the first
- * entry outside the normal form. The message names only a dataset and a fixed code (no provider
- * text); the governed error sanitizer passes on the code alone.
+ * U20CDF3 (U20CDF2 verification H6 / low 6): the gate's rejection as its own typed class -- a stable
+ * machine code (REJECT_SPATIAL_EVIDENCE_FORM), the exact violation, and the layer concerned (null when
+ * the entry names none). The fresh run reports it as exactly this, never as an ExecutionKernel error:
+ * the gate stops the run before the kernel and the rule engine are reached.
+ * The message names only a layer and fixed codes (no provider text).
+ */
+export class GovernedSpatialEvidenceFormError extends Error {
+  readonly code = SPATIAL_EVIDENCE_FORM_REJECT_CODE;
+
+  constructor(
+    readonly violation: SpatialQueryOutcomeViolation,
+    readonly layer: string | null,
+  ) {
+    super(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: ${layer ?? 'okänt-lager'} ${violation}`);
+    this.name = 'GovernedSpatialEvidenceFormError';
+  }
+}
+
+/**
+ * The fresh-run gate: throws a GovernedSpatialEvidenceFormError
+ * (`REJECT_SPATIAL_EVIDENCE_FORM: <dataset> <violation>`) for the first entry outside the normal form.
  */
 export function assertGovernedSpatialQueryOutcome(outcome: {
   readonly evidence: readonly unknown[];
@@ -87,15 +123,15 @@ export function assertGovernedSpatialQueryOutcome(outcome: {
     const form = readSpatialEvidenceForm(evidence);
     if (form.valid === false) {
       const rejected = form as Extract<SpatialEvidenceForm, { valid: false }>;
-      throw new Error(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: ${rejected.dataset ?? 'okänt-lager'} ${rejected.violation}`);
+      throw new GovernedSpatialEvidenceFormError(rejected.violation, rejected.dataset);
     }
     evidenced.add(form.dataset);
   }
   for (const unavailable of outcome.unavailable_layers) {
     const dataset = unavailable && typeof unavailable === 'object' ? (unavailable as { dataset?: unknown }).dataset : undefined;
     if (typeof dataset !== 'string' || dataset.length === 0) {
-      throw new Error(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: okänt-lager UNAVAILABLE_WITHOUT_DATASET`);
+      throw new GovernedSpatialEvidenceFormError('UNAVAILABLE_WITHOUT_DATASET', null);
     }
-    if (evidenced.has(dataset)) throw new Error(`${SPATIAL_EVIDENCE_FORM_REJECT_CODE}: ${dataset} EVIDENCE_AND_UNAVAILABLE`);
+    if (evidenced.has(dataset)) throw new GovernedSpatialEvidenceFormError('EVIDENCE_AND_UNAVAILABLE', dataset);
   }
 }

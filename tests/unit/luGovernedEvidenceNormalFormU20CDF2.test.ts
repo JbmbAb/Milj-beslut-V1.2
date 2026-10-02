@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { LURuleEngine } from '../../packages/mps-lu/src/rules/LURuleEngine';
 import {
   assertGovernedSpatialQueryOutcome,
+  GovernedSpatialEvidenceFormError,
   readSpatialEvidenceForm,
 } from '../../server/modules/localization/governedSpatialEvidenceForm';
 import { computeGovernedLayerChecks } from '../../server/modules/localization/governedLayerChecks';
@@ -94,6 +95,27 @@ describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine',
     expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [{ dataset: '', reason: 'x' }] })).toThrow(
       /^REJECT_SPATIAL_EVIDENCE_FORM: /,
     );
+  });
+
+  // U20CDF3 (U20CDF2 verification H6 / low 6): the rejection is its own typed class with a stable
+  // machine code and the exact violation -- the fresh run can name it truthfully instead of
+  // "ExecutionKernel error" / EXECUTION_KERNEL_ERROR (the kernel is never reached).
+  it.each<[string, { evidence: unknown[]; unavailable_layers: unknown[] }, string, string | null]>([
+    ['exists:true with count 0', { ...valid, evidence: [...valid.evidence, ev('protected_area', { exists: true, match_count_observed: 0 })] }, 'MATCH_COUNT_CONTRADICTS_EXISTS', 'protected_area'],
+    ['exists not a boolean', { ...valid, evidence: [...valid.evidence, ev('protected_area', { exists: 'yes' })] }, 'EXISTS_NOT_BOOLEAN', 'protected_area'],
+    ['evidence and unavailable for one layer', { ...valid, unavailable_layers: [...valid.unavailable_layers, { dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }] }, 'EVIDENCE_AND_UNAVAILABLE', 'water'],
+    ['unavailable without a dataset', { evidence: [], unavailable_layers: [{ reason: 'x' }] }, 'UNAVAILABLE_WITHOUT_DATASET', null],
+    ['evidence without a dataset', { evidence: [{ artifact_id: 'x', payload: { source_metadata: {}, result_semantics: { result: { exists: false } } } }], unavailable_layers: [] }, 'DATASET_MISSING', null],
+  ])('U20CDF3 (low 6): %s -> a GovernedSpatialEvidenceFormError with code, violation and layer', (_label, outcome, violation, layer) => {
+    let thrown: unknown;
+    try {
+      assertGovernedSpatialQueryOutcome(outcome);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(GovernedSpatialEvidenceFormError);
+    expect(thrown).toMatchObject({ name: 'GovernedSpatialEvidenceFormError', code: 'REJECT_SPATIAL_EVIDENCE_FORM', violation, layer });
+    expect((thrown as Error).message).toBe(`REJECT_SPATIAL_EVIDENCE_FORM: ${layer ?? 'okänt-lager'} ${violation}`);
   });
 
   it('for every outcome the gate admits, the rule engine and the layer check agree layer by layer', () => {

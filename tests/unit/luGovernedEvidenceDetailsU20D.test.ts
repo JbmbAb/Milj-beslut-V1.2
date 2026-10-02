@@ -1159,16 +1159,27 @@ describe('U20-D: computeGovernedLayerChecks decides the contradictory cases (M2b
 });
 
 describe('U20CDF2 (G3): an evidence outside the common normal form fails the fresh run closed before the rule engine', () => {
-  it.each<[string, Parameters<typeof setup>[0]]>([
-    ['exists:true with match count 0 (verifier probe F1)', { evidenceResult: { water: { exists: true, match_count_observed: 0, max_features_per_layer: 50 } } }],
-    ['exists:false with a positive match count', { evidenceResult: { ebh: { exists: false, match_count_observed: 4, max_features_per_layer: 50 } } }],
-    ['exists not a boolean', { evidenceResult: { protected_area: { exists: 'true', match_count_observed: 1, max_features_per_layer: 50 } } }],
-    ['evidence and an unavailable entry for the same layer', { alsoUnavailable: ['natura2000'] }],
-  ])('%s -> EXECUTION_FAILED with REJECT_SPATIAL_EVIDENCE_FORM, no assessment, no verdict', async (_label, options) => {
+  // U20CDF3 (U20CDF2 verification H6 / low 6): the rejection is reported as what it is -- its own
+  // machine code plus the violation, and a Swedish text -- never as "ExecutionKernel error" /
+  // EXECUTION_KERNEL_ERROR: the kernel is never reached.
+  it.each<[string, Parameters<typeof setup>[0], string, string]>([
+    ['exists:true with match count 0 (verifier probe F1)', { evidenceResult: { water: { exists: true, match_count_observed: 0, max_features_per_layer: 50 } } },
+      'MATCH_COUNT_CONTRADICTS_EXISTS', 'antalet träffar motsäger träffuppgiften för lagret Brunnar'],
+    ['exists:false with a positive match count', { evidenceResult: { ebh: { exists: false, match_count_observed: 4, max_features_per_layer: 50 } } },
+      'MATCH_COUNT_CONTRADICTS_EXISTS', 'antalet träffar motsäger träffuppgiften för lagret Potentiellt förorenade områden (EBH)'],
+    ['exists not a boolean', { evidenceResult: { protected_area: { exists: 'true', match_count_observed: 1, max_features_per_layer: 50 } } },
+      'EXISTS_NOT_BOOLEAN', 'träffuppgiften är inte ett sant/falskt-värde för lagret Skyddad natur'],
+    ['evidence and an unavailable entry for the same layer', { alsoUnavailable: ['natura2000'] },
+      'EVIDENCE_AND_UNAVAILABLE', 'samma lager redovisas både med evidens och som otillgängligt för lagret Natura 2000'],
+  ])('%s -> EXECUTION_FAILED with REJECT_SPATIAL_EVIDENCE_FORM, no assessment, no verdict', async (_label, options, violation, what) => {
     const s = await setup(options);
     const fresh = await s.runFresh();
     expect(fresh.executionMotor).toMatchObject({ admitted: false, assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null, findings: [] });
-    expect(fresh.warnings).toEqual(['ExecutionKernel error: REJECT_SPATIAL_EVIDENCE_FORM']);
+    expect(fresh.executionMotor?.reason_codes).toEqual(['REJECT_SPATIAL_EVIDENCE_FORM', violation]);
+    expect(fresh.warnings).toEqual([
+      `Spatialt underlag avvisat: ${what} (REJECT_SPATIAL_EVIDENCE_FORM: ${violation}). Ingen bedömning gjordes; regelmotorn nåddes aldrig.`,
+    ]);
+    expect(JSON.stringify(fresh)).not.toMatch(/EXECUTION_KERNEL_ERROR|ExecutionKernel error/);
     const verdict = fresh.complianceAnalysis as { overallRisk?: unknown; permitProbability?: unknown };
     expect(verdict.overallRisk ?? null).toBeNull();
     expect(verdict.permitProbability ?? null).toBeNull();
