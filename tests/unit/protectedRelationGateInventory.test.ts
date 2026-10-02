@@ -941,6 +941,11 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
     ['B2 ADO.NET ExecuteNonQueryAsync()', 'scripts/vrogue/b2r.ps1', "$cmd = $conn.CreateCommand()\n$cmd.CommandText = $args[0]\n$n = $cmd.ExecuteNonQueryAsync().Result\n"],
     ['B2 Npgsql BeginTextImport (COPY ... FROM STDIN)', 'scripts/vrogue/b2s.ps1', "$w = $conn.BeginTextImport($args[0])\n$w.Write($rows)\n$w.Dispose()\n"],
     ['B2 SQLAlchemy Table.create', 'scripts/vrogue/b2t.py', `${PY_SQLA}Table('sgu_well', md, schema='env').create(engine)\n`],
+    // U30F4 mutation round 2 (the shorthand guard survived): the other ways a QueryConfig names its SQL
+    ['B2 node-postgres QueryConfig with a quoted text key', 'scripts/vrogue/b2u.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nawait pool.query({ 'text': process.argv[2]! });\n"],
+    ['B2 node-postgres QueryConfig with a text getter', 'scripts/vrogue/b2v.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nawait pool.query({ get text() { return process.argv[2]!; } });\n"],
+    ['B2 node-postgres QueryConfig with a static text and a later spread', 'scripts/vrogue/b2w.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst cfg = JSON.parse(process.env.W_Q!);\nawait pool.query({ text: 'SELECT 1', ...cfg });\n"],
+    ['B2 node-postgres QueryConfig shorthand after a brace in a string', 'scripts/vrogue/b2x.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst text = process.argv[2]!;\nawait pool.query({ name: '}', text });\n"],
   ])('%s -> caught', (_label, file, content) => {
     expect(isScannedPath(file), file).toBe(true);
     expect(problemsOf(file, content).length).toBeGreaterThan(0);
@@ -949,6 +954,7 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
   it.each([
     ['node-postgres QueryConfig with a static text and shorthand values', 'scripts/vrogue/c11.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst values = [1];\nawait pool.query({ name: 'one', text: 'SELECT $1::int', values });\n"],
     ['a set add/create in a file without SQLAlchemy', 'scripts/vrogue/c12.py', "import sys\nseen = set()\nseen.add(sys.argv[1])\nclient.create(sys.argv[1])\n"],
+    ['node-postgres QueryConfig with braces in its strings and a static text', 'scripts/vrogue/c13.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nawait pool.query({ name: '{', text: 'SELECT 1' });\n"],
   ])('control: %s passes', (_label, file, content) => {
     expect(problemsOf(file, content)).toEqual([]);
   });
