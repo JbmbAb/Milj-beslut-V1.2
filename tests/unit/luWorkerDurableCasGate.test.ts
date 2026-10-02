@@ -12,6 +12,7 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertLuWorkerDurableCas } from '../../server/workers/bootstrap';
 import { resetMimersCasCacheForTests } from '../../packages/mps-runtime/src/repository/createKernelArtifactRepository';
@@ -79,7 +80,8 @@ describe('assertLuWorkerDurableCas (U30-A worker start gate)', () => {
 
 describe('the four LU worker entrypoints gate on the durable CAS before polling (source check)', () => {
   it.each(LU_WORKERS)('$file', ({ file, name, start }) => {
-    const source = readFileSync(path.resolve(process.cwd(), file), 'utf8');
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const source = readFileSync(path.join(repoRoot, file), 'utf8');
     const gateCall = `await assertLuWorkerDurableCas('${name}')`;
     const gateIndex = source.indexOf(gateCall);
     const startIndex = source.indexOf(start);

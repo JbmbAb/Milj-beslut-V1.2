@@ -10,9 +10,12 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const repoRoot = process.cwd();
+// Repository root from this file's location, not process.cwd(): tests may run with cwd outside
+// the checkout (so no cwd-relative .env file is ever loaded).
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const PROOF_SCRIPTS = [
   'scripts/ops/prove-document-evidence-canonical-admission-01.ts',
