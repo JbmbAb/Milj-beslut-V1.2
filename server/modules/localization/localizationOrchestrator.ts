@@ -28,7 +28,7 @@ import {
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
-import { resolveCurrentAssessmentProjection } from './assessmentProjection';
+import { ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE, resolveCurrentAssessmentProjection } from './assessmentProjection';
 import type { CurrentLocalizationGeometry } from './localizationGeometryProjection';
 import {
   LocalizationGeometryCurrentnessError,
@@ -535,6 +535,15 @@ type CurrentAssessmentFailure =
  *  - ASSESSMENT_RESOLUTION_ERROR: the current assessment could not be determined for a technical
  *    reason (e.g. the projection index cannot be read) -- retryable.
  * The fault's own text never leaves the server.
+ *
+ * W-APR (OD-R1/OD-R2, forward-only): a candidate that may be the current assessment could not be read
+ * or verified during the selection itself (AssessmentProjectionCandidateUnverifiableError). Same
+ * classes, with the reason code saying it was the CURRENT-ASSESSMENT selection that could not finish:
+ *  - CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR (failureClass ASSESSMENT_READ_ERROR): retryable;
+ *  - CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT (failureClass ASSESSMENT_STORAGE_INTEGRITY_FAULT):
+ *    lost object, missing index entry, torn entry, corrupt bytes, tampered content, another artifact
+ *    under the id, an inconsistent projection row -- not retryable.
+ * The text says that an older assessment is never shown in its place.
  */
 export interface AssessmentReadFailure {
   ok: false;
@@ -542,18 +551,57 @@ export interface AssessmentReadFailure {
   error: string;
   code: 'ASSESSMENT_READ_ERROR';
   failureClass: 'ASSESSMENT_READ_ERROR' | 'ASSESSMENT_STORAGE_INTEGRITY_FAULT' | 'ASSESSMENT_RESOLUTION_ERROR';
-  reasonCode: 'ASSESSMENT_READ_ERROR' | 'ASSESSMENT_STORAGE_INTEGRITY_FAULT' | 'ASSESSMENT_RESOLUTION_ERROR';
+  reasonCode:
+    | 'ASSESSMENT_READ_ERROR'
+    | 'ASSESSMENT_STORAGE_INTEGRITY_FAULT'
+    | 'ASSESSMENT_RESOLUTION_ERROR'
+    | 'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR'
+    | 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT';
   retryable: boolean;
 }
 
 const NO_CURRENT_ASSESSMENT_ERROR = 'No current governed LU assessment is available for this project.';
 
-function assessmentReadFailure(failureClass: AssessmentReadFailure['failureClass'], retryable: boolean, error: string): AssessmentReadFailure {
-  return { ok: false, status: 503, error, code: 'ASSESSMENT_READ_ERROR', failureClass, reasonCode: failureClass, retryable };
+function assessmentReadFailure(
+  failureClass: AssessmentReadFailure['failureClass'],
+  retryable: boolean,
+  error: string,
+  reasonCode: AssessmentReadFailure['reasonCode'] = failureClass,
+): AssessmentReadFailure {
+  return { ok: false, status: 503, error, code: 'ASSESSMENT_READ_ERROR', failureClass, reasonCode, retryable };
+}
+
+/** W-APR: recognized by its stable code and flag (value-based, like the other storage-fault checks). */
+function isCurrentAssessmentCandidateUnverifiable(error: unknown): error is { code: string; retryable: boolean } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE &&
+    typeof (error as { retryable?: unknown }).retryable === 'boolean'
+  );
 }
 
 /** A failure of resolveCurrentAssessmentProjection: its own REJECT_* refusals are absence (404). */
 function assessmentResolutionFailure(error: unknown): { ok: false; status: number; error: string } | AssessmentReadFailure {
+  if (isCurrentAssessmentCandidateUnverifiable(error)) {
+    return error.retryable
+      ? assessmentReadFailure(
+          'ASSESSMENT_READ_ERROR',
+          true,
+          'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ur CAS ' +
+            '(tekniskt fel). Den saknas inte, men kan inte visas nu. En äldre bedömning visas aldrig i stället. ' +
+            retrySentenceSv(true),
+          'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR',
+        )
+      : assessmentReadFailure(
+          'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+          false,
+          'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
+            'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+            `${retrySentenceSv(false)} Kontakta systemets administratör.`,
+          'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
+        );
+  }
   if (error instanceof Error && /^REJECT_[A-Z0-9_]+/.test(error.message)) {
     return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
   }

@@ -13,6 +13,10 @@
  * type, untampered, project_context_ref matches the row) -> exactly one verified survivor. More
  * than one semantically distinct verified survivor is an unresolved authority conflict and fails
  * closed until an explicit signed assessment-current/supersession relation exists.
+ *
+ * W-APR (owner decisions OD-R1/OD-R2, 2026-10-02, forward-only): an eligible candidate that cannot be
+ * read or verified is never skipped -- it may be the current assessment, so the whole resolution
+ * fails closed with AssessmentProjectionCandidateUnverifiableError. See resolveCurrentAssessmentProjection.
  */
 import type { ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
 import { sha256ContentHash } from "@miljobeslut/mps-compliance/src/canonical/sha256Canonical";
@@ -27,6 +31,7 @@ import {
   type ProjectAssessmentProjectionIndex,
 } from "../../repositories/projectAssessmentProjectionRepository.js";
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
+import { isPersistentStorageFault } from "./storageFaultClassification.js";
 
 function sameHash(
   left: { readonly algorithm: string; readonly value: string },
@@ -76,6 +81,98 @@ export interface CurrentAssessmentProjection {
   readonly assessmentArtifactId: string;
 }
 
+export const ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE = "ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE" as const;
+
+/**
+ * W-APR: why a candidate that may be the current assessment could not be read or verified.
+ *  - READ_ERROR: the CAS read failed in a way whose persistence is unknown (EIO, EBUSY, a lock, an
+ *    index entry that could not be READ) -- retryable;
+ *  - STORAGE_INTEGRITY_FAULT: a lasting storage fault -- the object is gone behind its index entry,
+ *    the index entry is torn, or the bytes do not match their address (storageFaultClassification);
+ *  - MISSING_FROM_CAS: the CAS has no entry at all for an assessment the projection registered (rows
+ *    are written only after the assessment was persisted, so this is lost storage, not absence);
+ *  - TAMPERED: the content does not hash to its own content_hash / artifact_id;
+ *  - ARTIFACT_ID_MISMATCH: the CAS returned a different artifact under the requested id;
+ *  - PROJECTION_ROW_INCONSISTENT: the row's context contradicts a verified artifact that IS bound to
+ *    the current context (the row is wrong; the artifact may well be the current assessment).
+ * Every reason except READ_ERROR is lasting: a retry cannot heal it.
+ */
+export type AssessmentCandidateFaultReason =
+  | "READ_ERROR"
+  | "STORAGE_INTEGRITY_FAULT"
+  | "MISSING_FROM_CAS"
+  | "TAMPERED"
+  | "ARTIFACT_ID_MISMATCH"
+  | "PROJECTION_ROW_INCONSISTENT";
+
+export interface AssessmentCandidateFault {
+  readonly assessmentArtifactId: string;
+  readonly reason: AssessmentCandidateFaultReason;
+  readonly retryable: boolean;
+}
+
+/**
+ * W-APR (OD-R1/OD-R2): at least one candidate that may be the current assessment could not be read
+ * or verified, so the current assessment cannot be determined -- and no other candidate is selected
+ * in its place. Deliberately NOT a REJECT_* error: callers map REJECT_* to "no current assessment"
+ * (404), and this is a technical/integrity fault, never an absence. `retryable` is true only when
+ * every fault is a READ_ERROR. `faults` is sorted by id, so the error is independent of row order.
+ * The message (ids, reasons) is server-side detail and must not be sent to a client.
+ */
+export class AssessmentProjectionCandidateUnverifiableError extends Error {
+  readonly code = ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE;
+  readonly retryable: boolean;
+  readonly faults: readonly AssessmentCandidateFault[];
+
+  constructor(faults: readonly AssessmentCandidateFault[]) {
+    const sorted = [...faults].sort((a, b) =>
+      a.assessmentArtifactId < b.assessmentArtifactId ? -1 : a.assessmentArtifactId > b.assessmentArtifactId ? 1 : 0,
+    );
+    super(
+      `${ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE}: ${sorted.length} assessment candidate(s) bound to the current ` +
+        `binding/geometry could not be read or verified (${sorted.map((f) => `${f.assessmentArtifactId}: ${f.reason}`).join(", ")}); ` +
+        "the current assessment cannot be determined and no other candidate is selected in its place",
+    );
+    this.name = "AssessmentProjectionCandidateUnverifiableError";
+    this.faults = sorted;
+    this.retryable = sorted.every((f) => f.retryable);
+  }
+}
+
+/** Classifies a failed CAS read of a candidate (OD-R2: only a read of unknown persistence is retryable). */
+function candidateReadFault(error: unknown, assessmentArtifactId: string): AssessmentCandidateFault {
+  if (error instanceof Error && error.message === `Artifact not found: ${assessmentArtifactId}`) {
+    return { assessmentArtifactId, reason: "MISSING_FROM_CAS", retryable: false };
+  }
+  if (isPersistentStorageFault(error)) {
+    return { assessmentArtifactId, reason: "STORAGE_INTEGRITY_FAULT", retryable: false };
+  }
+  return { assessmentArtifactId, reason: "READ_ERROR", retryable: true };
+}
+
+/** The candidate read is exactly the requested assessment, and its content hashes to its own identity. */
+function candidateIdentityFault(value: unknown, assessmentArtifactId: string): AssessmentCandidateFault | null {
+  if (typeof value !== "object" || value === null) {
+    return { assessmentArtifactId, reason: "TAMPERED", retryable: false };
+  }
+  const assessment = value as LocalizationAssessmentArtifact;
+  if (assessment.artifact_id !== assessmentArtifactId) {
+    return { assessmentArtifactId, reason: "ARTIFACT_ID_MISMATCH", retryable: false };
+  }
+  let untampered = false;
+  try {
+    const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
+    untampered =
+      typeof assessment.content_hash === "object" &&
+      assessment.content_hash !== null &&
+      sameHash(assessment.content_hash, recomputed) &&
+      assessment.artifact_id === `assessment-${recomputed.value}`;
+  } catch {
+    untampered = false;
+  }
+  return untampered ? null : { assessmentArtifactId, reason: "TAMPERED", retryable: false };
+}
+
 /**
  * Selection order (frozen, LU-PROJECTION-RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B): load
  * candidates -> resolveCurrent(projectId) via the verified ProjectContextBinding graph -> retain
@@ -84,6 +181,25 @@ export interface CurrentAssessmentProjection {
  * verified survivor. More than one verified survivor fails closed
  * (REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT); registration order, row order, and createdAt
  * are never a tiebreaker.
+ *
+ * W-APR (OD-R1/OD-R2, forward-only). Because nothing orders the candidates, EVERY eligible candidate
+ * (row bound to this project, the current binding and -- when supplied -- the current point) may be
+ * the current assessment. A candidate is skipped ONLY when it provably cannot be current:
+ *  (1) its row is not eligible (another project, binding or point, or not an LU assessment row) --
+ *      it is never read, so a lost or broken historical assessment never blocks the current one;
+ *  (2) its own CAS-verified content is bound to another point than the current one, or to another
+ *      project context than the current binding's.
+ * Any other eligible candidate that cannot be read or verified (read error, lost object, missing
+ * index entry, torn entry, corrupt bytes, tampered content, another artifact under its id, a row that
+ * contradicts a verified current-context artifact) fails the WHOLE resolution closed with
+ * AssessmentProjectionCandidateUnverifiableError -- never a skip that lets another (older) candidate
+ * be selected, and never the REJECT_* "no assessment" absence. Every eligible candidate is examined
+ * before deciding; the fault is reported before an ambiguity refusal or a contract-version refusal.
+ *
+ * KNOWN LIMITATION (analogous to M1a's LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS):
+ * candidates come only from the projection rows. A newer assessment whose row is lost (or whose row's
+ * binding/point columns are corrupted so it looks ineligible) is invisible here, whether or not its
+ * CAS object survives; an older verified candidate is then selected. Not detected, not approved.
  */
 export async function resolveCurrentAssessmentProjection(args: {
   readonly projectId: string;
@@ -107,12 +223,15 @@ export async function resolveCurrentAssessmentProjection(args: {
     throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no assessment projection for project");
   }
 
-  let currentBinding: { readonly artifact_id: string };
+  let currentBinding: { readonly artifact_id: string; readonly payload?: { readonly project_context_ref?: ArtifactReference } };
   try {
     currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
   } catch {
     throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable");
   }
+  // The verified current binding's own context (W-APR criterion (2)); undefined only for a provider
+  // stand-in that does not return the binding artifact, in which case nothing is proven by context.
+  const currentContextRef = currentBinding.payload?.project_context_ref;
 
   const eligible = candidates.filter(
     (c) =>
@@ -128,31 +247,60 @@ export async function resolveCurrentAssessmentProjection(args: {
   // Verify EVERY eligible candidate against CAS first (never short-circuit on the first pass).
   // The ambiguity check applies only to genuine verified survivors, so a tampered/orphaned row
   // cannot manufacture a false conflict. createdAt remains operational projection metadata only.
+  // W-APR: nor can it be skipped -- a candidate that may be current and cannot be verified is a fault.
   const verified: LocalizationAssessmentArtifact[] = [];
+  const faults: AssessmentCandidateFault[] = [];
+  let contractVersionRefusal: unknown = null;
   for (const candidate of eligible) {
+    // Criterion (1): not an LU assessment row -- by the row's own type, never read.
     if (candidate.assessmentArtifactType !== "LOCALIZATION_ASSESSMENT") continue;
 
-    let assessment: LocalizationAssessmentArtifact;
+    let read: unknown;
     try {
-      assessment = await args.artifactRepository.resolve<LocalizationAssessmentArtifact>({
+      read = await args.artifactRepository.resolve<LocalizationAssessmentArtifact>({
         artifact_id: candidate.assessmentArtifactId,
         artifact_type: "LOCALIZATION_ASSESSMENT",
       });
-    } catch {
-      continue; // missing CAS object -> reject this candidate
+    } catch (error) {
+      // OD-R2: a read failure is a technical/integrity fault, never "this candidate does not exist".
+      faults.push(candidateReadFault(error, candidate.assessmentArtifactId));
+      continue;
     }
 
-    const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
-    const untampered =
-      sameHash(assessment.content_hash, recomputed) &&
-      assessment.artifact_id === `assessment-${recomputed.value}`;
-    if (!untampered) continue; // tampered/wrong artifact -> reject this candidate
+    const identityFault = candidateIdentityFault(read, candidate.assessmentArtifactId);
+    if (identityFault) {
+      faults.push(identityFault); // tampered / another artifact under this id: lasting, never skipped
+      continue;
+    }
+    const assessment = read as LocalizationAssessmentArtifact;
 
     // H2/H12: explicit version dispatch -- absent version = legacy V1 shape (no extra rules
     // beyond the hash check above); V2 marker = V2 structural rules (canonicalizer_id, canonical
     // evidence_refs); anything else fails closed. Not swallowed into "reject this candidate" --
     // an unknown contract version is a hard error, not a benign missing-CAS-object situation.
-    validateLocalizationAssessmentContractVersion(assessment.payload);
+    // W-APR: still thrown (unchanged class), but after every candidate was examined, so a fault on
+    // another candidate is never hidden behind it and the answer does not depend on row order.
+    try {
+      validateLocalizationAssessmentContractVersion(assessment.payload);
+    } catch (error) {
+      contractVersionRefusal ??= error;
+      continue;
+    }
+
+    // Criterion (2): the CAS-verified content itself proves this candidate is not current.
+    if (
+      args.currentLocalizationGeometryArtifactId !== undefined &&
+      assessment.payload.localization_geometry_ref?.artifact_id !== args.currentLocalizationGeometryArtifactId
+    ) {
+      // The row passed the earlier filter, but the CAS artifact's own claim disagrees (or is
+      // absent) -- it is bound to another point, so it is not current; never trust the row's column.
+      continue;
+    }
+    if (currentContextRef !== undefined && !sameRef(assessment.payload.project_context_ref, currentContextRef)) {
+      // Computed for another project context than the current binding's: never current, whatever
+      // its row claims.
+      continue;
+    }
 
     if (
       !sameRef(assessment.payload.project_context_ref, {
@@ -160,15 +308,9 @@ export async function resolveCurrentAssessmentProjection(args: {
         artifact_type: candidate.projectContextRefType,
       })
     ) {
-      continue; // projection row claims a context this artifact does not actually carry -> reject
-    }
-
-    if (
-      args.currentLocalizationGeometryArtifactId !== undefined &&
-      assessment.payload.localization_geometry_ref?.artifact_id !== args.currentLocalizationGeometryArtifactId
-    ) {
-      // The row passed the earlier filter, but the CAS artifact's own claim disagrees (or is
-      // absent) -- reject rather than trust the projection row's unverified column.
+      // The projection row claims a context this artifact does not carry, and the artifact is not
+      // proven non-current above: the row is wrong, the artifact may be the current assessment.
+      faults.push({ assessmentArtifactId: candidate.assessmentArtifactId, reason: "PROJECTION_ROW_INCONSISTENT", retryable: false });
       continue;
     }
 
@@ -178,6 +320,15 @@ export async function resolveCurrentAssessmentProjection(args: {
     // artifact's current contract.
 
     verified.push(assessment);
+  }
+
+  if (faults.length > 0) {
+    // OD-R1/OD-R2: the current assessment cannot be determined; no other candidate stands in.
+    throw new AssessmentProjectionCandidateUnverifiableError(faults);
+  }
+
+  if (contractVersionRefusal !== null) {
+    throw contractVersionRefusal;
   }
 
   if (verified.length === 0) {

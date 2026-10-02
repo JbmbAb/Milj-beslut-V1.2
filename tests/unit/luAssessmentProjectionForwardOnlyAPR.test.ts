@@ -134,6 +134,9 @@ class MemoryBindingIndex implements ProjectContextBindingIndex {
   async listSupersessionRefs(projectId: string): Promise<readonly ArtifactReference[]> {
     return this.supersessionsByProject.get(projectId) ?? [];
   }
+  async findProjectContextRef(): Promise<ArtifactReference> {
+    throw new Error('not used by the projection');
+  }
 }
 
 /** Same contract as the Prisma index; rows are returned newest-registered first, like ORDER BY created_at DESC. */
@@ -391,7 +394,7 @@ describe('W-APR: a candidate that may be current cannot be read or verified -> t
     for (const versionFirst of [false, true]) {
       const s = await setup();
       const base = await s.assessment('unknown-version');
-      const payload = { ...base.payload, assessment_contract_version: 'LU_ASSESSMENT_CONTRACT_V999' } as LocalizationAssessmentArtifact['payload'];
+      const payload = { ...base.payload, assessment_contract_version: 'LU_ASSESSMENT_CONTRACT_V999' } as unknown as LocalizationAssessmentArtifact['payload'];
       const hash = sha256ContentHash({ artifact_type: base.artifact_type, references: base.references, payload });
       const unknownVersion = { ...base, payload, content_hash: hash, artifact_id: `assessment-${hash.value}` } as LocalizationAssessmentArtifact;
       await s.repository.put({ artifact_id: unknownVersion.artifact_id, body: unknownVersion });
