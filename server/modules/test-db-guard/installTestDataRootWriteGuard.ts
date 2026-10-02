@@ -8,24 +8,50 @@ import { TEST_DB_GUARD_LABEL } from './testDatabaseTargetPolicy';
 
 /**
  * TEST-DB-GUARD (OD-K0-5), TDG-4 (owner decision 2026-10-03 (4) point 8; SWEEP-REPORT "Skrivningar i
- * arbetskatalogen"): in a test process no write lands in a LIVE data root of a product tree. Product code
+ * arbetskatalogen"): the GOAL is that no write of a test lands in a LIVE data root of a product tree. Product code
  * and tests write to cwd-relative defaults that no setting redirects -- `storage/drafts`
  * (documentGenerator), `storage/manifests/import-qa` (import-librarian-manifest), `tmp-artifacts`,
  * `tests/fixtures/...` -- and with cwd in the demonstrator's worktree that IS the live tree: the
  * demonstrator runs with that cwd. Where a module supports a root setting, the test setup gives it a
- * fresh temp root (testDataRootIsolation.ts); this guard is the backstop for every root, whether or not
- * a setting exists: a write, a mkdir, a rename, a copy, a link, a removal, a truncation or a metadata
- * change -- sync, callback or promise -- whose target is inside a protected root is refused BEFORE
- * anything happens, with a TestDataRootWriteRefusedError (code TEST_DATA_ROOT_WRITE_REFUSED) that names
- * the operation, the path and the root.
+ * fresh temp root (testDataRootIsolation.ts); this guard is the in-process backstop for every root, whether
+ * or not a setting exists.
  *
- * KNOWN LIMITATION (TDG-5, TDG4-VERIFICATION finding 7) -- skyddar bara fs-anrop i processen och barn som
- * laddar guardens preload; breda körningar ska ha cwd utanför arbetsträdet. In words: the guard patches
- * node:fs in THIS process only. A child that does not load it (the Vitest setup file or
- * server/loadEnvFirst.ts) -- cmd `>` / `copy`, bash `tee`, PowerShell `Out-File`, python, git, `node -e`
- * without loadEnvFirst -- and a worker_threads Worker (its own fs bindings) write unguarded; so do writes
- * through a file descriptor or FileHandle opened before, and native addons. It is a backstop in the
- * process, not an isolation: broad runs (sweeps, integration) keep cwd OUTSIDE the worktree (an export).
+ * What it does, exactly (TDG-6: no more than this is claimed): in a test process it wraps the node:fs
+ * functions in TEST_DATA_ROOT_GUARDED_FS_CALLS -- sync, callback and promise forms -- and judges the path
+ * arguments listed there before the original function runs. A call is refused with a
+ * TestDataRootWriteRefusedError (code TEST_DATA_ROOT_WRITE_REFUSED, naming the operation, the path and the
+ * root) when a target, judged as written AND through its real path, is inside a protected root -- for a
+ * removal, a rename's or a copy's destination and a new link's own path also when it is an ANCESTOR of one,
+ * and for a recursive copy every destination path it writes. A target the guard cannot judge (a link chain
+ * or loop, an uninspectable ancestor, a device-namespace form, a URL-like object whose href and pathname
+ * differ, a byte path that is not UTF-8) is refused the same way (fail-closed). Every other function of
+ * node:fs, node:fs/promises and a FileHandle is reviewed in TEST_FS_FUNCTIONS_NOT_GUARDED; a test enumerates
+ * the installed Node and fails on a function on neither list. What is proven is what the tests try: the
+ * forms in tests/unit/testDbGuardDataRootWriteGuard.test.ts, against FAKE trees. It is a drift guard and a
+ * backstop in the process -- not a proof and not an isolation.
+ *
+ * KNOWN LIMITATIONS (not closed here; TDG-5 and TDG-6):
+ *   1. skyddar bara fs-anrop i processen och barn som laddar guardens preload; breda körningar ska ha cwd
+ *      utanför arbetsträdet. In words: a child that does not load the Vitest setup file or
+ *      server/loadEnvFirst.ts -- cmd `>` / `copy`, bash `tee`, PowerShell `Out-File`, python, git, `node -e`
+ *      without loadEnvFirst -- and a worker_threads Worker (its own fs bindings) write unguarded. Broad runs
+ *      (sweeps, integration) keep cwd OUTSIDE the worktree (an export).
+ *   2. A descriptor or FileHandle that is already open (write, ftruncate, futimes, fchmod -- fchmod lands
+ *      even through a READ-only descriptor), and native addons.
+ *   3. process.binding('fs') / the internal fs binding: reachable from JavaScript in the process
+ *      (writeFileUtf8, mkdir ... write past every wrapper) and not closable from JavaScript. Deliberate
+ *      abuse, not a form product code uses.
+ *   4. A hard link made OUTSIDE the test process before the run.
+ *   5. A recursive removal of a directory that CONTAINS a junction or link into a root: only the top target
+ *      is judged; whether Node's native rm follows it is Node's -- NOT tried for real (it would be a real
+ *      deletion).
+ *   6. Other names of this machine than its own host name and 127.x.x.x (a LAN IP, an FQDN, a hosts
+ *      alias), ordinary shares, `subst` and `net use` drives: not mapped lexically, NOT tried; the real-path
+ *      pass may resolve some of them.
+ *   7. An options or path object whose getters answer differently on each read (a URL-like object is
+ *      handed to Node as the string it was judged as; options objects -- flag, recursive, dereference --
+ *      are not).
+ *   8. Paths over the Win32 limits, POSIX symbolic links of type 'dir' and Linux/macOS: not run here.
  *
  * Protected: every root below under the product tree of this checkout (the repo root this module lives in),
  * under the current working directory when that is a product tree (package.json + server/ + packages/) and
@@ -34,7 +60,9 @@ import { TEST_DB_GUARD_LABEL } from './testDatabaseTargetPolicy';
  * directory (~/.mimers ...), resolved with os.homedir() at run time. A target is compared as written
  * (canonical: \\?\ and \\.\ prefixes, a local administrative share, an NTFS stream suffix and trailing dots
  * removed, case-folded on Windows/macOS) AND, when that is allowed, through its real path (junctions,
- * symbolic links, 8.3 short names). Reads are never refused.
+ * symbolic links, 8.3 short names) -- and the roots are compared in their own real (long) form too. Reads
+ * are never refused. A link TO an ancestor of a root (the tree root, D:\) is not refused when it is made
+ * (scripts/audit/devgovPathBranchLock.test.ts makes one to process.cwd()); what is written through it is.
  *
  * Exceptions: the reviewed list TEST_DATA_ROOT_WRITE_EXCEPTIONS -- each one exact file, owned by one test
  * file (it applies only while that Vitest test file runs, matched by its full path), with the reason it
@@ -113,6 +141,11 @@ export const TEST_PROTECTED_RELATIVE_ROOTS: readonly ProtectedDataRoot[] = Objec
   },
   { root: 'package.json', why: "the tree's package manifest" },
   { root: 'package-lock.json', why: "the tree's dependency lock file" },
+  // TDG-6 (TDG5-VERIFICATION finding 13)
+  {
+    root: '.git',
+    why: "the checkout's git directory (in a worktree: its gitdir pointer file) -- history, config, hooks",
+  },
 ]);
 
 /**
@@ -399,6 +432,18 @@ export function canonicalTargetPath(target: string): string {
   return path.win32.join(root, ...segments);
 }
 
+/**
+ * TDG-6 (TDG5-VERIFICATION finding 8): a Win32 device-namespace form that names neither a drive letter nor a
+ * UNC share -- `\\?\GLOBALROOT\GLOBAL??\C:\...` (proven to land), `\\?\Volume{GUID}\...`,
+ * `\\.\HarddiskVolumeN\...`, also with forward slashes -- is not mapped to a path lexically. A test write to one
+ * is refused as undecidable, wherever it points.
+ */
+export function unmappedDeviceNamespaceForm(target: string): boolean {
+  if (!isWindows) return false;
+  const head = /^\\\\[?.]\\([^\\]*)/.exec(target.replace(/\//g, '\\'));
+  return head !== null && !/^(?:[A-Za-z]:|UNC)$/i.test(head[1]);
+}
+
 const realpathNative = fs.realpathSync.native;
 const lstatOriginal = fs.lstatSync;
 const readlinkOriginal = fs.readlinkSync;
@@ -594,6 +639,8 @@ export function testDataRootWriteRefusal(
   ];
   const trees = [...new Map(baseTrees.flatMap(treeForms).map((tree) => [norm(tree), tree])).values()];
   const testFile = options.testFile === undefined ? currentVitestTestFile() : options.testFile;
+  if (unmappedDeviceNamespaceForm(target))
+    return undecidableRefusal(operation, target, 'a device-namespace path that names no drive and no UNC share');
   const lexical = canonicalTargetPath(target);
   const refusal = decide(operation, kind, lexical, target, trees, testFile, false);
   if (refusal || options.resolveLinks === false) return refusal;
@@ -1090,7 +1137,8 @@ const STREAM_BASES = new Set(['createWriteStream', 'createReadStream']);
  *
  * KNOWN LIMITATION: skyddar bara fs-anrop i processen och barn som laddar guardens preload; breda körningar
  * ska ha cwd utanför arbetsträdet (see the module comment: children that do not load the Vitest setup file
- * or server/loadEnvFirst.ts, shell redirection, worker_threads and already opened descriptors are outside).
+ * or server/loadEnvFirst.ts, shell redirection, worker_threads, already opened descriptors and
+ * process.binding('fs') are outside).
  */
 export function installTestDataRootWriteGuard(): void {
   const fsObj = fs as unknown as Record<string | symbol, unknown>;
