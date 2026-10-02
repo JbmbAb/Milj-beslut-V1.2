@@ -2061,6 +2061,51 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-run-outcome')).toHaveTextContent('Ett nytt försök ger samma utfall så länge orsaken finns kvar.');
   });
 
+  it('W-M2e item 1: a run stopped by REJECT_SPATIAL_EVIDENCE_FORM says the source basis had an unexpected form and that no assessment was created', async () => {
+    const user = userEvent.setup();
+    // The real server shape (generate-localization-report.usecase.ts, GovernedSpatialEvidenceFormError):
+    // reason_codes [code, violation], EXECUTION_FAILED, the RESOLVED geometry record without a flag.
+    mockM2b({
+      currentAssessment: () => 'missing',
+      run: () => ({
+        ok: true,
+        siteAnalyses: [
+          {
+            executionMotor: {
+              admitted: false,
+              reason_codes: ['REJECT_SPATIAL_EVIDENCE_FORM', 'EXISTS_NOT_BOOLEAN'],
+              assessment_status: 'EXECUTION_FAILED',
+              findings: [],
+              localization_geometry: {
+                status: 'RESOLVED',
+                artifact_id: 'loc-geom-1',
+                provenance: 'user_defined',
+                failure_class: null,
+                reason_code: null,
+                message_sv: null,
+              },
+            },
+          },
+        ],
+      }),
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-run'));
+    expect(await screen.findByTestId('lu-run-outcome-status')).toHaveTextContent('Ej bedömd – körning misslyckades');
+    const message = screen.getByTestId('lu-run-outcome-message');
+    expect(message).toHaveTextContent(
+      'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades. Ingen bedömning skapades.',
+    );
+    expect(message).not.toHaveTextContent(/REJECT_|EXISTS_NOT_BOOLEAN|ExecutionKernel/);
+    // The server sends no retry flag for this record: the UI claims nothing about a new attempt.
+    expect(screen.queryByTestId('lu-run-outcome-not-retryable')).not.toBeInTheDocument();
+    // The machine codes are kept, collapsed, under "Teknisk information".
+    const technical = screen.getByTestId('lu-run-outcome-technical');
+    expect(technical).not.toHaveAttribute('open');
+    expect(technical).toHaveTextContent('REJECT_SPATIAL_EVIDENCE_FORM');
+    expect(technical).toHaveTextContent('EXISTS_NOT_BOOLEAN');
+  });
+
   it('item 6: an ambiguous property designation is a known data limitation -- plain Swedish, no retry, nothing assessed', async () => {
     const user = userEvent.setup();
     mockM2b({ currentAssessment: () => 'missing' });

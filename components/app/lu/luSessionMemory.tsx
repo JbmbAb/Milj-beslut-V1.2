@@ -16,6 +16,8 @@ export interface LuRunOutcomeRecord {
   readonly retryable: boolean | null;
   /** When the run ended, by this browser's clock (ISO 8601). */
   readonly endedAt: string;
+  /** W-M2e item 1: the run record's own reason codes (executionMotor.reason_codes), technical section only. */
+  readonly reasonCodes?: readonly string[];
 }
 
 interface LuSessionMemory {

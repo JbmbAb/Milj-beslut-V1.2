@@ -25,6 +25,7 @@ import {
   isNoCurrentAssessmentError,
   presentCurrentnessFailureClass,
   presentLuError,
+  presentLuRunReason,
   presentLuIncoherence,
   type LuErrorPresentation,
 } from './luErrorPresentation';
@@ -113,6 +114,8 @@ type LuFindingView = {
 /** The subset of generate-report's executionMotor this view reads (governed fields only). */
 type ExecutionMotorMeta = {
   admitted?: boolean;
+  /** W-M2e item 1: why the run produced no assessment (e.g. [REJECT_SPATIAL_EVIDENCE_FORM, <violation>]). */
+  reason_codes?: unknown;
   assessment_artifact_id?: string | null;
   assessment_projection_registered?: boolean | null;
   assessment_status?: string;
@@ -778,11 +781,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         // shown as such instead of being hidden until the next reload.
         const geometryRecord = motor.localization_geometry ?? null;
         const classText = presentCurrentnessFailureClass(geometryRecord?.failure_class, geometryRecord?.retryable);
+        // W-M2e item 1: a reason the run record names itself (e.g. REJECT_SPATIAL_EVIDENCE_FORM).
+        const reasonCodes = Array.isArray(motor.reason_codes)
+          ? motor.reason_codes.filter((code): code is string => typeof code === 'string' && code.length > 0)
+          : [];
+        const reasonText = presentLuRunReason(reasonCodes);
         setRunOutcome({
           status: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
-          messageSv: classText?.messageSv ?? geometryRecord?.message_sv ?? null,
+          messageSv: classText?.messageSv ?? reasonText?.messageSv ?? geometryRecord?.message_sv ?? null,
           retryable: classText ? classText.retryable : typeof geometryRecord?.retryable === 'boolean' ? geometryRecord.retryable : null,
           endedAt: new Date().toISOString(),
+          reasonCodes,
         });
         await loadCurrentAssessment();
       }
@@ -1231,6 +1240,13 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               Körningen gav ingen ny bedömning.
               {governed ? ' Bedömningen som visas nedan är projektets aktuella sparade bedömning från en annan körning.' : ''}
             </p>
+            {runOutcome.reasonCodes && runOutcome.reasonCodes.length > 0 ? (
+              // W-M2e item 1: the run record's machine codes, collapsed -- never in the main text.
+              <details data-testid="lu-run-outcome-technical" className="text-xs opacity-80">
+                <summary className="cursor-pointer">Teknisk information</summary>
+                <p>Orsakskoder: {runOutcome.reasonCodes.join(', ')}</p>
+              </details>
+            ) : null}
             {/* W-M2d item 8: honest about what is kept -- the server stores no denied runs. */}
             <p data-testid="lu-run-outcome-session-note" className="text-xs opacity-80">
               {runOutcomeInShell

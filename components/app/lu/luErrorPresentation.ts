@@ -230,6 +230,30 @@ export function presentCurrentnessFailureClass(
   };
 }
 
+/**
+ * W-M2e item 1 (M2d verification finding 1): the Swedish reason of a run that produced no assessment,
+ * from generate-report's executionMotor.reason_codes (a code the run record names itself). Only codes
+ * with a text of their own are listed; any other reason keeps the status line ("körning misslyckades").
+ * REJECT_SPATIAL_EVIDENCE_FORM (server/modules/localization/governedSpatialEvidenceForm.ts): the
+ * provider's answer was outside the common normal form and stopped the run BEFORE the rule engine --
+ * no assessment, no verdict. The record carries no retry flag, so nothing is said about a new attempt.
+ */
+const RUN_REASON_TEXT: Readonly<Record<string, string>> = {
+  REJECT_SPATIAL_EVIDENCE_FORM:
+    'Underlaget från en datakälla hade en oväntad form och avvisades innan bedömningsreglerna tillämpades. Ingen bedömning skapades.',
+};
+
+/** W-M2e item 1: the first reason code of a run record that has a Swedish text here, or null. */
+export function presentLuRunReason(reasonCodes: unknown): { readonly code: string; readonly messageSv: string } | null {
+  if (!Array.isArray(reasonCodes)) return null;
+  for (const code of reasonCodes) {
+    if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(RUN_REASON_TEXT, code)) {
+      return { code, messageSv: RUN_REASON_TEXT[code]! };
+    }
+  }
+  return null;
+}
+
 /** W-M2d item 6: an exact designation the property data holds on more than one row (PROPERTY_LOOKUP_AMBIGUOUS). */
 export const PROPERTY_LOOKUP_AMBIGUOUS_SV =
   'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.';
