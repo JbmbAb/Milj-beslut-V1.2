@@ -504,6 +504,13 @@ async function assertStored(record: StoredRecord) {
   for (const layer of LAYERS) {
     const row = rows.find((r) => r.layer === layer)!;
     if (row.status === 'CHECKED_NO_HIT') expect(VALID_NO_HIT.has(record.layers[layer].evidence), `${label}: ${layer}`).toBe(true);
+    // The evidence details read each stored result through the same normal form: an evidence
+    // outside it is "ofullständigt underlag", never a hit or a no-hit.
+    const ev = record.layers[layer].evidence;
+    if (INVALID.has(ev)) {
+      const detail = details.evidenceDetails.find((d) => d.evidence_artifact_id === evidence(layer, ev).artifact_id)!;
+      expect(detail.message_sv, `${label}: ${layer} detail`).toMatch(/^Ofullständigt underlag: /);
+    }
   }
   assertKnownRiskNamed(label, statement, rows, findings);
 }

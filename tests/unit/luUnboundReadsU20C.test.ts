@@ -375,6 +375,7 @@ describe('U20CDF (U30-R2 follow-up): the raw diagnostic of a failed layer query 
     ['single-quoted fields', "{'password': 'hemligt5', 'secret':'s5x'}", ['hemligt5', 's5x'], []],
     ['libpq connection string', "host=10.0.0.5 user=mimer password='hem ligt7' dbname=lu", ['hem ligt7', 'ligt7'], ['host=10.0.0.5', 'dbname=lu']],
     ['Authorization: Basic', 'Authorization: Basic dXNlcjpwYXNzd29yZA== next', ['dXNlcjpwYXNzd29yZA'], ['next']],
+    ['Authorization with another scheme, and Proxy-Authorization', 'Authorization: Token t0k3nv4lue and Proxy-Authorization: Negotiate YIIneg0tiate end', ['t0k3nv4lue', 'YIIneg0tiate'], ['and', 'end']],
     ['authorization=Bearer', 'authorization=Bearer abc.def.ghi rest', ['abc.def.ghi'], ['rest']],
     ['a bare JWT', 'got eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl back', ['eyJzdWIiOiIxIn0', 'c2lnbmF0dXJl'], ['got', 'back']],
     ['CLI flags', 'psql --password hemligt6 --token=t6x -h x', ['hemligt6', 't6x'], ['-h x']],
