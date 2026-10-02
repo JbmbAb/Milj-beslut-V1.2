@@ -662,8 +662,16 @@ export function testDataRootWriteRefusal(
 
 type RootEntry = { readonly abs: string; readonly root: string; readonly inTree: boolean };
 
-/** Every protected root now, normalized; with `realForms`, also by its real path where that differs. */
-function rootEntries(trees: readonly string[], realForms: boolean): RootEntry[] {
+const rootEntriesCache = new Map<string, readonly RootEntry[]>();
+/**
+ * Every protected root now, normalized; with `realForms`, also by its real path where that differs. Built once
+ * per set of trees and absolute roots (the home directory may change at run time, so it is part of the key).
+ */
+function rootEntries(trees: readonly string[], realForms: boolean): readonly RootEntry[] {
+  const absolute = protectedAbsoluteRootsNow();
+  const key = `${realForms ? 'real' : 'lexical'}\u0000${trees.join('\u0001')}\u0000${absolute.join('\u0001')}`;
+  const cached = rootEntriesCache.get(key);
+  if (cached) return cached;
   const entries: RootEntry[] = [];
   const add = (root: string, inTree: boolean) => {
     entries.push({ abs: norm(root), root, inTree });
@@ -671,7 +679,9 @@ function rootEntries(trees: readonly string[], realForms: boolean): RootEntry[] 
     if (real !== null) entries.push({ abs: norm(real), root, inTree });
   };
   for (const tree of trees) for (const { root } of TEST_PROTECTED_RELATIVE_ROOTS) add(path.join(tree, root), true);
-  for (const root of protectedAbsoluteRootsNow()) add(root, false);
+  for (const root of absolute) add(root, false);
+  if (rootEntriesCache.size > 2_000) rootEntriesCache.clear();
+  rootEntriesCache.set(key, entries);
   return entries;
 }
 
