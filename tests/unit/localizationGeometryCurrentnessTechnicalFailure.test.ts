@@ -326,14 +326,15 @@ describe('F1: a technical failure on ONE candidate fails the whole currentness r
     expectTechnicalFailClosed(error, repo, putsBefore, 'EIO');
   });
 
-  it('verifier key configured but unparsable (verification THROWS, no verdict) -> 503 technical, not AMBIGUOUS 409', async () => {
+  it('verifier key configured but unparsable -> 503 VERIFIER_CONFIGURATION (OD-R3: refused at load), not AMBIGUOUS 409', async () => {
     const { repo } = await movedPoint();
     configureVerifier('-----BEGIN PUBLIC KEY-----\nbm90IGEga2V5\n-----END PUBLIC KEY-----');
     const putsBefore = repo.putCalls;
     const error = await resolutionError(repo, {});
     expect(error).toBeInstanceOf(LocalizationGeometryCurrentnessError);
-    expect((error as LocalizationGeometryCurrentnessError).failureClass).toBe('CURRENTNESS_RESOLUTION_ERROR');
+    expect((error as LocalizationGeometryCurrentnessError).failureClass).toBe('VERIFIER_CONFIGURATION');
     expect((error as LocalizationGeometryCurrentnessError).httpStatus).toBe(503);
+    expect((error as LocalizationGeometryCurrentnessError).retryable).toBe(false);
     expect(repo.putCalls).toBe(putsBefore);
     expect(state.registerCalls).toBe(0);
   });

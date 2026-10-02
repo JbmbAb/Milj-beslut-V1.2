@@ -36,13 +36,16 @@ const router = express.Router();
  * DEMO M1a / D9(a): every `{ ok: false }` service result goes out through here, so a fail-closed
  * localization-geometry currentness failure keeps its structured class (code / failureClass /
  * reasonCode) on the wire instead of being reduced to a message string. Other failures are unchanged.
+ * OD-R3: a result that states whether it is `retryable` keeps that flag too (a configuration error is
+ * technical but not retryable).
  */
 function failureBody(result: { readonly error: string }): Record<string, unknown> {
-  const structured = result as { code?: string; failureClass?: string; reasonCode?: string };
+  const structured = result as { code?: string; failureClass?: string; reasonCode?: string; retryable?: unknown };
   return {
     ok: false,
     error: result.error,
     ...(structured.code ? { code: structured.code, failureClass: structured.failureClass, reasonCode: structured.reasonCode } : {}),
+    ...(structured.code && typeof structured.retryable === 'boolean' ? { retryable: structured.retryable } : {}),
   };
 }
 

@@ -1,3 +1,4 @@
+import { createPublicKey } from "node:crypto";
 import { LocalPemVerificationKeyProvider, type VerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
 
 /**
@@ -28,9 +29,31 @@ export function getLocalizationGeometrySupersessionVerifier(env: NodeJS.ProcessE
       `REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_CONFIGURATION: missing ${missing.join(", ")} (PEM-encoded Ed25519 public key).`,
     );
   }
+  // OD-R3: the key is checked here, at configuration time, the same way verification would read it
+  // (createPublicKey on the PEM as given). An unparsable PEM used to throw only inside verification
+  // (a 503 that looked like a CAS fault) and a PEM of another key type made every signature check
+  // return false (every edge excluded -> AMBIGUOUS 409). Both are configuration errors. A refused
+  // configuration is not cached, and the message never echoes the PEM.
+  const publicKeyPem = env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM as string;
+  let keyType: string | undefined;
+  try {
+    keyType = createPublicKey(publicKeyPem).asymmetricKeyType;
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    throw new Error(
+      "REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_CONFIGURATION: LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM " +
+        `cannot be parsed as a public key${typeof code === "string" ? ` (${code})` : ""}.`,
+    );
+  }
+  if (keyType !== "ed25519") {
+    throw new Error(
+      "REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_CONFIGURATION: LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM " +
+        `is a ${keyType ?? "unknown"} key; an Ed25519 public key is required.`,
+    );
+  }
   cachedVerifier = new LocalPemVerificationKeyProvider(
     env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID as string,
-    env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM as string,
+    publicKeyPem,
   );
   return cachedVerifier;
 }

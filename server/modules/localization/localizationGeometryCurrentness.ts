@@ -24,6 +24,11 @@
  * projection row no longer lets an older point win. The provider throws
  * LOCALIZATION_GEOMETRY_CURRENT_CANDIDATE_UNVERIFIED, classified here as CURRENT_GEOMETRY_UNVERIFIED
  * (409, a refusal: the state was determined, retrying does not change it).
+ *
+ * OD-R3 (owner decision 2026-10-02): a verifier-key configuration error is VERIFIER_CONFIGURATION
+ * (503, technical, NOT retryable) also when the key is present but unparsable, of the wrong type, or
+ * valid but wrong (it verifies none of the project's supersession issuers) -- never AMBIGUOUS 409.
+ * Every class states whether it is `retryable`; only transient technical failures are.
  */
 import type { ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import type { LocalizationGeometryProvenance } from '@miljobeslut/mps-lu';
@@ -53,8 +58,14 @@ interface FailureClassPolicy {
   /** Swedish, user-facing. Always says that no assessment is made. */
   readonly messageSv: string;
   readonly httpStatus: number;
-  /** REFUSED = a deliberate governance refusal; ERROR = a technical failure that may succeed on retry. */
+  /** REFUSED = a deliberate governance refusal; ERROR = a technical failure. */
   readonly kind: 'REFUSED' | 'ERROR';
+  /**
+   * OD-R3: whether repeating the same request can succeed without anyone changing data or
+   * configuration. Only transient technical failures are retryable; a configuration error is a
+   * technical failure that is NOT retryable, and no refusal is.
+   */
+  readonly retryable: boolean;
 }
 
 const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClass, FailureClassPolicy>> = {
@@ -63,18 +74,21 @@ const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClas
       'Projektet har flera möjliga aktuella lokaliseringspunkter. Ingen bedömning görs förrän det är utrett vilken punkt som gäller.',
     httpStatus: 409,
     kind: 'REFUSED',
+    retryable: false,
   },
   INVALID_SUPERSESSION_GRAPH: {
     messageSv:
       'Lokaliseringshistoriken för projektet är inkonsekvent (ogiltig ersättningskedja). Ingen bedömning görs.',
     httpStatus: 409,
     kind: 'REFUSED',
+    retryable: false,
   },
   NO_VERIFIED_GEOMETRY_CANDIDATE: {
     messageSv:
       'Projektets sparade lokalisering kunde inte verifieras mot arkivet. Ingen punkt härleds automatiskt och ingen bedömning görs.',
     httpStatus: 409,
     kind: 'REFUSED',
+    retryable: false,
   },
   CURRENT_GEOMETRY_UNVERIFIED: {
     messageSv:
@@ -83,29 +97,36 @@ const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClas
       'härleds automatiskt. Ingen bedömning görs.',
     httpStatus: 409,
     kind: 'REFUSED',
+    retryable: false,
   },
   INVALID_GEOMETRY_HEAD: {
     messageSv: 'Projektets lokalisering är ogiltig och kan inte användas. Ingen bedömning görs.',
     httpStatus: 409,
     kind: 'REFUSED',
+    retryable: false,
   },
   VERIFIER_CONFIGURATION: {
     messageSv:
-      'Verifieringsnyckeln för lokaliseringsbyten saknas i systemets konfiguration. Ingen bedömning görs.',
+      'Verifieringsnyckeln för lokaliseringsbyten saknas, är ogiltig eller stämmer inte med utfärdaren av projektets ' +
+      'lokaliseringsbyten. Det är ett konfigurationsfel i systemet, inte ett fel i projektet, och det försvinner inte vid ' +
+      'ett nytt försök. Ingen bedömning görs – kontakta systemets administratör.',
     httpStatus: 503,
     kind: 'ERROR',
+    retryable: false,
   },
   DERIVED_GEOMETRY_PERSISTENCE_FAILED: {
     messageSv:
       'Den automatiskt härledda lokaliseringspunkten kunde inte sparas. Ingen bedömning görs – försök igen.',
     httpStatus: 503,
     kind: 'ERROR',
+    retryable: true,
   },
   CURRENTNESS_RESOLUTION_ERROR: {
     messageSv:
       'Aktuell lokalisering kunde inte fastställas på grund av ett tekniskt fel. Ingen bedömning görs – försök igen.',
     httpStatus: 503,
     kind: 'ERROR',
+    retryable: true,
   },
 };
 
@@ -117,6 +138,8 @@ export class LocalizationGeometryCurrentnessError extends Error {
   readonly userMessage: string;
   readonly httpStatus: number;
   readonly kind: 'REFUSED' | 'ERROR';
+  /** OD-R3: see FailureClassPolicy.retryable. */
+  readonly retryable: boolean;
   readonly technicalDetail: string;
 
   constructor(failureClass: LocalizationGeometryCurrentnessFailureClass, technicalDetail: string) {
@@ -129,6 +152,7 @@ export class LocalizationGeometryCurrentnessError extends Error {
     this.userMessage = policy.messageSv;
     this.httpStatus = policy.httpStatus;
     this.kind = policy.kind;
+    this.retryable = policy.retryable;
     this.technicalDetail = technicalDetail;
   }
 }
@@ -200,6 +224,8 @@ export interface LocalizationGeometryCurrentnessFailureResponse {
   readonly code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED';
   readonly failureClass: LocalizationGeometryCurrentnessFailureClass;
   readonly reasonCode: string;
+  /** OD-R3: false for refusals and configuration errors, true only for transient technical failures. */
+  readonly retryable: boolean;
 }
 
 export function currentnessFailureResponse(error: LocalizationGeometryCurrentnessError): LocalizationGeometryCurrentnessFailureResponse {
@@ -210,6 +236,7 @@ export function currentnessFailureResponse(error: LocalizationGeometryCurrentnes
     code: error.code,
     failureClass: error.failureClass,
     reasonCode: error.reasonCode,
+    retryable: error.retryable,
   };
 }
 

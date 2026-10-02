@@ -11,7 +11,10 @@ import {
 import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactReference";
 import type { LocalizationGeometryProjectionIndex } from "../../repositories/localizationGeometryProjectionRepository";
 import type { LocalizationGeometrySupersessionIndex } from "../../repositories/localizationGeometrySupersessionRepository";
-import { verifyLocalizationGeometrySupersessionArtifact } from "./localizationGeometrySupersessionAuthority";
+import {
+  verifyLocalizationGeometrySupersessionArtifact,
+  verifyLocalizationGeometrySupersessionIssuerArtifact,
+} from "./localizationGeometrySupersessionAuthority";
 
 /**
  * DEMO M1a-repair (verifier F1/F2), owner decision D9(a). Message prefix of the error thrown when
@@ -47,6 +50,24 @@ function candidateUnresolvable(kind: string, artifactId: string | undefined, err
     `${LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX}: ${kind} ${artifactId ?? "(no ref)"} could not be read or verified: ${errorDetail(error)}`,
   );
 }
+
+/**
+ * OD-R3: the two issuer verdicts that depend on the CONFIGURED verifier key rather than on the
+ * issuer's own content -- the issuer's key id is not the configured one (trust root), or its
+ * self-attestation does not verify under the configured key (signature). A wrong key produces one of
+ * them for every genuine issuer; a forged issuer produces them too. Exact messages, see
+ * verifyLocalizationGeometrySupersessionIssuerArtifact.
+ */
+function isVerifierKeyMismatchVerdict(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_TRUST_ROOT" ||
+      error.message === "REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_SIGNATURE")
+  );
+}
+
+/** Same prefix as a missing verifier key: classified VERIFIER_CONFIGURATION (503, not retryable). */
+const VERIFIER_CONFIGURATION_PREFIX = "REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_CONFIGURATION";
 
 /**
  * OD-R1 (owner decision 2026-10-02, YES, forward-only, D9(a)). Message prefix of the error thrown
@@ -184,6 +205,8 @@ export class LocalizationGeometryCurrentProvider {
         : typeof this.verification === "function"
           ? this.verification()
           : this.verification;
+    // OD-R3: does the configured key verify any issuer of this project at all?
+    const issuerEvidence = { verifiedUnderConfiguredKey: 0, keyMismatchVerdicts: 0 };
     const supersessionResults = await Promise.all(
       supersessionCandidates.map(async (candidate) => {
         // OD-R1: EVERY edge candidate is read and verified, also one whose endpoint was excluded --
@@ -218,6 +241,20 @@ export class LocalizationGeometryCurrentProvider {
           if (isMissingArtifactVerdict(error, issuerRef.artifact_id) || isCorruptedBytesVerdict(error)) return null;
           throw candidateUnresolvable("supersession issuer", issuerRef.artifact_id, error);
         }
+        // OD-R3: the issuer stage on its own, so a verdict that depends on the configured key is told
+        // apart from a verdict on the issuer's or the edge's own content. The full verification below
+        // repeats it (same deterministic result) together with the edge checks.
+        try {
+          await verifyLocalizationGeometrySupersessionIssuerArtifact({ issuer, verification: verification! });
+        } catch (error) {
+          if (isVerifierKeyMismatchVerdict(error)) {
+            issuerEvidence.keyMismatchVerdicts += 1;
+            return null;
+          }
+          if (isRejectVerdict(error, "REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION")) return null;
+          throw candidateUnresolvable("supersession issuer", issuerRef.artifact_id, error);
+        }
+        issuerEvidence.verifiedUnderConfiguredKey += 1;
         try {
           return await verifyLocalizationGeometrySupersessionArtifact({ artifact, issuer, verification: verification! });
         } catch (error) {
@@ -227,6 +264,20 @@ export class LocalizationGeometryCurrentProvider {
       }),
     );
     const supersessions = supersessionResults.filter((s): s is LocalizationGeometrySupersessionArtifact => s !== null);
+
+    // OD-R3: the configured key verified NO issuer of this project and at least one issuer was
+    // rejected on a key-dependent verdict. A wrong key (other material under the same id, another
+    // id) looks exactly like that; it cannot be told apart from forged issuers, and either way the
+    // graph cannot be decided -- a configuration error (VERIFIER_CONFIGURATION, 503), not an
+    // ambiguity. Once the key verifies at least one issuer it is proven right, and a key-dependent
+    // rejection of another issuer is a forgery: that edge is excluded as before.
+    if (issuerEvidence.verifiedUnderConfiguredKey === 0 && issuerEvidence.keyMismatchVerdicts > 0) {
+      throw new Error(
+        `${VERIFIER_CONFIGURATION_PREFIX}: the configured verification key (key id ${verification!.keyId}) verifies none of ` +
+          `this project's supersession issuers (${issuerEvidence.keyMismatchVerdicts} rejected at the trust root or the issuer ` +
+          "signature); currentness is not decided",
+      );
+    }
 
     // OD-R1 graph-position check. A geometry with a verified outgoing edge is superseded and can
     // never be current: if it was excluded, skipping it is the frozen rule and changes nothing. Any
