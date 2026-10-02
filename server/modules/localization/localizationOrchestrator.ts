@@ -20,7 +20,9 @@ import {
   localizationAssessmentCanonicalBody,
   validateLocalizationAssessmentContractVersion,
   reExecuteLocalizationAssessment,
+  validateLocalizationGeometryArtifact,
   type LocalizationAssessmentArtifact,
+  type LocalizationGeometryArtifact,
   type LuReExecutionMismatch,
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
@@ -91,6 +93,136 @@ export interface LuAssessmentGeometryProvenance {
   readonly artifact_id: string | null;
   readonly provenance: 'user_defined' | 'derived_from_property_boundary' | null;
   readonly provenance_label_sv: string;
+  /**
+   * U20-D (read-back only, additions): the point THIS assessment is bound to, read from the
+   * assessment's own localization_geometry_ref in CAS and verified (identity hash, project and
+   * property binding) -- not the project's current point, which may have moved since.
+   * VERIFIED: coordinates below are the bound artifact's. NOT_RECORDED: the assessment carries no
+   * geometry ref (older assessment); coordinates are null, never guessed. A ref that cannot be
+   * verified fails the whole read-back closed instead.
+   */
+  readonly bound_geometry_status?: 'VERIFIED' | 'NOT_RECORDED';
+  readonly geometry_type?: string | null;
+  /** GeoJSON order [lng, lat] (WGS84), as stored in the artifact's `geometry`. */
+  readonly coordinates_wgs84?: readonly [number, number] | null;
+  /** SWEREF99 TM [northing, easting], the canonical point the spatial query used. */
+  readonly coordinates_sweref99tm?: readonly [number, number] | null;
+  readonly srid?: number | null;
+}
+
+/** U20-D: the assessment's own bound point could not be verified -> the read-back fails closed. */
+export interface AssessmentGeometryFailure {
+  readonly ok: false;
+  readonly status: 424 | 503;
+  readonly error: string;
+  readonly code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED';
+  readonly failureClass:
+    | 'LOCALIZATION_GEOMETRY_MISSING'
+    | 'LOCALIZATION_GEOMETRY_TAMPERED'
+    | 'LOCALIZATION_GEOMETRY_NOT_BOUND'
+    | 'LOCALIZATION_GEOMETRY_READ_ERROR';
+  readonly reasonCode: string;
+}
+
+type BoundGeometry = Pick<
+  LuAssessmentGeometryProvenance,
+  'bound_geometry_status' | 'geometry_type' | 'coordinates_wgs84' | 'coordinates_sweref99tm' | 'srid'
+>;
+
+/**
+ * U20-D: resolves and verifies the localization geometry an assessment is bound to. Same
+ * determined/technical split as elsewhere: missing, tampered or foreign -> 424; an unknown read
+ * failure -> 503 (retryable). Never falls back to the project's current point.
+ */
+async function resolveBoundLocalizationGeometry(
+  assessment: LocalizationAssessmentArtifact,
+  artifactRepository: ArtifactRepositoryPort,
+  projectId: string,
+): Promise<{ ok: true; value: BoundGeometry } | AssessmentGeometryFailure> {
+  const ref = assessment.payload.localization_geometry_ref;
+  if (!ref?.artifact_id) {
+    return {
+      ok: true,
+      value: { bound_geometry_status: 'NOT_RECORDED', geometry_type: null, coordinates_wgs84: null, coordinates_sweref99tm: null, srid: null },
+    };
+  }
+  const fail = (status: 424 | 503, failureClass: AssessmentGeometryFailure['failureClass']): AssessmentGeometryFailure => ({
+    ok: false,
+    status,
+    error: `Bedömningens lokaliseringspunkt (${ref.artifact_id}) kunde inte verifieras (${failureClass}). Bedömningen visas inte.`,
+    code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
+    failureClass,
+    reasonCode: failureClass,
+  });
+  let geometry: LocalizationGeometryArtifact;
+  try {
+    geometry = await artifactRepository.resolve<LocalizationGeometryArtifact>({ artifact_id: ref.artifact_id, artifact_type: ref.artifact_type });
+  } catch (error) {
+    if (error instanceof Error && error.message === `Artifact not found: ${ref.artifact_id}`) return fail(424, 'LOCALIZATION_GEOMETRY_MISSING');
+    if (error instanceof Error && error.name === 'CASIntegrityError') return fail(424, 'LOCALIZATION_GEOMETRY_TAMPERED');
+    return fail(503, 'LOCALIZATION_GEOMETRY_READ_ERROR');
+  }
+  try {
+    validateLocalizationGeometryArtifact(geometry);
+  } catch {
+    return fail(424, 'LOCALIZATION_GEOMETRY_TAMPERED');
+  }
+  if (geometry.artifact_id !== ref.artifact_id) return fail(424, 'LOCALIZATION_GEOMETRY_TAMPERED');
+  if (
+    geometry.payload.project_id !== projectId ||
+    geometry.payload.property_context_ref.artifact_id !== assessment.payload.property_ref.artifact_id
+  ) {
+    return fail(424, 'LOCALIZATION_GEOMETRY_NOT_BOUND');
+  }
+  return {
+    ok: true,
+    value: {
+      bound_geometry_status: 'VERIFIED',
+      geometry_type: geometry.payload.geometry_type,
+      coordinates_wgs84: geometry.payload.geometry.coordinates,
+      coordinates_sweref99tm: geometry.payload.coordinates,
+      srid: geometry.payload.srid,
+    },
+  };
+}
+
+/**
+ * U20-D, PROVISIONAL (coordinator item 3; owner decision pending): one deterministic summary of a
+ * stored assessment, derived ONLY by functions the product already uses -- the governed risk level
+ * from governedVerdictFromFindings (the exact derivation generate-report uses), the coverage from
+ * summarizeGovernedCheckCoverage, and the stored document check. No new risk model, no score. Its
+ * own field; nothing in the product reads it.
+ */
+export interface DerivedOverallSummary {
+  readonly derived: true;
+  readonly derivation: 'governedVerdictFromFindings + governed layer checks (stored)';
+  readonly risk_level: string;
+  readonly checks_completed: number | null;
+  readonly checks_total: number | null;
+  readonly not_completed_layers: readonly string[];
+  /** Layers whose checked dataset carries an ADMIT v1 coverage limitation (e.g. Natura 2000: SPA only). */
+  readonly coverage_limited_layers: readonly string[];
+  readonly document_check_status: string | null;
+  readonly statement_sv: string;
+}
+
+function derivedOverallSummary(
+  statement: GovernedOverallStatement,
+  checks: readonly PresentedGovernedLayerCheck[],
+): DerivedOverallSummary {
+  return {
+    derived: true,
+    derivation: 'governedVerdictFromFindings + governed layer checks (stored)',
+    risk_level: statement.risk_level,
+    checks_completed: statement.coverage?.checks_completed ?? null,
+    checks_total: statement.coverage?.checks_total ?? null,
+    not_completed_layers: statement.coverage?.not_completed_layers ?? [],
+    coverage_limited_layers: checks
+      .filter((check) => check.coverage_limitation_sv !== MISSING_IN_BASIS_SV)
+      .map((check) => check.layer),
+    document_check_status: checks.find((check) => check.layer === 'document')?.status ?? null,
+    statement_sv: statement.statement_sv,
+  };
 }
 
 export function localizationAuditRef(projectId: string): string {
@@ -539,9 +671,12 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
       propertyRoot: PropertyRootDetails;
       /** U20-D / OD-K0-1: the risk level only together with the governed check coverage. */
       overallStatement: GovernedOverallStatement;
+      /** U20-D, provisional and derived (owner decision pending): see DerivedOverallSummary. */
+      overall_summary: DerivedOverallSummary;
     }
   | CurrentAssessmentFailure
   | GovernedEvidenceIntegrityFailure
+  | AssessmentGeometryFailure
 > {
   const core = await resolveCurrentLuAssessmentCore(input);
   if (core.ok === false) return core;
@@ -560,7 +695,10 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
       reasonCode: details.integrity.failureClass,
     };
   }
+  const boundGeometry = await resolveBoundLocalizationGeometry(assessment, artifactRepository, String(input.projectId || '').trim());
+  if (boundGeometry.ok === false) return boundGeometry;
   const verdict = governedVerdictFromFindings(assessment.payload.findings);
+  const overallStatement = governedOverallStatement(verdict.overallRisk, details.governedLayerChecks);
 
   return {
     ok: true,
@@ -579,13 +717,16 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
       artifact_id: assessment.payload.localization_geometry_ref?.artifact_id ?? null,
       provenance: currentGeometry?.geometry.payload.provenance ?? null,
       provenance_label_sv: localizationGeometryProvenanceLabelSv(currentGeometry?.geometry.payload.provenance),
+      // U20-D: the coordinates of the point THIS assessment is bound to (verified, from CAS).
+      ...boundGeometry.value,
     },
     // K0: from the tamper-verified assessment's pinned refs only (no live read, not from findings).
     documentCheck: computeGovernedDocumentCheck(assessment.payload.evidence_refs),
     governedLayerChecks: details.governedLayerChecks,
     evidenceDetails: details.evidenceDetails,
     propertyRoot: details.propertyRoot,
-    overallStatement: governedOverallStatement(verdict.overallRisk, details.governedLayerChecks),
+    overallStatement,
+    overall_summary: derivedOverallSummary(overallStatement, details.governedLayerChecks),
   };
 }
 
@@ -660,6 +801,10 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
       geometri_artifact_id: summary.localizationGeometry.artifact_id,
       provenance: summary.localizationGeometry.provenance,
       beskrivning: summary.localizationGeometry.provenance_label_sv,
+      // U20-D: the bound point itself (verified), or "Saknas i underlaget" for an older assessment.
+      koordinater_wgs84_lng_lat: orMissing(summary.localizationGeometry.coordinates_wgs84),
+      koordinater_sweref99tm_n_e: orMissing(summary.localizationGeometry.coordinates_sweref99tm),
+      srid: orMissing(summary.localizationGeometry.srid),
     },
     // K0: the machine-readable document check -- the same object as the read-back's documentCheck.
     dokumentkontroll: {

@@ -384,7 +384,7 @@ describe('K0b: HTTP GET /api/localization/:projectId/current-assessment (real ro
     expect(Object.keys(res.body)).toEqual([
       'ok', 'assessmentArtifactId', 'findings', 'ruleRefs', 'evidenceRefs', 'systemSummary', 'localizationGeometry', 'documentCheck',
       // U20-D: additions after every pre-existing field.
-      'governedLayerChecks', 'evidenceDetails', 'propertyRoot', 'overallStatement',
+      'governedLayerChecks', 'evidenceDetails', 'propertyRoot', 'overallStatement', 'overall_summary',
     ]);
     expect(res.body.assessmentArtifactId).toBe(assessment.artifact_id);
     expect(res.body.documentCheck).toMatchObject(DOCUMENT_NOT_CHECKED);

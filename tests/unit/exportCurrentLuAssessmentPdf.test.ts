@@ -516,7 +516,11 @@ describe('DEMO M1a / D9(a): geometry provenance in read-back + PDF; fail closed 
     const summary = await resolveCurrentLuAssessmentSummary({ ...common, currentBindingProvider: s.currentBindingProvider() });
     expect(summary.ok).toBe(true);
     if (!summary.ok) throw new Error('expected ok');
-    expect(summary.localizationGeometry).toEqual({ artifact_id: null, provenance: null, provenance_label_sv: expect.stringMatching(/^Okänd/) });
+    expect(summary.localizationGeometry).toEqual({
+      artifact_id: null, provenance: null, provenance_label_sv: expect.stringMatching(/^Okänd/),
+      // U20-D additions: no bound point recorded -> stated as such, coordinates never invented.
+      bound_geometry_status: 'NOT_RECORDED', geometry_type: null, coordinates_wgs84: null, coordinates_sweref99tm: null, srid: null,
+    });
     const pdf = await exportCurrentLuAssessmentPdf({ ...common, currentBindingProvider: s.currentBindingProvider() });
     expect(pdf.ok).toBe(true);
     expect(capturedPdfData).toMatchObject({ lokalisering: { geometri_artifact_id: null, provenance: null } });

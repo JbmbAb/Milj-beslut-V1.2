@@ -40,6 +40,7 @@ const state = vi.hoisted(() => ({
   projectionIndex: null as unknown,
   verification: null as unknown,
   context: null as unknown,
+  geometry: null as unknown,
 }));
 
 vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => ({
@@ -104,10 +105,7 @@ vi.mock('../../server/modules/release/productReleaseRuntime', () => ({
 }));
 vi.mock('../../server/modules/localization/localizationGeometryService', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  resolveOrDeriveCurrentLocalizationGeometry: vi.fn(async () => ({
-    geometry: { artifact_id: 'localization-geometry-u20d', artifact_type: 'localization_geometry', payload: { provenance: 'user_defined' } },
-    wasDerived: false,
-  })),
+  resolveOrDeriveCurrentLocalizationGeometry: vi.fn(async () => ({ geometry: state.geometry, wasDerived: false })),
 }));
 vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({ enqueueAdmittedLuTicket: vi.fn(async () => 'ticket-u20d') }));
 vi.mock('../../server/services/auditTrailService', () => ({
@@ -124,6 +122,7 @@ import {
   buildSpatialEvidenceContentHash,
   createCanonicalPropertyGeometryArtifact,
   createGovernedLocalizationAssessment,
+  createLocalizationGeometryArtifact,
   createProductLuProjectContextArtifact,
   createProductLuPropertyContextArtifact,
   createProjectContextBindingArtifact,
@@ -229,7 +228,6 @@ const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provide
 const pcbIssuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: pcbIssuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
 const pcbAuthority = { artifact_id: pcbIssuer.artifact_id, artifact_type: pcbIssuer.artifact_type } as const;
 const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-u20d');
-const LOCATION_REF = { artifact_id: 'localization-geometry-u20d', artifact_type: 'localization_geometry' } as const;
 
 /** The registry content hashes (= ADMIT v1 source_sha256) the governed layers are bound to. */
 const REGISTRY_HASH: Record<string, string> = {
@@ -244,7 +242,7 @@ const PROVIDER: Record<string, string> = {
 };
 
 /** Content-addressed spatial evidence, built the way SpatialProviderPostGIS builds it (V3 contract). */
-function evidenceFor(layer: string, matchCount: number, propertyRef: ArtifactReference) {
+function evidenceFor(layer: string, matchCount: number, propertyRef: ArtifactReference, locationRef: ArtifactReference) {
   const payload = {
     result_semantics: {
       kind: 'EXISTENCE_WITHIN_DISTANCE' as const,
@@ -261,7 +259,7 @@ function evidenceFor(layer: string, matchCount: number, propertyRef: ArtifactRef
       query_contract_version: 'spatial-query-contract-v3' as const,
       spatial_canonical_version: 'sv-canonical-3' as const,
       relation: 'DWITHIN' as const,
-      subject: { kind: 'LOCALIZATION_GEOMETRY' as const, property_context_ref: propertyRef, location_ref: LOCATION_REF, crs: 'EPSG:3006' as const },
+      subject: { kind: 'LOCALIZATION_GEOMETRY' as const, property_context_ref: propertyRef, location_ref: locationRef, crs: 'EPSG:3006' as const },
       parameters: { distance_meters: 500, max_features_per_layer: 50 },
       selection: { predicate_semantics: 'EXISTS' as const },
     },
@@ -344,6 +342,20 @@ async function setup(options: { readonly unavailable?: readonly string[]; readon
   }
   const propertyContextRef = { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type } as const;
 
+  // The localization point the run uses -- a real, content-addressed LocalizationGeometryArtifact.
+  const localizationGeometry = createLocalizationGeometryArtifact({
+    project_id: PROJECT_ID,
+    property_context_ref: propertyContextRef,
+    wgs84LngLat: [17.63, 59.85],
+    sweref99NorthingEasting: [6640000, 648000],
+    provenance: 'user_defined',
+    label: 'U20-D punkt',
+    created_by: AUTH_USER.id,
+  });
+  await repository.put({ artifact_id: localizationGeometry.artifact_id, body: localizationGeometry });
+  const locationRef = { artifact_id: localizationGeometry.artifact_id, artifact_type: localizationGeometry.artifact_type } as const;
+  state.geometry = localizationGeometry;
+
   const projectContext = createProductLuProjectContextArtifact({
     project_id: PROJECT_ID,
     project_name: 'U20-D project',
@@ -390,7 +402,7 @@ async function setup(options: { readonly unavailable?: readonly string[]; readon
             unavailable_layers.push({ dataset: layer, reason: 'error: relation "env.u20d_missing" does not exist' });
             continue;
           }
-          const ev = evidenceFor(layer, MATCH_COUNTS[layer]!, propertyContextRef);
+          const ev = evidenceFor(layer, MATCH_COUNTS[layer]!, propertyContextRef, locationRef);
           await repository.put({ artifact_id: ev.artifact_id, body: ev });
           evidence.push(ev);
         }
@@ -437,7 +449,7 @@ async function setup(options: { readonly unavailable?: readonly string[]; readon
     return assessment;
   }
 
-  return { repository, runFresh, deps, persistBareAssessment, propertyContextRef, observation };
+  return { repository, runFresh, deps, persistBareAssessment, propertyContextRef, observation, locationRef };
 }
 
 type Summary = Extract<Awaited<ReturnType<typeof resolveCurrentLuAssessmentSummary>>, { ok: true }>;
@@ -503,6 +515,27 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
       statement_sv: 'Hög risk i de kontroller som utfördes; underlaget är ofullständigt: 4 av 6 kontroller genomförda.',
     });
     expect(fresh.complianceAnalysis.summary).toBe(summary.overallStatement.statement_sv);
+    // Provisional, derived (coordinator item 3): the same derivation, its own field.
+    expect(summary.overall_summary).toEqual({
+      derived: true,
+      derivation: 'governedVerdictFromFindings + governed layer checks (stored)',
+      risk_level: 'HIGH',
+      checks_completed: 4,
+      checks_total: 6,
+      not_completed_layers: ['water_protection_area', 'document'],
+      coverage_limited_layers: ['protected_area', 'natura2000'],
+      document_check_status: 'NOT_CHECKED',
+      statement_sv: summary.overallStatement.statement_sv,
+    });
+    // The point this assessment is bound to, verified from CAS (coordinator item 2).
+    expect(summary.localizationGeometry).toMatchObject({
+      artifact_id: s.locationRef.artifact_id,
+      bound_geometry_status: 'VERIFIED',
+      geometry_type: 'POINT',
+      coordinates_wgs84: [17.63, 59.85],
+      coordinates_sweref99tm: [6640000, 648000],
+      srid: 3006,
+    });
 
     const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
     expect(res.status).toBe(200);
@@ -510,6 +543,8 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     expect(res.body.evidenceDetails).toEqual(JSON.parse(JSON.stringify(summary.evidenceDetails)));
     expect(res.body.propertyRoot).toEqual(JSON.parse(JSON.stringify(summary.propertyRoot)));
     expect(res.body.overallStatement).toEqual(JSON.parse(JSON.stringify(summary.overallStatement)));
+    expect(res.body.overall_summary).toEqual(JSON.parse(JSON.stringify(summary.overall_summary)));
+    expect(res.body.localizationGeometry.coordinates_wgs84).toEqual([17.63, 59.85]);
 
     const pdf = await exportCurrentLuAssessmentPdf(s.deps());
     expect(pdf.ok).toBe(true);
@@ -518,6 +553,7 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     expect(data.lagerkontroller.map((c) => c.beskrivning)).toEqual(summary.governedLayerChecks.map((c) => c.message_sv));
     expect(data.evidensdetaljer.map((d) => d.evidens_artifact_id)).toEqual(summary.evidenceDetails.map((d) => d.evidence_artifact_id));
     expect(data.helhetsbedomning).toMatchObject({ risk_level: 'HIGH', kontroller_totalt: 6, kontroller_genomforda: 4, text: summary.overallStatement.statement_sv });
+    expect(data.lokalisering).toMatchObject({ koordinater_wgs84_lng_lat: [17.63, 59.85], koordinater_sweref99tm_n_e: [6640000, 648000], srid: 3006 });
   });
 
   it('evidence details carry dataset version, radius, subject, result, cap, time, binding strength and the ADMIT coverage limitation', async () => {
@@ -531,7 +567,7 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
       artifact_type: 'SPATIAL_EVIDENCE', resolution: 'RESOLVED', integrity: 'CONTENT_HASH_VERIFIED', technical_error_class: null,
       provider: 'SGU', dataset_version_hash: REGISTRY_HASH.water, layer_version_label: 'v1.0', import_batch_id: null,
       retrieved_at: '2026-10-02T10:00:00.000Z',
-      query: { relation: 'DWITHIN', subject_kind: 'LOCALIZATION_GEOMETRY', location_ref: LOCATION_REF, distance_meters: 500 },
+      query: { relation: 'DWITHIN', subject_kind: 'LOCALIZATION_GEOMETRY', location_ref: s.locationRef, distance_meters: 500 },
       result: { semantics_kind: 'EXISTENCE_WITHIN_DISTANCE', exists: true, match_count_observed: 3, max_features_per_layer: 50, cap_reached: false },
       binding_assurance: 'HASH_BOUND_LEDGER_METADATA',
       coverage_limitation_sv: 'Saknas i underlaget',
@@ -640,6 +676,20 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     });
   });
 
+  it.each<[string, (repo: Map<string, unknown>, id: string) => void, string]>([
+    ['manipulated', (values, id) => { (values.get(id) as { payload: { coordinates: number[] } }).payload.coordinates = [6640001, 648000]; }, 'LOCALIZATION_GEOMETRY_TAMPERED'],
+    ['missing from CAS', (values, id) => { values.delete(id); }, 'LOCALIZATION_GEOMETRY_MISSING'],
+  ])('a %s bound localization geometry fails the read-back and the PDF closed (424), never the current point instead', async (_label, damage, failureClass) => {
+    const s = await setup();
+    await s.runFresh();
+    damage(s.repository.values, s.locationRef.artifact_id);
+    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
+      ok: false, status: 424, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass,
+    });
+    expect(await exportCurrentLuAssessmentPdf(s.deps())).toMatchObject({ ok: false, status: 424 });
+    expect(capturedPdfData).toBeUndefined();
+  });
+
   it('an older assessment without details gets honest text in the read-back and the PDF, not empty fields', async () => {
     const s = await setup({ legacyContext: true });
     await s.persistBareAssessment();
@@ -652,12 +702,16 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
       expect(check.message_sv).toMatch(/^Inte kontrollerat: bedömningen innehåller ingen evidens för /);
     }
     expect(summary.overallStatement.statement_sv).toBe('Låg risk i de kontroller som utfördes; underlaget är ofullständigt: 0 av 6 kontroller genomförda.');
+    expect(summary.localizationGeometry).toMatchObject({
+      artifact_id: null, bound_geometry_status: 'NOT_RECORDED', coordinates_wgs84: null, coordinates_sweref99tm: null, srid: null,
+    });
 
     await exportCurrentLuAssessmentPdf(s.deps());
     const data = capturedPdfData as PdfData;
     expect(data.evidensdetaljer).toEqual([]);
     expect(data.fastighetsrot).toMatchObject({ status: 'NOT_RECORDED', kalla: 'Saknas i underlaget', nyckel: 'Saknas i underlaget' });
     expect(String((data.fastighetsrot as { beskrivning: string }).beskrivning)).toMatch(/Rotens datasetbindning saknas/);
+    expect(data.lokalisering).toMatchObject({ koordinater_wgs84_lng_lat: 'Saknas i underlaget', srid: 'Saknas i underlaget' });
   });
 });
 

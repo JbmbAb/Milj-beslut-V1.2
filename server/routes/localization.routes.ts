@@ -406,6 +406,8 @@ router.get(
         evidenceDetails: result.evidenceDetails,
         propertyRoot: result.propertyRoot,
         overallStatement: result.overallStatement,
+        // U20-D, provisional and derived (owner decision pending); nothing in the product reads it.
+        overall_summary: result.overall_summary,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
