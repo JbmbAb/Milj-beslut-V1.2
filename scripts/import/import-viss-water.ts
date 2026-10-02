@@ -4,6 +4,8 @@
  * Run: npx dotenv -e .env -- tsx scripts/import/import-viss-water.ts
  */
 import { spawn } from 'child_process';
+// U30F2 H1: every ogr2ogr write goes through the protected relation gate.
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import * as fs from 'fs';
@@ -66,7 +68,7 @@ async function importLayer(item: (typeof TARGET_ORDER)[number]) {
   ];
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(OGR2OGR_PATH, pgArgs, { stdio: 'inherit', shell: false });
+    const child = spawn(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/import-viss-water.ts', args: pgArgs }), { stdio: 'inherit', shell: false });
     child.on('close', (code) => {
       if (code === 0) resolve();
       else reject(new Error(`ogr2ogr failed for ${item.id} with code ${code}`));

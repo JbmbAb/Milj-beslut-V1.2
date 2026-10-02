@@ -3,6 +3,8 @@
  * Run: npx dotenv -e .env -- tsx scripts/import/import-downloads-vector.ts
  */
 import { spawnSync } from 'child_process';
+// U30F2 H1: every ogr2ogr write goes through the protected relation gate.
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -101,7 +103,7 @@ async function runImport() {
       );
 
       console.log(`   - Running ogr2ogr import...`);
-      const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+      const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/import-downloads-vector.ts', args }), { stdio: 'inherit' });
       
       if (result.status !== 0) {
         throw new Error(`ogr2ogr failed with status ${result.status}`);

@@ -1,4 +1,7 @@
 $ErrorActionPreference = "Stop"
+# U30F2 H1 (PRES-05): every ogr2ogr write goes through the protected relation gate (PowerShell binding).
+. (Join-Path $PSScriptRoot 'lib\ProtectedRelationGate.ps1')
+$gateCaller = 'scripts/import_topo_rest.ps1'
 $env:PATH += ";C:\Program Files\GDAL;C:\Program Files\QGIS 4.0.2\bin;C:\Program Files\QGIS 3.28.11\bin"
 
 $TOPO_FILES = @("Topo50.zip", "Topo 250.zip", "Topo1 milj.zip")
@@ -48,7 +51,8 @@ foreach ($topoName in $TOPO_FILES) {
 
         if ($geoFile) {
             try {
-                & ogr2ogr -f "PostgreSQL" "PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut" "$($geoFile.FullName)" -nln $tableName -nlt GEOMETRY -overwrite -gt 131072 -lco GEOMETRY_NAME=geom -lco FID=id -lco SPATIAL_INDEX=GIST --config PG_USE_COPY YES
+                $ogrArgs = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments @('-f', 'PostgreSQL', 'PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut', $geoFile.FullName, '-nln', $tableName, '-nlt', 'GEOMETRY', '-overwrite', '-gt', '131072', '-lco', 'GEOMETRY_NAME=geom', '-lco', 'FID=id', '-lco', 'SPATIAL_INDEX=GIST', '--config', 'PG_USE_COPY', 'YES')
+                & ogr2ogr @ogrArgs
                 if ($LASTEXITCODE -eq 0) {
                     Write-Log "      OK (Tabell: $tableName)" "Green"
                 } else {

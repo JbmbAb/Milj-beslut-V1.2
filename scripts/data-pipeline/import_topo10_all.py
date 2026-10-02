@@ -1,4 +1,7 @@
 import os, subprocess
+# U30F2 H1: every ogr2ogr run goes through the protected relation gate (Python binding).
+from protected_relation_gate import assert_command_write_allowed
+GATE_CALLER = 'scripts/data-pipeline/import_topo10_all.py'
 
 # Konfiguration
 UTTAG_DIR = r"H:\Delade enheter\Miljöbeslut\GEO_Master_Archive\Data\Lantmateriet\Topografisk_webbkarta"
@@ -36,7 +39,7 @@ def run_import(cfg):
     
     print(f"Importerar {cfg['layer']} till {cfg['table']}...")
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(assert_command_write_allowed(GATE_CALLER, argv=cmd), check=True)
         print(f"  [KLART] {cfg['table']}")
     except subprocess.CalledProcessError as e:
         print(f"  [FEL] Misslyckades med {cfg['layer']}: {e}")

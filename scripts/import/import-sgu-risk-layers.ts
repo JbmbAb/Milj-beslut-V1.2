@@ -110,7 +110,7 @@ async function copyToPostgres(client: pg.Client, tableName: string, rows: any[])
   const columns = Object.keys(rows[0]);
   const stream = client.query(
     copyFrom(
-      `COPY ${tableName} (${columns.join(', ')}) FROM STDIN WITH (FORMAT CSV, HEADER FALSE, QUOTE '"', ESCAPE '"')`,
+      gatedSql(GATE_CALLER, `COPY ${tableName} (${columns.join(', ')}) FROM STDIN WITH (FORMAT CSV, HEADER FALSE, QUOTE '"', ESCAPE '"')`),
     ),
   );
 

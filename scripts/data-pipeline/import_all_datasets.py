@@ -10,7 +10,7 @@ import os, sys, subprocess, pathlib, json, shutil, re
 from datetime import datetime
 
 # U30F F1 (PRES-05): every destructive write goes through the protected relation gate (Python binding).
-from protected_relation_gate import assert_ungoverned_write_allowed
+from protected_relation_gate import assert_ungoverned_write_allowed, gated_sql
 GATE_CALLER = 'scripts/data-pipeline/import_all_datasets.py'
 
 try:
@@ -638,7 +638,7 @@ def import_sgu():
             return True
         assert_ungoverned_write_allowed(GATE_CALLER, 'TRUNCATE', full_table)
         log(f'  [RESET] {full_table} trunkeras innan SGU-import')
-        if not run_sql(f'TRUNCATE TABLE {_quote_ident(schema)}.{_quote_ident(table)}'):
+        if not run_sql(gated_sql(GATE_CALLER, f'TRUNCATE TABLE {_quote_ident(schema)}.{_quote_ident(table)}')):
             log(f'  [FEL] Kunde inte trunkera {full_table}; hoppar over import')
             return False
         _TABLES_INITIALIZED.discard(full_table)

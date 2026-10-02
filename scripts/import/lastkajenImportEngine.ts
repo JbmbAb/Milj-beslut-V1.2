@@ -3,6 +3,8 @@
  * See docs/architecture/import-librarian-only-policy.md
  */
 import { execSync, spawn } from 'child_process';
+// U30F2 H1: every ogr2ogr write goes through the protected relation gate.
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import fs from 'fs';
 import path from 'path';
 import type { PrismaClient } from '@prisma/client';
@@ -293,7 +295,7 @@ export function viltInnerGpkgPath(zipBaseName: string): string {
 
 export function runOgr(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(OGR2OGR_PATH, args, { stdio: 'inherit', shell: false });
+    const child = spawn(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/lastkajenImportEngine.ts', args }), { stdio: 'inherit', shell: false });
     child.on('close', (code) => {
       if (code === 0) resolve();
       else reject(new Error(`ogr2ogr failed with code ${code}`));

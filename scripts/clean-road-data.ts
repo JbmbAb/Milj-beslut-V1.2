@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+// U30F2 H1: the table names come from a query at run time; the protected relation gate checks each one.
+import { gatedSql } from '../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 const prisma = new PrismaClient();
 
 async function main() {
@@ -7,7 +9,7 @@ async function main() {
     );
     for (const row of res) {
         console.log('Dropping', row.table_name);
-        await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${row.table_name}" CASCADE`);
+        await prisma.$executeRawUnsafe(gatedSql('scripts/clean-road-data.ts', `DROP TABLE IF EXISTS "${row.table_name}" CASCADE`));
     }
     console.log('Done cleaning!');
 }

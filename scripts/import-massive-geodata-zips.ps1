@@ -1,4 +1,7 @@
 $ErrorActionPreference = 'Continue'
+# U30F2 H1 (PRES-05): every ogr2ogr write goes through the protected relation gate (PowerShell binding).
+. (Join-Path $PSScriptRoot 'lib\ProtectedRelationGate.ps1')
+$gateCaller = 'scripts/import-massive-geodata-zips.ps1'
 # TODO(Mimers Brunn): Migration debt. This importer still uses a temp workspace under
 # D:\GEodata. Rewrite it to stage from GEO_Master_Archive-managed paths before reuse.
 
@@ -103,6 +106,7 @@ foreach ($zip in $zipFiles) {
             $a += 'EPSG:3006'
         }
 
+        $a = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments $a
         $out = & $OGR @a 2>&1
         if ($LASTEXITCODE -eq 0) {
             wl "    OK ($t)" 'Green'; $ok++

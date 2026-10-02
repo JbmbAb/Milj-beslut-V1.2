@@ -7,6 +7,8 @@
  *   npx dotenv -e .env -- tsx scripts/import/import-ingest-gpkg-batch.ts --offset=50 --limit=50
  */
 import { spawnSync } from 'child_process';
+// U30F2 H1: every ogr2ogr write goes through the protected relation gate.
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import fs from 'fs';
 import path from 'path';
 import { PrismaClient } from '@prisma/client';
@@ -94,7 +96,7 @@ async function main() {
       '-overwrite',
     ];
 
-    const result = spawnSync(OGR2OGR, args, { stdio: 'inherit' });
+    const result = spawnSync(OGR2OGR, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/import-ingest-gpkg-batch.ts', args }), { stdio: 'inherit' });
     if (result.status === 0) ok++;
     else {
       fail++;

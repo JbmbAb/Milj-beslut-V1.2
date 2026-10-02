@@ -1,4 +1,7 @@
 $ErrorActionPreference = "Continue"
+# U30F2 H1 (PRES-05): every ogr2ogr write goes through the protected relation gate (PowerShell binding).
+. (Join-Path $PSScriptRoot 'lib\ProtectedRelationGate.ps1')
+$gateCaller = 'scripts/import-komplettering.ps1'
 $env:PATH += ";C:\Program Files\GDAL;C:\Program Files\QGIS 4.0.2\bin;C:\Program Files\QGIS 3.28.11\bin"
 $sourceDir = "D:\GEO komplettering"
 $basePath = (Resolve-Path "H:\Delade enheter\Milj*beslut").Path
@@ -73,6 +76,7 @@ foreach ($zip in $zips) {
                 "-gt", "65536"
             )
             
+            $ogrArgs = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments $ogrArgs
             & ogr2ogr @ogrArgs
             
             if ($LASTEXITCODE -ne 0) {

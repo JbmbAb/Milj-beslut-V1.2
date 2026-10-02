@@ -8,6 +8,8 @@
  * vattendrag/kust/äl v/Mälaren — se harvest-mcf-oversvamning-pdfs-to-master.ts.
  */
 import { spawnSync } from 'child_process';
+// U30F2 H1: every ogr2ogr run goes through the protected relation gate (a GPKG output passes).
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
@@ -26,7 +28,7 @@ const LAYERS = [
 ] as const;
 
 function runOgr2Ogr(args: string[]): void {
-  const result = spawnSync(OGR2OGR_PATH, args, {
+  const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/harvest-msb-oversvamning-to-master.ts', args }), {
     stdio: 'inherit',
     env: {
       ...process.env,

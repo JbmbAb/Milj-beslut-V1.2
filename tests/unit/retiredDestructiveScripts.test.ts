@@ -91,6 +91,8 @@ const RETIRED_SQL = [
   'scripts/db/subdivide-complex-polygons.sql',
   'scripts/db/partition-spatial-grid.sql',
   'scripts/db/migrate-partition-fastigheter.sql',
+  // U30F2 H1: creates protected relations as empty stubs (found by the channel inventory).
+  'scripts/db/create_extended_schemas.sql',
 ] as const;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');

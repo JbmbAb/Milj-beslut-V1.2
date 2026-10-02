@@ -1,4 +1,6 @@
 import { execSync } from 'child_process';
+// U30F2 H1: the ogr2ogr command goes through the protected relation gate.
+import { assertOgr2ogrCommandAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { createReadStream, createWriteStream, readdirSync, statSync, unlinkSync } from 'fs';
 import { join, basename } from 'path';
 import { Transform } from 'stream';
@@ -56,7 +58,7 @@ async function processXYZ(filePath: string) {
   try {
     // Small delay to ensure file is flushed
     await new Promise((r) => setTimeout(r, 200));
-    execSync(ogrCmd);
+    execSync(assertOgr2ogrCommandAllowed({ caller: 'scripts/db/import-elevation.ts', command: ogrCmd }));
     console.log(`Imported ${fileName} as points`);
   } catch (err) {
     console.error(`Failed to import ${fileName}:`, err);

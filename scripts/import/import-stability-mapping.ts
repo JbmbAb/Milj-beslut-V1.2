@@ -3,12 +3,16 @@
  * Run: npx dotenv -e .env -- tsx scripts/import/import-stability-mapping.ts
  */
 import { spawnSync, execSync } from 'child_process';
+// U30F2 H1: the stage DROPs and the ogr2ogr load go through the protected relation gate.
+import { assertOgr2ogrWriteAllowed, gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 
 import { PATHS } from './config/mimersBrunn';
+
+const GATE_CALLER = 'scripts/import/import-stability-mapping.ts';
 
 dotenv.config();
 
@@ -154,7 +158,7 @@ async function runImport() {
       console.log(`\n📦 ${kommunName} → zon ${zonTyp}`);
       
       // Clean up previous temp table
-      await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${stageTable} CASCADE;`);
+      await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${stageTable} CASCADE;`));
 
       // Run ogr2ogr to load shapefile into temp table
       const args = [
@@ -169,7 +173,7 @@ async function runImport() {
       ];
 
       console.log(`   - Executing ogr2ogr to temp table ${stageTable}...`);
-      const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+      const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: GATE_CALLER, args }), { stdio: 'inherit' });
       
       if (result.status !== 0) {
         console.error(`   ❌ Failed to load shapefile via ogr2ogr.`);
@@ -185,7 +189,7 @@ async function runImport() {
       `);
 
       // Clean up temp table
-      await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${stageTable} CASCADE;`);
+      await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${stageTable} CASCADE;`));
       console.log(`   ✅ Successfully imported ${kommunName} Stabilitetszon ${zonTyp}`);
     }
 

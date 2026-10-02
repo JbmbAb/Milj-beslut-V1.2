@@ -536,6 +536,16 @@ export const RETIRED_DESTRUCTIVE_SCRIPTS: readonly RetiredDestructiveScript[] = 
     replacement: "re-run import-librarian-manifest --mode import-staging for the version (a new staging relation, QA and ledger in one governed path)",
     retired_by: "U30F2 H2",
   },
+  {
+    script: "scripts/db/create_extended_schemas.sql",
+    protected_relations: ["env.registerenhetsomradesytor", "env.sgu_well", "climate.flood_risk_area"],
+    justification:
+      "CREATE TABLE IF NOT EXISTS of the LU property root, env.sgu_well and climate.flood_risk_area (and lm_staging) as empty stubs " +
+      "outside the governed import: in a database without them it creates protected relations that no admitted version backs. " +
+      "Found by the U30F2 H1 channel inventory (the keyword inventory missed it).",
+    replacement: "spatial-bootstrap --init-new-database on a new database, then import-librarian-manifest for every version",
+    retired_by: "U30F2 H1",
+  },
 ]);
 
 export function validateRetiredDestructiveScripts(list: readonly RetiredDestructiveScript[]): void {

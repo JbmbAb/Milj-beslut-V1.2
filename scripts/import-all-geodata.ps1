@@ -1,4 +1,7 @@
 $ErrorActionPreference = "Continue"
+# U30F2 H1 (PRES-05): every ogr2ogr write goes through the protected relation gate (PowerShell binding).
+. (Join-Path $PSScriptRoot 'lib\ProtectedRelationGate.ps1')
+$gateCaller = 'scripts/import-all-geodata.ps1'
 
 # GDAL (ogr2ogr) PATH
 $env:PATH += ";C:\Program Files\GDAL;C:\Program Files\QGIS 4.0.2\bin;C:\Program Files\QGIS 3.28.11\bin"
@@ -47,7 +50,8 @@ function Import-SpatialFile {
 
     # Kör ogr2ogr
     try {
-        & ogr2ogr -f "PostgreSQL" "PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut" $FilePath -nln $cleanTable -nlt PROMOTE_TO_MULTI -unsetFieldWidth -overwrite -gt 65536 -lco GEOMETRY_NAME=geom -lco FID=id -lco SPATIAL_INDEX=GIST -makevalid --config PG_USE_COPY YES
+        $ogrArgs = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments @('-f', 'PostgreSQL', 'PG:host=localhost user=miljobeslut dbname=miljobeslut password=miljobeslut', $FilePath, '-nln', $cleanTable, '-nlt', 'PROMOTE_TO_MULTI', '-unsetFieldWidth', '-overwrite', '-gt', '65536', '-lco', 'GEOMETRY_NAME=geom', '-lco', 'FID=id', '-lco', 'SPATIAL_INDEX=GIST', '-makevalid', '--config', 'PG_USE_COPY', 'YES')
+        & ogr2ogr @ogrArgs
         if ($LASTEXITCODE -eq 0) {
             Write-Log "      [OK] $cleanTable" "Green"
         } else {

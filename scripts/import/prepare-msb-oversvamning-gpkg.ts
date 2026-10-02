@@ -5,6 +5,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
+// U30F2 H1: every ogr2ogr run goes through the protected relation gate (a GPKG output passes).
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { MASTER_ARCHIVE_ROOT } from './config/mimersBrunn';
 import { buildArchiveManifestV2 } from './types/manifestSchema';
 
@@ -21,7 +23,7 @@ function sha256File(filePath: string): string {
 }
 
 function runOgr2Ogr(args: string[]): void {
-  const result = spawnSync(OGR2OGR_PATH, args, { stdio: 'inherit' });
+  const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/prepare-msb-oversvamning-gpkg.ts', args }), { stdio: 'inherit' });
   if (result.status !== 0) {
     throw new Error(`ogr2ogr failed with exit ${result.status}`);
   }

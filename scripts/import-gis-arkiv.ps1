@@ -1,3 +1,6 @@
+# U30F2 H1 (PRES-05): every ogr2ogr write goes through the protected relation gate (PowerShell binding).
+. (Join-Path $PSScriptRoot 'lib\ProtectedRelationGate.ps1')
+$gateCaller = 'scripts/import-gis-arkiv.ps1'
 $OGR      = 'C:\Program Files\GDAL\ogr2ogr.exe'
 $PG_HOST  = 'localhost'
 $PG_PORT  = '5432'
@@ -63,6 +66,7 @@ foreach ($f in $files) {
         '-lco','SPATIAL_INDEX=NONE',
         '-progress')
 
+    $a = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments $a
     $out = & $OGR @a 2>&1
     if ($LASTEXITCODE -eq 0) {
         wl '  OK' 'Green'; $ok++

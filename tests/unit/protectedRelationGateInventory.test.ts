@@ -1,31 +1,38 @@
 /**
- * U30F F1 -- inventory of destructive paths against protected relations (owner decision 2026-10-02).
+ * U30F2 H1 (PRES-05) -- channel-based DEFAULT-DENY inventory of protected relation writes.
  *
- * Scans scripts/, packages/ and server/ (TypeScript/JavaScript, Python, PowerShell, shell, SQL) for
- * destructive operations -- DROP, TRUNCATE, DELETE, INSERT/UPDATE/MERGE/COPY into, rename,
- * CREATE OR REPLACE VIEW, ogr2ogr -overwrite/-append/-update/-upsert/OVERWRITE=YES -- in files
- * that reference a protected relation (every table in protected-relations.v1.json, the retained
- * staging schema, the import registry, or a directly imported module that does). Every such file
- * must be ONE of:
+ * The U30F F1 inventory looked for destructive keywords near protected names in scripts/, packages/
+ * and server/; the verifier's 31 canaries showed it missed 23 (SQL in a variable, a line break, upper
+ * case, a test/ or dot directory, a name from a registry or argv, concatenation, PGDump + psql -f,
+ * shp2pgsql | psql, pg_restore --clean, ALTER SCHEMA RENAME, DROP OWNED, a .cmd wrapper, pool.query,
+ * ogrinfo -sql, a differently named GDAL binary, Python and PowerShell variants).
  *
- *   - the gate's own implementation (GATE_IMPLEMENTATION, fixed below);
- *   - GATED: it imports the protected relation gate (TS/JS: ProtectedRelationGate; Python:
- *     protected_relation_gate; PowerShell: ProtectedRelationGate.ps1) and calls it, and -- for
- *     TS/JS -- every ogr2ogr spawn and every destructive raw statement line is itself gated;
- *   - RETIRED: listed in RETIRED_DESTRUCTIVE_SCRIPTS (justification required, count pinned) and
- *     refusing before any connection;
- *   - SEPARATELY_GUARDED: the one test-database provisioner owned by the TEST-DB-GUARD lane.
+ * This inventory walks the WHOLE repository (PATH_EXCLUSIONS aside) and reads every file that can run
+ * code: TS/JS, Python, PowerShell, shell, cmd/bat, SQL, YAML (CI, compose, cloudbuild), TOML, Dockerfiles
+ * and package.json scripts (tests/unit/protectedWriteChannels.ts). Every CHANNEL -- a database client
+ * call, a process call, a command line, a SQL file -- and every string literal is classified by the
+ * gate's own classifier. A file passes only when each of its sites is
+ *   - gated (inside or bound to a gate call, or a dynamic target a preceding relation gate checked),
+ *   - statically ALLOWED (reads, or writes no protected relation),
+ *   - in a retired script (RETIRED_DESTRUCTIVE_SCRIPTS, refused before anything runs),
+ *   - in a pinned historical migration (HISTORICAL_SQL, by content hash), or
+ *   - listed EXACTLY in REVIEWED_CHANNELS with a justification (a PROTECTED site only under a policy that
+ *     allows it: governed, sanctioned rebuild, test-database guard, gated via, separately guarded).
+ * Everything else fails: a new channel, a new dynamic site, a changed excerpt, a stale entry. The lists
+ * are pinned by count and sha256 below, so none of them grows (or changes) without a reviewed edit here.
  *
- * The canaries at the end prove the scan itself: a copy of the real tree plus one synthetic
- * violation (a new script, a new hardcoded relation, a Python and a PowerShell variant, a relation
- * newly added to the definition) FAILS, and so does a copy where a gate call is removed from an
- * existing path. Read-only: no database, no process other than the file scan.
+ * Generality: every one of the verifier's 31 canaries must be caught, and a seeded generator writes
+ * hundreds of new violations (languages x channels x relations x obfuscations x paths) that must all be
+ * caught -- and as many statically allowed controls that must not be.
+ *
+ * Read-only: no database, no process; the canaries never touch the disk (their content is scanned in
+ * memory, against the real repository).
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
 import {
   PROTECTED_RELATIONS,
@@ -36,307 +43,293 @@ import {
   RETIRED_DESTRUCTIVE_SCRIPTS,
   validateRetiredDestructiveScripts,
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+import { languageOf, scanFile, walkRepository, type ChannelSite, type FileScan } from './protectedWriteChannels';
+import {
+  GATE_IMPLEMENTATION,
+  HISTORICAL_SQL,
+  PATH_EXCLUSIONS,
+  REVIEWED_CHANNELS,
+  TEST_SOURCES,
+  UNSCANNED_EXECUTABLES,
+  UNSCANNED_EXECUTABLE_TYPES,
+  type ReviewedChannels,
+} from './protectedWriteChannels.reviewed';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SCOPE = ['scripts', 'packages', 'server'] as const;
-const EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.py', '.sh', '.ps1', '.psm1', '.sql']);
-/**
- * Test sources are outside this inventory: they run only against the disposable test database behind
- * TEST-DB-GUARD (W-TDG). Applied as one rule, never per file.
- */
-const TEST_SOURCE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
-
-/** The gate itself (and its governed doors): they hold the destructive statements on purpose. */
-const GATE_IMPLEMENTATION: readonly string[] = [
-  'packages/spatial-provider-postgis/src/ProtectedRelationGate.ts',
-  'packages/spatial-provider-postgis/src/ProtectedRelations.ts',
-  // U30F2 M1/M2: the shared classifier and its specification loader.
-  'packages/spatial-provider-postgis/src/ProtectedWriteClassifier.ts',
-  'packages/spatial-provider-postgis/src/ProtectedRelationSpec.ts',
-  'packages/spatial-provider-postgis/src/SpatialDatasetRetention.ts',
-  'packages/spatial-provider-postgis/src/StagingCleanupProtection.ts',
-];
-
-/** Governed users of the gate's governed doors (retain-before-replace, per-relation staging decisions). */
-const GOVERNED: readonly string[] = ['scripts/import/import-librarian-manifest.ts'];
-
-/**
- * Guarded by a different mechanism. Each entry needs a justification and the marker of its guard. MAY
- * shrink; growing it is a reviewed change of this file.
- */
-const SEPARATELY_GUARDED: readonly { readonly file: string; readonly marker: RegExp; readonly justification: string }[] = [
-  {
-    file: 'scripts/db/provision-spatial-test-db.ts',
-    marker: /assertDisposableGisTestDatabase/,
-    justification:
-      'Provisions the disposable GIS test database (INSERT/DELETE of a probe row in env.sgu_well there). It refuses any ' +
-      'target that is not the configured test database (assertDisposableGisTestDatabase, TEST-DB-GUARD lane W-TDG).',
-  },
-  {
-    file: 'scripts/db/spatial-bootstrap.ts',
-    marker: /assertPendingFilesMayRun\(pool, files, process\.argv\)/,
-    justification:
-      'U30F2 H2: applies prisma/spatial/*.sql (deploy release step). Every pending file is classified by the gate classifier; one that ' +
-      'writes a protected relation runs only with --init-new-database on a database holding no protected relation, else nothing is applied.',
-  },
-];
-
-/** Pinned: the retired list MAY shrink, and growing it is a reviewed change of this number (U30F F1). */
-const RETIRED_COUNT = 17;
 
 // ---------------------------------------------------------------------------------------------
-// Scanner
+// Locks: every reviewed list is pinned. A change of a list is a reviewed change of this file too.
 // ---------------------------------------------------------------------------------------------
 
-const SQL_DESTRUCTIVE = [
-  /\bTRUNCATE\b/i,
-  /\bDROP\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|SCHEMA|FOREIGN\s+TABLE)\b/i,
-  /\bDELETE\s+FROM\b/i,
-  /\bCREATE\s+OR\s+REPLACE\s+(?:TEMP(?:ORARY)?\s+)?(?:RECURSIVE\s+)?VIEW\b/i,
-  /\bALTER\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)\b[^;]*\bRENAME\b/i,
-  /\bINSERT\s+INTO\b/i,
-  /(?<!\bDO\s)\bUPDATE\s+[\w."]+\s+SET\b/i,
-  /\bMERGE\s+INTO\b/i,
-  /\bCOPY\s+[\w."]+[^;]*\bFROM\b/i,
-  /\bDropGeometryTable\s*\(/i,
-];
-const OGR_WRITE = [/(^|['"\s,[])-overwrite\b/i, /(^|['"\s,[])-append\b/i, /(^|['"\s,[])-update\b/i, /(^|['"\s,[])-upsert\b/i, /OVERWRITE=YES/i];
-const MENTIONS_OGR = /ogr2ogr|OGR2OGR|\bOGR\b/;
+const LOCKS = {
+  reviewedEntries: 51,
+  reviewedSites: 89,
+  reviewedSha256: '822011b494572685437e5f6edda15c8bb05b7b2f2583bbb9aaf57ec3182a7c92',
+  historicalFiles: 9,
+  historicalSha256: '7fdf49331e9dac4955408d0eb3a830eaabcceaf9e0aba7d6ba306a50e8cb4918',
+  gateImplementationSha256: 'e80cfdb8d646983e6dc0b04cd6b370d775969a5c0e5e3cae6abf2576d119063d',
+  pathExclusionsSha256: '4becd2b0307d48979f6cd9428aa35b4fff76df21c9bcd571effefaf2a67583f7',
+  unscannedSha256: 'aed544c662b858165e67e296b7c2fad17250d2dc1dc766b9409058498c2eb438',
+  testSourcesSha256: '0caaf043853efef0e3185bfc91cc7cae86c9f0621f4f07e7cafeb3caa753ebac',
+  retiredCount: 18,
+} as const;
 
-type Lang = 'ts' | 'py' | 'ps' | 'sh' | 'sql';
-function languageOf(file: string): Lang {
-  const ext = path.extname(file).toLowerCase();
-  if (ext === '.py') return 'py';
-  if (ext === '.ps1' || ext === '.psm1') return 'ps';
-  if (ext === '.sh') return 'sh';
-  if (ext === '.sql') return 'sql';
-  return 'ts';
+function sha256Of(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-/** Source lines without comments (heuristic per language; strings are kept). */
-function codeLines(text: string, lang: Lang): string[] {
-  let t = text;
-  if (lang === 'ts' || lang === 'sql') t = t.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
-  if (lang === 'ps') t = t.replace(/<#[\s\S]*?#>/g, (m) => m.replace(/[^\n]/g, ' '));
-  return t.split(/\r?\n/).map((line) => {
-    const trimmed = line.trim();
-    if (lang === 'ts' && trimmed.startsWith('//')) return '';
-    if ((lang === 'py' || lang === 'ps' || lang === 'sh') && trimmed.startsWith('#')) return '';
-    if (lang === 'sql' && trimmed.startsWith('--')) return '';
-    return line;
-  });
+// ---------------------------------------------------------------------------------------------
+// Repository walk and evaluation
+// ---------------------------------------------------------------------------------------------
+
+const TEST_SOURCE = new RegExp(TEST_SOURCES.pattern);
+const EXCLUDED = PATH_EXCLUSIONS.map((e) => new RegExp(e.pattern));
+const GATE_FILES = new Set(GATE_IMPLEMENTATION.map((g) => g.file));
+
+/** A repository path the inventory scans (not excluded, not a test source, a scanned language). */
+export function isScannedPath(rel: string): boolean {
+  return !EXCLUDED.some((re) => re.test(rel)) && !TEST_SOURCE.test(rel) && languageOf(rel) !== null;
 }
 
-function protectedNamePattern(definition: ProtectedRelationsDefinition): RegExp {
-  const names = [...new Set([...definition.relations.map((r) => r.table), ...definition.retained_staging_schemas])];
-  return new RegExp(`\\b(?:${names.join('|')})\\b|getRegistryEntry|IMPORT_REGISTRY`);
-}
-
-function collectFiles(root: string): string[] {
-  const found: string[] = [];
-  const walk = (dir: string) => {
-    let entries: fs.Dirent[];
+function readRepo(root: string): (p: string) => string | null {
+  return (p) => {
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      return fs.readFileSync(path.join(root, p), 'utf8');
     } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.name === 'node_modules' || e.name === 'dist' || e.name === 'build' || e.name === 'coverage' || e.name.startsWith('.')) continue;
-      const child = path.join(dir, e.name);
-      if (e.isDirectory()) walk(child);
-      else if (EXTENSIONS.has(path.extname(e.name).toLowerCase())) {
-        const rel = path.relative(root, child).split(path.sep).join('/');
-        if (!TEST_SOURCE.test(rel)) found.push(rel);
-      }
+      return null;
     }
   };
-  for (const dir of SCOPE) walk(path.join(root, dir));
-  return found.sort();
 }
 
-function relativeImports(root: string, file: string, text: string): string[] {
-  const specs = [...text.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)].map((m) => m[1]!);
-  const out: string[] = [];
-  for (const spec of specs) {
-    const base = path.resolve(root, path.dirname(file), spec);
-    for (const c of [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.mjs`, path.join(base, 'index.ts'), base.replace(/\.js$/, '.ts')]) {
-      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
-        out.push(c);
-        break;
-      }
-    }
-  }
-  return out;
+function siteKey(s: ChannelSite): string {
+  return `${s.verdict} ${s.kind} ${s.channel} | ${s.excerpt}`;
 }
 
-const TS_GATE_IMPORT = /(?:from|import\()\s*['"][^'"]*ProtectedRelationGate['"]/;
-const TS_GATE_CALL = /\b(?:assertSqlWriteAllowed|gatedSql|assertOgr2ogrWriteAllowed|assertOgr2ogrCommandAllowed|assertUngovernedDestructiveWriteAllowed|assertSanctionedDerivedRebuild)\s*\(/;
-const TS_GOVERNED_CALL = /\b(?:retainOutgoingThenReplace|dropStagingRelationGoverned|assertStagingImportOverwriteAllowed|planStagingCleanup)\s*\(/;
-const PY_GATE = /^\s*(?:from\s+protected_relation_gate\s+import|import\s+protected_relation_gate)\b/m;
-const PY_GATE_CALL = /\bassert_ungoverned_write_allowed\s*\(/;
-const PS_GATE = /ProtectedRelationGate\.ps1/;
-const PS_GATE_CALL = /\bAssert-UngovernedWriteAllowed\b/;
+function normalisedSha(text: string): string {
+  return createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
+}
 
-export interface InventoryFinding {
+interface EvaluationContext {
+  readonly retired: ReadonlySet<string>;
+  readonly reviewed: ReadonlyMap<string, ReviewedChannels>;
+  readonly historical: ReadonlyMap<string, (typeof HISTORICAL_SQL)[number]>;
+  readonly definition: ProtectedRelationsDefinition;
+  /** Non-test files that import each module basename (for `callers` entries). */
+  readonly importersOf: (file: string) => string[];
+}
+
+interface Problem {
   readonly file: string;
   readonly problem: string;
 }
 
-interface ScanOptions {
-  readonly definition?: ProtectedRelationsDefinition;
-  readonly retired?: readonly string[];
+/** A retired script refuses before anything runs (TS: its refusal call first; SQL: the refusal header). */
+function retiredRefusesFirst(file: string, text: string): string | null {
+  const code = text.replace(/\r\n/g, '\n');
+  if (file.endsWith('.sql')) {
+    const lines = code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('--'));
+    if (lines[0] !== '\\set ON_ERROR_STOP on' || !lines[1]?.startsWith(`DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: ${file}`)) {
+      return 'retired SQL without the refusal header';
+    }
+    return null;
+  }
+  const stripped = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const refusal = stripped.indexOf(`refuseRetiredDestructiveScript('${file}')`);
+  const firstUse = stripped.search(/new PrismaClient\(|\$executeRaw|\$queryRaw|\bspawn(?:Sync)?\(|\bexec(?:File)?Sync\(|\.query\(|\bmain\(\)|\bverify\(\)|\brunBenchmark\(\)/);
+  if (refusal < 0 || (firstUse >= 0 && firstUse < refusal)) return 'retired but not refused before its first database or process call';
+  return null;
 }
 
-/** Every destructive path against a protected relation that is not gated, retired or listed. */
-function scanInventory(root: string, options: ScanOptions = {}): { findings: InventoryFinding[]; destructive: string[] } {
-  const definition = options.definition ?? PROTECTED_RELATIONS;
-  const retired = new Set(options.retired ?? RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script));
-  const names = protectedNamePattern(definition);
-  const findings: InventoryFinding[] = [];
-  const destructive: string[] = [];
-  for (const file of collectFiles(root)) {
-    const text = fs.readFileSync(path.join(root, file), 'utf8');
-    const lang = languageOf(file);
-    const lines = codeLines(text, lang);
-    const code = lines.join('\n');
-    const ogr = MENTIONS_OGR.test(code);
-    const hasDestructive = lines.some((l) => SQL_DESTRUCTIVE.some((re) => re.test(l)) || (ogr && OGR_WRITE.some((re) => re.test(l))));
-    if (!hasDestructive) continue;
-    const associated =
-      names.test(code) || (lang === 'ts' && relativeImports(root, file, text).some((m) => names.test(fs.readFileSync(m, 'utf8'))));
-    if (!associated) continue;
-    destructive.push(file);
-
-    if (GATE_IMPLEMENTATION.includes(file)) continue;
-    const guarded = SEPARATELY_GUARDED.find((g) => g.file === file);
-    if (guarded) {
-      if (!guarded.marker.test(code)) findings.push({ file, problem: `listed as separately guarded but ${guarded.marker} is gone` });
-      continue;
-    }
-    if (retired.has(file)) {
-      if (lang === 'sql') {
-        const first = lines.map((l) => l.trim()).filter((l) => l.length > 0);
-        if (first[0] !== '\\set ON_ERROR_STOP on' || !first[1]?.startsWith(`DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: ${file}`)) {
-          findings.push({ file, problem: 'retired SQL without the refusal header' });
-        }
-      } else {
-        const refusal = code.indexOf(`refuseRetiredDestructiveScript('${file}')`);
-        const firstUse = code.search(/new PrismaClient\(|\$executeRaw|\$queryRaw|\bspawn(?:Sync)?\(|\bexec(?:File)?Sync\(|\.query\(|\bmain\(\)|\bverify\(\)|\brunBenchmark\(\)/);
-        if (refusal < 0 || (firstUse >= 0 && firstUse < refusal)) findings.push({ file, problem: 'retired but not refused before its first database or process call' });
-      }
-      continue;
-    }
-    if (lang === 'sql' || lang === 'sh') {
-      findings.push({ file, problem: `${lang} cannot call the gate: retire it (RETIRED_DESTRUCTIVE_SCRIPTS) or move the operation into a gated script` });
-      continue;
-    }
-    if (lang === 'py') {
-      if (!PY_GATE.test(code) || !PY_GATE_CALL.test(code)) {
-        findings.push({ file, problem: 'destructive path without protected_relation_gate' });
-        continue;
-      }
-      // Per function: a def that runs a process or SQL with a destructive statement or ogr2ogr write flag
-      // must itself call the gate (one gated function does not cover another).
-      lines.forEach((line, i) => {
-        const def = line.match(/^(\s*)def\s+(\w+)/);
-        if (!def) return;
-        const indent = def[1]!.length;
-        let end = i + 1;
-        while (end < lines.length && (lines[end]!.trim() === '' || lines[end]!.search(/\S/) > indent)) end += 1;
-        const body = lines.slice(i, end);
-        const runs = body.some((l) => /\bsubprocess\.\w+\(|\brun_sql\(|\bos\.system\(|\.execute\(/.test(l));
-        const destructiveBody = body.some((l) => SQL_DESTRUCTIVE.some((re) => re.test(l)) || (ogr && OGR_WRITE.some((re) => re.test(l))));
-        if (runs && destructiveBody && !body.some((l) => PY_GATE_CALL.test(l))) {
-          findings.push({ file, problem: `def ${def[2]} (line ${i + 1}) writes destructively without calling the gate` });
-        }
-      });
-      continue;
-    }
-    if (lang === 'ps') {
-      if (!PS_GATE.test(code) || !PS_GATE_CALL.test(code)) {
-        findings.push({ file, problem: 'destructive path without ProtectedRelationGate.ps1' });
-        continue;
-      }
-      // Per statement: every destructive line has a gate call FOR ITS TARGET at most 8 lines above it.
-      lines.forEach((line, i) => {
-        if (!SQL_DESTRUCTIVE.some((re) => re.test(line))) return;
-        const target = line.match(
-          /\b(?:DROP\s+(?:TABLE|SCHEMA|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)|TRUNCATE(?:\s+TABLE)?|DELETE\s+FROM|INSERT\s+INTO|ALTER\s+TABLE)\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([$\w."]+)/i,
-        )?.[1];
-        const gatedHere = lines
-          .slice(Math.max(0, i - 8), i + 1)
-          .some((l) => PS_GATE_CALL.test(l) && target !== undefined && new RegExp(`-Relation\\s+['"]?${target.replace(/[$.*+?^{}()|[\]\\]/g, '\\$&')}['"]?(\\s|$)`).test(l));
-        if (!gatedHere) findings.push({ file, problem: `line ${i + 1}: destructive statement without a gate call for ${target ?? '?'}: ${line.trim().slice(0, 100)}` });
-      });
-      continue;
-    }
-    // TS/JS
-    if (!TS_GATE_IMPORT.test(code)) {
-      findings.push({ file, problem: 'destructive path that does not import ProtectedRelationGate' });
-      continue;
-    }
-    if (GOVERNED.includes(file)) {
-      if (!TS_GOVERNED_CALL.test(code)) findings.push({ file, problem: 'governed path without a governed gate call' });
-      continue;
-    }
-    if (!TS_GATE_CALL.test(code)) {
-      findings.push({ file, problem: 'imports the gate but never calls it' });
-      continue;
-    }
-    // Every call site: an ogr2ogr process and a destructive raw statement must be gated where they are made.
-    lines.forEach((line, i) => {
-      const spawnsOgr = /\b(?:spawn|spawnSync|execSync|execFileSync)\s*\(/.test(line) && /OGR2OGR|ogr2ogr|ogrCmd|cmd\b|args\b|pgArgs/.test(line);
-      const nearbyGate = lines.slice(Math.max(0, i - 2), i + 1).some((l) => /assertOgr2ogr(?:Write|Command)Allowed\s*\(/.test(l));
-      const multiLineCall = /\(\s*$/.test(line) && lines.slice(i + 1, i + 4).some((l) => /assertOgr2ogr(?:Write|Command)Allowed\s*\(/.test(l));
-      if (ogr && spawnsOgr && !nearbyGate && !multiLineCall && !/OGRINFO|ogrinfo|'powershell'|'docker'/.test(line)) {
-        findings.push({ file, problem: `line ${i + 1}: ogr2ogr process not gated: ${line.trim().slice(0, 100)}` });
-      }
-      const rawWrite = /\$executeRawUnsafe\s*\(|\$executeRaw`/.test(line) && SQL_DESTRUCTIVE.some((re) => re.test(line));
-      if (rawWrite && !/\bgatedSql\s*\(/.test(line)) findings.push({ file, problem: `line ${i + 1}: destructive statement not gated: ${line.trim().slice(0, 100)}` });
-    });
+/** Every problem of one file, given its scan. */
+function evaluateFile(file: string, text: string, scan: FileScan, ctx: EvaluationContext): Problem[] {
+  const problems: Problem[] = [];
+  const add = (problem: string) => problems.push({ file, problem });
+  if (GATE_FILES.has(file)) return problems;
+  if (ctx.retired.has(file)) {
+    const why = retiredRefusesFirst(file, text);
+    if (why) add(why);
+    return problems;
   }
-  return { findings, destructive };
+  const historical = ctx.historical.get(file);
+  if (historical) {
+    if (normalisedSha(text) !== historical.sha256) add(`historical SQL changed (sha256 ${normalisedSha(text)}): a pinned migration is never edited; write a new governed one`);
+    return problems;
+  }
+  const entry = ctx.reviewed.get(file);
+  const keys = scan.sites.map(siteKey);
+  if (!entry) {
+    for (const s of scan.sites) {
+      const where = /^prisma\/(migrations|spatial)\//.test(file) ? 'a migration that is not in the pinned historical list' : 'not gated, not ALLOWED, not reviewed';
+      add(`line ${s.line}: ${s.verdict} ${s.kind} via ${s.channel} (${s.detail}) -- ${where}: ${s.excerpt}`);
+    }
+    return problems;
+  }
+  // exactly the reviewed multiset of sites
+  const expected = [...entry.sites].sort();
+  const actual = [...keys].sort();
+  if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+    const missing = expected.filter((k) => !actual.includes(k));
+    const extra = actual.filter((k) => !expected.includes(k));
+    add(`sites differ from the reviewed entry (${entry.policy}): new ${JSON.stringify(extra)} / gone ${JSON.stringify(missing)}`);
+  }
+  const text0 = text;
+  for (const m of entry.markers ?? []) if (!new RegExp(m).test(text0)) add(`reviewed as ${entry.policy} but its marker /${m}/ is gone`);
+  if (entry.callers) {
+    const importers = ctx.importersOf(file).filter((f) => !entry.callers!.includes(f));
+    if (importers.length) add(`reviewed as caller-guarded (${entry.policy}) but imported by ${importers.join(', ')}`);
+  }
+  const protectedSites = scan.sites.filter((s) => s.verdict === 'PROTECTED');
+  if (entry.policy === 'DYNAMIC_REVIEWED' && protectedSites.length) add('a DYNAMIC_REVIEWED entry may not hold a PROTECTED site: gate it or retire the file');
+  if (entry.policy === 'SANCTIONED_REBUILD') {
+    const sanctioned = ctx.definition.relations.find((r) => r.relation === entry.relation);
+    if (!sanctioned || sanctioned.sanctioned_rebuild !== file) add(`not the definition's sanctioned rebuilder of ${entry.relation}`);
+    for (const s of protectedSites) {
+      const others = s.detail.split(', ').filter((d) => !d.endsWith(` ${entry.relation}`));
+      if (others.length) add(`a sanctioned rebuild of ${entry.relation} writes ${others.join(', ')}`);
+    }
+  }
+  return problems;
+}
+
+interface RepositoryScan {
+  readonly files: string[];
+  readonly scans: Map<string, FileScan>;
+  readonly texts: Map<string, string>;
+}
+
+function scanRepository(root: string, definition: ProtectedRelationsDefinition = PROTECTED_RELATIONS): RepositoryScan {
+  const files = walkRepository(root, { excludedDirNames: ['node_modules', '.git'], excludedPrefixes: [], isTestSource: () => false }).filter(
+    (f) => !EXCLUDED.some((re) => re.test(f)),
+  );
+  const scans = new Map<string, FileScan>();
+  const texts = new Map<string, string>();
+  const read = readRepo(root);
+  for (const f of files) {
+    if (!isScannedPath(f)) continue;
+    const text = fs.readFileSync(path.join(root, f), 'utf8');
+    texts.set(f, text);
+    scans.set(f, scanFile(f, text, { definition, readRepoFile: read }));
+  }
+  return { files, scans, texts };
+}
+
+function contextFor(repo: RepositoryScan, overrides: { retired?: readonly string[]; definition?: ProtectedRelationsDefinition } = {}): EvaluationContext {
+  const importers = (file: string): string[] => {
+    const base = path.posix.basename(file).replace(/\.[cm]?[jt]sx?$/, '');
+    const out: string[] = [];
+    for (const [f, text] of repo.texts) {
+      if (f === file) continue;
+      if (new RegExp(`(from|import\\(|require\\()\\s*['"][^'"]*/${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\.[cm]?[jt]s)?['"]`).test(text)) out.push(f);
+    }
+    return out.sort();
+  };
+  return {
+    retired: new Set(overrides.retired ?? RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script)),
+    reviewed: new Map(REVIEWED_CHANNELS.map((e) => [e.file, e])),
+    historical: new Map(HISTORICAL_SQL.map((h) => [h.file, h])),
+    definition: overrides.definition ?? PROTECTED_RELATIONS,
+    importersOf: importers,
+  };
+}
+
+const REPO = scanRepository(REPO_ROOT);
+const CONTEXT = contextFor(REPO);
+
+/** The problems one (possibly new or changed) file would raise, scanned in memory against the real repository. */
+function problemsOf(file: string, text: string, opts: { definition?: ProtectedRelationsDefinition; retired?: readonly string[] } = {}): Problem[] {
+  const ctx = opts.definition || opts.retired ? contextFor(REPO, opts) : CONTEXT;
+  const scan = scanFile(file, text, { definition: opts.definition, readRepoFile: readRepo(REPO_ROOT) });
+  return evaluateFile(file, text, scan, ctx);
+}
+
+function realText(file: string): string {
+  return fs.readFileSync(path.join(REPO_ROOT, file), 'utf8').replace(/\r\n/g, '\n');
 }
 
 // ---------------------------------------------------------------------------------------------
 // The repository
 // ---------------------------------------------------------------------------------------------
 
-describe('protected relation gate inventory (U30F F1)', () => {
-  const result = scanInventory(REPO_ROOT);
-
-  it('the scan sees the repository (it cannot pass vacuously)', () => {
-    expect(fs.existsSync(path.join(REPO_ROOT, 'scripts', 'import', 'import-librarian-manifest.ts'))).toBe(true);
-    expect(result.destructive.length).toBeGreaterThan(30);
-    expect(result.destructive).toEqual(
-      expect.arrayContaining([
-        'packages/spatial-provider-postgis/src/ProtectedRelationGate.ts',
-        'packages/spatial-provider-postgis/src/SpatialDatasetRetention.ts',
-        'packages/spatial-provider-postgis/src/StagingCleanupProtection.ts',
-        ...GOVERNED,
-        'scripts/db/drop-staging-tables.ts',
-        'scripts/import/sguBulkImportEngine.ts',
-        'scripts/data-pipeline/import_all_datasets.py',
-        'scripts/import/sanitize-postgis-failed-imports.ps1',
-      ]),
-    );
+describe('protected-write channel inventory: the repository (U30F2 H1, default deny)', () => {
+  it('the scan sees the whole repository and its channels (it cannot pass vacuously)', () => {
+    expect(REPO.scans.size).toBeGreaterThan(2000);
+    const channels = [...REPO.scans.values()].reduce((n, s) => n + s.counts.channels, 0);
+    const gated = [...REPO.scans.values()].reduce((n, s) => n + s.counts.gated, 0);
+    expect(channels).toBeGreaterThan(500);
+    expect(gated).toBeGreaterThan(30);
+    for (const f of [
+      'scripts/import/import-librarian-manifest.ts',
+      'scripts/import/sguBulkImportEngine.ts',
+      'scripts/data-pipeline/import_all_datasets.py',
+      'scripts/import/sanitize-postgis-failed-imports.ps1',
+      'scripts/db/import-nmd-outofdb.sh',
+      'prisma/spatial/004_property_unit_core.sql',
+      'package.json',
+      '.github/workflows/ci.yml',
+      'Dockerfile',
+      'fly.toml',
+    ]) {
+      expect(REPO.scans.has(f), f).toBe(true);
+    }
   });
 
-  it('every destructive path against a protected relation goes through the gate, is retired, or is listed', () => {
-    expect(result.findings).toEqual([]);
+  it('every channel of every file is gated, statically allowed, retired, a pinned migration or reviewed exactly', () => {
+    const problems: Problem[] = [];
+    for (const [file, scan] of REPO.scans) problems.push(...evaluateFile(file, REPO.texts.get(file)!, scan, CONTEXT));
+    expect(problems).toEqual([]);
   });
 
-  it('the retired list is pinned, justified, and every entry refuses', () => {
-    expect(RETIRED_DESTRUCTIVE_SCRIPTS.length).toBe(RETIRED_COUNT);
+  it('no reviewed entry, historical file or gate file is stale', () => {
+    for (const e of REVIEWED_CHANNELS) {
+      expect(REPO.scans.has(e.file), `${e.file}: reviewed but not scanned`).toBe(true);
+      expect(REPO.scans.get(e.file)!.sites.length, `${e.file}: reviewed but has no site any more (remove the entry)`).toBeGreaterThan(0);
+    }
+    for (const h of HISTORICAL_SQL) expect(REPO.scans.has(h.file), h.file).toBe(true);
+    for (const g of GATE_IMPLEMENTATION) expect(fs.existsSync(path.join(REPO_ROOT, g.file)), g.file).toBe(true);
+  });
+
+  it('the reviewed list is pinned: count, sites and content hash; every entry justified', () => {
+    expect(REVIEWED_CHANNELS.length).toBe(LOCKS.reviewedEntries);
+    expect(REVIEWED_CHANNELS.reduce((n, e) => n + e.sites.length, 0)).toBe(LOCKS.reviewedSites);
+    expect(sha256Of(REVIEWED_CHANNELS)).toBe(LOCKS.reviewedSha256);
+    expect(new Set(REVIEWED_CHANNELS.map((e) => e.file)).size).toBe(REVIEWED_CHANNELS.length);
+    for (const e of REVIEWED_CHANNELS) {
+      expect(e.justification.trim().length, e.file).toBeGreaterThanOrEqual(60);
+      expect(e.sites.length, e.file).toBeGreaterThan(0);
+      if (e.policy === 'GOVERNED' || e.policy === 'TEST_DB_GUARD' || e.policy === 'GATED_VIA' || e.policy === 'SEPARATELY_GUARDED') {
+        expect((e.markers?.length ?? 0) + (e.callers?.length ?? 0), `${e.file}: ${e.policy} needs a marker or a callers list`).toBeGreaterThan(0);
+      }
+      if (e.policy === 'SANCTIONED_REBUILD') expect(e.relation, e.file).toBeTruthy();
+    }
+  });
+
+  it('the historical migrations, gate files, path exclusions, test-source rule and unscanned executables are pinned', () => {
+    expect(HISTORICAL_SQL.length).toBe(LOCKS.historicalFiles);
+    expect(sha256Of(HISTORICAL_SQL)).toBe(LOCKS.historicalSha256);
+    expect(sha256Of(GATE_IMPLEMENTATION)).toBe(LOCKS.gateImplementationSha256);
+    expect(sha256Of(PATH_EXCLUSIONS)).toBe(LOCKS.pathExclusionsSha256);
+    expect(sha256Of({ UNSCANNED_EXECUTABLE_TYPES, UNSCANNED_EXECUTABLES })).toBe(LOCKS.unscannedSha256);
+    expect(sha256Of(TEST_SOURCES)).toBe(LOCKS.testSourcesSha256);
+    for (const x of [...HISTORICAL_SQL, ...PATH_EXCLUSIONS, ...UNSCANNED_EXECUTABLES]) expect(x.justification.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('every repository file of an executable type the scan does not read is listed (no new language slips past)', () => {
+    const listed = new Set(UNSCANNED_EXECUTABLES.map((u) => u.file));
+    const unscanned = REPO.files.filter((f) => {
+      const base = f.split('/').pop()!;
+      const ext = path.extname(base).toLowerCase();
+      return (UNSCANNED_EXECUTABLE_TYPES.includes(ext) || UNSCANNED_EXECUTABLE_TYPES.includes(base)) && !TEST_SOURCE.test(f);
+    });
+    expect(unscanned.filter((f) => !listed.has(f))).toEqual([]);
+    for (const u of UNSCANNED_EXECUTABLES) expect(fs.existsSync(path.join(REPO_ROOT, u.file)), u.file).toBe(true);
+  });
+
+  it('the retired list is pinned, justified, and every entry refuses first', () => {
+    expect(RETIRED_DESTRUCTIVE_SCRIPTS.length).toBe(LOCKS.retiredCount);
     for (const entry of RETIRED_DESTRUCTIVE_SCRIPTS) {
       expect(fs.existsSync(path.join(REPO_ROOT, entry.script)), entry.script).toBe(true);
       expect(entry.justification.trim().length, entry.script).toBeGreaterThanOrEqual(40);
-      // U30F2 H2: this keyword scan cannot see multi-line or ${...} statements (verifier H1); such an entry is held
-      // by its refusal call here and behaviourally by tests/unit/retiredDestructiveScripts.test.ts.
-      if (!result.destructive.includes(entry.script)) {
-        expect(fs.readFileSync(path.join(REPO_ROOT, entry.script), 'utf8'), entry.script).toContain(`refuseRetiredDestructiveScript('${entry.script}')`);
-      }
+      expect(retiredRefusesFirst(entry.script, realText(entry.script)), entry.script).toBeNull();
     }
     expect(() =>
       validateRetiredDestructiveScripts([
@@ -347,18 +340,13 @@ describe('protected relation gate inventory (U30F F1)', () => {
 
   it('no script refuses itself without being on the retired list', () => {
     const listed = new Set(RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script));
-    for (const file of collectFiles(REPO_ROOT)) {
-      const text = fs.readFileSync(path.join(REPO_ROOT, file), 'utf8');
+    for (const [file, text] of REPO.texts) {
       const m = text.match(/refuseRetiredDestructiveScript\('([^']+)'\)/);
-      if (m && !GATE_IMPLEMENTATION.includes(file)) {
+      if (m && !GATE_FILES.has(file)) {
         expect(m[1], file).toBe(file);
         expect(listed.has(file), file).toBe(true);
       }
     }
-  });
-
-  it('every separately guarded entry is justified', () => {
-    for (const g of SEPARATELY_GUARDED) expect(g.justification.length, g.file).toBeGreaterThanOrEqual(40);
   });
 
   it('the definition covers every SpatialLayerRegistry table and every ADMIT-V1 PostGIS target', () => {
@@ -367,7 +355,7 @@ describe('protected relation gate inventory (U30F F1)', () => {
     const contracts = fs.readFileSync(path.join(REPO_ROOT, 'docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md'), 'utf8');
     const admitted = contracts
       .split(/\r?\n/)
-      .filter((l) => /^\| `lu\.[a-z_]+` \|/.test(l) && l.split('|').length >= 12) // the ADMIT contracts table rows
+      .filter((l) => /^\| `lu\.[a-z_]+` \|/.test(l) && l.split('|').length >= 12)
       .flatMap((l) => [...l.split('|')[10]!.matchAll(/`([a-z_]+\.[a-z_0-9]+)`/g)].map((m) => m[1]!));
     expect(admitted.length).toBeGreaterThanOrEqual(11);
     for (const target of admitted) expect(relations.has(target), target).toBe(true);
@@ -375,85 +363,108 @@ describe('protected relation gate inventory (U30F F1)', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Canaries: the scan fails on a synthetic violation in a copy of the tree
+// The verifier's 31 canaries (v30f): every one is caught now
 // ---------------------------------------------------------------------------------------------
 
-describe('canaries: the inventory FAILS on a new ungated destructive path', () => {
-  // ONE copy of the scanned tree; every canary adds or changes one file and undoes it afterwards.
-  let copy: string | null = null;
-  afterAll(() => {
-    if (copy) fs.rmSync(copy, { recursive: true, force: true });
-  }, 120_000);
+const PRISMA = "import { PrismaClient } from '@prisma/client';\nconst p = new PrismaClient();\n";
 
-  function copyOfTree(): string {
-    if (copy) return copy;
-    copy = fs.mkdtempSync(path.join(os.tmpdir(), 'wu30f-inventory-'));
-    for (const file of collectFiles(REPO_ROOT)) {
-      const target = path.join(copy, file);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.copyFileSync(path.join(REPO_ROOT, file), target);
-    }
-    return copy;
-  }
+const V30F_NEW_FILES: readonly (readonly [string, string, string])[] = [
+  ['control: new ungated UPDATE of env.sgu_well', 'scripts/rogue/v30f-upd.ts', `${PRISMA}await p.$executeRawUnsafe('UPDATE env.sgu_well SET geom = NULL');\n`],
+  ['control: new .mjs DELETE FROM env.sgu_well', 'scripts/rogue/v30f-del.mjs', "import pg from 'pg';\nawait new pg.Pool().query('DELETE FROM env.sgu_well');\n"],
+  ['control: quoted lower-case "env"."sgu_well"', 'scripts/rogue/v30f-quoted.ts', `${PRISMA}await p.$executeRawUnsafe('truncate "env"."sgu_well"');\n`],
+  ['new script in a directory named test/', 'scripts/test/v30f-wipe.ts', `${PRISMA}await p.$executeRawUnsafe('TRUNCATE env.sgu_well');\n`],
+  ['new script under a dot-directory', 'scripts/.v30f/wipe.ts', `${PRISMA}await p.$executeRawUnsafe('TRUNCATE env.sgu_well');\n`],
+  ['UPPER-CASE unquoted name (PostgreSQL folds it to env.sgu_well)', 'scripts/rogue/v30f-upper.ts', `${PRISMA}await p.$executeRawUnsafe('TRUNCATE ENV.SGU_WELL');\n`],
+  [
+    'target from SPATIAL_LAYER_REGISTRY via package alias',
+    'scripts/rogue/v30f-registry.ts',
+    "import { SPATIAL_LAYER_REGISTRY } from '@miljobeslut/spatial-provider-postgis';\n" + PRISMA + 'for (const b of Object.values(SPATIAL_LAYER_REGISTRY)) await p.$executeRawUnsafe(`TRUNCATE ${b.table}`);\n',
+  ],
+  ['target from the command line', 'scripts/rogue/v30f-argv.ts', PRISMA + 'await p.$executeRawUnsafe(`TRUNCATE ${process.argv[2]}`);\n'],
+  ['name built by concatenation', 'scripts/rogue/v30f-concat.ts', `${PRISMA}await p.$executeRawUnsafe('TRUNCATE env.sgu_' + 'well');\n`],
+  [
+    'ogr2ogr -f PGDump then psql -f (two-step overwrite)',
+    'scripts/rogue/v30f-pgdump.ts',
+    "import { spawnSync } from 'child_process';\nspawnSync('ogr2ogr', ['-f', 'PGDump', 'out.sql', 'a.gpkg', '-nln', 'env.sgu_well']);\nspawnSync('psql', ['-f', 'out.sql']);\n",
+  ],
+  ['shp2pgsql -d piped to psql (.sh)', 'scripts/rogue/v30f-shp.sh', 'shp2pgsql -d -s 3006 a.shp env.sgu_well | psql "$DATABASE_URL"\n'],
+  ['pg_restore --clean of env.sgu_well (.ps1)', 'scripts/rogue/v30f-restore.ps1', 'pg_restore --clean --if-exists -n env -t sgu_well dump.backup\n'],
+  ['ALTER SCHEMA env RENAME (moves every LU layer away)', 'scripts/rogue/v30f-alter-schema.ts', `${PRISMA}const layer = 'sgu_well';\nawait p.$executeRawUnsafe('ALTER SCHEMA env RENAME TO env_old');\n`],
+  ['DROP OWNED BY (drops everything the role owns)', 'scripts/rogue/v30f-owned.ts', `${PRISMA}const layer = 'sgu_well';\nawait p.$executeRawUnsafe('DROP OWNED BY miljobeslut CASCADE');\n`],
+  ['a .cmd wrapper', 'scripts/rogue/v30f-wipe.cmd', 'psql -c "TRUNCATE env.sgu_well"\n'],
+  [
+    'control: ogr2ogr -sql DELETE against a PG source (ungated new file)',
+    'scripts/rogue/v30f-ogrsql.ts',
+    "import { spawnSync } from 'child_process';\nspawnSync('ogr2ogr', ['-f', 'GPKG', 'out.gpkg', 'PG:dbname=x', '-sql', 'DELETE FROM env.sgu_well']);\n",
+  ],
+];
 
-  const added: string[] = [];
-  const changed = new Map<string, string>();
-  afterEach(() => {
-    if (!copy) return;
-    for (const file of added.splice(0)) fs.rmSync(path.join(copy, file), { force: true });
-    for (const [file, original] of changed) fs.writeFileSync(path.join(copy, file), original, 'utf8');
-    changed.clear();
+const V30F_APPENDS: readonly (readonly [string, string, string])[] = [
+  ['gated TS file: SQL passed via a variable to $executeRawUnsafe', 'scripts/import/bulk-import-sgu.ts', "const v30fSql = 'TRUNCATE env.sgu_well';\nawait prisma.$executeRawUnsafe(v30fSql);"],
+  ['gated TS file: multi-line $executeRawUnsafe', 'scripts/import/bulk-import-sgu.ts', "await prisma.$executeRawUnsafe(\n  'TRUNCATE env.sgu_well',\n);"],
+  ['gated TS file: $queryRawUnsafe with DELETE', 'scripts/import/bulk-import-sgu.ts', "await prisma.$queryRawUnsafe('DELETE FROM env.sgu_well');"],
+  [
+    'gated TS file: pg pool.query TRUNCATE',
+    'scripts/import/sguBulkImportEngine.ts',
+    "export async function v30f(pool: { query(s: string): Promise<unknown> }) { await pool.query('TRUNCATE env.sgu_well'); }",
+  ],
+  ['gated TS file: execSync psql -c TRUNCATE', 'scripts/import/bulk-import-sgu.ts', 'execSync(\'psql -c "TRUNCATE env.sgu_well"\');'],
+  ['gated TS file: ogrinfo -sql DROP TABLE', 'scripts/import/bulk-import-sgu.ts', 'execSync(\'ogrinfo PG:dbname=x -sql "DROP TABLE env.sgu_well"\');'],
+  [
+    'gated TS file: ogr2ogr spawn via a differently named binary variable',
+    'scripts/import/sguBulkImportEngine.ts',
+    "export function v30fOgr(GDAL_BIN: string) { spawn(GDAL_BIN, ['-f', 'PostgreSQL', 'PG:x', 'a.gpkg', '-nln', 'env.sgu_well', '-overwrite']); }",
+  ],
+  ['control: gated TS file: same-line $executeRawUnsafe TRUNCATE without gatedSql', 'scripts/import/bulk-import-sgu.ts', "await prisma.$executeRawUnsafe('TRUNCATE env.sgu_well');"],
+  ['gated Python file: module-level subprocess psql TRUNCATE', 'scripts/data-pipeline/import_all_datasets.py', "subprocess.run(['psql', '-c', 'TRUNCATE env.sgu_well'])"],
+  [
+    'gated Python file: def gates ANOTHER target then truncates a protected one',
+    'scripts/data-pipeline/import_all_datasets.py',
+    "def v30f_rogue():\n    assert_ungoverned_write_allowed(GATE_CALLER, 'TRUNCATE', 'public.v30f_tmp')\n    run_sql('TRUNCATE TABLE env.sgu_well')",
+  ],
+  ['control: gated Python file: new def truncating without any gate call', 'scripts/data-pipeline/import_all_datasets.py', "def v30f_rogue2():\n    run_sql('TRUNCATE TABLE env.sgu_well')"],
+  ['gated PowerShell file: ogr2ogr -overwrite line', 'scripts/import/sanitize-postgis-failed-imports.ps1', '& ogr2ogr -f PostgreSQL "PG:dbname=x" a.gpkg -nln env.sgu_well -overwrite'],
+  [
+    'gated PowerShell file: gate call swallowed by try/catch, then DROP',
+    'scripts/import/sanitize-postgis-failed-imports.ps1',
+    "try { Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation 'env.sgu_well' } catch { }\nInvoke-DbSql \"DROP TABLE IF EXISTS env.sgu_well CASCADE;\" 'x'",
+  ],
+  ['control: gated PowerShell file: DROP without a gate call', 'scripts/import/sanitize-postgis-failed-imports.ps1', "Invoke-DbSql \"DROP TABLE IF EXISTS env.sgu_well CASCADE;\" 'x'"],
+];
+
+describe("canaries: the verifier's 31 v30f cases are all caught", () => {
+  it('31 cases: 16 new files, 14 additions to gated files, 1 retired-list change', () => {
+    expect(V30F_NEW_FILES.length + V30F_APPENDS.length + 1).toBe(31);
   });
 
-  function addFile(root: string, file: string, content: string): void {
-    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-    fs.writeFileSync(path.join(root, file), content, 'utf8');
-    added.push(file);
-  }
-
-  it('the copy of the real tree is clean (the canaries below fail only because of what they add)', () => {
-    expect(scanInventory(copyOfTree()).findings).toEqual([]);
+  it.each(V30F_NEW_FILES)('new file -- %s', (_label, file, content) => {
+    expect(isScannedPath(file), `${file} is walked and scanned`).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ROOT, file))).toBe(false);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
   });
 
-  it.each([
-    [
-      'a new script that truncates an LU layer',
-      'scripts/rogue/truncate-wells.ts',
-      "import { PrismaClient } from '@prisma/client';\nconst p = new PrismaClient();\nawait p.$executeRawUnsafe('TRUNCATE TABLE env.sgu_well CASCADE');\n",
-    ],
-    [
-      'a new hardcoded retained relation dropped',
-      'scripts/rogue/drop-retained.ts',
-      "import { PrismaClient } from '@prisma/client';\nconst p = new PrismaClient();\nawait p.$executeRawUnsafe('DROP TABLE IF EXISTS \"lm_staging\".\"natura2000_area_deadbeef\"');\n",
-    ],
-    [
-      'an ogr2ogr -overwrite into an LU layer',
-      'scripts/rogue/overwrite-ebh.ts',
-      "import { spawnSync } from 'child_process';\nspawnSync('ogr2ogr', ['-f', 'PostgreSQL', 'PG:dbname=x', 'a.gpkg', '-nln', 'env.ebh_potentiellt_fororenade_omraden', '-overwrite']);\n",
-    ],
-    [
-      'a Python importer appending to natura2000',
-      'scripts/data-pipeline/rogue_natura.py',
-      "import subprocess\nsubprocess.run(['ogr2ogr', '-f', 'PostgreSQL', 'PG:x', 'a.shp', '-nln', 'env.natura2000_area', '-append'])\n",
-    ],
-    ['a PowerShell sweep dropping protected areas', 'scripts/rogue/sweep.ps1', "psql -c 'DROP TABLE env.protected_area CASCADE;'\n"],
-    ['a SQL migration redefining the property root', 'scripts/db/rogue.sql', 'CREATE OR REPLACE VIEW core.property_unit AS SELECT 1;\n'],
-    [
-      'a server module deleting from the derived property table',
-      'server/rogue/propertyCleanup.ts',
-      "export async function clean(db: { query(s: string): Promise<unknown> }) {\n  await db.query('DELETE FROM core.property_unit');\n}\n",
-    ],
-  ])('%s', (_label, file, content) => {
-    const root = copyOfTree();
-    addFile(root, file, content);
-    const { findings } = scanInventory(root);
-    expect(findings.map((f) => f.file)).toEqual([file]);
+  it.each(V30F_APPENDS)('addition -- %s', (_label, file, append) => {
+    const original = realText(file);
+    expect(problemsOf(file, original)).toEqual([]); // clean before
+    expect(problemsOf(file, `${original}\n${append}\n`).length).toBeGreaterThan(0);
   });
 
+  it('retired list grown by one without the refusal in the file', () => {
+    const file = 'scripts/import/bulk-import-sgu.ts';
+    const retired = [...RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script), file];
+    expect(problemsOf(file, realText(file), { retired }).map((p) => p.problem)).toEqual(['retired but not refused before its first database or process call']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// More canaries: definitions, gates removed from real files, lists, migrations
+// ---------------------------------------------------------------------------------------------
+
+describe('canaries: changes to real files and lists are caught', () => {
   it('a relation newly added to the definition is protected by the scan at once', () => {
-    const root = copyOfTree();
-    addFile(root, 'scripts/rogue/new-layer.ts', "import { PrismaClient } from '@prisma/client';\nawait new PrismaClient().$executeRawUnsafe('TRUNCATE env.msb_new_layer');\n");
-    expect(scanInventory(root).findings).toEqual([]); // not protected yet
+    const file = 'scripts/rogue/new-layer.ts';
+    const content = "import { PrismaClient } from '@prisma/client';\nawait new PrismaClient().$executeRawUnsafe('TRUNCATE env.msb_new_layer');\n";
+    expect(problemsOf(file, content)).toEqual([]);
     const extended = parseProtectedRelationsDefinition({
       contract: 'mimer-protected-relations-v1',
       retained_staging_schemas: [...PROTECTED_RELATIONS.retained_staging_schemas],
@@ -462,57 +473,187 @@ describe('canaries: the inventory FAILS on a new ungated destructive path', () =
         { relation: 'env.msb_new_layer', class: 'LU_LIVE_LAYER', basis: 'canary: a newly admitted LU layer' },
       ],
     });
-    expect(scanInventory(root, { definition: extended }).findings.map((f) => f.file)).toEqual(['scripts/rogue/new-layer.ts']);
+    expect(problemsOf(file, content, { definition: extended }).length).toBeGreaterThan(0);
   });
 
   it.each([
-    [
-      'the gate call removed from an existing ogr2ogr path',
-      'scripts/import/bulk-import-sgu-api-all.ts',
-      'execSync(assertOgr2ogrCommandAllowed({ caller: GATE_CALLER, command: ogrCmd }), ',
-      'execSync(ogrCmd, ',
-    ],
-    [
-      'one gated statement of several un-gated',
-      'scripts/import/sguBulkImportEngine.ts',
-      'await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${tableRef} CASCADE`));',
-      'await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${tableRef} CASCADE`);',
-    ],
-    [
-      'the Python gate call removed',
-      'scripts/data-pipeline/import_lm_stac_resume.py',
-      "    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', table)\n",
-      '',
-    ],
-    [
-      "one Python function's gate call removed while another function still calls it",
-      'scripts/data-pipeline/import_all_datasets.py',
-      "    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', f'{schema}.{table}')\n",
-      '',
-    ],
-    [
-      'one PowerShell DROP without its gate call',
-      'scripts/import/sanitize-postgis-failed-imports.ps1',
-      "Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP_SCHEMA' -Relation 'stage'\n",
-      '',
-    ],
+    ['a gatedSql removed (DROP of tables listed at run time)', 'scripts/import/sguBulkImportEngine.ts', '    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${table} CASCADE`));\n    dropped.push(table);', '    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);\n    dropped.push(table);'],
+    ['an ogr2ogr command gate removed', 'scripts/import/bulk-import-sgu-api-all.ts', 'execSync(assertOgr2ogrCommandAllowed({ caller: GATE_CALLER, command: ogrCmd }), ', 'execSync(ogrCmd, '],
+    ['an ogr2ogr argv gate removed (U30F2 H1 wrap)', 'scripts/import/import-viss-water.ts', "assertOgr2ogrWriteAllowed({ caller: 'scripts/import/import-viss-water.ts', args: pgArgs })", 'pgArgs'],
+    ['a PowerShell relation gate removed', 'scripts/import/sanitize-postgis-failed-imports.ps1', "        Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation $t\n", ''],
+    ['a PowerShell ogr2ogr gate removed (U30F2 H1 wrap)', 'scripts/import-topo.ps1', "$ogrArgs = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments @(", '$ogrArgs = @('],
+    ['a Python relation gate removed', 'scripts/data-pipeline/import_lm_stac.py', "    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', table)\n    mode =", '    mode ='],
+    ['a Python command gate removed (U30F2 H1 wrap)', 'scripts/data-pipeline/import_topo10_all.py', 'subprocess.run(assert_command_write_allowed(GATE_CALLER, argv=cmd), check=True)', 'subprocess.run(cmd, check=True)'],
     ["a retired script's refusal removed", 'scripts/db/drop-staging-tables.ts', "refuseRetiredDestructiveScript('scripts/db/drop-staging-tables.ts');", ''],
     ["a retired SQL script's refusal header removed", 'scripts/db/partition-spatial-grid.sql', '\\set ON_ERROR_STOP on', ''],
-    ['a retired script dropped from the list', 'scripts/verify-jordarter.ts', '', ''],
-  ])('mutation: %s -> the inventory fails', (label, file, from, to) => {
-    const root = copyOfTree();
-    const target = path.join(root, file);
-    const original = fs.readFileSync(target, 'utf8');
-    changed.set(file, original);
-    const before = original.replace(/\r\n/g, '\n');
-    let retired: string[] | undefined;
-    if (from === '') {
-      retired = RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script).filter((s) => s !== file);
+    ['a historical migration edited', 'prisma/spatial/004_property_unit_core.sql', 'DROP TABLE', 'DROP TABLE IF EXISTS'],
+    ['a reviewed dynamic file gains one more dynamic channel', 'scripts/devgov/devgov.mjs', 'const result = spawnSync(commandSpec.command,', 'spawnSync(process.env.EXTRA_TOOL, []);\n  const result = spawnSync(commandSpec.command,'],
+    ['a governed marker removed', 'scripts/db/sync-property-unit-from-env.ts', "assertSanctionedDerivedRebuild({ caller: 'scripts/db/sync-property-unit-from-env.ts', relation: 'core.property_unit', operation: 'TRUNCATE' });", ''],
+  ])('mutation: %s -> caught', (label, file, from, to) => {
+    const original = realText(file);
+    expect(original.split(from).length - 1, `${label}: anchor`).toBe(1);
+    expect(problemsOf(file, original)).toEqual([]);
+    expect(problemsOf(file, original.replace(from, () => to)).length, label).toBeGreaterThan(0);
+  });
+
+  it('a retired script dropped from the list leaves its protected writes unexplained', () => {
+    const file = 'scripts/verify-jordarter.ts';
+    const retired = RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script).filter((s) => s !== file);
+    expect(problemsOf(file, realText(file), { retired }).length).toBeGreaterThan(0);
+  });
+
+  it('a NEW migration with a destructive statement against a protected relation fails; an allowed one passes', () => {
+    expect(problemsOf('prisma/migrations/20261003000000_rogue/migration.sql', 'ALTER TABLE "User" ADD COLUMN x int;\nDROP TABLE env.protected_area;\n').length).toBeGreaterThan(0);
+    expect(problemsOf('prisma/spatial/007_rogue.sql', 'TRUNCATE core.property_unit;\n').length).toBeGreaterThan(0);
+    expect(problemsOf('prisma/migrations/20261003000001_ok/migration.sql', 'ALTER TABLE "User" ADD COLUMN y int;\nCREATE INDEX idx_y ON "User" (y);\n')).toEqual([]);
+  });
+
+  it('a reviewed caller-guarded module imported by a new script fails', () => {
+    const ctx = contextFor(REPO);
+    const entry = REVIEWED_CHANNELS.find((e) => e.file === 'scripts/db/lib/applyRc6VersionedSpatialDdl.ts')!;
+    const file = entry.file;
+    const scan = REPO.scans.get(file)!;
+    const withRogue: EvaluationContext = { ...ctx, importersOf: (f) => [...ctx.importersOf(f), 'scripts/rogue/uses-rc6.ts'] };
+    expect(evaluateFile(file, REPO.texts.get(file)!, scan, ctx)).toEqual([]);
+    expect(evaluateFile(file, REPO.texts.get(file)!, scan, withRogue).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Generated violations: languages x channels x relations x obfuscations x paths
+// ---------------------------------------------------------------------------------------------
+
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+interface GeneratedCase {
+  readonly id: string;
+  readonly file: string;
+  readonly content: string;
+  readonly violation: boolean;
+}
+
+/** Name renderings PostgreSQL resolves to the same relation. */
+function renderName(rand: () => number, relation: string, quotable: boolean): string {
+  const [schema, table] = relation.split('.') as [string, string];
+  const forms = [
+    () => relation,
+    () => relation.toUpperCase(),
+    () => `${schema[0]!.toUpperCase()}${schema.slice(1)}.${table.toUpperCase()}`,
+    ...(quotable ? [() => `"${schema}"."${table}"`, () => `"${schema}".${table}`] : []),
+  ];
+  return forms[Math.floor(rand() * forms.length)]!();
+}
+
+function generateCases(seed: number, count: number): GeneratedCase[] {
+  const rand = mulberry32(seed);
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)]!;
+  const relations = [
+    ...PROTECTED_RELATIONS.relations.map((r) => r.relation),
+    'lm_staging.flood_risk_area_994bf11c',
+    'lm_staging.natura2000_area_0123456789abcdef01234567',
+  ];
+  const writes = [
+    (n: string) => `TRUNCATE ${n}`,
+    (n: string) => `TRUNCATE TABLE ONLY ${n} CASCADE`,
+    (n: string) => `DELETE FROM ${n}`,
+    (n: string) => `DROP TABLE IF EXISTS ${n} CASCADE`,
+    (n: string) => `UPDATE ${n} SET geom = NULL`,
+    (n: string) => `INSERT INTO ${n} SELECT * FROM public.scratch`,
+    (n: string) => `ALTER TABLE ${n} RENAME TO x_old`,
+    (n: string) => `CREATE OR REPLACE VIEW ${n} AS SELECT 1`,
+  ];
+  const reads = [(n: string) => `SELECT count(*) FROM ${n}`, (n: string) => `SELECT * FROM ${n} WHERE id = 1`];
+  const allowedWrites = [(i: number) => `TRUNCATE public.scratch_${i}`, (i: number) => `INSERT INTO public.scratch_${i} VALUES (1)`];
+  const obfuscate = [
+    (s: string) => s,
+    (s: string) => `/* maintenance */ ${s}`,
+    (s: string) => `-- maintenance\n${s}`,
+    (s: string) => s.replace(' ', '\n   '),
+    (s: string) => `SELECT 1; ${s}`,
+  ];
+  const dirs = ['scripts/rogue', 'scripts/test', 'scripts/.hidden', 'server/rogue', 'tools', 'packages/rogue/src', 'deploy/gen', 'gen'];
+  const js = (s: string) => JSON.stringify(s);
+  const sq = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  type Channel = { id: string; ext: string; multiline: boolean; quotes: boolean; ogr?: boolean; render: (sql: string, name: string) => string; fileName?: string };
+  const channels: Channel[] = [
+    { id: 'ts-prisma', ext: '.ts', multiline: true, quotes: true, render: (s) => `${PRISMA}await p.$executeRawUnsafe(${js(s)});\n` },
+    { id: 'ts-pg-variable', ext: '.mts', multiline: true, quotes: true, render: (s) => `import pg from 'pg';\nconst q = ${js(s)};\nawait new pg.Pool().query(q);\n` },
+    { id: 'ts-concat', ext: '.ts', multiline: false, quotes: true, render: (s) => { const k = 1 + Math.floor(rand() * (s.length - 2)); return `${PRISMA}await p.$executeRawUnsafe(${js(s.slice(0, k))} + ${js(s.slice(k))});\n`; } },
+    { id: 'ts-template-constant', ext: '.ts', multiline: false, quotes: false, render: (s) => `${PRISMA}const verb = ${js(s.split(' ')[0]!)};\nawait p.$executeRawUnsafe(\`\${verb} ${s.split(' ').slice(1).join(' ')}\`);\n` },
+    { id: 'js-exec-psql', ext: '.cjs', multiline: false, quotes: false, render: (s) => `const { execSync } = require('node:child_process');\nexecSync(${js(`psql -c "${s}"`)});\n` },
+    { id: 'ts-spawn-psql', ext: '.ts', multiline: true, quotes: true, render: (s) => `import { spawnSync } from 'node:child_process';\nspawnSync('psql', ['-v', 'ON_ERROR_STOP=1', '-c', ${js(s)}]);\n` },
+    { id: 'ts-spawn-ogr2ogr', ext: '.ts', multiline: false, quotes: false, ogr: true, render: (_s, n) => `import { spawnSync } from 'node:child_process';\nconst args = ['-f', 'PostgreSQL', 'PG:dbname=x', 'a.gpkg', '-nln', ${js(n)}, '-overwrite'];\nspawnSync('ogr2ogr', args);\n` },
+    { id: 'py-cursor', ext: '.py', multiline: true, quotes: true, render: (s) => `import psycopg2\nconn = psycopg2.connect('')\ncur = conn.cursor()\ncur.execute(${js(s)})\n` },
+    { id: 'py-subprocess-psql', ext: '.py', multiline: true, quotes: true, render: (s) => `import subprocess\nsql = ${js(s)}\nsubprocess.run(['psql', '-c', sql], check=True)\n` },
+    { id: 'py-fstring', ext: '.py', multiline: false, quotes: false, render: (s) => `import psycopg2\ncur = psycopg2.connect('').cursor()\nverb = ${js(s.split(' ')[0]!)}\ncur.execute(f"{verb} ${s.split(' ').slice(1).join(' ')}")\n` },
+    { id: 'ps-psql', ext: '.ps1', multiline: true, quotes: true, render: (s) => `$sql = ${sq(s)}\n& psql -v ON_ERROR_STOP=1 -c $sql\n` },
+    { id: 'ps-literal-invoke', ext: '.ps1', multiline: false, quotes: true, render: (s) => `& 'C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe' -c ${sq(s)}\n` },
+    { id: 'sh-psql', ext: '.sh', multiline: true, quotes: false, render: (s) => `#!/bin/sh\nset -e\npsql "$DATABASE_URL" -c '${s}'\n` },
+    { id: 'sh-heredoc', ext: '.sh', multiline: true, quotes: true, render: (s) => `#!/bin/bash\npsql "$DATABASE_URL" <<'SQL'\n${s};\nSQL\n` },
+    { id: 'cmd-psql', ext: '.cmd', multiline: false, quotes: false, render: (s) => `@echo off\r\npsql -c "${s}"\r\n` },
+    { id: 'sql-file', ext: '.sql', multiline: true, quotes: true, render: (s) => `-- generated\n${s};\n` },
+    { id: 'yaml-run', ext: '.yml', multiline: false, quotes: false, render: (s) => `jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - name: step\n        run: psql -c '${s}'\n` },
+    { id: 'yaml-block', ext: '.yaml', multiline: false, quotes: false, render: (s) => `steps:\n  - name: step\n    run: |\n      set -e\n      psql -c '${s}'\n` },
+    { id: 'npm-script', ext: '', multiline: false, quotes: false, fileName: 'package.json', render: (s) => `${JSON.stringify({ name: 'gen', scripts: { wipe: `psql -c '${s}'` } }, null, 2)}\n` },
+    { id: 'dockerfile', ext: '', multiline: false, quotes: false, fileName: 'Dockerfile', render: (s) => `FROM postgres:16\nRUN psql -c '${s}' \\\n  && echo done\n` },
+    { id: 'toml', ext: '.toml', multiline: false, quotes: false, render: (s) => `[deploy]\nrelease_command = "psql -c '${s}'"\n` },
+  ];
+  const out: GeneratedCase[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const ch = pick(channels);
+    const violation = rand() < 0.6;
+    const relation = pick(relations);
+    const name = renderName(rand, relation, ch.quotes && !ch.ogr);
+    let sql: string;
+    let nameForOgr = name;
+    if (violation) {
+      sql = pick(writes)(name);
+      if (ch.multiline) sql = pick(obfuscate)(sql);
+    } else if (rand() < 0.5) {
+      sql = pick(reads)(name);
+      nameForOgr = `public.scratch_${i}`;
     } else {
-      expect(before.split(from).length - 1, `${label}: anchor`).toBe(1);
-      fs.writeFileSync(target, before.replace(from, () => to), 'utf8');
+      sql = pick(allowedWrites)(i);
+      nameForOgr = `public.scratch_${i}`;
     }
-    const files = scanInventory(root, { retired }).findings.map((f) => f.file);
-    expect(files).toContain(file);
+    const file = `${pick(dirs)}/${ch.fileName ? `g${i}/${ch.fileName}` : `gen-${i}${ch.ext}`}`;
+    out.push({ id: `${i} ${ch.id} ${violation ? 'VIOLATION' : 'control'} ${ch.ogr ? nameForOgr : sql.replace(/\s+/g, ' ')}`, file, content: ch.render(sql, nameForOgr), violation });
+  }
+  return out;
+}
+
+describe('canaries: generated new violations are all caught, generated controls all pass (seeded)', () => {
+  const cases = generateCases(20261002, 420);
+
+  it('the generator covers every channel kind with violations and controls', () => {
+    const kinds = new Set(cases.map((c) => c.id.split(' ')[1]));
+    expect(kinds.size).toBeGreaterThanOrEqual(21);
+    expect(cases.filter((c) => c.violation).length).toBeGreaterThan(200);
+    expect(cases.filter((c) => !c.violation).length).toBeGreaterThan(100);
+  });
+
+  it('every generated violation is caught and every control passes', () => {
+    const missed: string[] = [];
+    const falseAlarms: string[] = [];
+    for (const c of cases) {
+      if (!isScannedPath(c.file)) {
+        missed.push(`not scanned: ${c.file}`);
+        continue;
+      }
+      const problems = problemsOf(c.file, c.content);
+      if (c.violation && problems.length === 0) missed.push(`${c.id} @ ${c.file}`);
+      if (!c.violation && problems.length > 0) falseAlarms.push(`${c.id} @ ${c.file}: ${problems[0]!.problem}`);
+    }
+    expect(missed).toEqual([]);
+    expect(falseAlarms).toEqual([]);
   });
 });

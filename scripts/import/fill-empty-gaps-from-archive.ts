@@ -6,6 +6,8 @@
  *   npx tsx scripts/import/fill-empty-gaps-from-archive.ts --execute
  */
 import { spawnSync } from 'node:child_process';
+// U30F2 H1: the DROP and the ogr2ogr load of each job go through the protected relation gate.
+import { assertOgr2ogrWriteAllowed, gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +107,7 @@ function loadJob(job: Job): boolean {
   }
   const [schema, table] = job.target.split('.');
   if (job.dropFirst) {
-    if (!psql(`DROP TABLE IF EXISTS ${schema}.${table} CASCADE;`, `drop ${job.target}`)) return false;
+    if (!psql(gatedSql('scripts/import/fill-empty-gaps-from-archive.ts', `DROP TABLE IF EXISTS ${schema}.${table} CASCADE;`), `drop ${job.target}`)) return false;
   }
   const args = [
     '-f',
@@ -127,7 +129,7 @@ function loadJob(job: Job): boolean {
     '-skipfailures',
     '-progress',
   ];
-  if (!run(OGR2OGR, args, `ogr2ogr → ${job.target}`)) return false;
+  if (!run(OGR2OGR, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/fill-empty-gaps-from-archive.ts', args }), `ogr2ogr → ${job.target}`)) return false;
   return psql(
     `CREATE INDEX IF NOT EXISTS ${table}_geom_gist ON ${schema}.${table} USING GIST (geom); ANALYZE ${schema}.${table};`,
     `index+analyze ${job.target}`,

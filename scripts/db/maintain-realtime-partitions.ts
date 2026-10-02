@@ -9,6 +9,8 @@
  *   npm run db:partition:maintain -- --apply --months-forward=24
  */
 import { Client } from 'pg';
+// U30F2 H1: a partition is created through the protected relation gate (public.* passes).
+import { gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 type TableSpec = {
   table: string;
@@ -155,7 +157,7 @@ async function createPartitions(
       continue;
     }
 
-    await client.query(sql);
+    await client.query(gatedSql('scripts/db/maintain-realtime-partitions.ts', sql));
     console.log(`[CREATED] public.${childName}`);
   }
 }

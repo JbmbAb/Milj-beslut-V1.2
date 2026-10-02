@@ -4,6 +4,8 @@
  * Downloads flood risk data from MSB WFS to the Master Archive.
  */
 import { spawnSync } from 'child_process';
+// U30F2 H1: every ogr2ogr run goes through the protected relation gate (a GPKG output passes).
+import { assertOgr2ogrWriteAllowed } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import * as fs from 'fs';
 import * as path from 'path';
 import dotenv from 'dotenv';
@@ -45,7 +47,7 @@ async function harvest() {
     ];
 
     console.log(`   - Downloading via ogr2ogr...`);
-    const result = spawnSync(OGR2OGR_PATH, ogrArgs, { stdio: 'inherit' });
+    const result = spawnSync(OGR2OGR_PATH, assertOgr2ogrWriteAllowed({ caller: 'scripts/import/harvest-msb-to-master.ts', args: ogrArgs }), { stdio: 'inherit' });
 
     if (result.status !== 0) {
       console.error(`   ❌ Failed to download ${collection.id}`);
