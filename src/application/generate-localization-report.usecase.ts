@@ -842,19 +842,20 @@ async function collectLegacyObservations(
 
 /**
  * U20-C: a governed-path technical failure is reported without the raw database / provider text.
- * A governed error vocabulary message (`REJECT_*`, `LU_*`, ... -- an upper-case code first) is kept
- * as written, unless it embeds raw driver output; anything else becomes a generic Swedish text.
  * The full message always goes to the server log.
+ *
+ * U20CDF (U20CD verification F7): an ALLOWLIST, not a denylist of raw-text patterns. Only a leading
+ * code of the governed error vocabulary (`REJECT_*`, `LU_*`) is passed on, and only the code itself:
+ * the text after it can carry a file path, a connection detail or a driver message, so it is never
+ * echoed. Anything else -- including an upper-case token outside the vocabulary such as `ERROR` or
+ * `ENOENT` -- becomes the one generic Swedish class text.
  */
-const RAW_TECHNICAL_ERROR_PATTERN =
-  /does not exist|syntax error|violates|SQLSTATE|\$queryRaw|prisma|relation "|column "|ECONN|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|<html/i;
+const GOVERNED_ERROR_CODE = /^(?:REJECT|LU)_[A-Z0-9_]+(?=[:\s]|$)/;
+export const GOVERNED_ERROR_GENERIC_SV = 'tekniskt fel (detaljer finns i serverloggen)';
 
 export function sanitizeGovernedErrorMessage(message: string): string {
-  const codeFirst = /^[A-Z][A-Z0-9_]{2,}(?=[:\s]|$)/.exec(message);
-  if (codeFirst) {
-    return RAW_TECHNICAL_ERROR_PATTERN.test(message) ? codeFirst[0] : message.slice(0, 300);
-  }
-  return 'tekniskt fel (detaljer finns i serverloggen)';
+  const code = GOVERNED_ERROR_CODE.exec(String(message));
+  return code ? code[0] : GOVERNED_ERROR_GENERIC_SV;
 }
 
 /** U20-C: the Swedish summary of a site without a governed assessment (no verdict, no legacy text). */

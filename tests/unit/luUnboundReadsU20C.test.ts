@@ -145,6 +145,7 @@ import { queryVissPoint } from '../../server/services/vissService';
 import { searchSluByCoordinates } from '../../server/services/sluService';
 import { evaluateComplianceRules } from '../../server/services/complianceRuleEngine';
 import { auditTrail } from '../../server/services/auditTrailService';
+import { sanitizeGovernedErrorMessage } from '../../src/application/generate-localization-report.usecase';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
 const LAYERS = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'] as const;
@@ -299,7 +300,23 @@ describe('U20-C: unbound reads never steer the governed generate-report request'
 
     kernelMock.mockRejectedValueOnce(new Error('REJECT_SPATIAL_PROVIDER: missing canonical binding'));
     const coded = (await post('/api/localization/generate-report')).body;
-    expect(coded.siteAnalyses[0].warnings).toEqual(['ExecutionKernel error: REJECT_SPATIAL_PROVIDER: missing canonical binding']);
+    // U20CDF (F7): only the governed code itself, never the free text after it.
+    expect(coded.siteAnalyses[0].warnings).toEqual(['ExecutionKernel error: REJECT_SPATIAL_PROVIDER']);
+  });
+
+  it.each<[string, string]>([
+    ['REJECT_SPATIAL_PROVIDER: missing canonical binding', 'REJECT_SPATIAL_PROVIDER'],
+    ['REJECT_CAS_READ: C:/data/cas/objects/ab/cd could not be opened', 'REJECT_CAS_READ'],
+    ['LU_CONFIG_INVALID: password authentication failed for user "mimer"', 'LU_CONFIG_INVALID'],
+    ['LU_KERNEL_DENIED', 'LU_KERNEL_DENIED'],
+    ['ERROR: password authentication failed for user "postgres"', 'tekniskt fel (detaljer finns i serverloggen)'],
+    ['ENOENT: no such file or directory, open "D:/data/key.pem"', 'tekniskt fel (detaljer finns i serverloggen)'],
+    ['CASIntegrityError: digest mismatch', 'tekniskt fel (detaljer finns i serverloggen)'],
+    ['reject_lowercase: x', 'tekniskt fel (detaljer finns i serverloggen)'],
+    ['REJECTED_BY_SOMETHING: x', 'tekniskt fel (detaljer finns i serverloggen)'],
+    ['', 'tekniskt fel (detaljer finns i serverloggen)'],
+  ])('U20CDF (F7): sanitizeGovernedErrorMessage is an allowlist -- %j -> %j', (message, expected) => {
+    expect(sanitizeGovernedErrorMessage(message)).toBe(expected);
   });
 });
 
