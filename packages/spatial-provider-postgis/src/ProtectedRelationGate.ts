@@ -435,7 +435,135 @@ export interface RetiredDestructiveScript {
  * `refuseRetiredDestructiveScript` (or carry the SQL refusal header) before any connection, and
  * the inventory test pins the count.
  */
-export const RETIRED_DESTRUCTIVE_SCRIPTS: readonly RetiredDestructiveScript[] = Object.freeze([]);
+const PROMOTE_INSTEAD =
+  "scripts/import/import-librarian-manifest.ts --mode import-staging/promote (ledger batch, retain-before-replace, retention record)";
+
+export const RETIRED_DESTRUCTIVE_SCRIPTS: readonly RetiredDestructiveScript[] = Object.freeze([
+  {
+    script: "scripts/db/drop-staging-tables.ts",
+    protected_relations: ["lm_staging.ebh_potentiellt_fororenade_omraden_02fccffc", "lm_staging.sgu_well_49202690", "lm_staging.*"],
+    justification:
+      "Drops a hardcoded list of lm_staging relations with CASCADE. The list holds ebh's retained relation 02fccffc (its bound " +
+      "SUCCESS version) and possibly a superseded sgu_well version; a static list cannot know which relations hold bound versions.",
+    replacement: "import-librarian-manifest.ts --mode cleanup-staging (per-relation protection, re-checked under lock before each DROP)",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/adopt-staging-to-prod.ts",
+    protected_relations: [
+      "env.registerenhetsomradesytor",
+      "env.sgu_well",
+      "env.ebh_potentiellt_fororenade_omraden",
+      "env.sgu_soil_type_25k_100k",
+      "env.sgu_landslide_feature",
+      "climate.flood_risk_area",
+    ],
+    justification:
+      "TRUNCATE ... CASCADE of LU live layers followed by INSERT from whatever lm_staging table matches a name prefix, with no " +
+      "ledger batch, no retention of the outgoing version and no record: the bound version is destroyed and the new one is unbound.",
+    replacement: PROMOTE_INSTEAD,
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/restore-sgu-soil.ts",
+    protected_relations: ["env.sgu_soil_type_25k_100k"],
+    justification:
+      "TRUNCATE ... CASCADE of env.sgu_soil_type_25k_100k (ADMIT-V1 lu.soil_type) from one fixed staging relation, outside the ledger " +
+      "and without retaining the outgoing version.",
+    replacement: PROMOTE_INSTEAD,
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/merge-property-parts.ts",
+    protected_relations: ["core.property_unit"],
+    justification:
+      "DROP VIEW core.property_unit CASCADE and CREATE OR REPLACE VIEW core.property_unit over other sources: redefines the LU " +
+      "property root that only scripts/db/sync-property-unit-from-env.ts may rebuild.",
+    replacement: "scripts/db/sync-property-unit-from-env.ts (the sanctioned derivation, run by the property promote)",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/refine-mapping.ts",
+    protected_relations: ["core.property_unit"],
+    justification:
+      "DROP VIEW core.property_unit CASCADE and CREATE OR REPLACE VIEW core.property_unit: redefines the LU property root outside " +
+      "its sanctioned derivation.",
+    replacement: "scripts/db/sync-property-unit-from-env.ts (the sanctioned derivation, run by the property promote)",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/refine-mapping-v2.ts",
+    protected_relations: ["core.property_unit"],
+    justification:
+      "DROP VIEW core.property_unit CASCADE and CREATE OR REPLACE VIEW core.property_unit: redefines the LU property root outside " +
+      "its sanctioned derivation.",
+    replacement: "scripts/db/sync-property-unit-from-env.ts (the sanctioned derivation, run by the property promote)",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/clean-sgu-pipeline.ts",
+    protected_relations: ["env.sgu_landslide_feature"],
+    justification:
+      "DROP TABLE env.sgu_landslide_feature CASCADE (ADMIT-V1 lu.landslide) and a rebuild from an SQL pipeline outside the ledger; " +
+      "the bound version is lost.",
+    replacement: PROMOTE_INSTEAD,
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/gis-performance-benchmark.ts",
+    protected_relations: ["env.sgu_well"],
+    justification:
+      "TRUNCATE TABLE env.sgu_well CASCADE and INSERT of randomly generated wells: replaces a bound LU layer with synthetic data. " +
+      "A benchmark must run against a disposable test database, never the LU layer.",
+    replacement: "a benchmark against a disposable test database (TEST-DB-GUARD), not the LU layer",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/verify-jordarter.ts",
+    protected_relations: ["env.sgu_soil_type_25k_100k"],
+    justification:
+      "ogr2ogr -overwrite into env.sgu_soil_type_25k_100k (ADMIT-V1 lu.soil_type) from a local file outside the registry and " +
+      "the ledger: drops and recreates the bound layer.",
+    replacement: PROMOTE_INSTEAD,
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/import/import-n2k-gml.ts",
+    protected_relations: ["env.natura2000_area"],
+    justification:
+      "Merges GML into env.natura2000_area (INSERT ... ON CONFLICT) and creates it if missing, outside the ledger and retention: " +
+      "the bound natura2000 version changes without a batch.",
+    replacement: PROMOTE_INSTEAD,
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/subdivide-complex-polygons.sql",
+    protected_relations: ["env.protected_area", "env.natura2000_area"],
+    justification:
+      "Renames env.protected_area and env.natura2000_area to *_legacy and rebuilds them with ST_Subdivide: every row of the bound " +
+      "versions changes and the live tables no longer equal any admitted version.",
+    replacement: "an owner decision and a governed migration that admits the subdivided data as a new version",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/partition-spatial-grid.sql",
+    protected_relations: ["env.registerenhetsomradesytor"],
+    justification:
+      "Renames env.registerenhetsomradesytor to *_legacy and rebuilds it as a partitioned table with different keys: the LU " +
+      "property root's bound version is replaced outside the ledger.",
+    replacement: "an owner decision and a governed migration that admits the partitioned data as a new version",
+    retired_by: "U30F F1",
+  },
+  {
+    script: "scripts/db/migrate-partition-fastigheter.sql",
+    protected_relations: ["env.registerenhetsomradesytor"],
+    justification:
+      "Renames env.registerenhetsomradesytor to *_legacy and rebuilds it partitioned: the LU property root's bound version is " +
+      "replaced outside the ledger.",
+    replacement: "an owner decision and a governed migration that admits the partitioned data as a new version",
+    retired_by: "U30F F1",
+  },
+]);
 
 function validateRetiredList(list: readonly RetiredDestructiveScript[]): void {
   const seen = new Set<string>();

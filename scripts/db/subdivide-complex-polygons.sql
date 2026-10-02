@@ -1,3 +1,7 @@
+-- U30F F1 (PRES-05): RETIRED. Refused twice: here (psql stops on the error) and right after BEGIN below
+-- (any client that continues on errors runs the rest in an aborted transaction; COMMIT becomes ROLLBACK).
+\set ON_ERROR_STOP on
+DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: scripts/db/subdivide-complex-polygons.sql is retired (U30F F1): it renames and rebuilds protected LU relations outside the governed import path; see RETIRED_DESTRUCTIVE_SCRIPTS in packages/spatial-provider-postgis/src/ProtectedRelationGate.ts'; END $$;
 -- =========================================================================
 --  PHASE 3: POLYGON SUB-DIVISION (500M+ ROWS SCALE)
 --
@@ -16,6 +20,7 @@
 -- =========================================================================
 
 BEGIN;
+DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: scripts/db/subdivide-complex-polygons.sql is retired (U30F F1): it renames and rebuilds protected LU relations outside the governed import path; see RETIRED_DESTRUCTIVE_SCRIPTS in packages/spatial-provider-postgis/src/ProtectedRelationGate.ts'; END $$;
 
 -- ── 1. PROTECTED AREA (NVR) ───────────────────────────────────────────────
 RAISE NOTICE 'Subdividing env.protected_area...';

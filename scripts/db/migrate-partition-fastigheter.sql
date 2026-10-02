@@ -1,7 +1,12 @@
+-- U30F F1 (PRES-05): RETIRED. Refused twice: here (psql stops on the error) and right after BEGIN below
+-- (any client that continues on errors runs the rest in an aborted transaction; COMMIT becomes ROLLBACK).
+\set ON_ERROR_STOP on
+DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: scripts/db/migrate-partition-fastigheter.sql is retired (U30F F1): it renames and rebuilds protected LU relations outside the governed import path; see RETIRED_DESTRUCTIVE_SCRIPTS in packages/spatial-provider-postgis/src/ProtectedRelationGate.ts'; END $$;
 -- Surgical migration for env.registerenhetsomradesytor to spatial partitioning
 -- Optimized for 30M-50M row scale
 
 BEGIN;
+DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: scripts/db/migrate-partition-fastigheter.sql is retired (U30F F1): it renames and rebuilds protected LU relations outside the governed import path; see RETIRED_DESTRUCTIVE_SCRIPTS in packages/spatial-provider-postgis/src/ProtectedRelationGate.ts'; END $$;
 
 -- 1. Ensure grid function exists
 CREATE OR REPLACE FUNCTION public.get_spatial_grid_id(geom geometry)

@@ -1,3 +1,7 @@
+-- U30F F1 (PRES-05): RETIRED. Refused twice: here (psql stops on the error) and right after BEGIN below
+-- (any client that continues on errors runs the rest in an aborted transaction; COMMIT becomes ROLLBACK).
+\set ON_ERROR_STOP on
+DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: scripts/db/partition-spatial-grid.sql is retired (U30F F1): it renames and rebuilds protected LU relations outside the governed import path; see RETIRED_DESTRUCTIVE_SCRIPTS in packages/spatial-provider-postgis/src/ProtectedRelationGate.ts'; END $$;
 -- =========================================================================
 --  PHASE 2: SPATIAL GRID PARTITIONING (100M+ ROWS SCALE)
 --
@@ -17,6 +21,7 @@
 -- =========================================================================
 
 BEGIN;
+DO $$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: scripts/db/partition-spatial-grid.sql is retired (U30F F1): it renames and rebuilds protected LU relations outside the governed import path; see RETIRED_DESTRUCTIVE_SCRIPTS in packages/spatial-provider-postgis/src/ProtectedRelationGate.ts'; END $$;
 
 -- ── 1. GRID BERÄKNINGSFUNKTION ──────────────────────────────────────────
 -- Beräknar en unik ID för en 100x100km ruta i SWEREF99 TM (EPSG:3006).

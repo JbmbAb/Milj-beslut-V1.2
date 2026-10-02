@@ -1,3 +1,8 @@
+// U30F F1 (PRES-05): RETIRED. This script destroys or redefines protected LU relations outside the governed
+// path; it is refused before it connects to anything. The reason and the replacement are recorded in
+// RETIRED_DESTRUCTIVE_SCRIPTS (packages/spatial-provider-postgis/src/ProtectedRelationGate.ts). No override.
+import { refuseRetiredDestructiveScript } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+refuseRetiredDestructiveScript('scripts/db/restore-sgu-soil.ts');
 import dotenv from 'dotenv';
 dotenv.config();
 import { PrismaClient } from '@prisma/client';

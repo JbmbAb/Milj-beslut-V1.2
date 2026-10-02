@@ -5,6 +5,11 @@
  *   npx dotenv -e .env -- tsx scripts/import/import-n2k-gml.ts
  *   npx dotenv -e .env -- tsx scripts/import/import-n2k-gml.ts --spa=path --sci=path
  */
+// U30F F1 (PRES-05): RETIRED. This script destroys or redefines protected LU relations outside the governed
+// path; it is refused before it connects to anything. The reason and the replacement are recorded in
+// RETIRED_DESTRUCTIVE_SCRIPTS (packages/spatial-provider-postgis/src/ProtectedRelationGate.ts). No override.
+import { refuseRetiredDestructiveScript } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
+refuseRetiredDestructiveScript('scripts/import/import-n2k-gml.ts');
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
