@@ -25,6 +25,8 @@ function db(successRelations: readonly string[]): SqlPort & { calls: string[] } 
   return {
     calls,
     async query<T>(sql: string, params: readonly unknown[] = []) {
+      // U30F2 M3: the planner looks for a candidate's current (24 hex) relation first; none exists here.
+      if (sql.includes("to_regclass")) return { rows: [{ exists: false }] as T[] };
       if (!sql.includes('FROM "PostgisImportBatch"')) throw new Error(`unexpected query ${sql}`);
       const name = String(params[0]);
       calls.push(name);
@@ -132,18 +134,25 @@ describe("planStagingCleanup (U30-B2 cleanup-staging)", () => {
 
 type LedgerRow = { id: string; status: string; target_schema: string; target_table: string; content_bundle_sha256: string; started_at: Date };
 
-/** A ledger fake that answers both the SUCCESS-only EXISTS probe and a full per-relation ledger read. */
-function ledgerDb(rows: LedgerRow[]): SqlPort & { statements: string[] } {
+/**
+ * A ledger fake that answers both the SUCCESS-only EXISTS probe and a full per-relation ledger read,
+ * matching a relation name under both naming schemes (U30F2 M3), and `to_regclass` for `existing`.
+ */
+function ledgerDb(rows: LedgerRow[], existing: readonly string[] = []): SqlPort & { statements: string[]; queries: string[] } {
   const statements: string[] = [];
-  const nameOf = (r: LedgerRow) => `${r.target_table}_${r.content_bundle_sha256.substring(0, 8)}`;
+  const queries: string[] = [];
+  const namesOf = (r: LedgerRow) => [8, 24].map((n) => `${r.target_table}_${r.content_bundle_sha256.substring(0, n)}`);
   return {
     statements,
+    queries,
     async query<T>(sql: string, params: readonly unknown[] = []) {
       const s = sql.replace(/\s+/g, " ").trim();
+      queries.push(s);
+      if (s.startsWith("SELECT to_regclass")) return { rows: [{ exists: existing.includes(String(params[0]).replace(/"/g, "")) }] as T[] };
       if (!s.includes('FROM "PostgisImportBatch"')) throw new Error(`unexpected query ${s}`);
       const name = String(params[0]);
-      if (s.includes("EXISTS")) return { rows: [{ protected: rows.some((r) => r.status === "SUCCESS" && nameOf(r) === name) }] as T[] };
-      return { rows: rows.filter((r) => nameOf(r) === name) as T[] };
+      if (s.includes("EXISTS")) return { rows: [{ protected: rows.some((r) => r.status === "SUCCESS" && namesOf(r).includes(name)) }] as T[] };
+      return { rows: rows.filter((r) => namesOf(r).includes(name)) as T[] };
     },
     async execute(sql: string) {
       statements.push(sql);
@@ -206,5 +215,29 @@ describe("U30F F9: per-relation protection without the SUCCESS row", () => {
     expect((await planStagingCleanup({ db: ledgerDb(stale), repo: new InMemoryArtifactRepository(), candidates: [candidate("v-start", "sgu_well", V, "STAGING_STARTED")], now: NOW }))[0]).toMatchObject({
       action: "DROP",
     });
+  });
+});
+
+describe("U30F2 M3: the planner and the per-relation protection know both naming schemes", () => {
+  const V_V2 = "sgu_well_2b4b514faaaaaaaaaaaaaaaa"; // V's current (24 hex) relation name
+
+  it("a candidate whose 24-hex relation exists (staged after the switch) is planned under that name", async () => {
+    const ledger = [row("v-failed", "FAILED", V)];
+    const decisions = await planStagingCleanup({ db: ledgerDb(ledger, [`lm_staging.${V_V2}`]), repo: new InMemoryArtifactRepository(), candidates: [candidate("v-failed", "sgu_well", V)], now: NOW });
+    expect(decisions).toEqual([{ action: "DROP", relation: { schema: "lm_staging", table: V_V2 }, relation_name: `lm_staging.${V_V2}`, batch_ids: ["v-failed"] }]);
+  });
+
+  it("without a 24-hex relation the candidate's legacy 8-hex relation is planned (the 2026-10-02 database holds only those)", async () => {
+    const decisions = await planStagingCleanup({ db: ledgerDb([row("v-failed", "FAILED", V)]), repo: new InMemoryArtifactRepository(), candidates: [candidate("v-failed", "sgu_well", V)], now: NOW });
+    expect(decisions[0]).toMatchObject({ action: "DROP", relation_name: "lm_staging.sgu_well_2b4b514f" });
+  });
+
+  it("a 24-hex relation of a SUCCESS version is kept: the per-relation ledger read matches either name", async () => {
+    const port = ledgerDb([row("v-ok", "SUCCESS", V), row("v-failed", "FAILED", V)], [`lm_staging.${V_V2}`]);
+    const decisions = await planStagingCleanup({ db: port, repo: new InMemoryArtifactRepository(), candidates: [candidate("v-failed", "sgu_well", V)], now: NOW });
+    expect(decisions[0]).toMatchObject({ action: "SKIP", code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "SUCCESS_BATCH", relation_name: `lm_staging.${V_V2}` });
+    const ledgerRead = port.queries.find((q) => q.includes("started_at"))!;
+    expect(ledgerRead).toContain("substr(content_bundle_sha256, 1, 24)");
+    expect(ledgerRead).toContain("substr(content_bundle_sha256, 1, 8)");
   });
 });

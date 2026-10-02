@@ -42,6 +42,9 @@ import { syncPropertyUnitFromEnv } from '../db/sync-property-unit-from-env';
 import type { ArtifactRepositoryPort } from '../../packages/mps-runtime/src/kernel/ExecutionKernel';
 import {
   SpatialDatasetRetentionError,
+  resolveRetainedRelation,
+  retainedRelationCandidatesFor,
+  retainedRelationFor,
   type SqlPort,
   type TransactionalSqlPort,
 } from '../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
@@ -246,11 +249,12 @@ async function processManifest(manifestPath: string) {
       logger.warn(`   Re-importing despite prior SUCCESS batch ${existingSuccess.id} (--retry-failed)`);
     }
 
-    // Prepare variables
-    const shortHash = manifest.content_bundle_sha256.substring(0, 8);
+    // Prepare variables. U30F2 M3: a NEW staging relation is named with the current scheme,
+    // lm_staging.<table>_<first 24 hex of the full content hash>; a version staged before the switch
+    // keeps its legacy <table>_<8 hex> relation, which promote finds (never renamed).
     const stagingSchema = 'lm_staging';
-    const stagingTable = `${target_table}_${shortHash}`;
-    const fullStagingTarget = `${stagingSchema}.${stagingTable}`;
+    let stagingTable = retainedRelationFor({ schema: target_schema, table: target_table }, manifest.content_bundle_sha256).table;
+    let fullStagingTarget = `${stagingSchema}.${stagingTable}`;
 
     if (mode === 'plan') {
       logger.dry(`Would look for primary file in ${dataDir}`);
@@ -504,9 +508,35 @@ async function processManifest(manifestPath: string) {
       }
 
       if (!execute) {
-        logger.dry(`[promote] Would run promote audit, then promote ${fullStagingTarget} -> ${target_schema}.${target_table}`);
+        const names = retainedRelationCandidatesFor({ schema: target_schema, table: target_table }, manifest.content_bundle_sha256)
+          .map((c) => `${c.relation.schema}.${c.relation.table}`)
+          .join(' or ');
+        logger.dry(`[promote] Would run promote audit, then promote ${names} -> ${target_schema}.${target_table}`);
         return;
       }
+
+      const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
+      const retentionTarget = { schema: target_schema, table: target_table };
+      // F4 (U30F): hard precondition for the listed large layers (the property layer), checked before
+      // the ledger or the table is touched; retainOutgoingThenReplace checks it again. No override.
+      if (promoteStrategy === 'replace') {
+        const precondition = committedRetentionDigestPrecondition(retentionTarget);
+        if (precondition.kind === 'UNMET') {
+          throw new SpatialDatasetRetentionError(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED, 'DIGEST_TIME_PRECONDITION_UNMET', precondition.detail);
+        }
+      }
+
+      // U30F2 M3: promote from the relation this version was staged in -- its current-name relation,
+      // else its legacy-named one. Neither present: nothing to promote; refused before the ledger moves.
+      const staged = await resolveRetainedRelation(prismaSqlPort(prisma), retentionTarget, manifest.content_bundle_sha256);
+      if (!staged.exists) {
+        throw new Error(
+          `REJECT_PROMOTE_STAGING_RELATION_MISSING: no staging relation for ${target_schema}.${target_table}@${manifest.content_bundle_sha256} ` +
+            `(${retainedRelationCandidatesFor(retentionTarget, manifest.content_bundle_sha256).map((c) => `${c.relation.schema}.${c.relation.table}`).join(' or ')})`,
+        );
+      }
+      stagingTable = staged.relation.table;
+      fullStagingTarget = `${stagingSchema}.${stagingTable}`;
 
       const prodExists = await tableExists(prisma, target_schema, target_table);
       const stagingRows = await countTableRows(prisma, fullStagingTarget);
@@ -521,16 +551,6 @@ async function processManifest(manifestPath: string) {
         `   - Promote audit: staging=${stagingRows.toLocaleString()}, prod_before=${prodRowsBefore.toLocaleString()}`,
       );
 
-      const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
-      const retentionTarget = { schema: target_schema, table: target_table };
-      // F4 (U30F): hard precondition for the listed large layers (the property layer), checked before
-      // the ledger or the table is touched; retainOutgoingThenReplace checks it again. No override.
-      if (promoteStrategy === 'replace') {
-        const precondition = committedRetentionDigestPrecondition(retentionTarget);
-        if (precondition.kind === 'UNMET') {
-          throw new SpatialDatasetRetentionError(REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED, 'DIGEST_TIME_PRECONDITION_UNMET', precondition.detail);
-        }
-      }
       // PRES-05 (U30-B): a `replace` promote needs the durable CAS for its retention records --
       // opened (fail-closed) before anything is written to the ledger or the table.
       const retentionRepo = promoteStrategy === 'replace' ? await openRetentionCas() : null;

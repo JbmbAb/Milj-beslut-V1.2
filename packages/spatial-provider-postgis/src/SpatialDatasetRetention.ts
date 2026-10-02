@@ -7,6 +7,13 @@ import {
   type SpatialEngineFingerprint,
 } from "../../mps-lu/src/artifacts/SpatialEngineFingerprint";
 import { committedRetentionDigestPrecondition } from "./RetentionDigestPrecondition";
+import {
+  currentRetainedRelationNaming,
+  retainedRelationDigestLengths,
+  retainedRelationNamingOf,
+  retainedRelationNamings,
+  retainedRelationTableName,
+} from "./ProtectedRelationSpec";
 
 /**
  * SPATIAL-DATASET-RETENTION-V1 -- U30-B, PRES-05 "retain before replace" (R1).
@@ -38,6 +45,13 @@ import { committedRetentionDigestPrecondition } from "./RetentionDigestPrecondit
  * U30F: records are contract v2 and carry their comparison basis (F3, `RetentionBasis`); a live
  * table with rows and no SUCCESS batch is never replaced (F5); every relation write here is one
  * of the governed doors of ProtectedRelationGate (F1).
+ *
+ * U30F2 M3: the retained relation's name is versioned (protected-relation-classification.v1.json
+ * `relation_naming`): a NEW relation is `<table>_<first 24 hex>` (RETAINED_RELATION_NAME_V2_24HEX);
+ * a relation made before that keeps its `<table>_<8 hex>` name (LEGACY_8HEX) and is found, used and
+ * protected as it is -- never renamed. A version's relation is looked up under the current name
+ * first, then the legacy one (`resolveRetainedRelation`). Record and claim state the scheme, and a
+ * relation name that does not derive from the version's FULL content hash is refused.
  */
 
 export const SPATIAL_DATASET_RETENTION_RECORD = "SPATIAL_DATASET_RETENTION_RECORD" as const;
@@ -177,8 +191,10 @@ export interface SpatialDatasetRetentionPayload {
   /** The SUCCESS batch that first recorded this version's retention. */
   readonly import_batch_id: string;
   readonly dataset_version_label: string | null;
-  /** e.g. `lm_staging.sgu_well_2b4b514f`. */
+  /** e.g. `lm_staging.sgu_well_2b4b514f8b18a1a614d9aeac` (current) or `lm_staging.sgu_well_2b4b514f` (legacy). */
   readonly retained_relation: string;
+  /** U30F2 M3: the naming scheme under which `retained_relation` derives from `content_bundle_sha256`. */
+  readonly retained_relation_naming: string;
   /** Sorted promote columns (live ∩ retained, without `id`). */
   readonly columns: readonly string[];
   /** Live column types the digest casts to. */
@@ -245,13 +261,65 @@ export function parseQualifiedTable(qualified: string): QualifiedTable {
   return t;
 }
 
-/** The relation a version is retained in: the staging table it was (or would be) promoted from. */
+/**
+ * The relation a NEW version is staged and retained in: `lm_staging.<table>_<first 24 hex>` under the
+ * current naming scheme (U30F2 M3). A name over 63 bytes is refused, never truncated.
+ */
 export function retainedRelationFor(target: QualifiedTable, sha256: string): QualifiedTable {
   assertIdentifier(target.table, "table");
   assertVersionHash(sha256);
-  const relation = { schema: RETAINED_RELATION_SCHEMA, table: `${target.table}_${sha256.slice(0, 8)}` };
+  const relation = { schema: RETAINED_RELATION_SCHEMA, table: retainedRelationTableName(target.table, sha256, currentRetainedRelationNaming()) };
   assertIdentifier(relation.table, "retained relation");
   return relation;
+}
+
+export interface RetainedRelationCandidate {
+  readonly relation: QualifiedTable;
+  /** The naming scheme (RETAINED_RELATION_NAME_V2_24HEX, LEGACY_8HEX). */
+  readonly scheme: string;
+}
+
+/** Every name a version's retained relation may have, the current scheme first, then the legacy ones. */
+export function retainedRelationCandidatesFor(target: QualifiedTable, sha256: string): RetainedRelationCandidate[] {
+  retainedRelationFor(target, sha256); // validates table, hash and the current name's length
+  return retainedRelationNamings().map((scheme) => {
+    const relation = { schema: RETAINED_RELATION_SCHEMA, table: retainedRelationTableName(target.table, sha256, scheme) };
+    assertIdentifier(relation.table, "retained relation");
+    return { relation, scheme: scheme.scheme };
+  });
+}
+
+export interface RetainedRelationResolution extends RetainedRelationCandidate {
+  readonly exists: boolean;
+}
+
+/**
+ * The relation a version IS retained in: the first candidate (current name, then legacy) that exists;
+ * when none exists, the current-name candidate with `exists: false` (where a new copy would go).
+ * Legacy relations are used as they are, never renamed.
+ */
+export async function resolveRetainedRelation(db: SqlPort, target: QualifiedTable, sha256: string): Promise<RetainedRelationResolution> {
+  const candidates = retainedRelationCandidatesFor(target, sha256);
+  for (const c of candidates) {
+    if (await relationExists(db, c.relation)) return { ...c, exists: true };
+  }
+  return { ...candidates[0]!, exists: false };
+}
+
+/**
+ * U30F2 M3: the record's relation must derive from the version's FULL hash under a known scheme, in
+ * the retained-staging schema. Returns the scheme; throws otherwise (a name chosen by a caller is never
+ * bound to a version it does not derive from).
+ */
+export function retainedRelationNamingFor(target: QualifiedTable, sha256: string, relation: QualifiedTable): string {
+  const scheme = relation.schema === RETAINED_RELATION_SCHEMA ? retainedRelationNamingOf(target.table, sha256, relation.table) : null;
+  if (!scheme) {
+    throw invalid(
+      `RETAINED_RELATION_NAME_NOT_BOUND: ${formatQualifiedTable(relation)} is not the retained relation of ${formatQualifiedTable(target)}@${sha256} ` +
+        `under any naming scheme (${retainedRelationNamings().map((n) => n.scheme).join(", ")})`,
+    );
+  }
+  return scheme.scheme;
 }
 
 function recordIdIn(namespace: string, target: QualifiedTable, sha256: string): string {
@@ -288,6 +356,8 @@ export const SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1 = "spatial-data
 export interface RetainedRelationClaimPayload {
   readonly contract_version: typeof SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1;
   readonly retained_relation: string;
+  /** U30F2 M3: the scheme under which the relation name derives from `content_bundle_sha256`. */
+  readonly retained_relation_naming: string;
   readonly target: QualifiedTable;
   readonly content_bundle_sha256: string;
   readonly retention_record_id: string;
@@ -558,6 +628,7 @@ export function buildRetentionRecord(input: {
       `refusing to build a retention record for ${formatQualifiedTable(input.target)}@${input.batch.content_bundle_sha256} whose basis does not bind it`,
     );
   }
+  const naming = retainedRelationNamingFor(input.target, input.batch.content_bundle_sha256, input.retainedRelation);
   const payload: SpatialDatasetRetentionPayload = {
     contract_version: SPATIAL_DATASET_RETENTION_CONTRACT_V2,
     target: { schema: input.target.schema, table: input.target.table },
@@ -565,6 +636,7 @@ export function buildRetentionRecord(input: {
     import_batch_id: input.batch.id,
     dataset_version_label: input.batch.dataset_version ?? null,
     retained_relation: formatQualifiedTable(input.retainedRelation),
+    retained_relation_naming: naming,
     columns: input.columns.map((c) => c.name),
     column_types: Object.fromEntries(input.columns.map((c) => [c.name, c.type])),
     row_count: input.digest.row_count,
@@ -643,6 +715,11 @@ export async function writeOrVerifyRetentionRecord(
   record: SpatialDatasetRetentionRecord,
   rejectCode: SpatialDatasetRetentionError["code"] = SPATIAL_DATASET_RETENTION_FAILED,
 ): Promise<{ readonly outcome: EnsureRecordOutcome; readonly record: SpatialDatasetRetentionRecord }> {
+  // U30F2 M3: the relation must derive from the full hash under the scheme the record states.
+  const bound = retainedRelationNamingFor(record.payload.target, record.payload.content_bundle_sha256, parseQualifiedTable(record.payload.retained_relation));
+  if (bound !== record.payload.retained_relation_naming) {
+    throw invalid(`RETAINED_RELATION_NAME_NOT_BOUND: ${record.payload.retained_relation} derives under ${bound}, the record states ${record.payload.retained_relation_naming}`);
+  }
   let existing: SpatialDatasetRetentionRecord | null;
   try {
     existing = await resolveRetentionRecord(repo, record.payload.target, record.payload.content_bundle_sha256);
@@ -717,6 +794,7 @@ async function ensureRetainedRelationClaim(
   const payload: RetainedRelationClaimPayload = {
     contract_version: SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1,
     retained_relation: record.payload.retained_relation,
+    retained_relation_naming: record.payload.retained_relation_naming,
     target: { schema: record.payload.target.schema, table: record.payload.target.table },
     content_bundle_sha256: record.payload.content_bundle_sha256,
     retention_record_id: record.artifact_id,
@@ -765,9 +843,13 @@ export async function ensureOutgoingVersionRetained(input: {
   let retainedDigest: MaterializedDigest;
   let columns: RelationColumn[];
   try {
-    retained = retainedRelationFor(target, outgoing.content_bundle_sha256);
-    if (!(await relationExists(db, retained))) {
-      throw reject("RETAINED_RELATION_MISSING", `outgoing version ${label} has no retained relation ${formatQualifiedTable(retained)}`);
+    const resolved = await resolveRetainedRelation(db, target, outgoing.content_bundle_sha256);
+    retained = resolved.relation;
+    if (!resolved.exists) {
+      throw reject(
+        "RETAINED_RELATION_MISSING",
+        `outgoing version ${label} has no retained relation (${retainedRelationCandidatesFor(target, outgoing.content_bundle_sha256).map((c) => formatQualifiedTable(c.relation)).join(" or ")})`,
+      );
     }
     columns = digestColumns(await listRelationColumns(db, target), await listRelationColumns(db, retained));
     if (columns.length === 0) {
@@ -852,13 +934,15 @@ export async function retainOutgoingThenReplace(input: {
     outgoing = await findCurrentSuccessBatch(db, target);
     if (!outgoing && (await relationHasRows(db, target))) throw noSuccessBatch();
     if (outgoing) {
-      const retained = retainedRelationFor(target, outgoing.content_bundle_sha256);
-      if (!(await relationExists(db, retained))) {
+      const sha = outgoing.content_bundle_sha256;
+      if (!(await resolveRetainedRelation(db, target, sha)).exists) {
         createdRetainedRelation = await db.transaction(async (tx) => {
           await tx.execute(`LOCK TABLE ${targetSql} IN SHARE MODE`);
-          if (await relationExists(tx, retained)) return false;
+          const again = await resolveRetainedRelation(tx, target, sha);
+          if (again.exists) return false;
+          // U30F2 M3: a relation made now gets the current (24 hex) name.
           await tx.execute(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(RETAINED_RELATION_SCHEMA)}`);
-          await tx.execute(`CREATE TABLE ${quoteTable(retained)} AS SELECT * FROM ${targetSql}`);
+          await tx.execute(`CREATE TABLE ${quoteTable(again.relation)} AS SELECT * FROM ${targetSql}`);
           return true;
         });
       }
@@ -916,13 +1000,15 @@ export async function recordRetentionAtPromote(input: {
   const { db, repo, target, incoming } = input;
   const fail = (reason: SpatialDatasetRetentionFailureReason, message: string, cause?: unknown) =>
     new SpatialDatasetRetentionError(SPATIAL_DATASET_RETENTION_FAILED, reason, message, { cause });
-  const retained = retainedRelationFor(target, incoming.content_bundle_sha256);
+  let retained: QualifiedTable = retainedRelationFor(target, incoming.content_bundle_sha256);
   let columns: RelationColumn[];
   let liveDigest: MaterializedDigest;
   let retainedDigest: MaterializedDigest;
   try {
-    if (!(await relationExists(db, retained))) {
-      throw fail("RETAINED_RELATION_MISSING", `incoming version has no staging relation ${formatQualifiedTable(retained)}`);
+    const resolved = await resolveRetainedRelation(db, target, incoming.content_bundle_sha256);
+    retained = resolved.relation;
+    if (!resolved.exists) {
+      throw fail("RETAINED_RELATION_MISSING", `incoming version has no staging relation ${formatQualifiedTable(retained)} (nor a legacy-named one)`);
     }
     columns = digestColumns(await listRelationColumns(db, target), await listRelationColumns(db, retained));
     liveDigest = await computeMaterializedDigest(db, target, columns);
@@ -946,6 +1032,19 @@ export async function recordRetentionAtPromote(input: {
 }
 
 /**
+ * U30F2 M3: SQL that is true when a ledger row's `<target_table>_<hash prefix>` equals `param`
+ * under ANY naming scheme (current and legacy digest lengths, from the shared specification).
+ */
+export function retainedRelationNameMatchSql(param: string): string {
+  return retainedRelationDigestLengths()
+    .map((n) => {
+      if (!Number.isInteger(n)) throw invalid("digest length");
+      return `target_table || '_' || substr(content_bundle_sha256, 1, ${n}) = ${param}`;
+    })
+    .join(" OR ");
+}
+
+/**
  * True when `relation` (in lm_staging) is the retained relation of a SUCCESS batch: a staging
  * cleanup must never drop it. (Wiring into cleanup-staging is a separate step.)
  */
@@ -956,7 +1055,7 @@ export async function isRetainedRelationProtected(db: SqlPort, relation: Qualifi
     `
     SELECT EXISTS (
       SELECT 1 FROM "PostgisImportBatch"
-      WHERE status = 'SUCCESS' AND target_table || '_' || substr(content_bundle_sha256, 1, 8) = $1
+      WHERE status = 'SUCCESS' AND (${retainedRelationNameMatchSql("$1")})
     ) AS protected`,
     [relation.table],
   );
@@ -1045,7 +1144,25 @@ export async function backfillSpatialDatasetRetention(input: {
     let liveDigestCache: { key: string; digest: MaterializedDigest } | null = null;
     for (const [index, batch] of versions.entries()) {
       const current = index === 0;
-      const retained = retainedRelationFor(target, batch.content_bundle_sha256);
+      let retained = retainedRelationFor(target, batch.content_bundle_sha256);
+      let exists = false;
+      try {
+        const resolved = await resolveRetainedRelation(db, target, batch.content_bundle_sha256);
+        retained = resolved.relation;
+        exists = resolved.exists;
+      } catch (error) {
+        emit({
+          target: formatQualifiedTable(target),
+          content_bundle_sha256: batch.content_bundle_sha256,
+          import_batch_id: batch.id,
+          current,
+          retained_relation: formatQualifiedTable(retained),
+          record_id: retentionRecordId(target, batch.content_bundle_sha256),
+          status: "FAILED",
+          detail: describe(error),
+        });
+        continue;
+      }
       const base = {
         target: formatQualifiedTable(target),
         content_bundle_sha256: batch.content_bundle_sha256,
@@ -1055,7 +1172,7 @@ export async function backfillSpatialDatasetRetention(input: {
         record_id: retentionRecordId(target, batch.content_bundle_sha256),
       };
       try {
-        if (!(await relationExists(db, retained))) {
+        if (!exists) {
           emit({ ...base, status: "NOT_RETAINED_RELATION_MISSING", detail: current ? "the next promote creates it (CTAS) before replacing" : "bytes of this version are no longer materialised" });
           continue;
         }
@@ -1140,8 +1257,9 @@ export async function measureRetentionDigestTimes(input: {
   for (const target of input.targets) {
     const current = await findCurrentSuccessBatch(input.db, target);
     const liveColumns = await listRelationColumns(input.db, target);
-    const retained = current ? retainedRelationFor(target, current.content_bundle_sha256) : null;
-    const retainedPresent = retained ? await relationExists(input.db, retained) : false;
+    const resolved = current ? await resolveRetainedRelation(input.db, target, current.content_bundle_sha256) : null;
+    const retained = resolved ? resolved.relation : null;
+    const retainedPresent = resolved ? resolved.exists : false;
     const columns = digestColumns(liveColumns, retainedPresent && retained ? await listRelationColumns(input.db, retained) : liveColumns);
     const timed = async (relation: QualifiedTable) => {
       const started = input.now();

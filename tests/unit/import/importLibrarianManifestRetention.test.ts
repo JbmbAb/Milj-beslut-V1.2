@@ -85,8 +85,9 @@ const h = vi.hoisted(() => {
         state.log.push(`ctas:${m[1]}.${m[2]}`);
       } else if (s.startsWith('TRUNCATE')) state.log.push('TRUNCATE');
       else if (s.startsWith('INSERT INTO env.sgu_well')) {
-        // the promoted live table now holds exactly the staged rows
-        state.tables.set('env.sgu_well', { ...state.tables.get('env.sgu_well')!, digest: { ...state.tables.get('lm_staging.sgu_well_aaaabbbb')!.digest } });
+        // the promoted live table now holds exactly the staged rows (of the staging relation the INSERT reads)
+        const staging = s.match(/FROM (\S+)$/)![1]!;
+        state.tables.set('env.sgu_well', { ...state.tables.get('env.sgu_well')!, digest: { ...state.tables.get(staging)!.digest } });
         state.log.push('INSERT');
       } else throw new Error(`fake prisma: unexpected statement ${s}`);
       return 0;
@@ -138,12 +139,16 @@ vi.mock('../../../scripts/import/importLibrarianQa', async (importOriginal) => (
   ...(await importOriginal<Record<string, unknown>>()),
   tableExists: vi.fn(async () => true),
   countTableRows: vi.fn(async () => 3),
-  buildPromoteInsertSql: vi.fn(async () => 'INSERT INTO env.sgu_well ("brunnsid") SELECT "brunnsid" FROM lm_staging.sgu_well_aaaabbbb'),
+  buildPromoteInsertSql: vi.fn(
+    async (_p: unknown, _ts: string, _tt: string, stagingSchema: string, stagingTable: string) =>
+      `INSERT INTO env.sgu_well ("brunnsid") SELECT "brunnsid" FROM ${stagingSchema}.${stagingTable}`,
+  ),
   applyPostImportIndexing: vi.fn(async () => ({ brinColumn: null, rowCount: 3 })),
   smokeMapLayerForTable: vi.fn(async () => ({ skipped: true, detail: 'hermetic test' })),
 }));
 
 import { retentionRecordId, type SpatialDatasetRetentionRecord } from '../../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
+import { buildPromoteInsertSql } from '../../../scripts/import/importLibrarianQa';
 
 const LIVE_COLUMNS = [
   { name: 'id', type: 'integer', typname: 'int4' },
@@ -315,5 +320,41 @@ describe('import-librarian-manifest promote: retain before replace (U30-B2, PRES
     expect(h.state.log).toContain('TRUNCATE');
     expect(h.state.updates.map((u) => u.status)).toEqual(['PROMOTE_STARTED', 'SUCCESS']);
     expect(process.exitCode).toBe(1);
+  });
+});
+
+describe('U30F2 M3: promote reads the version from the relation it was staged in (current name first, then legacy)', () => {
+  it('a version staged after the switch is promoted from, and recorded in, its 24-hex staging relation', async () => {
+    seed();
+    const legacy = h.state.tables.get('lm_staging.sgu_well_aaaabbbb')!;
+    h.state.tables.delete('lm_staging.sgu_well_aaaabbbb');
+    h.state.tables.set('lm_staging.sgu_well_aaaabbbb0000000000000000', legacy);
+    const { processManifest } = await loadScript();
+    await processManifest(manifestPath);
+    const calls = vi.mocked(buildPromoteInsertSql).mock.calls;
+    expect(calls[calls.length - 1]!.slice(3)).toEqual(['lm_staging', 'sgu_well_aaaabbbb0000000000000000']);
+    const incomingId = retentionRecordId({ schema: 'env', table: 'sgu_well' }, HASH_V2);
+    expect((h.state.casStore.get(incomingId)!.body as SpatialDatasetRetentionRecord).payload).toMatchObject({
+      retained_relation: 'lm_staging.sgu_well_aaaabbbb0000000000000000',
+      retained_relation_naming: 'RETAINED_RELATION_NAME_V2_24HEX',
+    });
+  });
+
+  it('a version staged before the switch is promoted from its legacy 8-hex relation, which is never renamed', async () => {
+    seed();
+    const { processManifest } = await loadScript();
+    await processManifest(manifestPath);
+    const calls = vi.mocked(buildPromoteInsertSql).mock.calls;
+    expect(calls[calls.length - 1]!.slice(3)).toEqual(['lm_staging', 'sgu_well_aaaabbbb']);
+    expect(h.state.log.some((e) => /rename|ctas:lm_staging\.sgu_well_aaaabbbb/i.test(e))).toBe(false);
+  });
+
+  it('no staging relation under either name -> the promote is refused before PROMOTE_STARTED', async () => {
+    seed();
+    h.state.tables.delete('lm_staging.sgu_well_aaaabbbb');
+    const { processManifest } = await loadScript();
+    await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_PROMOTE_STAGING_RELATION_MISSING/);
+    expect(h.state.updates).toEqual([]);
+    expect(h.state.log).not.toContain('TRUNCATE');
   });
 });

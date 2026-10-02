@@ -1,4 +1,5 @@
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
+import { currentRetainedRelationNaming, legacyRetainedRelationNamings, retainedRelationTableName } from "./ProtectedRelationSpec";
 import {
   RETAINED_RELATION_SCHEMA,
   formatQualifiedTable,
@@ -9,6 +10,7 @@ import {
   retainedRelationClaimId,
   retentionRecordId,
   legacyV1RetentionRecordId,
+  retainedRelationNameMatchSql,
   type QualifiedTable,
   type SqlPort,
   type TransactionalSqlPort,
@@ -17,8 +19,8 @@ import {
 /**
  * U30-B2 cleanup-staging + U30F F1/F9 -- PRES-05 protection of the relations in lm_staging.
  *
- * `lm_staging.<target_table>_<hash8>` is the staging table of an import AND the retained relation
- * of the SUCCESS version with the same 8-hex prefix (SpatialDatasetRetention.retainedRelationFor).
+ * `lm_staging.<target_table>_<hash prefix>` is the staging table of an import AND the retained relation
+ * of the SUCCESS version with the same prefix (SpatialDatasetRetention.retainedRelationFor).
  * Two governed paths destroy such relations: cleanup-staging (DROP) and import-staging
  * (ogr2ogr -overwrite). Both decide protection PER RELATION with `decideStagingRelationProtection`:
  *
@@ -30,6 +32,11 @@ import {
  *   RETENTION_RECORD         CAS holds a verified record for a version the ledger maps to the relation;
  *   LEGACY_RETENTION_RECORD  CAS holds a basis-less v1 record for such a version (kept, not verified);
  *   PROTECTION_UNVERIFIABLE  CAS unavailable or unreadable, or a name that is not a plain identifier.
+ *
+ * U30F2 M3: a relation is named `<target_table>_<first 24 hex>` (current) or, if it was made before
+ * that, `<target_table>_<8 hex>` (LEGACY_8HEX, never renamed). The ledger read matches a relation name
+ * under every scheme, and the planner uses a candidate's current-name relation when it exists, else
+ * its legacy one.
  *
  * Only an unprotected relation may be dropped or overwritten. A database error propagates (nothing
  * is destroyed). The cleanup checks again immediately before each DROP, in the DROP's own
@@ -123,16 +130,29 @@ interface LedgerRowForRelation {
   readonly started_at: Date | string | null;
 }
 
-/** Every ledger row (any status) whose <target_table>_<hash8> is this relation's name. */
+/** Every ledger row (any status) whose <target_table>_<hash prefix> is this relation's name, under any naming scheme. */
 async function ledgerRowsForRelation(db: SqlPort, relation: QualifiedTable): Promise<LedgerRowForRelation[]> {
   const result = await db.query<LedgerRowForRelation>(
     `
     SELECT id, status, target_schema, target_table, content_bundle_sha256, started_at
     FROM "PostgisImportBatch"
-    WHERE target_table || '_' || substr(content_bundle_sha256, 1, 8) = $1`,
+    WHERE ${retainedRelationNameMatchSql("$1")}`,
     [relation.table],
   );
   return result.rows;
+}
+
+/**
+ * The staging relation a cleanup candidate refers to (U30F2 M3): its current-name relation when that
+ * exists, else its first legacy name (the relation import-staging made before the naming switch). A
+ * name that is not a plain identifier is returned as is; the planner refuses it without a query.
+ */
+async function candidateRelationName(db: SqlPort, candidate: StagingCleanupCandidate): Promise<string> {
+  const current = retainedRelationTableName(candidate.target_table, candidate.content_bundle_sha256, currentRetainedRelationNaming());
+  const legacy = legacyRetainedRelationNamings().map((s) => retainedRelationTableName(candidate.target_table, candidate.content_bundle_sha256, s));
+  if (!isIdentifier(current)) return legacy[0] ?? current;
+  if (await relationExists(db, { schema: RETAINED_RELATION_SCHEMA, table: current })) return current;
+  return legacy.find(isIdentifier) ?? legacy[0] ?? current;
 }
 
 /**
@@ -229,10 +249,10 @@ export async function planStagingCleanup(input: {
   readonly candidates: readonly StagingCleanupCandidate[];
   readonly now?: Date;
 }): Promise<StagingCleanupDecision[]> {
-  // Same relation naming as the import (and the original cleanup): <target_table>_<hash8>.
+  // Same relation naming as the import: the candidate's current-name relation if it exists, else its legacy one.
   const groups = new Map<string, StagingCleanupCandidate[]>();
   for (const candidate of input.candidates) {
-    const name = `${candidate.target_table}_${candidate.content_bundle_sha256.substring(0, 8)}`;
+    const name = await candidateRelationName(input.db, candidate);
     const group = groups.get(name) ?? [];
     group.push(candidate);
     groups.set(name, group);
@@ -323,7 +343,7 @@ export class StagingRelationProtectedError extends Error {
 }
 
 /**
- * F1: before import-staging writes lm_staging.<table>_<hash8> with `ogr2ogr -overwrite`. A relation
+ * F1: before import-staging writes lm_staging.<table>_<first 24 hex> (U30F2 M3) with `ogr2ogr -overwrite`. A relation
  * that does not exist yet is free (the CAS is not even opened); an existing one may be overwritten
  * only when `decideStagingRelationProtection` finds it unprotected (a leftover of a failed import).
  */

@@ -195,3 +195,27 @@ export function legacyRetainedRelationNamings(): readonly RetainedRelationNaming
 export function isRetainedRelationDigestSuffix(suffix: string): boolean {
   return /^[0-9a-f]+$/.test(suffix) && retainedRelationDigestLengths().includes(suffix.length);
 }
+
+/** Every naming scheme, the current one first: the order in which a version's relation is looked up. */
+export function retainedRelationNamings(): readonly RetainedRelationNamingScheme[] {
+  return [currentRetainedRelationNaming(), ...legacyRetainedRelationNamings()];
+}
+
+/**
+ * U30F2 M3: `<table>_<first N hex of the version's full content_bundle_sha256>` under `scheme`
+ * (default: the current scheme, used for every NEW relation). Pure; the caller checks the 63-byte
+ * PostgreSQL limit (a longer name is refused, never truncated or suffixed).
+ */
+export function retainedRelationTableName(table: string, sha256: string, scheme: RetainedRelationNamingScheme = currentRetainedRelationNaming()): string {
+  return `${table}_${sha256.slice(0, scheme.digest_hex_length)}`;
+}
+
+/** The scheme under which `relationTable` is the retained relation of (`table`, full `sha256`), or null. */
+export function retainedRelationNamingOf(table: string, sha256: string, relationTable: string): RetainedRelationNamingScheme | null {
+  return retainedRelationNamings().find((s) => retainedRelationTableName(table, sha256, s) === relationTable) ?? null;
+}
+
+/** The maximum identifier length in bytes (PostgreSQL NAMEDATALEN - 1). */
+export function maxIdentifierBytes(): number {
+  return classificationSpec().relation_naming.max_identifier_bytes;
+}

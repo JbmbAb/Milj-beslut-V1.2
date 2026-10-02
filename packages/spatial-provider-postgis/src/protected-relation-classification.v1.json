@@ -4,9 +4,9 @@
   "dynamic_placeholder_open": "⟦DYN",
   "dynamic_placeholder_close": "⟧",
   "relation_naming": {
-    "purpose": "Retained relations in the retained-staging schema are named <target_table>_<first N hex of the version's content_bundle_sha256>. A name that does not fit within max_identifier_bytes is refused, never truncated or suffixed.",
-    "current": { "scheme": "RETAINED_RELATION_NAME_V1_8HEX", "digest_hex_length": 8 },
-    "legacy": [],
+    "purpose": "U30F2 M3 (owner decision 2026-10-02): retained relations in the retained-staging schema are named <target_table>_<first N hex of the version's content_bundle_sha256>. Every NEW relation uses the current scheme (24 hex = 96 bits; the longest registry target_table is 36 characters, so 36 + 1 + 24 = 61 fits the 63-byte limit). Relations made before it keep their LEGACY_8HEX name -- they are never renamed (no DDL against live) -- and are recognised, used and protected by the same rules; a version is looked up under the current name first, then the legacy one. The full digest is bound in the ledger (content_bundle_sha256), the retention record and the relation claim. A collision stays fail-closed (the claim is WORM); there is no automatic suffix. A name over max_identifier_bytes is refused, never truncated.",
+    "current": { "scheme": "RETAINED_RELATION_NAME_V2_24HEX", "digest_hex_length": 24 },
+    "legacy": [{ "scheme": "LEGACY_8HEX", "digest_hex_length": 8 }],
     "max_identifier_bytes": 63
   },
   "partition_suffix_pattern": "^(g[0-9]+|default)$",

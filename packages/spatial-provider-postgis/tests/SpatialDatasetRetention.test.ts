@@ -17,6 +17,8 @@ import {
   recordRetentionAtPromote,
   resolveRetentionRecord,
   retainOutgoingThenReplace,
+  buildRetentionRecord,
+  retainedRelationCandidatesFor,
   retainedRelationClaimId,
   retainedRelationFor,
   retentionRecordId,
@@ -41,6 +43,9 @@ import {
 const HASH_V1 = "2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc";
 const HASH_V2 = "aaaabbbb00000000000000000000000000000000000000000000000000000001";
 const TARGET = { schema: "env", table: "sgu_well" } as const;
+/** U30F2 M3: the names of HASH_V1's retained relation under the current (24 hex) and the legacy (8 hex) scheme. */
+const V1_V2NAME = "sgu_well_2b4b514f8b18a1a614d9aeac";
+const V1_LEGACY = "sgu_well_2b4b514f";
 const INSERT_SQL = 'INSERT INTO env.sgu_well ("brunnsid", "geom") SELECT "brunnsid", "geom" FROM lm_staging.sgu_well_aaaabbbb';
 
 const LIVE_COLUMNS: RelationColumn[] = [
@@ -80,7 +85,7 @@ class FakeDb implements TransactionalSqlPort {
     if (this.failOn?.test(s)) throw new Error("simulated database failure");
     if (s.includes('FROM "PostgisImportBatch"') && s.includes("EXISTS")) {
       const name = String(params[0]);
-      const hit = this.successBatches.some((b) => `${TARGET.table}_${b.content_bundle_sha256.slice(0, 8)}` === name);
+      const hit = this.successBatches.some((b) => [8, 24].some((n) => `${TARGET.table}_${b.content_bundle_sha256.slice(0, n)}` === name));
       return { rows: [{ protected: hit }] as T[] };
     }
     if (s.includes('FROM "PostgisImportBatch"') && s.includes("LIMIT 1")) {
@@ -202,8 +207,12 @@ async function rejection(promise: Promise<unknown>): Promise<SpatialDatasetReten
 }
 
 describe("identifiers and record ids", () => {
-  it("retained relation = lm_staging.<table>_<hash8>, the staging table the version was promoted from", () => {
-    expect(retainedRelationFor(TARGET, HASH_V1)).toEqual({ schema: "lm_staging", table: "sgu_well_2b4b514f" });
+  it("U30F2 M3: a NEW retained relation is lm_staging.<table>_<first 24 hex>; the legacy <table>_<8 hex> is still looked up", () => {
+    expect(retainedRelationFor(TARGET, HASH_V1)).toEqual({ schema: "lm_staging", table: V1_V2NAME });
+    expect(retainedRelationCandidatesFor(TARGET, HASH_V1)).toEqual([
+      { relation: { schema: "lm_staging", table: V1_V2NAME }, scheme: "RETAINED_RELATION_NAME_V2_24HEX" },
+      { relation: { schema: "lm_staging", table: V1_LEGACY }, scheme: "LEGACY_8HEX" },
+    ]);
   });
 
   it("record id is deterministic per (target, version hash) and distinct across both", () => {
@@ -297,7 +306,8 @@ describe("retainOutgoingThenReplace: the PRES-05 gate before TRUNCATE", () => {
     const status = await retainOutgoingThenReplace({ db, repo: loggingRepo(db), target: TARGET, insertSql: INSERT_SQL });
 
     expect(status).toMatchObject({ kind: "RETAINED", outcome: "RECORDED", created_retained_relation: true });
-    expect(db.log.slice(0, 6)).toEqual(["query:current-batch", "BEGIN", "lock:SHARE", "create-schema", "ctas:lm_staging.sgu_well_2b4b514f", "COMMIT"]);
+    // U30F2 M3: a relation made now gets the current (24 hex) name.
+    expect(db.log.slice(0, 6)).toEqual(["query:current-batch", "BEGIN", "lock:SHARE", "create-schema", `ctas:lm_staging.${V1_V2NAME}`, "COMMIT"]);
     expect(db.log.indexOf("TRUNCATE")).toBeGreaterThan(db.log.findIndex((e) => e.startsWith("cas:put:")));
   });
 
@@ -729,5 +739,95 @@ describe("backfillSpatialDatasetRetention (ops CLI core): read-only DB, CAS only
     await expect(backfillSpatialDatasetRetention({ db: backfillScenario(), repo: null, targets: [TARGET], execute: true })).rejects.toThrow(
       /CAS_UNAVAILABLE/,
     );
+  });
+});
+
+describe("U30F2 M3: retained relation naming, versioned (RETAINED_RELATION_NAME_V2_24HEX, LEGACY_8HEX)", () => {
+  function v2Scenario(): FakeDb {
+    const db = retainedScenario();
+    const legacy = db.tables.get(`lm_staging.${V1_LEGACY}`)!;
+    db.tables.delete(`lm_staging.${V1_LEGACY}`);
+    db.tables.set(`lm_staging.${V1_V2NAME}`, legacy);
+    return db;
+  }
+
+  it("a legacy 8-hex relation (made before the switch) is found and used as it is: no rename, no copy, the record says LEGACY_8HEX", async () => {
+    const db = retainedScenario();
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db, repo: loggingRepo(db, store), target: TARGET, insertSql: INSERT_SQL });
+    const record = (await resolveRetentionRecord(store, TARGET, HASH_V1))!;
+    expect(record.payload).toMatchObject({ retained_relation: `lm_staging.${V1_LEGACY}`, retained_relation_naming: "LEGACY_8HEX" });
+    expect(db.log.some((e) => e.startsWith("ctas:"))).toBe(false);
+    expect(db.tables.has(`lm_staging.${V1_LEGACY}`)).toBe(true);
+  });
+
+  it("a version staged after the switch is retained in its 24-hex relation; the record and the claim name it", async () => {
+    const db = v2Scenario();
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db, repo: loggingRepo(db, store), target: TARGET, insertSql: INSERT_SQL });
+    const record = (await resolveRetentionRecord(store, TARGET, HASH_V1))!;
+    expect(record.payload).toMatchObject({ retained_relation: `lm_staging.${V1_V2NAME}`, retained_relation_naming: "RETAINED_RELATION_NAME_V2_24HEX" });
+    expect(db.log).toContain(`digest:lm_staging.${V1_V2NAME}`);
+    expect(db.log).toContain(`cas:put:${retainedRelationClaimId({ schema: "lm_staging", table: V1_V2NAME })}`);
+  });
+
+  it("both names exist -> the current (24 hex) relation is the one compared and recorded", async () => {
+    const db = retainedScenario();
+    db.tables.set(`lm_staging.${V1_V2NAME}`, { columns: STAGING_COLUMNS, digest: D_V1 });
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db, repo: store, target: TARGET, insertSql: INSERT_SQL });
+    expect((await resolveRetentionRecord(store, TARGET, HASH_V1))!.payload.retained_relation).toBe(`lm_staging.${V1_V2NAME}`);
+  });
+
+  it("the full digest binds the name: a record whose relation does not derive from the version's content hash is refused", () => {
+    const basis = {
+      kind: "LIVE_EQUALS_RETAINED" as const,
+      established_by: "REPLACE_OUTGOING" as const,
+      version_batch_id: "batch-v1",
+      version_hash: HASH_V1,
+      live_relation: "env.sgu_well",
+      live_digest: { row_count: D_V1.row_count, value: D_V1.digest },
+      ledger_row_count: null,
+      retained_relation_origin: "PRE_EXISTING_RELATION" as const,
+    };
+    const input = { target: TARGET, batch: batch("batch-v1", HASH_V1), columns: STAGING_COLUMNS, digest: D_V1, basis };
+    expect(() => buildRetentionRecord({ ...input, retainedRelation: { schema: "lm_staging", table: "sgu_well_deadbeef" } })).toThrow(/RETAINED_RELATION_NAME_NOT_BOUND/);
+    expect(() => buildRetentionRecord({ ...input, retainedRelation: { schema: "lm_staging", table: "sgu_well_2b4b514f8b18a1a614d9aeaf" } })).toThrow(
+      /RETAINED_RELATION_NAME_NOT_BOUND/,
+    );
+    expect(() => buildRetentionRecord({ ...input, retainedRelation: { schema: "env", table: V1_V2NAME } })).toThrow(/RETAINED_RELATION_NAME_NOT_BOUND/);
+    expect(buildRetentionRecord({ ...input, retainedRelation: { schema: "lm_staging", table: V1_V2NAME } }).payload.retained_relation_naming).toBe(
+      "RETAINED_RELATION_NAME_V2_24HEX",
+    );
+    expect(buildRetentionRecord({ ...input, retainedRelation: { schema: "lm_staging", table: V1_LEGACY } }).payload.retained_relation_naming).toBe("LEGACY_8HEX");
+  });
+
+  it("the incoming version staged after the switch is recorded from its 24-hex staging relation", async () => {
+    const db = new FakeDb();
+    db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: D_OTHER });
+    db.tables.set("lm_staging.sgu_well_aaaabbbb0000000000000000", { columns: STAGING_COLUMNS, digest: D_OTHER });
+    const result = await recordRetentionAtPromote({ db, repo: new InMemoryArtifactRepository(), target: TARGET, incoming: batch("batch-v2", HASH_V2) });
+    expect(result.record.payload).toMatchObject({
+      retained_relation: "lm_staging.sgu_well_aaaabbbb0000000000000000",
+      retained_relation_naming: "RETAINED_RELATION_NAME_V2_24HEX",
+    });
+  });
+
+  it("backfill: a missing relation is reported under its current name; a legacy relation is digested as found", async () => {
+    const db = new FakeDb();
+    db.successBatches = [batch("batch-v1", HASH_V1)];
+    db.tables.set("env.sgu_well", { columns: LIVE_COLUMNS, digest: D_V1 });
+    const missing = await backfillSpatialDatasetRetention({ db, repo: null, targets: [TARGET], execute: false });
+    expect(missing[0]).toMatchObject({ status: "NOT_RETAINED_RELATION_MISSING", retained_relation: `lm_staging.${V1_V2NAME}` });
+    db.tables.set(`lm_staging.${V1_LEGACY}`, { columns: STAGING_COLUMNS, digest: D_V1 });
+    const legacy = await backfillSpatialDatasetRetention({ db, repo: null, targets: [TARGET], execute: false });
+    expect(legacy[0]).toMatchObject({ status: "WOULD_RECORD", retained_relation: `lm_staging.${V1_LEGACY}` });
+  });
+
+  it("isRetainedRelationProtected recognises a SUCCESS version under both names", async () => {
+    const db = retainedScenario();
+    expect(await isRetainedRelationProtected(db, { schema: "lm_staging", table: V1_V2NAME })).toBe(true);
+    expect(await isRetainedRelationProtected(db, { schema: "lm_staging", table: V1_LEGACY })).toBe(true);
+    expect(await isRetainedRelationProtected(db, { schema: "lm_staging", table: "sgu_well_2b4b514f8b18a1a614d9aeaf" })).toBe(false);
   });
 });

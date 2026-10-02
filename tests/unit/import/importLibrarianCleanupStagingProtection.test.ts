@@ -41,7 +41,7 @@ const h = vi.hoisted(() => {
     flipRow: null as Row | null,
   };
   const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
-  const nameOf = (b: Row) => `${b.target_table}_${b.content_bundle_sha256.substring(0, 8)}`;
+  const namesOf = (b: Row) => [8, 24].map((n) => `${b.target_table}_${b.content_bundle_sha256.substring(0, n)}`);
   const protectionRead = () => {
     if (state.protectionQueryFails) throw new Error('simulated database failure');
     state.protectionReads += 1;
@@ -61,14 +61,15 @@ const h = vi.hoisted(() => {
       if (s.includes('FROM "PostgisImportBatch"') && s.includes('EXISTS')) {
         protectionRead();
         const name = String(params[0]);
-        return [{ protected: state.successBatches.some((b) => nameOf(b) === name) }];
+        return [{ protected: state.successBatches.some((b) => namesOf(b).includes(name)) }];
       }
       if (s.includes('FROM "PostgisImportBatch"')) {
         protectionRead();
         const name = String(params[0]);
-        return [...state.successBatches, ...state.badBatches].filter((b) => nameOf(b) === name).map((b) => ({ started_at: new Date(0), ...b }));
+        return [...state.successBatches, ...state.badBatches].filter((b) => namesOf(b).includes(name)).map((b) => ({ started_at: new Date(0), ...b }));
       }
-      if (s.startsWith('SELECT to_regclass')) return [{ exists: true }];
+      // U30F2 M3: the 2026-10-02 database holds only legacy <table>_<8 hex> relations; no 24-hex one exists.
+      if (s.startsWith('SELECT to_regclass')) return [{ exists: !/_[0-9a-f]{24}"?$/.test(String(params[0])) }];
       throw new Error(`fake prisma: unexpected query ${s}`);
     },
     async $executeRawUnsafe(sql: string) {

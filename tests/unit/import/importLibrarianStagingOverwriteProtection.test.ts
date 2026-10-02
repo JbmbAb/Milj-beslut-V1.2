@@ -1,5 +1,5 @@
 /**
- * U30F F1 (PRES-05): `--mode import-staging` writes lm_staging.<table>_<hash8> with
+ * U30F F1 (PRES-05): `--mode import-staging` writes lm_staging.<table>_<first 24 hex> (U30F2 M3; before: <hash8>) with
  * `ogr2ogr -overwrite`. That name is also the retained relation of the SUCCESS version with the same
  * hash (and, on an 8-hex collision, of another version). The import must decide protection for the
  * relation BEFORE anything is written -- no ledger row, no ogr2ogr -- and refuse a protected one.
@@ -15,8 +15,10 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const HASH = 'aaaabbbb00000000000000000000000000000000000000000000000000000002';
-const OTHER = 'aaaabbbb' + 'f'.repeat(56); // same 8-hex prefix, another version
-const RELATION = 'sgu_well_aaaabbbb';
+/** U30F2 M3: import-staging writes the CURRENT name, <table>_<first 24 hex>. */
+const RELATION = 'sgu_well_aaaabbbb0000000000000000';
+const OTHER = 'aaaabbbb0000000000000000' + 'f'.repeat(40); // same 24-hex prefix, another version
+const LEGACY_RELATION = 'sgu_well_aaaabbbb';
 
 const h = vi.hoisted(() => {
   type Row = { id: string; status: string; target_schema: string; target_table: string; content_bundle_sha256: string; started_at: Date };
@@ -26,12 +28,13 @@ const h = vi.hoisted(() => {
     created: [] as unknown[],
     statements: [] as string[],
     spawned: [] as string[],
+    regclass: [] as string[],
     casCreateFails: false,
     casOpened: 0,
     repo: null as unknown,
   };
   const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
-  const nameOf = (r: Row) => `${r.target_table}_${r.content_bundle_sha256.substring(0, 8)}`;
+  const namesOf = (r: Row) => [8, 24].map((n) => `${r.target_table}_${r.content_bundle_sha256.substring(0, n)}`);
   const fake = {
     postgisImportBatch: {
       async findFirst(args: { where: { status: string; content_bundle_sha256: string } }) {
@@ -47,11 +50,14 @@ const h = vi.hoisted(() => {
     },
     async $queryRawUnsafe(sql: string, ...params: unknown[]) {
       const s = normalize(sql);
-      if (s.startsWith('SELECT to_regclass')) return [{ exists: state.relationExists }];
-      if (s.includes('FROM "PostgisImportBatch"') && s.includes('EXISTS')) {
-        return [{ protected: state.ledger.some((r) => r.status === 'SUCCESS' && nameOf(r) === String(params[0])) }];
+      if (s.startsWith('SELECT to_regclass')) {
+        state.regclass.push(String(params[0]));
+        return [{ exists: state.relationExists }];
       }
-      if (s.includes('FROM "PostgisImportBatch"')) return state.ledger.filter((r) => nameOf(r) === String(params[0]));
+      if (s.includes('FROM "PostgisImportBatch"') && s.includes('EXISTS')) {
+        return [{ protected: state.ledger.some((r) => r.status === 'SUCCESS' && namesOf(r).includes(String(params[0]))) }];
+      }
+      if (s.includes('FROM "PostgisImportBatch"')) return state.ledger.filter((r) => namesOf(r).includes(String(params[0])));
       return [];
     },
     async $executeRawUnsafe(sql: string) {
@@ -75,19 +81,19 @@ vi.mock('../../../packages/mps-runtime/src/mimers/MimersIntegration', () => ({
   },
 }));
 // ogrinfo/ogr2ogr are never spawned for real: both builtin specifiers are replaced.
-const fakeSpawnSync = (cmd: string) => {
-  h.state.spawned.push(String(cmd));
+const fakeSpawnSync = (cmd: string, args?: readonly string[]) => {
+  h.state.spawned.push([String(cmd), ...(args ?? []).map(String)].join(' '));
   return { status: 0, stdout: 'Coordinate System is: EPSG:3006', stderr: '' };
 };
 vi.mock('child_process', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  default: { ...((await importOriginal<{ default: Record<string, unknown> }>()).default ?? {}), spawnSync: (cmd: string) => fakeSpawnSync(cmd) },
-  spawnSync: (cmd: string) => fakeSpawnSync(cmd),
+  default: { ...((await importOriginal<{ default: Record<string, unknown> }>()).default ?? {}), spawnSync: (cmd: string, args?: string[]) => fakeSpawnSync(cmd, args) },
+  spawnSync: (cmd: string, args?: string[]) => fakeSpawnSync(cmd, args),
 }));
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  default: { ...((await importOriginal<{ default: Record<string, unknown> }>()).default ?? {}), spawnSync: (cmd: string) => fakeSpawnSync(cmd) },
-  spawnSync: (cmd: string) => fakeSpawnSync(cmd),
+  default: { ...((await importOriginal<{ default: Record<string, unknown> }>()).default ?? {}), spawnSync: (cmd: string, args?: string[]) => fakeSpawnSync(cmd, args) },
+  spawnSync: (cmd: string, args?: string[]) => fakeSpawnSync(cmd, args),
 }));
 
 import { InMemoryArtifactRepository } from '../../../packages/mps-runtime/src/repository/InMemoryArtifactRepository';
@@ -118,6 +124,7 @@ beforeEach(() => {
   h.state.created.length = 0;
   h.state.statements.length = 0;
   h.state.spawned.length = 0;
+  h.state.regclass.length = 0;
   h.state.casCreateFails = false;
   h.state.casOpened = 0;
   h.state.repo = new InMemoryArtifactRepository();
@@ -160,7 +167,7 @@ describe('import-staging never overwrites a retained relation (U30F F1)', () => 
     expect(h.state.statements).toEqual([]);
   });
 
-  it('8-hex collision: the relation is claimed by another version in CAS (no ledger row for it) -> refused', async () => {
+  it('24-hex collision: the relation is claimed by another version in CAS (no ledger row for it) -> refused', async () => {
     const repo = new InMemoryArtifactRepository();
     const id = claimId(`lm_staging.${RELATION}`);
     const body = { artifact_id: id, payload: { retained_relation: `lm_staging.${RELATION}`, content_bundle_sha256: OTHER } };
@@ -193,6 +200,40 @@ describe('import-staging never overwrites a retained relation (U30F F1)', () => 
     const { processManifest } = await loadScript();
     await processManifest(manifestPath).catch(() => undefined);
     expect(h.state.casOpened).toBe(0);
+    expect(h.state.created).toHaveLength(1);
+  });
+});
+
+describe('U30F2 M3: import-staging names every NEW staging relation with the current scheme', () => {
+  it('every import-registry target fits <table>_<24 hex> within PostgreSQL\'s 63 bytes (no truncation, no suffix)', async () => {
+    const { IMPORT_REGISTRY } = await import('../../../scripts/import/config/importRegistry');
+    const { retainedRelationFor } = await import('../../../packages/spatial-provider-postgis/src/SpatialDatasetRetention');
+    const tables = Object.values(IMPORT_REGISTRY).flatMap((datasets) => Object.values(datasets).map((e) => e.target_table));
+    expect(tables.length).toBeGreaterThan(30);
+    for (const table of tables) {
+      const name = retainedRelationFor({ schema: 'env', table }, HASH).table;
+      expect(Buffer.byteLength(name, 'utf8'), name).toBeLessThanOrEqual(63);
+      expect(name, table).toBe(`${table}_${HASH.slice(0, 24)}`);
+    }
+  });
+
+  it('the relation import-staging checks and writes is lm_staging.<table>_<first 24 hex>, never the legacy 8-hex name', async () => {
+    h.state.relationExists = false;
+    const { processManifest } = await loadScript();
+    await processManifest(manifestPath).catch(() => undefined);
+    expect(h.state.regclass).toEqual([`"lm_staging"."${RELATION}"`]);
+    for (const c of h.state.spawned.filter((x) => x.includes('-nln'))) expect(c).toContain(`-nln lm_staging.${RELATION}`);
+  });
+
+  it('a claim on the legacy 8-hex name of another version does not block the new 24-hex relation', async () => {
+    const repo = new InMemoryArtifactRepository();
+    const id = claimId(`lm_staging.${LEGACY_RELATION}`);
+    const body = { artifact_id: id, payload: { retained_relation: `lm_staging.${LEGACY_RELATION}`, content_bundle_sha256: 'aaaabbbb' + 'e'.repeat(56) } };
+    await repo.put({ artifact_id: id, content_hash: sha256ContentHash(body), body });
+    h.state.repo = repo;
+    h.state.relationExists = false;
+    const { processManifest } = await loadScript();
+    await processManifest(manifestPath).catch(() => undefined);
     expect(h.state.created).toHaveLength(1);
   });
 });
