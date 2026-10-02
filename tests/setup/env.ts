@@ -51,8 +51,13 @@ if (typeof document !== 'undefined') {
 }
 
 // Vitest v8 coverage writes temp chunks to `coverage/.tmp/*` but doesn't always create the folder on Windows.
-try {
-  fs.mkdirSync(path.join(process.cwd(), 'coverage', '.tmp'), { recursive: true });
-} catch {
-  // ignore
+// TEST-DB-GUARD, TDG-4: only when coverage actually runs -- otherwise every test file created coverage/.tmp
+// in the tree the run happens in (SWEEP-REPORT "Skrivningar i arbetskatalogen").
+type VitestWorkerCoverageState = { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } };
+if ((globalThis as VitestWorkerCoverageState).__vitest_worker__?.config?.coverage?.enabled === true) {
+  try {
+    fs.mkdirSync(path.join(process.cwd(), 'coverage', '.tmp'), { recursive: true });
+  } catch {
+    // ignore
+  }
 }

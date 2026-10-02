@@ -211,6 +211,18 @@ describe('the product default that wrote into the tree: documentGenerator (stora
   });
 });
 
+describe('tests/setup/env.ts creates coverage/.tmp only when coverage runs', () => {
+  it('the worker state it reads exists and is a strict boolean (false in a run without coverage)', () => {
+    const state = (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: unknown } } } })
+      .__vitest_worker__;
+    expect(state?.config?.coverage?.enabled).toBe(false);
+    const source = fs.readFileSync(path.join(REPO_ROOT, 'tests/setup/env.ts'), 'utf8');
+    expect(source).toMatch(
+      /__vitest_worker__\?\.config\?\.coverage\?\.enabled === true\)\s*\{\s*try \{\s*fs\.mkdirSync\(/,
+    );
+  });
+});
+
 describe('the decision (server/modules/test-db-guard/installTestDataRootWriteGuard.ts)', () => {
   it('this worker has the guard installed by the setup file', async () => {
     const { testDataRootWriteGuardInstalled } = await import(GUARD_MODULE);
