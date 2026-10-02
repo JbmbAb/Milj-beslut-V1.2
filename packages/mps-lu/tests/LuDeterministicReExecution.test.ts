@@ -345,8 +345,9 @@ function withFindings(payload: LocalizationAssessmentArtifact["payload"], findin
 
 /**
  * Exactly the provider's historical cause text (`describeQueryFailure`, SpatialProviderPostGIS.ts,
- * d27d240a .. c3d06557^, unchanged in that window), written out here as the oracle for what a
- * genuine pre-U30-R2 NOT_CHECKED explanation can contain.
+ * d27d240a .. c3d06557^, unchanged in that window; verbatim at 34097f2e = aba4305c^, lines 26-31, its
+ * only call site lines 211-214), written out here as the oracle for what a genuine pre-U30-R2
+ * NOT_CHECKED explanation can contain.
  */
 function historicalProviderCause(error: unknown): string {
   const name = error instanceof Error ? error.name : "UnknownError";
@@ -1215,6 +1216,14 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
     ["TypeError", new TypeError("Cannot read properties of undefined (reading 'rowCount')")],
     ["a message over 200 characters (truncated + '...')", new Error(`canceling statement due to statement timeout ${"x".repeat(240)}`)],
     ["a non-Error throw", "Query read timeout"],
+    // U30-R3 verification F3: the producer never removed line breaks, tabs or odd names.
+    ["a multi-line pg message", Object.assign(new Error('syntax error at or near "FROM"\nLINE 1: SELECT 1 AS hit FROM\n                        ^'), { name: "error" })],
+    ["a message with tabs and a carriage return", new Error("connection terminated\tunexpectedly\r\nretry later")],
+    ["an empty error name", Object.assign(new Error("boom"), { name: "" })],
+    ["an error name with spaces", Object.assign(new Error("relation does not exist"), { name: "Database Error" })],
+    ["an error name containing ': '", Object.assign(new Error("x"), { name: "pg: error" })],
+    ["a multi-line message over 200 characters, truncated", new Error(`first line\n${"y".repeat(250)}`)],
+    ["a non-Error throw with a line break", "line one\nline two"],
   ];
   for (const [label, thrown] of GENUINE) {
     it(`19g genuine (${label}) -> PASS + NOT_CHECKED_CAUSE_NOT_PINNED`, async () => {
@@ -1229,13 +1238,15 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
     });
   }
 
+  // Text the producer could never return: no ": " at all, or no ": " followed by a tail its
+  // truncation could produce (at most 200 UTF-16 units, or exactly 200 followed by "...").
   const NOT_THE_PRODUCER: ReadonlyArray<readonly [string, string]> = [
-    ["free text without an error name (verifier X7)", "men inga förorenade områden finns inom 500 m"],
-    ["a name that is not an error-class identifier", "Inga förorenade områden: kontrollerat"],
+    ["free text without ': ' (verifier X7)", "men inga förorenade områden finns inom 500 m"],
     ["an over-long message that was never truncated", `Error: ${"a".repeat(201)}`],
     ["a truncation marker on a message of the wrong length", `Error: ${"a".repeat(201)}...`],
-    ["a line break inside the message", "Error: första raden\nandra raden"],
+    ["a 203-unit message without the truncation marker", `Error: ${"a".repeat(203)}`],
     ["no separator after the name", "QueryFailedError"],
+    ["a colon without the following space", "Error:inga träffar"],
   ];
   for (const [label, cause] of NOT_THE_PRODUCER) {
     it(`19d not the producer's form (${label}) -> DENY FINDINGS_MISMATCH, no notice`, async () => {
