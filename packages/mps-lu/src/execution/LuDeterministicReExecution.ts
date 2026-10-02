@@ -43,10 +43,7 @@ import {
 } from "./LuReExecutionStorageError.js";
 import { executionIdentityCanonicalBody } from "./ExecutionIdentityAttestation.js";
 import type { ExecutionIdentityArtifact } from "../../../mps-runtime/src/execution/ExecutionIdentityArtifact.js";
-import {
-  computeExecutionIdentityArtifactIdV3,
-  computeExecutionManifestIdV3,
-} from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
+import { computeExecutionManifestIdV3 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -577,13 +574,12 @@ function exactOutputBindingMismatch(
  * U30-R3 K2 -- the reverse binding of a V4 assessment to the execution its outcome pins.
  *
  * assessment.authority_evidence_ref (inside the assessment's own hash) -> AuthorityEvidence, whose
- * id is re-derived from its canonical fields and whose content hash is recomputed -> exactly one
- * `subject` path entry, an execution_identity with a pinned content hash -> that ExecutionIdentity,
- * re-hashed (executionIdentityCanonicalBody) to the pinned hash, V3, its id re-derived from its
- * subject -> computeExecutionManifestIdV3(subject) must be the manifest the outcome's attempt belongs
- * to, and the subject's localization point must be the assessment's. Every step is a hash or a
- * preimage-resistant derivation; none trusts a stored claim, and no signature is verified (that is
- * authenticity, not consistency -- see the module header).
+ * pinned id must be re-derivable from its canonical fields -> exactly one `subject` path entry with
+ * a pinned content hash -> that ExecutionIdentity, re-hashed (executionIdentityCanonicalBody) to the
+ * pinned hash, carrying a V3 subject -> computeExecutionManifestIdV3(subject) must be the manifest the
+ * outcome's attempt belongs to, and the subject's localization point must be the assessment's. Every
+ * step is a hash or a preimage-resistant derivation; none trusts a stored claim, and no signature is
+ * verified (that is authenticity, not consistency -- see the module header).
  *
  * Applies to V4 only: V1-V3 assessments pin no authority subject, so they keep the finding-level
  * binding alone (U30R3-REPORT, remaining boundary). Genuine absence of a pinned artifact is
@@ -605,60 +601,56 @@ async function authoritySubjectMismatch(
   if (evidenceRead.found === false) {
     return unbound(`authority evidence ${evidenceRef.artifact_id} pinned by the assessment is not in CAS`);
   }
+  // The pinned id is derived from the evidence's canonical fields (createLuSourceAuthorityEvidence-
+  // Artifact): recomputing it binds every field read below to the reference inside the assessment.
   const evidence = evidenceRead.value;
-  if (
-    typeof evidence !== "object" ||
-    evidence === null ||
-    evidence.artifact_type !== "authority_evidence" ||
-    evidence.artifact_id !== evidenceRef.artifact_id
-  ) {
-    return unbound(`${evidenceRef.artifact_id} is not the authority evidence the assessment pins`);
-  }
-  const { content_hash: storedHash, ...body } = evidence as Record<string, unknown> & { content_hash?: { value?: unknown } };
-  const { artifact_id: _id, references: _references, ...canonical } = body;
-  if (
-    sha256ContentHash(body).value !== storedHash?.value ||
-    evidence.artifact_id !== `authority-evidence-${sha256ContentHash(canonical).value.slice(0, 24)}`
-  ) {
+  const { artifact_id: _id, references: _references, content_hash: _hash, ...canonical } =
+    typeof evidence === "object" && evidence !== null ? evidence : ({} as Record<string, unknown>);
+  if (evidenceRef.artifact_id !== `authority-evidence-${sha256ContentHash(canonical).value.slice(0, 24)}`) {
     return unbound(`${evidenceRef.artifact_id} does not match its own content -- rewritten or malformed`);
   }
 
-  const path = Array.isArray(evidence.authority_path) ? (evidence.authority_path as readonly unknown[]) : [];
-  const subjects = path.filter(
-    (entry): entry is { artifact_ref: ArtifactReference; content_hash: { algorithm: string; value: string } } =>
-      (entry as { role?: unknown } | null)?.role === "subject",
-  );
+  const path = Array.isArray(canonical.authority_path) ? (canonical.authority_path as readonly unknown[]) : [];
+  const subjects = path.filter((entry) => (entry as { role?: unknown } | null)?.role === "subject") as {
+    readonly artifact_ref?: { readonly artifact_id?: unknown; readonly artifact_type?: unknown };
+    readonly content_hash?: { readonly algorithm?: unknown; readonly value?: unknown };
+  }[];
   const subjectEntry = subjects.length === 1 ? subjects[0]! : null;
   if (
     !subjectEntry ||
-    subjectEntry.artifact_ref?.artifact_type !== "execution_identity" ||
     typeof subjectEntry.artifact_ref?.artifact_id !== "string" ||
+    typeof subjectEntry.artifact_ref?.artifact_type !== "string" ||
     typeof subjectEntry.content_hash?.value !== "string"
   ) {
-    return unbound(`${evidenceRef.artifact_id} does not name exactly one execution identity as its subject`);
+    return unbound(`${evidenceRef.artifact_id} does not name exactly one authority subject`);
   }
+  const subjectRef: ArtifactReference = {
+    artifact_id: subjectEntry.artifact_ref.artifact_id,
+    artifact_type: subjectEntry.artifact_ref.artifact_type,
+  };
 
-  const identityRead = await readPinnedArtifact<ExecutionIdentityArtifact>(repository, subjectEntry.artifact_ref, "execution_identity");
+  const identityRead = await readPinnedArtifact<ExecutionIdentityArtifact>(repository, subjectRef, "execution_identity");
   if (identityRead.found === false) {
-    return unbound(`execution identity ${subjectEntry.artifact_ref.artifact_id} named by the authority evidence is not in CAS`);
+    return unbound(`execution identity ${subjectRef.artifact_id} named by the authority evidence is not in CAS`);
   }
-  const identity = identityRead.value;
-  const subject = identity?.subject_v3;
+  // The evidence pins the identity's content hash (executionIdentityCanonicalBody); its subject is
+  // trusted only through that hash.
+  const identity = typeof identityRead.value === "object" && identityRead.value !== null ? identityRead.value : null;
   const identityHash = identity ? sha256ContentHash(executionIdentityCanonicalBody(identity)) : null;
   if (
-    !identity ||
-    !subject ||
-    identity.artifact_id !== subjectEntry.artifact_ref.artifact_id ||
     identityHash?.algorithm !== subjectEntry.content_hash.algorithm ||
-    identityHash?.value !== subjectEntry.content_hash.value ||
-    computeExecutionIdentityArtifactIdV3(subject) !== identity.artifact_id
+    identityHash?.value !== subjectEntry.content_hash.value
   ) {
-    return unbound(`${subjectEntry.artifact_ref.artifact_id} is not the V3 execution identity the authority evidence hashes`);
+    return unbound(`${subjectRef.artifact_id} is not the execution identity the authority evidence hashes`);
+  }
+  const subject = identity?.subject_v3;
+  if (!subject) {
+    return unbound(`${subjectRef.artifact_id} is not a V3 execution identity: it names no localization subject`);
   }
 
   if (computeExecutionManifestIdV3(subject) !== manifestIdFromAttemptRef) {
     return unbound(
-      `the assessment's authority subject ${identity.artifact_id} does not name the execution its outcome pins (manifest ${manifestIdFromAttemptRef})`,
+      `the assessment's authority subject ${subjectRef.artifact_id} does not name the execution its outcome pins (manifest ${manifestIdFromAttemptRef})`,
     );
   }
   const point = assessment.payload.localization_geometry_ref;
@@ -667,7 +659,7 @@ async function authoritySubjectMismatch(
     point.artifact_id !== subject.localization_geometry_ref?.artifact_id ||
     point.artifact_type !== subject.localization_geometry_ref?.artifact_type
   ) {
-    return unbound(`the assessment's localization point is not the one its authority subject ${identity.artifact_id} was issued for`);
+    return unbound(`the assessment's localization point is not the one its authority subject ${subjectRef.artifact_id} was issued for`);
   }
   return null;
 }

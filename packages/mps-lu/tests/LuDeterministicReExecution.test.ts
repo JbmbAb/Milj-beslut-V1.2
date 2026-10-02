@@ -17,6 +17,7 @@ import {
 } from "../../mps-runtime/src/repository/MimersByteStorageBackend";
 import type { LocalizationAssessmentArtifact, LocalizationAssessmentDraft } from "../src/artifacts/LocalizationAssessmentArtifact";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
+import { executionIdentityCanonicalBody } from "../src/execution/ExecutionIdentityAttestation";
 import {
   LU_CANONICAL_AUTHORITY_ENV,
   createLuCanonicalAuthority,
@@ -1097,6 +1098,78 @@ describe("U30-R3 K2 on the canonical V4 chain: the assessment's authority subjec
       expectStorageFault(await settle(reExecuteLocalizationAssessment({ assessmentArtifactId: A.artifact_id, artifactRepository: faulty })), stage, fault);
     });
   }
+
+  /** A new, self-consistent AuthorityEvidence (id derived from its canonical fields) built from `base`. */
+  async function storeForgedAuthorityEvidence(
+    repo: ArtifactRepositoryPort,
+    base: Record<string, unknown>,
+    change: (canonical: Record<string, unknown>) => Record<string, unknown>,
+  ) {
+    const { artifact_id: _id, references, content_hash: _hash, ...canonical } = base;
+    const forgedCanonical = change(canonical);
+    const artifact_id = `authority-evidence-${sha256ContentHash(forgedCanonical).value.slice(0, 24)}`;
+    const body = { artifact_id, references, ...forgedCanonical };
+    const content_hash = sha256ContentHash(body);
+    await repo.put({ artifact_id, content_hash, body: { ...body, content_hash } });
+    return { artifact_id, artifact_type: "authority_evidence" as const };
+  }
+
+  type PathEntry = { role: string; artifact_ref?: unknown; content_hash?: unknown };
+
+  it("25l: the execution identity the authority evidence names, rewritten in place (same id and subject, another actor; WORM bypass) -> DENY", async () => {
+    const { repo, subjectA, A } = await twoCanonicalSubjects();
+    const rewritten = { ...subjectA.identity, actor_ref: { artifact_id: "another-actor", artifact_type: "execution_identity" } };
+    const hash = sha256ContentHash(executionIdentityCanonicalBody(rewritten));
+    (repo as unknown as { store: Map<string, { content_hash: unknown; body: unknown }> }).store.set(subjectA.identity.artifact_id, {
+      content_hash: hash,
+      body: { ...rewritten, content_hash: hash },
+    });
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: A.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
+  for (const [label, rewriteSubject] of [
+    ["names no subject at all", (path: PathEntry[]) => path.filter((entry) => entry.role !== "subject")],
+    ["names a subject without a reference", (path: PathEntry[]) => path.map((entry) => (entry.role === "subject" ? { role: "subject", content_hash: entry.content_hash } : entry))],
+  ] as const) {
+    it(`25m: a V4 assessment pinned to a new, self-consistent authority evidence that ${label} -> DENY`, async () => {
+      const { repo, A } = await twoCanonicalSubjects();
+      const evidenceA = await repo.resolve<Record<string, unknown>>(A.payload.authority_evidence_ref!);
+      const forgedRef = await storeForgedAuthorityEvidence(repo, evidenceA, (canonical) => ({
+        ...canonical,
+        authority_path: rewriteSubject(canonical.authority_path as PathEntry[]),
+      }));
+      const forged = await storeUnderNewId(repo, A, { ...A.payload, authority_evidence_ref: forgedRef });
+
+      const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+      expect(r.outcome).toBe("DENY");
+      expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+    });
+  }
+
+  it("25n: a V4 assessment whose authority evidence names a hashed identity WITHOUT a V3 subject -> DENY, never a crash", async () => {
+    const { repo, subjectA, A } = await twoCanonicalSubjects();
+    const { subject_v3: _subject, execution_identity_contract_version: _version, ...withoutSubject } = subjectA.identity;
+    const forgedIdentity = { ...withoutSubject, artifact_id: "lu-identity-u30r3-without-subject" };
+    const identityHash = sha256ContentHash(executionIdentityCanonicalBody(forgedIdentity as never));
+    await repo.put({ artifact_id: forgedIdentity.artifact_id, content_hash: identityHash, body: { ...forgedIdentity, content_hash: identityHash } });
+    const evidenceA = await repo.resolve<Record<string, unknown>>(A.payload.authority_evidence_ref!);
+    const forgedRef = await storeForgedAuthorityEvidence(repo, evidenceA, (canonical) => ({
+      ...canonical,
+      authority_path: (canonical.authority_path as PathEntry[]).map((entry) =>
+        entry.role === "subject"
+          ? { role: "subject", artifact_ref: { artifact_id: forgedIdentity.artifact_id, artifact_type: "execution_identity" }, content_hash: identityHash }
+          : entry,
+      ),
+    }));
+    const forged = await storeUnderNewId(repo, A, { ...A.payload, authority_evidence_ref: forgedRef });
+
+    const r = await reExecuteLocalizationAssessment({ assessmentArtifactId: forged.artifact_id, artifactRepository: repo });
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
 
   it("19b: historical NOT_CHECKED wording on a genuine V4 assessment -> PASS with NOT_CHECKED_CAUSE_NOT_PINNED", async () => {
     const { repo, B } = await twoCanonicalSubjects();
