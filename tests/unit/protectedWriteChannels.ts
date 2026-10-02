@@ -2161,36 +2161,46 @@ function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       if (!bound.shadowed && bound.bindings.length > 0 && bound.bindings.every((b) => b[0]?.v === "{")) a = bound.bindings[0]!;
     }
     // node-postgres QueryConfig { text, values } / { sql }; any other object is a query API, not SQL
-    if (a[0]?.v === "{") {
-      const at = a.findIndex((x, n) => x.k === "id" && (x.v === "text" || x.v === "sql") && a[n + 1]?.v === ":");
-      if (at >= 0) a = a.slice(at + 2, jsExprEnd(a, at + 2));
-      else {
-        // U30F4 (B2): a shorthand { text } is that binding; a spread or a computed key is a config the source does not hold
-        let depth = 0;
-        let shorthand: Tok | null = null;
-        let unheld = false;
-        for (let n = 0; n < a.length; n++) {
-          const x = a[n]!;
-          if (x.v === "{" || x.v === "(" || x.v === "[") {
-            if (depth === 1 && x.v === "[" && (a[n - 1]?.v === "{" || a[n - 1]?.v === ",")) unheld = true;
-            depth += 1;
-            continue;
-          }
-          if (x.v === "}" || x.v === ")" || x.v === "]") {
-            depth -= 1;
-            continue;
-          }
-          if (depth !== 1) continue;
-          if (x.v === "...") unheld = true;
-          if (x.k === "id" && (x.v === "text" || x.v === "sql") && (a[n - 1]?.v === "{" || a[n - 1]?.v === ",") && (a[n + 1]?.v === "," || a[n + 1]?.v === "}")) shorthand = x;
+    if (a[0]?.k === "p" && a[0]!.v === "{") {
+      // U30F4 (B2): the SQL of a QueryConfig -- a `text:`/`sql:` key (also quoted) or a shorthand { text } (that binding).
+      // A spread, a computed key, or a text/sql getter or method is a config the source does not hold: DYNAMIC, even
+      // beside a static text (a later spread overrides it). An object with none of these names no SQL.
+      let depth = 0;
+      let sqlAt = -1;
+      let shorthand: Tok | null = null;
+      let unheld = false;
+      const sqlName = (x: Tok | undefined) => x !== undefined && (x.k === "id" || (x.k === "str" && !x.parts)) && (x.v === "text" || x.v === "sql");
+      for (let n = 0; n < a.length; n++) {
+        const x = a[n]!;
+        const p = x.k === "p" ? x.v : null;
+        if (p === "{" || p === "(" || p === "[") {
+          if (depth === 1 && p === "[" && (a[n - 1]?.v === "{" || a[n - 1]?.v === ",")) unheld = true;
+          depth += 1;
+          continue;
         }
-        if (shorthand) a = [shorthand];
-        else if (unheld) {
-          sink.counts.channels += 1;
-          sink.add({ line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "a query config the source does not hold (a spread or a computed key)" });
-          return;
-        } else return;
+        if (p === "}" || p === ")" || p === "]") {
+          depth -= 1;
+          continue;
+        }
+        if (depth !== 1) continue;
+        if (p === "...") unheld = true;
+        const prev = a[n - 1];
+        const keyAt = prev?.k === "p" && (prev.v === "{" || prev.v === ",");
+        const modifierAt = (prev?.k === "id" && /^(get|set|async)$/.test(prev.v)) || (prev?.k === "p" && prev.v === "*");
+        if (!sqlName(x) || !(keyAt || modifierAt)) continue;
+        const next = a[n + 1];
+        if (keyAt && next?.k === "p" && next.v === ":") sqlAt = n;
+        else if (keyAt && x.k === "id" && next?.k === "p" && (next.v === "," || next.v === "}")) shorthand = x;
+        else unheld = true;
       }
+      if (unheld) {
+        sink.counts.channels += 1;
+        sink.add({ line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "a query config the source does not hold (a spread, a computed key, or a text getter or method)" });
+        return;
+      }
+      if (sqlAt >= 0) a = a.slice(sqlAt + 2, jsExprEnd(a, sqlAt + 2));
+      else if (shorthand) a = [shorthand];
+      else return;
     }
     sink.counts.channels += 1;
     if (payloadGated(a)) {
