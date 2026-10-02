@@ -1,4 +1,23 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
+
+// M1a-repair (F3): hermetic. server/db/prisma is replaced by a guard that throws and records on any
+// access (the real module would load .env.local, which can name the live database).
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
+// Both localization-geometry projection indexes are empty: these projects have no localization
+// geometry, so currentness is NOT_FOUND and read-back keeps the legacy binding-only eligibility
+// these tests were written for (DEMO M1a / D9(a)).
+vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
+  PrismaLocalizationGeometryProjectionIndex: class {
+    async register() {}
+    async listForProject() { return []; }
+  },
+}));
+vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => ({
+  PrismaLocalizationGeometrySupersessionIndex: class {
+    async register() {}
+    async listForProject() { return []; }
+  },
+}));
 
 let membershipAllowed = true;
 vi.mock('../../server/repositories/projectAccessRepository', () => ({
@@ -35,6 +54,11 @@ import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow }
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveCurrentLuAssessmentSummary } from '../../server/modules/localization/localizationOrchestrator';
 import type { AuthUser } from '../../server/security/types';
+import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
+
+afterEach(() => {
+  expect(hermeticPrismaTouches).toEqual([]);
+});
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();

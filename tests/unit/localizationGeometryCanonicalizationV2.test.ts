@@ -1,7 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// M1a-repair (F3): hermetic. server/db/prisma is replaced by a guard that throws and records on any
+// access (the real module would load .env.local, which can name the live database).
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
 vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
   PrismaLocalizationGeometryProjectionIndex: class {
+    async register() {}
+    async listForProject() { return []; }
+  },
+}));
+// M1a-repair (F3): the currentness provider reads BOTH projection indexes in parallel; the
+// supersession index was previously left real and only "worked" while its Prisma error was swallowed.
+vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => ({
+  PrismaLocalizationGeometrySupersessionIndex: class {
     async register() {}
     async listForProject() { return []; }
   },
@@ -17,8 +28,13 @@ import {
 } from '../../packages/mps-lu/src/artifacts/LocalizationGeometryArtifact';
 import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
 import type { PropertyInfo } from '../../src/domain/geo';
+import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
 const PROPERTY_REF = { artifact_id: 'property-ctx-1', artifact_type: 'LU_PROPERTY_CONTEXT' } as const;
+
+afterEach(() => {
+  expect(hermeticPrismaTouches).toEqual([]);
+});
 
 describe('LOCALIZATION-GEOMETRY-CANONICALIZATION-V2 (H1 Phase B)', () => {
   describe('quantizeToLocalizationGeometryGrid', () => {
