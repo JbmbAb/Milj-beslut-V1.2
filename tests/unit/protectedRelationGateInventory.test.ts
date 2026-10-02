@@ -222,11 +222,43 @@ function scanInventory(root: string, options: ScanOptions = {}): { findings: Inv
       continue;
     }
     if (lang === 'py') {
-      if (!PY_GATE.test(code) || !PY_GATE_CALL.test(code)) findings.push({ file, problem: 'destructive path without protected_relation_gate' });
+      if (!PY_GATE.test(code) || !PY_GATE_CALL.test(code)) {
+        findings.push({ file, problem: 'destructive path without protected_relation_gate' });
+        continue;
+      }
+      // Per function: a def that runs a process or SQL with a destructive statement or ogr2ogr write flag
+      // must itself call the gate (one gated function does not cover another).
+      lines.forEach((line, i) => {
+        const def = line.match(/^(\s*)def\s+(\w+)/);
+        if (!def) return;
+        const indent = def[1]!.length;
+        let end = i + 1;
+        while (end < lines.length && (lines[end]!.trim() === '' || lines[end]!.search(/\S/) > indent)) end += 1;
+        const body = lines.slice(i, end);
+        const runs = body.some((l) => /\bsubprocess\.\w+\(|\brun_sql\(|\bos\.system\(|\.execute\(/.test(l));
+        const destructiveBody = body.some((l) => SQL_DESTRUCTIVE.some((re) => re.test(l)) || (ogr && OGR_WRITE.some((re) => re.test(l))));
+        if (runs && destructiveBody && !body.some((l) => PY_GATE_CALL.test(l))) {
+          findings.push({ file, problem: `def ${def[2]} (line ${i + 1}) writes destructively without calling the gate` });
+        }
+      });
       continue;
     }
     if (lang === 'ps') {
-      if (!PS_GATE.test(code) || !PS_GATE_CALL.test(code)) findings.push({ file, problem: 'destructive path without ProtectedRelationGate.ps1' });
+      if (!PS_GATE.test(code) || !PS_GATE_CALL.test(code)) {
+        findings.push({ file, problem: 'destructive path without ProtectedRelationGate.ps1' });
+        continue;
+      }
+      // Per statement: every destructive line has a gate call FOR ITS TARGET at most 8 lines above it.
+      lines.forEach((line, i) => {
+        if (!SQL_DESTRUCTIVE.some((re) => re.test(line))) return;
+        const target = line.match(
+          /\b(?:DROP\s+(?:TABLE|SCHEMA|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)|TRUNCATE(?:\s+TABLE)?|DELETE\s+FROM|INSERT\s+INTO|ALTER\s+TABLE)\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([$\w."]+)/i,
+        )?.[1];
+        const gatedHere = lines
+          .slice(Math.max(0, i - 8), i + 1)
+          .some((l) => PS_GATE_CALL.test(l) && target !== undefined && new RegExp(`-Relation\\s+['"]?${target.replace(/[$.*+?^{}()|[\]\\]/g, '\\$&')}['"]?(\\s|$)`).test(l));
+        if (!gatedHere) findings.push({ file, problem: `line ${i + 1}: destructive statement without a gate call for ${target ?? '?'}: ${line.trim().slice(0, 100)}` });
+      });
       continue;
     }
     // TS/JS
@@ -436,6 +468,18 @@ describe('canaries: the inventory FAILS on a new ungated destructive path', () =
       'the Python gate call removed',
       'scripts/data-pipeline/import_lm_stac_resume.py',
       "    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', table)\n",
+      '',
+    ],
+    [
+      "one Python function's gate call removed while another function still calls it",
+      'scripts/data-pipeline/import_all_datasets.py',
+      "    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', f'{schema}.{table}')\n",
+      '',
+    ],
+    [
+      'one PowerShell DROP without its gate call',
+      'scripts/import/sanitize-postgis-failed-imports.ps1',
+      "Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP_SCHEMA' -Relation 'stage'\n",
       '',
     ],
     ["a retired script's refusal removed", 'scripts/db/drop-staging-tables.ts', "refuseRetiredDestructiveScript('scripts/db/drop-staging-tables.ts');", ''],
