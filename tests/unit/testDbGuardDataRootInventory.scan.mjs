@@ -1,6 +1,22 @@
 // TEST-DB-GUARD (OD-K0-5), TDG-4 -- the scanner of the data-root inventory: which environment keys
 // and which default directories can make product code (server/, src/, services/, packages/*/src/,
-// scripts/) read or write a data root. Derived from the code, never listed by hand.
+// packages/*/scripts/, scripts/) read or write a data root. Derived from the code, never listed by hand.
+//
+// TDG-5: the scanner is a DRIFT GUARD, NOT A PROOF. It recognises the forms below by pattern; code that
+// builds a key or a path in another way (a key or a path computed at run time, read from a file or an
+// argument, passed through a variable it cannot follow) is not seen. The write guard
+// (server/modules/test-db-guard/installTestDataRootWriteGuard.ts) is the protection; this inventory only
+// makes a NEW root in a known form fail CI until it is handled. Recognised:
+//   - keys: process.env.X, process.env['X'], env.X, readEnv('X')-like helpers, a key-shaped literal in a
+//     file that indexes process.env, process.env[`${p}_X`] (a pattern), process.env['A' + 'B'],
+//     `const { X, Y: y = 'd' } = process.env`; a key is data-root-shaped by a path-like NAME token or by a
+//     fallback that BUILDS A PATH (whatever its name); fallbacks `X || f`, `X ?? f`, `X ? a : f`, `!X ? f : a`;
+//   - relative roots: join/resolve(process.cwd() | cwd | repoRoot ... , 'a', 'b'), path.resolve('a'),
+//     `${process.cwd()}/a`, process.cwd() + '/a', new URL('../a', import.meta.url),
+//     join/resolve(__dirname | import.meta.dirname, '..', 'a') (resolved against the file);
+//   - absolute paths: EVERY absolute path literal (drive, \\host\share, /tmp /mnt /home ...), with the
+//     literal segments a join/resolve adds; a path under <drive>:\Users\<name> or from os.homedir() is
+//     reported home-relative (~/...).
 //
 // Plain ESM (no TypeScript) so that the inventory test (tests/unit/testDbGuardDataRootInventory.test.ts)
 // imports it and node can run it to print the inventory -- one scanner, never two copies that drift.
@@ -18,9 +34,10 @@ export const DATA_ROOT_SCAN_SCOPE = Object.freeze([
   'services/',
   'scripts/',
   'packages/*/src/',
+  'packages/*/scripts/',
 ]);
 
-const SCOPE = /^(?:server|src|services|scripts)\/|^packages\/[^/]+\/src\//;
+const SCOPE = /^(?:server|src|services|scripts)\/|^packages\/[^/]+\/(?:src|scripts)\//;
 const CODE_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const NOT_PRODUCT = [
   /\.(?:test|spec)\.[cm]?[jt]sx?$/, // tests
@@ -58,6 +75,18 @@ export const DATA_ROOT_NAME_TOKENS = Object.freeze([
   'GRANTS',
   'ARCHIVE',
   'DATA',
+  // TDG-5 (TDG4-VERIFICATION finding 6): a remote store and the other location words
+  'BUCKET',
+  'BUCKETS',
+  'FILE',
+  'FILES',
+  'FOLDER',
+  'FOLDERS',
+  'LOG',
+  'LOGS',
+  'STORE',
+  'STORES',
+  'SPOOL',
 ]);
 const TOKEN_SET = new Set(DATA_ROOT_NAME_TOKENS);
 
@@ -70,7 +99,29 @@ const TOKEN_SET = new Set(DATA_ROOT_NAME_TOKENS);
 export function isDataRootShapedEnvKey(key) {
   const upper = String(key).toUpperCase();
   if (upper.startsWith('MIMERS_')) return true;
-  return upper.split('_').some((token) => TOKEN_SET.has(token));
+  return upper.split(/[_*]/).some((token) => TOKEN_SET.has(token));
+}
+
+/**
+ * TDG-5: a fallback that BUILDS A PATH makes the key a data root whatever its name (a key named
+ * VTDG4_SPOOL with `|| path.join(process.cwd(), 'spool')` has no name token): a path-building call, an
+ * absolute literal or a dot-relative literal (`./x`, `../x`, `.quarantine`). A bare `a/b` literal does not
+ * count here ('n/a', an S3 prefix 'backups/'); for a key shaped by its name it still does.
+ */
+export function fallbackBuildsPath(expr) {
+  if (expr == null) return false;
+  const e = String(expr);
+  if (
+    /process\.cwd\(\)|(?:^|[^\w$.])(?:os\.)?(?:homedir|tmpdir)\(\)|__dirname|import\.meta\.(?:dirname|url)|(?:^|[^\w$])(?:path\.)?(?:join|resolve)\(/.test(
+      e,
+    )
+  )
+    return true;
+  for (const m of e.matchAll(PATH_LITERAL)) {
+    const value = unescapeLiteral(m[2]);
+    if (isAbsolutePathLiteral(value) || /^\.{1,2}[\\/]|^\.[A-Za-z0-9_-]/.test(value)) return true;
+  }
+  return false;
 }
 
 const posix = (p) => p.split(path.sep).join('/');
@@ -230,29 +281,125 @@ const ENV_READS = [
 const DYNAMIC_INDEX = /process\.env\??\.?\[\s*(?!['"`])/;
 const DYNAMIC_KEY_LITERAL = /(['"`])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\1/g;
 
-/** The fallback expression right after a read (`X || <fallback>`, `X ?? <fallback>`), or null. */
-function fallbackAfter(text, end) {
-  const tail = text.slice(end, end + 400);
-  const m =
-    /^\s*(?:\?\.\s*\w+\(\s*\)|\.\s*\w+\(\s*\))*\s*\)?\s*(?:\?\.\s*\w+\(\s*\)|\.\s*\w+\(\s*\))*\s*(\|\||\?\?)\s*/.exec(
-      tail,
-    );
-  if (!m) return null;
-  const rest = tail.slice(m[0].length);
-  // up to the end of the statement/argument: `;`, a blank line, or a newline outside brackets
+// TDG-5: keys built in the index expression, and keys destructured from process.env.
+const TEMPLATE_KEY = /process\.env\??\.?\[\s*`([^`]*)`\s*\]/g;
+const KEY_PART = String.raw`(?:'[^'\n]*'|"[^"\n]*"|\x60[^\x60\n]*\x60|[\w$.]+(?:\(\s*\))?)`;
+const CONCAT_KEY = new RegExp(
+  `process\\.env\\??\\.?\\[\\s*(${KEY_PART}(?:\\s*\\+\\s*${KEY_PART})+)\\s*\\]`,
+  'g',
+);
+const DESTRUCTURE = /(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*process\.env\b/g;
+
+/** `a, b = f(x, y), c` -> three items (commas inside brackets and quotes do not split). */
+function splitTopLevel(list) {
+  const items = [];
   let depth = 0;
+  let quote = '';
+  let current = '';
+  for (const c of list) {
+    if (quote) {
+      if (c === quote) quote = '';
+    } else if (c === "'" || c === '"' || c === '`') quote = c;
+    else if (c === '(' || c === '[') depth += 1;
+    else if (c === ')' || c === ']') depth -= 1;
+    else if (c === ',' && depth === 0) {
+      items.push(current);
+      current = '';
+      continue;
+    }
+    current += c;
+  }
+  items.push(current);
+  return items;
+}
+
+/** `${p}_STORE_ROOT` -> `*_STORE_ROOT`; `'A' + x + '_ROOT'` -> `A*_ROOT`. */
+function keyFromTemplate(raw) {
+  return raw.replace(/\$\{[^}]*\}/g, '*');
+}
+function keyFromConcat(expr) {
+  let out = '';
+  for (const m of expr.matchAll(new RegExp(KEY_PART, 'g'))) {
+    const part = m[0];
+    if (/^['"]/.test(part)) out += part.slice(1, -1);
+    else if (part.startsWith('`')) out += keyFromTemplate(part.slice(1, -1));
+    else out += '*';
+  }
+  return out;
+}
+
+/**
+ * One expression from the start of `rest`: up to `;`, a `,` or a closing bracket at depth 0, or a newline
+ * after content unless the next line continues the expression (`?`, `:`, `|`, `&`, `+`, `.`). With
+ * `stopAtColon`, also up to the `:` that closes a ternary begun outside it.
+ */
+function readExpression(rest, stopAtColon) {
+  let depth = 0;
+  let pending = 0;
+  let quote = '';
   let out = '';
   for (let i = 0; i < rest.length; i += 1) {
     const c = rest[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += rest[i + 1] ?? '';
+        i += 1;
+      } else if (c === quote) quote = '';
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      quote = c;
+      out += c;
+      continue;
+    }
     if (c === '(' || c === '[' || c === '{') depth += 1;
     if (c === ')' || c === ']' || c === '}') {
       if (depth === 0) break;
       depth -= 1;
     }
-    if (depth === 0 && (c === ';' || c === ',' || (c === '\n' && out.trim() !== ''))) break;
+    if (depth === 0) {
+      if (c === ';' || c === ',') break;
+      if (c === '\n' && out.trim() !== '') {
+        const next = /^\s*(\S)/.exec(rest.slice(i + 1));
+        if (!next || !'?:|&+.'.includes(next[1])) break;
+      }
+      if (c === '?' && rest[i + 1] !== '?' && rest[i + 1] !== '.') pending += 1;
+      if (c === ':') {
+        if (pending > 0) pending -= 1;
+        else if (stopAtColon) break;
+      }
+    }
     out += c;
   }
-  return out.trim().slice(0, 240) || null;
+  return out;
+}
+
+const trimmedFallback = (expr) => {
+  const e = String(expr ?? '').trim();
+  return e ? e.slice(0, 240) : null;
+};
+
+/**
+ * The fallback expression of a read that ends at `end` and starts at `start`: `X || <f>`, `X ?? <f>`,
+ * `X ? <a> : <f>` and `!X ? <f> : <a>` (TDG-5); null when the read has none.
+ */
+function fallbackAfter(text, end, start = end) {
+  const tail = text.slice(end, end + 600);
+  const lead =
+    /^\s*(?:\?\.\s*\w+\(\s*\)|\.\s*\w+\(\s*\))*\s*\)?\s*(?:\?\.\s*\w+\(\s*\)|\.\s*\w+\(\s*\))*\s*/.exec(
+      tail,
+    )[0];
+  const rest = tail.slice(lead.length);
+  const op = /^(?:\|\||\?\?)\s*/.exec(rest);
+  if (op) return trimmedFallback(readExpression(rest.slice(op[0].length), false));
+  const ternary = /^\?(?![?.])\s*/.exec(rest);
+  if (!ternary) return null;
+  const afterQ = rest.slice(ternary[0].length);
+  const consequent = readExpression(afterQ, true);
+  if (/!\s*\(?\s*$/.test(text.slice(Math.max(0, start - 4), start))) return trimmedFallback(consequent);
+  if (afterQ[consequent.length] !== ':') return null;
+  return trimmedFallback(readExpression(afterQ.slice(consequent.length + 1), false));
 }
 
 const PATH_LITERAL = /(['"`])((?:[^'"`\\]|\\.)*)\1/g;
@@ -280,7 +427,8 @@ function isRelativePathLiteral(value) {
 export function classifyFallback(expr) {
   if (expr == null) return 'none';
   const e = expr.trim();
-  if (/^(?:''|""|``|null|undefined|false|true|\d+|\[\]|\{\})(?:\s*\)|\s*$|\s*\.)/.test(e)) return 'none';
+  if (/^(?:''|""|``|null|undefined|false|true|\d[\d_]*(?:\.\d+)?|\[\]|\{\})(?:\s*\)|\s*$|\s*\.)/.test(e))
+    return 'none';
   const lit = /^(['"])((?:[^'"\\]|\\.)*)\1\s*(?:\)|$|\.)/.exec(e);
   if (lit) {
     const value = unescapeLiteral(lit[2]);
@@ -316,35 +464,60 @@ function relativeLiteralsIn(expr) {
     if (!isAbsolutePathLiteral(value) && (isRelativePathLiteral(value) || value.startsWith('.')))
       out.push(value);
   }
+  // TDG-5: `${process.cwd()}/.quarantine`, process.cwd() + '/x'
+  for (const m of e.matchAll(CWD_TEMPLATE)) out.push(m[1]);
+  for (const m of e.matchAll(CWD_CONCAT)) out.push(m[2]);
   return out;
 }
 
+/** The literal arguments that follow position `at` (`, 'a', "b"`), up to the first that is not one. */
+function literalArgsAt(text, at) {
+  const out = [];
+  const re = /^\s*,\s*(['"`])([^'"`$\n]*)\1/;
+  let rest = text.slice(at, at + 600);
+  for (let m = re.exec(rest); m; m = re.exec(rest)) {
+    out.push(unescapeLiteral(m[2]));
+    rest = rest.slice(m[0].length);
+  }
+  return out;
+}
+
+/**
+ * The bases a cwd- or repo-relative directory is joined to (TDG-5: and a `cwd` variable). Generic names
+ * such as rootDir or workspaceRoot are a caller's root (a CAS, a corpus), not the tree: not followed.
+ */
+const CWD_BASES = String.raw`process\.cwd\(\)|repoRoot\(\)|repoRoot|REPO_ROOT|projectRoot|PROJECT_ROOT|ROOT_DIR|cwd|CWD`;
+const BASE_JOIN = new RegExp(`(?<![\\w$.])(?:path\\.)?(?:join|resolve)\\(\\s*(${CWD_BASES})\\s*(?=,)`, 'g');
+const FILE_BASE_JOIN =
+  /(?<![\w$.])(?:path\.)?(?:join|resolve)\(\s*(__dirname|import\.meta\.dirname)\s*(?=,)/g;
+const URL_RELATIVE = /new\s+URL\(\s*(['"`])([^'"`$\n]+)\1\s*,\s*import\.meta\.url\s*\)/g;
+const CWD_TEMPLATE = /`\$\{\s*process\.cwd\(\)\s*\}[\\/]+([^`$]+)/g;
+const CWD_CONCAT = /process\.cwd\(\)\s*\+\s*(['"`])[\\/]+([^'"`$\n]+)\1/g;
+
 /** cwd-relative and repo-relative default directories written in code. */
 const RELATIVE_ROOTS = [
-  {
-    how: "join(process.cwd(), '<p>')",
-    re: /(?:join|resolve)\(\s*process\.cwd\(\)\s*,\s*(['"`])([^'"`$]+)\1/g,
-    group: 2,
-  },
   {
     how: "path.resolve('<p>')",
     re: /(?<![\w$.])(?:path\.)?resolve\(\s*(['"`])((?![\\/]|[A-Za-z]:)[^'"`$]+)\1\s*[,)]/g,
     group: 2,
   },
-  {
-    how: "join(repoRoot, '<p>')",
-    re: /(?:join|resolve)\(\s*(?:repoRoot\(\)|repoRoot|REPO_ROOT|projectRoot|PROJECT_ROOT|ROOT_DIR)\s*,\s*(['"`])([^'"`$]+)\1/g,
-    group: 2,
-  },
+  { how: '`${process.cwd()}/<p>`', re: CWD_TEMPLATE, group: 1 },
+  { how: "process.cwd() + '/<p>'", re: CWD_CONCAT, group: 2 },
 ];
 
-/** `.quarantine/x` -> `.quarantine`; `tests/fixtures/x` -> `tests/fixtures` (tests is not one root). */
+/**
+ * `.quarantine/x` -> `.quarantine`; `tests/fixtures/x` -> `tests/fixtures` (tests is not one root);
+ * TDG-5: `../Ops_Pipeline/x` -> `../Ops_Pipeline` (a sibling of the tree keeps its `..`).
+ */
 export function topRelativeRoot(p) {
   const parts = posix(String(p).replace(/\\\\/g, '/').replace(/\\/g, '/'))
     .replace(/^\.\//, '')
     .split('/')
     .filter((s) => s && s !== '.');
   if (parts.length === 0) return '.';
+  let up = 0;
+  while (parts[up] === '..') up += 1;
+  if (up > 0) return parts.slice(0, Math.min(up + 1, parts.length)).join('/');
   if (parts[0] === 'tests' && parts.length > 1) return `tests/${parts[1]}`;
   return parts[0];
 }
@@ -355,21 +528,80 @@ function lineAt(text, index) {
   return line;
 }
 
+// ---------------------------------------------------------------------------------------------------
+// TDG-5: every absolute path literal, and every path under the home directory.
+
+const ANY_LITERAL = /(['"`])((?:[^'"`\\\n]|\\.)*)\1/g;
+const POSIX_FS_ROOT = /^\/(?:tmp|mnt|home|var|data|opt|srv|Users|root|etc|media|Volumes|usr)(?:\/|$)/;
+const WIN_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\[A-Za-z0-9._$-]+\\[^\\])/;
+
+/** `C:\x\` -> `C:\x`; `/tmp/x/` -> `/tmp/x`; a bare root (`C:\`, `/`) -> null (only compared or listed). */
+function normalizeAbsolute(value) {
+  if (WIN_ABSOLUTE.test(value)) {
+    const n = path.win32.normalize(value.replace(/\//g, '\\'));
+    const trimmed = n.length > 3 ? n.replace(/\\+$/, '') : n;
+    return /^[A-Za-z]:\\?$/.test(trimmed) ? null : trimmed;
+  }
+  const n = path.posix.normalize(value).replace(/\/+$/, '');
+  return n === '' || n === '/' ? null : n;
+}
+
+/** `C:\Users\<name>\x` (the system drive's profiles) and `/home|/Users/<name>/x` -> `~/x`, else null. */
+export function homeRelative(absolute) {
+  const win = /^[Cc]:\\Users\\[^\\]+(\\.*)?$/.exec(absolute);
+  if (win) return `~${(win[1] ?? '').replace(/\\/g, '/')}`;
+  const nix = /^\/(?:home|Users)\/[^/]+(\/.*)?$/.exec(absolute);
+  if (nix) return `~${nix[1] ?? ''}`;
+  return null;
+}
+
+const HOME_JOIN = /(?<![\w$.])(?:path\.)?(?:join|resolve)\(\s*(?:os\.)?homedir\(\)\s*(?=,)/g;
+const HOME_TEMPLATE = /`\$\{\s*(?:os\.)?homedir\(\)\s*\}[\\/]+([^`$]+)/g;
+const HOME_CONCAT = /(?:os\.)?homedir\(\)\s*\+\s*(['"`])[\\/]+([^'"`$\n]+)\1/g;
+
+const homePath = (rest) => `~/${path.posix.normalize(rest.replace(/\\/g, '/')).replace(/^\/+|\/+$/g, '')}`;
+
 /**
  * The inventory. `envKeys`: every data-root-shaped key a product file reads, with each read
  * (file:line, how, fallback) and whether any read falls back to a location when the key is unset.
- * `relativeRoots`: every cwd- or repo-relative default directory by its top segment. `absoluteDefaults`:
- * absolute paths a key falls back to.
+ * `dynamicEnvKeys`: data-root-shaped keys built at run time (`*_STORE_ROOT`). `relativeRoots`: every cwd-
+ * or repo-relative default directory by its top segment. `absoluteDefaults`: absolute paths a key falls
+ * back to. `absolutePaths`: EVERY absolute path literal; `homePaths`: every path under the home directory.
  */
 export function scanDataRoots(root, options = {}) {
   const absRoot = path.resolve(root);
   const listed = listDataRootScanFiles(absRoot, options.how ?? 'auto');
   const envKeys = new Map();
+  const dynamicEnvKeys = new Map();
   const relativeRoots = new Map();
   const absoluteDefaults = new Map();
+  const absolutePaths = new Map();
+  const homePaths = new Map();
   const note = (map, key, entry) => {
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(entry);
+  };
+  const noteAbsolute = (value, file, line, how) => {
+    const normalized = normalizeAbsolute(value);
+    if (normalized === null) return;
+    const home = homeRelative(normalized);
+    if (home !== null) note(homePaths, home, { file, line, how, path: normalized });
+    else note(absolutePaths, normalized, { file, line, how });
+  };
+  const noteRead = (file, text, key, start, end, how, fallbackText) => {
+    const fallback = fallbackText === undefined ? fallbackAfter(text, end, start) : fallbackText;
+    if (!isDataRootShapedEnvKey(key) && !fallbackBuildsPath(fallback)) return;
+    const line = lineAt(text, start);
+    if (key.includes('*')) {
+      note(dynamicEnvKeys, key, { file, line, how });
+      return;
+    }
+    const kind = classifyFallback(fallback);
+    note(envKeys, key, { file, line, how, fallback, fallbackKind: kind });
+    for (const abs of absoluteLiteralsIn(fallback)) note(absoluteDefaults, abs, { file, line, key });
+    for (const relPath of relativeLiteralsIn(fallback)) {
+      note(relativeRoots, topRelativeRoot(relPath), { file, line, path: relPath, how: `${key} fallback` });
+    }
   };
   for (const file of listed.files) {
     let raw;
@@ -381,21 +613,24 @@ export function scanDataRoots(root, options = {}) {
     const text = stripComments(raw);
     for (const read of ENV_READS) {
       for (const m of text.matchAll(read.re)) {
-        const key = m[read.group];
-        if (!isDataRootShapedEnvKey(key)) continue;
-        const fallback = fallbackAfter(text, m.index + m[0].length);
-        const kind = classifyFallback(fallback);
-        const line = lineAt(text, m.index);
-        note(envKeys, key, { file, line, how: read.how, fallback, fallbackKind: kind });
-        for (const abs of absoluteLiteralsIn(fallback)) note(absoluteDefaults, abs, { file, line, key });
-        for (const relPath of relativeLiteralsIn(fallback)) {
-          note(relativeRoots, topRelativeRoot(relPath), {
-            file,
-            line,
-            path: relPath,
-            how: `${key} fallback`,
-          });
-        }
+        noteRead(file, text, m[read.group], m.index, m.index + m[0].length, read.how);
+      }
+    }
+    for (const m of text.matchAll(TEMPLATE_KEY)) {
+      if (!m[1].includes('${')) continue; // a plain key in backticks: read above
+      noteRead(file, text, keyFromTemplate(m[1]), m.index, m.index + m[0].length, 'process.env[`${x}_KEY`]');
+    }
+    for (const m of text.matchAll(CONCAT_KEY)) {
+      noteRead(file, text, keyFromConcat(m[1]), m.index, m.index + m[0].length, "process.env['A' + 'B']");
+    }
+    for (const m of text.matchAll(DESTRUCTURE)) {
+      for (const item of splitTopLevel(m[1])) {
+        const d =
+          /^\s*(?:\[\s*)?(['"`]?)([A-Z][A-Z0-9_]*)\1(?:\s*\])?\s*(?::\s*[\w$]+)?\s*(?:=\s*([\s\S]+?))?\s*$/.exec(
+            item,
+          );
+        if (!d) continue;
+        noteRead(file, text, d[2], m.index, m.index, 'const { KEY } = process.env', trimmedFallback(d[3]));
       }
     }
     if (DYNAMIC_INDEX.test(text)) {
@@ -418,6 +653,70 @@ export function scanDataRoots(root, options = {}) {
         note(relativeRoots, topRelativeRoot(p), { file, line: lineAt(text, m.index), path: p, how: rr.how });
       }
     }
+    // join/resolve(<cwd or repo root>, 'a', 'b' ...): every literal segment, `..` included
+    for (const m of text.matchAll(BASE_JOIN)) {
+      const args = literalArgsAt(text, m.index + m[0].length);
+      if (args.length === 0 || isAbsolutePathLiteral(args[0])) continue;
+      const p = path.posix.join(...args.map((a) => a.replace(/\\/g, '/')));
+      if (/^[a-z][a-z0-9+.-]*:/i.test(p) || p === '.') continue;
+      note(relativeRoots, topRelativeRoot(p), {
+        file,
+        line: lineAt(text, m.index),
+        path: p,
+        how: `join(${m[1]}, '<p>')`,
+      });
+    }
+    // relative to the file itself: join(__dirname, '..', 'x'), new URL('../x', import.meta.url)
+    const fileDir = path.posix.dirname(file);
+    const noteFileRelative = (rel, index, how) => {
+      const p = path.posix.normalize(path.posix.join(fileDir, rel.replace(/\\/g, '/')));
+      if (p === '.' || p === './') return; // the tree itself: a base for further joins, never a target
+      note(relativeRoots, topRelativeRoot(p), { file, line: lineAt(text, index), path: p, how });
+    };
+    for (const m of text.matchAll(FILE_BASE_JOIN)) {
+      const args = literalArgsAt(text, m.index + m[0].length);
+      if (args.length === 0 || isAbsolutePathLiteral(args[0])) continue;
+      noteFileRelative(
+        path.posix.join(...args.map((a) => a.replace(/\\/g, '/'))),
+        m.index,
+        `join(${m[1]}, '<p>')`,
+      );
+    }
+    for (const m of text.matchAll(URL_RELATIVE)) {
+      if (/^[a-z][a-z0-9+.-]*:/i.test(m[2]) || m[2].startsWith('/')) continue;
+      noteFileRelative(m[2], m.index, "new URL('<p>', import.meta.url)");
+    }
+    // every absolute path literal (a template literal up to its first ${...}); join/resolve's literal tail
+    for (const m of text.matchAll(ANY_LITERAL)) {
+      let value = unescapeLiteral(m[2]);
+      const interpolation = value.indexOf('${');
+      if (interpolation >= 0) value = value.slice(0, interpolation);
+      if (!WIN_ABSOLUTE.test(value) && !POSIX_FS_ROOT.test(value)) continue;
+      const before = text.slice(Math.max(0, m.index - 24), m.index);
+      if (interpolation < 0 && /(?:join|resolve)\(\s*$/.test(before)) {
+        const tail = literalArgsAt(text, m.index + m[0].length);
+        if (tail.length > 0) {
+          value = WIN_ABSOLUTE.test(value)
+            ? path.win32.join(value, ...tail)
+            : path.posix.join(value, ...tail);
+        }
+      }
+      noteAbsolute(value, file, lineAt(text, m.index), 'literal');
+    }
+    // the home directory: join(os.homedir(), 'a'), `${os.homedir()}/a`, os.homedir() + '/a'
+    for (const m of text.matchAll(HOME_JOIN)) {
+      const args = literalArgsAt(text, m.index + m[0].length);
+      if (args.length === 0) continue;
+      note(homePaths, homePath(args.join('/')), {
+        file,
+        line: lineAt(text, m.index),
+        how: 'join(os.homedir(), ...)',
+      });
+    }
+    for (const m of text.matchAll(HOME_TEMPLATE))
+      note(homePaths, homePath(m[1]), { file, line: lineAt(text, m.index), how: '`${os.homedir()}/...`' });
+    for (const m of text.matchAll(HOME_CONCAT))
+      note(homePaths, homePath(m[2]), { file, line: lineAt(text, m.index), how: "os.homedir() + '/...'" });
   }
   const keys = {};
   for (const [key, reads] of [...envKeys].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
@@ -431,7 +730,10 @@ export function scanDataRoots(root, options = {}) {
     how: listed.how,
     fileCount: listed.files.length,
     envKeys: keys,
+    dynamicEnvKeys: sortObj(dynamicEnvKeys),
     relativeRoots: sortObj(relativeRoots),
     absoluteDefaults: sortObj(absoluteDefaults),
+    absolutePaths: sortObj(absolutePaths),
+    homePaths: sortObj(homePaths),
   };
 }

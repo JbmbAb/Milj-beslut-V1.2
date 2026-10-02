@@ -701,3 +701,92 @@ describe('TDG-5: an exception is exactly its file and its own parents, for exact
     expect(listing(tree)).toEqual(before);
   });
 });
+
+describe("TDG-5: the workstation's actual live roots (finding 4)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.runIf(isWin)(
+    "the demonstrator's D:\\mimer-demo -- cas and secrets, every level -- decided only, nothing is touched there",
+    async () => {
+      const { testDataRootWriteRefusal, MIMER_DEMO_LIVE_ROOT } = await import(GUARD_MODULE);
+      expect(MIMER_DEMO_LIVE_ROOT).toBe('D:\\mimer-demo');
+      for (const target of [
+        'D:\\mimer-demo\\cas\\objects\\ab\\x',
+        'D:\\mimer-demo\\secrets\\lu-execution-authority\\root.pem',
+        'd:/MIMER-DEMO/secrets/x.pem',
+        '\\\\?\\D:\\mimer-demo\\secrets\\x.pem',
+      ]) {
+        // judged as written: refused before any file-system lookup
+        const refusal = testDataRootWriteRefusal('fs.writeFileSync', 'write', target, {
+          testFile: null,
+          resolveLinks: false,
+        });
+        expect({ target, root: refusal?.protectedRoot }).toEqual({ target, root: 'D:\\mimer-demo' });
+      }
+      expect(
+        testDataRootWriteRefusal('fs.rmSync', 'remove', 'D:\\', { testFile: null, resolveLinks: false }),
+      ).not.toBeNull();
+    },
+  );
+
+  it('~/.mimers (secrets and every level) is derived from os.homedir() at run time, never a written user name', async () => {
+    const { testDataRootWriteRefusal, TEST_PROTECTED_HOME_ROOTS } = await import(GUARD_MODULE);
+    const decide = (target: string) =>
+      testDataRootWriteRefusal('fs.writeFileSync', 'write', target, { testFile: null, resolveLinks: false });
+    // the real home: decided only, as written -- nothing in ~/.mimers is looked at
+    expect(decide(path.join(os.homedir(), '.mimers', 'secrets', 'x.pem'))?.protectedRoot).toBe(
+      path.join(os.homedir(), '.mimers'),
+    );
+    // another home directory at run time is protected the same way, and the account's own home stays protected
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg5-home-'));
+    try {
+      vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+      expect(decide(path.join(fakeHome, '.mimers', 'secrets', 'k.pem'))).not.toBeNull();
+      expect(decide(path.join(fakeHome, '.mimers', 'cas', 'objects'))).not.toBeNull();
+      expect(decide(path.join(os.userInfo().homedir, '.mimers', 'secrets', 'k.pem'))).not.toBeNull();
+      expect(decide(path.join(fakeHome, 'not-protected', 'x'))).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+    for (const { root } of TEST_PROTECTED_HOME_ROOTS as Array<{ root: string }>) {
+      expect({ root, relative: !path.isAbsolute(root) && !/^[A-Za-z]:/.test(root) }).toEqual({
+        root,
+        relative: true,
+      });
+    }
+    const source = fs.readFileSync(
+      path.join(REPO_ROOT, 'server/modules/test-db-guard/installTestDataRootWriteGuard.ts'),
+      'utf8',
+    );
+    const userName = os.userInfo().username;
+    expect(source.toLowerCase()).not.toContain(`users\\\\${userName}`.toLowerCase());
+    expect(source.toLowerCase()).not.toContain(`users/${userName}`.toLowerCase());
+  });
+
+  it.runIf(isWin)(
+    "the live trees of this workstation (main checkout, the demonstrator's worktree) are protected from an export too",
+    async () => {
+      const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+      for (const target of [
+        'C:\\wt-lu-demo\\storage\\drafts\\x.docx',
+        'C:\\wt-lu-demo\\.quarantine\\x.bin',
+        'C:\\miljöbeslut\\.quarantine\\x.bin',
+        'C:\\miljöbeslut\\storage\\geo_master_archive\\x',
+        'C:\\miljöbeslut\\scripts\\db\\.puh-scale-01-results.jsonl',
+      ]) {
+        expect({
+          target,
+          refused: Boolean(
+            testDataRootWriteRefusal('fs.writeFileSync', 'write', target, {
+              testFile: null,
+              resolveLinks: false,
+            }),
+          ),
+        }).toEqual({ target, refused: true });
+      }
+    },
+  );
+});

@@ -1,6 +1,7 @@
 import { loadEnvFile } from './loadEnv';
 import { installTestDatabaseConnectionGuard } from './modules/test-db-guard/installTestDatabaseConnectionGuard';
 import { installTestDataRootWriteGuard } from './modules/test-db-guard/installTestDataRootWriteGuard';
+import { removeTestRemoteStoreEnv } from './modules/test-db-guard/testDataRootIsolation';
 import { isTestRuntime } from './modules/test-db-guard/testDatabaseTargetPolicy';
 
 // TEST-DB-GUARD (OD-K0-5): decided once, before any env file is read.
@@ -13,6 +14,9 @@ if (testRuntime) {
   installTestDatabaseConnectionGuard();
   // TDG-4: nor does it write into a live data root of a product tree (storage/, .quarantine/, ...).
   installTestDataRootWriteGuard();
+  // TDG-5: and a remote bucket (GCS_DOCUMENTS_BUCKET, BACKUP_S3_BUCKET, *_BUCKET*) never reaches a tested
+  // server, however it was started; no env file can bring one back (loadEnv skips data-root keys in tests).
+  removeTestRemoteStoreEnv(process.env);
 }
 
 // Force delete any system-level DATABASE_URL on startup to ensure

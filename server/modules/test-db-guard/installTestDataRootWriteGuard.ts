@@ -27,9 +27,11 @@ import { TEST_DB_GUARD_LABEL } from './testDatabaseTargetPolicy';
  * through a file descriptor or FileHandle opened before, and native addons. It is a backstop in the
  * process, not an isolation: broad runs (sweeps, integration) keep cwd OUTSIDE the worktree (an export).
  *
- * Protected: every root below under the product tree of this checkout (the repo root this module lives in)
- * and under the current working directory when that is a product tree (package.json + server/ + packages/),
- * and the absolute live locations data-root keys fall back to. A target is compared as written
+ * Protected: every root below under the product tree of this checkout (the repo root this module lives in),
+ * under the current working directory when that is a product tree (package.json + server/ + packages/) and
+ * under the known live product trees of this workstation; the absolute live locations (data-root fallbacks,
+ * the demonstrator's D:\mimer-demo, the archives on H:, D:, E: ...); and the live directories under the home
+ * directory (~/.mimers ...), resolved with os.homedir() at run time. A target is compared as written
  * (canonical: \\?\ and \\.\ prefixes, a local administrative share, an NTFS stream suffix and trailing dots
  * removed, case-folded on Windows/macOS) AND, when that is allowed, through its real path (junctions,
  * symbolic links, 8.3 short names). Reads are never refused.
@@ -88,6 +90,20 @@ export const TEST_PROTECTED_RELATIVE_ROOTS: readonly ProtectedDataRoot[] = Objec
   },
   { root: 'lm_headers.txt', why: 'scripts/import/import-lantmateriet.ts' },
   { root: 'anna_vestling_utredning.md', why: 'scripts/generate-lokaliseringsutredning.ts' },
+  // TDG-5 (scanner forms: a cwd variable, a ternary fallback, a path relative to the file)
+  {
+    root: '../Miljobeslut_Ops_Pipeline',
+    why: 'OPS_PIPELINE_ROOT default, a sibling of the tree (scripts/ops/evaluate-ops-pipeline.ts)',
+  },
+  {
+    root: '../../Geodata',
+    why: 'the geodata zips two levels above the tree (scripts/db/import-sgu-geodata.ts)',
+  },
+  { root: 'output', why: 'the extract directory of scripts/db/import-sgu-geodata.ts' },
+  {
+    root: 'reference-vectors',
+    why: 'the generated reference vectors (packages/mps-canonical/scripts/generate-reference-vectors.ts)',
+  },
 ]);
 
 /**
@@ -101,6 +117,10 @@ export const TEST_RELATIVE_ROOTS_NOT_LIVE: readonly ProtectedDataRoot[] = Object
     root: '.env.test',
     why: 'an env file read by provisioning/benchmark scripts (the test runtime never takes DB or data-root keys from it)',
   },
+  {
+    root: '.prettierrc.json',
+    why: 'formatter configuration, only read (packages/mps-pattern-proof/scripts/gen-workflow-adapter.ts)',
+  },
   { root: 'app', why: 'source scanned by scripts/ci/assert-data-classification-imports.ts' },
   { root: 'components', why: 'source scanned by scripts/ci/assert-data-classification-imports.ts' },
   {
@@ -108,6 +128,10 @@ export const TEST_RELATIVE_ROOTS_NOT_LIVE: readonly ProtectedDataRoot[] = Object
     why: "Vitest's own coverage output (build output, read by scripts/report-coverage-gaps.mjs)",
   },
   { root: 'node_modules', why: 'installed tools started by import scripts (node_modules/.bin)' },
+  {
+    root: 'packages',
+    why: "source: a package's own files and rules, only read (mps-compliance dependency rules, mps-pattern-proof)",
+  },
   { root: 'prisma', why: 'schema and migrations, only read by db scripts' },
   { root: 'scripts', why: 'source: scripts that start or read other scripts' },
   { root: 'server', why: 'source: verify CLIs started by provisioning, CI scans' },
@@ -116,26 +140,133 @@ export const TEST_RELATIVE_ROOTS_NOT_LIVE: readonly ProtectedDataRoot[] = Object
     root: 'source-registry',
     why: 'the signed source registry, only read (SOURCE_REGISTRY_ARTIFACT_PATH default)',
   },
+  { root: 'tests/setup', why: 'the Vitest setup source, only loaded (scripts/devgov/vitest.config.mjs)' },
   { root: 'training', why: 'source material only read (server/scripts/migrateToFirestore.ts)' },
   { root: 'tsconfig.json', why: 'compiler configuration, only read (luApiBoundary)' },
 ]);
 
-/** Absolute live locations a data-root key falls back to when unset (derived from the code). */
+/**
+ * The demonstrator's live directory on this workstation: its CAS (cas/, MIMERS_ROOT of the demonstrator)
+ * and its key material (secrets/) -- scripts/demo/provision-lu-demo-cas.ts,
+ * scripts/demo/provision-lu-demo-viewer-identity.ts and the demonstrator's start script. A documented
+ * CONSTANT, deliberately not a setting: nothing a test process sets can move or switch off this protection.
+ * Every level below it is protected.
+ */
+export const MIMER_DEMO_LIVE_ROOT = 'D:\\mimer-demo';
+
+/**
+ * Absolute live locations outside a product tree (derived from the code: every absolute path literal the
+ * inventory scanner finds must be under one of these or on TEST_ABSOLUTE_PATHS_NOT_LIVE).
+ */
 export const TEST_PROTECTED_ABSOLUTE_ROOTS: readonly ProtectedDataRoot[] = Object.freeze([
   {
-    root: 'C:\\miljöbeslut\\storage\\geo_master_archive',
-    why: 'MASTER_ARCHIVE_ROOT / ARCHIVE_SHADOW_ROOT default',
+    root: MIMER_DEMO_LIVE_ROOT,
+    why: "the demonstrator's live CAS (cas) and key material (secrets): scripts/demo/provision-lu-demo-*.ts",
   },
   {
-    root: 'H:\\Delade enheter\\Miljöbeslut\\GEO_Master_Archive',
-    why: 'GEO_MASTER_ARCHIVE / MASTER_ARCHIVE_ROOT / H_DRIVE_ROOT default',
+    root: 'H:\\Delade enheter',
+    why: 'the shared drive: GEO_MASTER_ARCHIVE / MASTER_ARCHIVE_ROOT / H_DRIVE_ROOT default, scripts/db/migrate-d-to-h-*, archive scripts',
   },
   { root: 'M:\\', why: 'MASTER_ARCHIVE_ROOT default (scripts/import/run-sks-import.ts)' },
-  { root: 'D:\\Users\\jimmy\\Desktop\\OutlookExport', why: 'OUTLOOK_BASE_DIR default' },
-  { root: 'D:\\ingest-arkiv-2026-03-29\\dataportal-env', why: 'INGEST_GPKG_ROOT default' },
-  { root: 'C:\\Users\\jimmy\\Downloads', why: 'SGU_DOWNLOAD_DIR default' },
+  { root: 'G:\\Min enhet', why: 'scripts/import/download-historiska-g.ts' },
+  {
+    root: 'D:\\Users',
+    why: 'the old installation profiles: OUTLOOK_BASE_DIR default, MiljoBeslut_Produktdata, Downloads (scripts/db/migrate-d-to-h-*)',
+  },
+  {
+    root: 'D:\\ingest-arkiv-2026-03-29',
+    why: 'INGEST_GPKG_ROOT default, the ingest archive (scripts/import/*, scripts/db/migrate-d-to-h-*)',
+  },
+  { root: 'D:\\GEodata', why: 'scripts/db/migrate-d-to-h-*, scripts/ops/dedupe-d-against-master.mjs' },
+  { root: 'D:\\Geo inlärning', why: 'scripts/ops/dedupe-d-against-master.mjs' },
+  { root: 'D:\\miljobeslut_staging', why: 'scripts/ops/dedupe-d-against-master.mjs' },
+  { root: 'D:\\GEO_Master_Archive_Runtime', why: 'scripts/ops/setup-geo-master-runtime-mirror.cjs' },
+  { root: 'D:\\temp-cog-extract', why: 'scripts/import/convert-nmd-to-cog.ts' },
+  {
+    root: 'E:\\MiljoBeslut_Produktdata_Sources',
+    why: 'source data (scripts/import/import-heavy-geodata.ts, diagnose-system.ts, verify-jordarter.ts)',
+  },
+  {
+    root: 'E:\\GIS-Utbildning',
+    why: 'source data (scripts/import/import-heavy-geodata.ts, import-topo10-only.ts)',
+  },
+  {
+    root: 'C:\\miljöbeslut\\scripts\\db\\.puh-scale-01-results.jsonl',
+    why: 'appended by scripts/db/legal-corpus-materialization-puh-scale-01.ts in the main checkout',
+  },
+  { root: 'C:\\GEO PDF', why: 'scripts/db/migrate-d-to-h-*' },
+  { root: 'C:\\Millbygard_from_D', why: 'source data (scripts/import/platform-datasources.ts)' },
+  { root: 'C:\\GEO_Master_Archive_Runtime', why: 'scripts/ops/setup-geo-master-runtime-mirror.cjs' },
+  { root: 'C:\\temp-cog-historical', why: 'scripts/import/convert-historiska-to-cog.ts' },
+  { root: 'C:\\Dev\\miljobeslut-platform-recovery', why: 'another checkout (scripts/categorize-zips.ts)' },
   { root: '/tmp/outlook-attachments', why: 'OUTLOOK_STORAGE_ROOT default' },
   { root: '/tmp/miljobeslut-backups', why: 'BACKUP_DIR default' },
+]);
+
+/**
+ * Live directories under the HOME directory of the user who runs the test -- relative to it, resolved at
+ * run time with os.homedir() (and os.userInfo().homedir, and the home at load time: a test that points
+ * HOME/USERPROFILE elsewhere does not move the protection). No user name is written here.
+ */
+export const TEST_PROTECTED_HOME_ROOTS: readonly ProtectedDataRoot[] = Object.freeze([
+  {
+    root: '.mimers',
+    why: 'the operator CAS and key material (~/.mimers/secrets: 25 scripts under scripts/ops, scripts/db, scripts/demo write key pairs there)',
+  },
+  { root: 'Downloads', why: 'SGU_DOWNLOAD_DIR default, scripts/import/import-downloads-vector.ts' },
+  {
+    root: '.gemini',
+    why: 'agent notes written by scripts/categorize-zips.ts, scripts/export-full-stats.cjs',
+  },
+  {
+    root: 'AppData/Roaming/gcloud',
+    why: 'application default credentials (scripts/test-models.ts, scripts/test-vertex.ts)',
+  },
+]);
+
+/**
+ * Product trees on this workstation whose live roots are protected wherever a test runs from (an export
+ * with cwd outside the worktree still never writes into them).
+ */
+export const KNOWN_LIVE_PRODUCT_TREES: readonly ProtectedDataRoot[] = Object.freeze([
+  {
+    root: 'C:\\miljöbeslut',
+    why: 'the main checkout (scripts/db/legal-corpus-* read its .quarantine; its storage holds the local master archive)',
+  },
+  {
+    root: 'C:\\wt-lu-demo',
+    why: "the demonstrator's worktree: the demonstrator runs with this cwd (start-lu-demo.ps1)",
+  },
+]);
+
+/**
+ * REVIEWED: absolute paths product code names that are NOT live data -- binaries it only executes, fonts
+ * it only reads, paths inside a container. Not guarded. Locked by the inventory test; an entry may never
+ * be a bare drive root nor contain a protected root.
+ */
+export const TEST_ABSOLUTE_PATHS_NOT_LIVE: readonly ProtectedDataRoot[] = Object.freeze([
+  { root: 'C:\\Program Files\\GDAL', why: 'GDAL binaries (ogr2ogr, ogrinfo, gdal_translate), only executed' },
+  {
+    root: 'C:\\Program Files\\QGIS 4.0.2',
+    why: "QGIS's GDAL binaries, only executed (mps-data-governance scripts)",
+  },
+  { root: 'C:\\Windows\\Fonts', why: 'system fonts, only read (pdfUnicodeFont)' },
+  { root: '/usr/share/fonts', why: 'system fonts, only read (pdfUnicodeFont)' },
+  { root: '~/AppData/Local/Microsoft/Windows/Fonts', why: 'user fonts, only read (pdfUnicodeFont)' },
+  { root: '/mnt/drive', why: 'a path INSIDE the PostGIS container (the POSTGIS_MOUNT_ROOT default)' },
+  {
+    root: '/mnt/geo_master_archive',
+    why: 'a path INSIDE the PostGIS container (check-postgis-prerequisites)',
+  },
+  {
+    root: '/var/lib/postgresql/data',
+    why: 'a path inside the database container, named in a generated context text',
+  },
+  {
+    root: '/tmp/manifest.json',
+    why: 'a path INSIDE the rclone container (docker run -v ...:/tmp/manifest.json)',
+  },
+  { root: '/tmp/out', why: 'a path INSIDE the rclone container (docker run -v ...:/tmp/out)' },
 ]);
 
 export type TestDataRootWriteException = {
@@ -314,9 +445,23 @@ function treeForms(tree: string): string[] {
 
 const appliesHere = (root: string) => isWindows || !/^[A-Za-z]:\\/.test(root);
 
-/** Every absolute protected root in force on this platform. */
+const HOME_AT_LOAD = safe(() => os.homedir());
+let userInfoHome: string | null | undefined;
+/** The home directory now (os.homedir()), at load time and of the account (os.userInfo()). */
+function homeDirectories(): string[] {
+  if (userInfoHome === undefined) userInfoHome = safe(() => os.userInfo().homedir);
+  const homes = [safe(() => os.homedir()), HOME_AT_LOAD, userInfoHome].filter(
+    (home): home is string => typeof home === 'string' && home.trim() !== '',
+  );
+  return [...new Map(homes.map((home) => [norm(home), home])).values()];
+}
+
+/** Every absolute protected root in force now: the absolute list (this platform) and the home roots. */
 export function protectedAbsoluteRootsNow(): string[] {
-  return TEST_PROTECTED_ABSOLUTE_ROOTS.map(({ root }) => root).filter(appliesHere);
+  const roots = TEST_PROTECTED_ABSOLUTE_ROOTS.map(({ root }) => root).filter(appliesHere);
+  for (const home of homeDirectories())
+    for (const { root } of TEST_PROTECTED_HOME_ROOTS) roots.push(path.join(home, ...root.split('/')));
+  return roots;
 }
 
 function currentVitestTestFile(): string | null {
@@ -358,7 +503,11 @@ export function testDataRootWriteRefusal(
   } = {},
 ): WriteRefusal | null {
   const cwd = options.cwd ?? process.cwd();
-  const baseTrees = options.trees ?? [THIS_PRODUCT_TREE, ...(isProductTree(cwd) ? [cwd] : [])];
+  const baseTrees = options.trees ?? [
+    THIS_PRODUCT_TREE,
+    ...(isProductTree(cwd) ? [cwd] : []),
+    ...KNOWN_LIVE_PRODUCT_TREES.map(({ root }) => root).filter(appliesHere),
+  ];
   const trees = [...new Map(baseTrees.flatMap(treeForms).map((tree) => [norm(tree), tree])).values()];
   const testFile = options.testFile === undefined ? currentVitestTestFile() : options.testFile;
   const lexical = canonicalTargetPath(target);

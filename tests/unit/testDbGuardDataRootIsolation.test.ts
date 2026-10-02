@@ -46,6 +46,11 @@ const SHELL_DATA_ROOTS = {
   LOCAL_DB_ROOT: `${DEMO}\\local-db`,
   OPS_PIPELINE_ROOT: `${DEMO}\\ops-pipeline`,
   MIMERS_ROOT: `${DEMO}\\cas`,
+  // TDG-5 (TDG4-VERIFICATION finding 6): a quarantine outside the old scope and the two remote buckets
+  HARVEST_QUARANTINE_ROOT: `${DEMO}\\harvest-quarantine`,
+  SGU_DISCOVERED_MANIFEST_PATH: `${DEMO}\\sgu\\discovered-manifest.json`,
+  GCS_DOCUMENTS_BUCKET: 'mimer-demo-live-documents.invalid',
+  BACKUP_S3_BUCKET: 'mimer-demo-live-backups.invalid',
 };
 /** Their unset default is a location (cwd-relative or an absolute live path): a fresh temp root instead. */
 const LOCATION_DEFAULT_KEYS = [
@@ -54,16 +59,21 @@ const LOCATION_DEFAULT_KEYS = [
   'BACKUP_DIR',
   'GEO_MASTER_ARCHIVE',
   'H_DRIVE_ROOT',
+  'HARVEST_QUARANTINE_ROOT',
   'IMPORT_ARCHIVE_ROOT',
   'IMPORT_SOURCE_ROOT',
   'KNOWLEDGE_BASE_ROOT',
   'MASTER_ARCHIVE_ROOT',
+  'OPS_PIPELINE_ROOT',
   'OUTLOOK_BASE_DIR',
   'OUTLOOK_STORAGE_ROOT',
   'QUARANTINE_ROOT',
+  'SGU_DISCOVERED_MANIFEST_PATH',
 ];
 /** Unset means no location (off / fails closed): removed, left unset. */
-const NO_LOCATION_KEYS = ['LOCAL_DB_ROOT', 'MIMERS_ROOT', 'OPS_PIPELINE_ROOT'];
+const NO_LOCATION_KEYS = ['LOCAL_DB_ROOT', 'MIMERS_ROOT'];
+/** TDG-5: remote buckets -- never any value in a test process, never in a tested server. */
+const REMOTE_STORE_KEYS = ['BACKUP_S3_BUCKET', 'GCS_DOCUMENTS_BUCKET'];
 
 const OPT_IN = {
   PLAYWRIGHT_DATABASE_URL: 'postgresql://u:p@127.0.0.1:5433/wtdg4_roots_test',
@@ -162,7 +172,7 @@ describe('Vitest: no data root of the shell reaches a worker or any process a te
       `
 await import(${JSON.stringify(SETUP_URL)});
 const { spawnSync } = await import('node:child_process');
-const keys = ${JSON.stringify([...LOCATION_DEFAULT_KEYS, ...NO_LOCATION_KEYS])};
+const keys = ${JSON.stringify([...LOCATION_DEFAULT_KEYS, ...NO_LOCATION_KEYS, ...REMOTE_STORE_KEYS])};
 const grandchild = "const { spawnSync } = require('node:child_process');" +
   "const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], { encoding: 'utf8' });" +
   "process.stdout.write(r.stdout)";
@@ -178,8 +188,84 @@ process.exit(0);
     expectFreshRoots(report.worker, tmpRoot);
     // The processes a test starts inherit exactly the worker's fresh roots.
     expect(report.grandchild).toEqual(report.worker);
-    for (const key of NO_LOCATION_KEYS)
+    for (const key of [...NO_LOCATION_KEYS, ...REMOTE_STORE_KEYS])
       expect({ key, value: report.worker[key] }).toEqual({ key, value: undefined });
+  });
+
+  it('TDG-5: a key spelled in another case (Windows environment names) is scrubbed just the same', () => {
+    const report = runChild(
+      `
+await import(${JSON.stringify(SETUP_URL)});
+const { spawnSync } = await import('node:child_process');
+const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], { encoding: 'utf8' });
+const demo = (env) => Object.entries(env).filter(([, v]) => String(v).toLowerCase().includes('mimer-demo')).map(([k]) => k);
+process.stdout.write('WTDG4_RESULT ' + JSON.stringify({ worker: demo(process.env), child: demo(JSON.parse(child.stdout || '{}')) }) + String.fromCharCode(10));
+process.exit(0);
+`,
+      bareEnv({
+        DATABASE_URL: 'postgresql://x:x@127.0.0.1:1/none',
+        Local_Db_Root: `${DEMO}\\mixed-case-local-db`,
+        Quarantine_Root: `${DEMO}\\mixed-case-quarantine`,
+        Gcs_Documents_Bucket: 'mimer-demo-mixed-case.invalid',
+        mimers_root: `${DEMO}\\mixed-case-cas`,
+      }),
+    ) as { worker: string[]; child: string[] };
+    expect(report).toEqual({ worker: [], child: [] });
+  });
+
+  it('TDG-5: buckets are never set for a test, and an env file cannot bring one back', async () => {
+    expect(pick(process.env, REMOTE_STORE_KEYS)).toEqual({});
+    const envFile = path.join(fakeCwd, '.env.buckets');
+    fs.writeFileSync(
+      envFile,
+      'GCS_DOCUMENTS_BUCKET=mimer-demo-from-env-file.invalid\nWTDG5_PLAIN=kept\n',
+      'utf8',
+    );
+    try {
+      const { loadEnvFile } = (await import(LOAD_ENV_URL)) as { loadEnvFile: (file: string) => void };
+      loadEnvFile(envFile);
+      expect(pick(process.env, ['GCS_DOCUMENTS_BUCKET', 'WTDG5_PLAIN'])).toEqual({ WTDG5_PLAIN: 'kept' });
+    } finally {
+      delete process.env.WTDG5_PLAIN;
+      delete process.env.GCS_DOCUMENTS_BUCKET;
+      fs.rmSync(envFile, { force: true });
+    }
+  });
+});
+
+describe('TDG-5: a bucket never reaches a tested server, however it is started (server/loadEnvFirst.ts)', () => {
+  const LOAD_ENV_FIRST_URL = pathToFileURL(path.join(REPO_ROOT, 'server/loadEnvFirst.ts')).href;
+  const report = (marker: Record<string, string>) =>
+    runChild(
+      `
+await import(${JSON.stringify(LOAD_ENV_FIRST_URL)});
+const keys = ${JSON.stringify([...REMOTE_STORE_KEYS, 'GCS_EXPORT_BUCKET', 'WTDG5_PLAIN'])};
+process.stdout.write('WTDG4_RESULT ' + JSON.stringify(Object.fromEntries(keys.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]]))) + String.fromCharCode(10));
+process.exit(0);
+`,
+      bareEnv({
+        DATABASE_URL: 'postgresql://x:x@127.0.0.1:1/none',
+        GCS_DOCUMENTS_BUCKET: 'mimer-demo-live-documents.invalid',
+        BACKUP_S3_BUCKET: 'mimer-demo-live-backups.invalid',
+        GCS_EXPORT_BUCKET: 'mimer-demo-unlisted.invalid',
+        WTDG5_PLAIN: 'kept',
+        ...marker,
+      }),
+    ) as Record<string, string>;
+
+  it('the E2E API server (MIMER_TEST_MODE=1) and a NODE_ENV=test child: every bucket key -- listed or not -- is gone', () => {
+    for (const marker of [{ MIMER_TEST_MODE: '1' }, { NODE_ENV: 'test' }]) {
+      expect({ marker, env: report(marker) }).toEqual({ marker, env: { WTDG5_PLAIN: 'kept' } });
+    }
+  });
+
+  it('outside a test runtime the buckets stay (product behaviour unchanged)', () => {
+    expect(report({ NODE_ENV: 'development' })).toEqual({
+      GCS_DOCUMENTS_BUCKET: 'mimer-demo-live-documents.invalid',
+      BACKUP_S3_BUCKET: 'mimer-demo-live-backups.invalid',
+      GCS_EXPORT_BUCKET: 'mimer-demo-unlisted.invalid',
+      WTDG5_PLAIN: 'kept',
+    });
   });
 
   it('an env file cannot refill a scrubbed data root in a test runtime (loadEnv and dotenv)', async () => {
@@ -251,7 +337,8 @@ describe('playwright.config.ts: no data root of the shell reaches the runner, th
         LOCATION_DEFAULT_KEYS.filter((key) => key !== 'ADMIN_ROLE_GRANT_CAS_ROOT'),
       );
       expect(isInside(String(env?.ADMIN_ROLE_GRANT_CAS_ROOT), tmpRoot)).toBe(true);
-      expect(pick(env, ['LOCAL_DB_ROOT', 'OPS_PIPELINE_ROOT'])).toEqual({});
+      // TDG-5: no bucket reaches either server
+      expect(pick(env, ['LOCAL_DB_ROOT', ...REMOTE_STORE_KEYS])).toEqual({});
     }
     expect(r.api?.QUARANTINE_ROOT).toBe(r.ui?.QUARANTINE_ROOT);
   });
@@ -270,6 +357,7 @@ describe('playwright.config.ts: no data root of the shell reaches the runner, th
     expect(r.error).toBeNull();
     expect(r.api).toBeNull();
     expect(pick(r.runner, Object.keys(SHELL_DATA_ROOTS))).toEqual({});
+    expect(mentionsDemo(r.runner)).toEqual([]);
   });
 });
 
@@ -280,8 +368,14 @@ describe('the declarative list (server/modules/test-db-guard/testDataRootIsolati
     expect(new Set(keys).size).toBe(keys.length);
     for (const entry of TEST_DATA_ROOT_ENV as Array<{ key: string; handling: string; why: string }>) {
       expect(entry.key).toMatch(/^[A-Z][A-Z0-9_]*$/);
-      expect(['fresh-temp-root', 'removed']).toContain(entry.handling);
+      expect(['fresh-temp-root', 'removed', 'remote-store']).toContain(entry.handling);
       expect(entry.why.length).toBeGreaterThan(10);
+    }
+    for (const key of REMOTE_STORE_KEYS) {
+      expect({
+        key,
+        handling: TEST_DATA_ROOT_ENV.find((e: { key: string }) => e.key === key)?.handling,
+      }).toEqual({ key, handling: 'remote-store' });
     }
     for (const key of LOCATION_DEFAULT_KEYS) {
       expect({
@@ -334,12 +428,64 @@ describe('the declarative list (server/modules/test-db-guard/testDataRootIsolati
       for (const key of freshKeys) expect(path.dirname(String(env[key]))).toBe(a.runRoot);
       for (const key of Object.keys(env)) {
         if (testDataRootEnvHandling(key) === 'removed') throw new Error(`removed key still set: ${key}`);
+        if (testDataRootEnvHandling(key) === 'remote-store') throw new Error(`bucket still set: ${key}`);
       }
       const b = isolateTestDataRootEnv(env, 'wtdg4 test', { tmp });
       expect(b.runRoot).not.toBe(a.runRoot);
       const c = isolateTestDataRootEnv(env, 'wtdg4 test', { tmp, assignFreshRoots: false });
       expect(c.runRoot).toBeNull();
       expect(Object.keys(env).filter((key) => testDataRootEnvHandling(key) !== null)).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('TDG-5: a key in any case has the handling of its upper-case name; any *_BUCKET* key is a remote store', async () => {
+    const { isolateTestDataRootEnv, removeTestRemoteStoreEnv, testDataRootEnvHandling } = await import(
+      ISOLATION_MODULE
+    );
+    expect(
+      Object.fromEntries(
+        [
+          'Quarantine_Root',
+          'local_db_root',
+          'Gcs_Documents_Bucket',
+          'Mimers_Root',
+          'gcs_export_bucket',
+          'Case_Id',
+        ].map((key) => [key, testDataRootEnvHandling(key)]),
+      ),
+    ).toEqual({
+      Quarantine_Root: 'fresh-temp-root',
+      local_db_root: 'removed',
+      Gcs_Documents_Bucket: 'remote-store',
+      Mimers_Root: 'removed',
+      gcs_export_bucket: 'remote-store',
+      Case_Id: null,
+    });
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg5-case-'));
+    try {
+      const env: NodeJS.ProcessEnv = {
+        Quarantine_Root: `${DEMO}\\q`,
+        local_db_root: `${DEMO}\\db`,
+        Gcs_Documents_Bucket: 'mimer-demo-b.invalid',
+        PATH: 'p',
+      };
+      isolateTestDataRootEnv(env, 'wtdg5 test', { tmp });
+      expect(mentionsDemo(env as Record<string, string>)).toEqual([]);
+      expect(env.PATH).toBe('p');
+      const server: NodeJS.ProcessEnv = {
+        BACKUP_S3_BUCKET: 'b',
+        Gcs_Documents_Bucket: 'g',
+        X_BUCKETS: 'x',
+        QUARANTINE_ROOT: 'kept',
+      };
+      expect(removeTestRemoteStoreEnv(server)).toEqual([
+        'BACKUP_S3_BUCKET',
+        'Gcs_Documents_Bucket',
+        'X_BUCKETS',
+      ]);
+      expect(server).toEqual({ QUARANTINE_ROOT: 'kept' });
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
