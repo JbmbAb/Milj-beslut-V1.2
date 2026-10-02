@@ -1640,6 +1640,19 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expect(r.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
   });
 
+  it("27s: a legacy site-scoped execution stays UNBOUND (no V3 subject to bind) even when an identity sits at its legacy id -- never a subject MISMATCH the dev/test flag could not allow", async () => {
+    devTestBootstrap();
+    const repo = new InMemoryArtifactRepository();
+    const result = await runAssessment(repo, "reexec-u30r4-legacy-identity", [spatialEvidence("u30r4-legacy-identity", "water")]);
+    // What a V1-era issuance put at the legacy id: an identity without any V3 subject.
+    const legacyIdentity = { artifact_id: "lu-identity-reexec-u30r4-legacy-identity", artifact_type: "execution_identity", references: [] };
+    await repo.put({ artifact_id: legacyIdentity.artifact_id, content_hash: sha256ContentHash(legacyIdentity), body: legacyIdentity });
+
+    expect((await verify(repo, result.assessment!)).outcome).toBe("PASS");
+    productConfig();
+    expect((await verify(repo, result.assessment!)).mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+  });
+
   // MPS_LU_BOOTSTRAP_ADMIT / NODE_ENV / APP_ENV at verify time -> PASS (bootstrap execution allowed) or UNBOUND.
   for (const [flag, nodeEnv, appEnv, allowed] of [
     ["1", "test", undefined, true],
