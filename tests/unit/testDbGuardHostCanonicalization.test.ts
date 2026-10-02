@@ -80,6 +80,24 @@ describe('policy: every spelling of this workstation on a live port is refused, 
     expect(verdict).toMatchObject({ allowed: false, denylist: 'workstation-port' });
   });
 
+  // TDG-3 (low 2): the names ONLY the Docker/container alias set covers -- no `.localhost`,
+  // `.docker.internal` or `.containers.internal` suffix rule catches them -- pinned one by one.
+  it.each([
+    'host.minikube.internal',
+    'HOST.MINIKUBE.INTERNAL.',
+    'host.lima.internal',
+    'host-gateway',
+    'docker.for.win.host.internal',
+    'docker.for.mac.host.internal',
+  ])('alias-only name %s is this workstation: refused on 5432, even opted in', (host) => {
+    expect(policy.isWorkstationHost(host)).toBe(true);
+    expect(policy.evaluateTestDatabaseTarget(target(host, 5432), OPT_IN)).toMatchObject({
+      allowed: false,
+      denylist: 'workstation-port',
+    });
+    expect(policy.evaluateLiveEndpoint(host, 5432)).toMatchObject({ denylist: 'workstation-port' });
+  });
+
   it.each([
     'MILJOBESLUT-POSTGRES',
     'miljobeslut-postgres.',

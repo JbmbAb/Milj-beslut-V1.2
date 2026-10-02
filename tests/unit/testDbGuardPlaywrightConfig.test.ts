@@ -302,6 +302,21 @@ describe('TEST-DB-GUARD: the local E2E policy itself (pure)', () => {
     ).toThrow(/share port/);
   });
 
+  // TDG-3 (low 2): the demonstrator ports were pinned only by the child-process cases above, which
+  // need node_modules in the child; these run in-process.
+  it.each([
+    ['PLAYWRIGHT_LOCAL_API_PORT', '8787'],
+    ['PLAYWRIGHT_LOCAL_UI_PORT', '8787'],
+    ['PLAYWRIGHT_LOCAL_API_PORT', '5173'],
+    ['PLAYWRIGHT_LOCAL_UI_PORT', '5173'],
+    ['PLAYWRIGHT_LOCAL_API_PORT', '3000'],
+    ['PLAYWRIGHT_LOCAL_UI_PORT', '8877'],
+  ])('in-process: %s=%s (a demonstrator port) is refused, even opted in', (key, port) => {
+    expect(() => resolveLocalE2eServerPlan({ ...OPT_IN, [key]: port })).toThrow(
+      new RegExp(`TEST-DB-GUARD.*${key} resolves to port ${port}`),
+    );
+  });
+
   it('external targets: workstation hosts are refused, remote ones pass', () => {
     expect(() => assertExternalE2eTargetsAreRemote({ STAGING_API_BASE_URL: 'http://0.0.0.0:8787' })).toThrow(
       /this workstation/,
