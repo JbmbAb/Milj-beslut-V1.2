@@ -51,7 +51,10 @@ import {
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3,
   LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4,
 } from "../artifacts/LocalizationAssessmentArtifact.js";
-import { isBootstrapExecutionReplayAllowed } from "./LuReExecutionBootstrapAllowance.js";
+import {
+  assertBootstrapAdmitFlagOnlyInExplicitTestProcess,
+  isBootstrapExecutionReplayAllowed,
+} from "./LuReExecutionBootstrapAllowance.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -149,15 +152,30 @@ import { isBootstrapExecutionReplayAllowed } from "./LuReExecutionBootstrapAllow
  *    the subject's. Otherwise EXECUTION_SUBJECT_MISMATCH;
  *  - an execution that cannot be bound at all -- a legacy site/V2-scoped manifest, or a V3-subject manifest
  *    whose identity was never issued (bootstrap admission) -- is EXECUTION_SUBJECT_UNBOUND, unless the
- *    verifying process is an explicit dev/test bootstrap (isBootstrapExecutionReplayAllowed).
+ *    verifying process is an explicit test bootstrap (isBootstrapExecutionReplayAllowed: the flag "1" AND
+ *    NODE_ENV exactly "test" AND APP_ENV exactly "test" or "ci" -- U30-R5, the K0 model).
  * The same holds one level down (the outcome-level downgrade): the pinned outcome must be the outcome the
  * execution recorded -- the one category A replays (`outcome-v2-<attempt>` when it exists, else the legacy
  * V1 locator). A V1 outcome pinned for an execution that recorded a v2 outcome is CONTRACT_DOWNGRADE_REFUSED;
  * any other outcome than the replayed one is MANIFEST_ATTEMPT_MISMATCH. Without this a minted V1 outcome
- * (no lineage) would skip the output and subject bindings, for V4 as well.
+ * (no lineage) would skip the output and subject bindings, for V4 as well -- on the SAME attempt.
  * A genuine V1 outcome (before 2026-08-24) carries no lineage and is otherwise left as before (R-1). A V3 relabel of a
  * V4 over its OWN execution and point cannot be told from a V3 made while V3 was canonical (2026-08-24 ..
  * 2026-09-16): nothing in the execution chain records that the run required authority (U30R4-REPORT).
+ *
+ * U30-R5 (U30R4-VERIFICATION V1, HIGH) -- what U30-R4 does NOT close, stated here because the U30-R4 header and
+ * report claimed more: the outcome-level check binds the pinned outcome only to the attempt THAT OUTCOME names.
+ * A canonical V4 can still be rewritten to V1, V2 or V3 and pinned to a V1-format outcome on ANOTHER attempt --
+ * a freshly minted chain (manifest + attempt + V1 outcome: three new CAS objects) or any genuine execution from
+ * before 2026-08-24 -- with any point and its HIGH removed, and verify gives PASS, also with NODE_ENV=production:
+ * a V1 outcome carries no lineage, so no output or subject binding applies to it. Only a forward marker in the
+ * execution chain or attestation verification can close that; neither is built. This and every other residual
+ * is listed in LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION (./LuReExecutionKnownLimitation.ts, deliberately not a
+ * package-root export) -- verify is consistency, not authenticity.
+ *
+ * U30-R5 flag gate: MPS_LU_BOOTSTRAP_ADMIT present (any value) in a process that is not an explicit test process
+ * makes verify refuse to run at all, before any CAS read (LuBootstrapAdmitFlagOutsideTestError,
+ * BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST): a configuration error, never a verdict and never excusable.
  */
 
 export type LuReExecutionMismatchCode =
@@ -331,8 +349,11 @@ export async function reExecuteLocalizationAssessment(args: {
   readonly assessmentArtifactId: string;
   readonly artifactRepository: ArtifactRepositoryPort;
 }): Promise<LuReExecutionResult> {
-  // U30-R4: decided once, before any await -- whether this process is an explicit dev/test bootstrap that
-  // may accept an execution with no governed subject. The product configuration never is.
+  // U30-R5 flag gate, before anything is read: MPS_LU_BOOTSTRAP_ADMIT present outside an explicit test process is a
+  // configuration error of this process -- verify refuses to run (typed, never a verdict, never excusable).
+  assertBootstrapAdmitFlagOnlyInExplicitTestProcess(process.env, "reexecution");
+  // U30-R4/U30-R5: decided once, before any await -- whether this process is an explicit test bootstrap that may
+  // accept an execution with no governed subject (the K0 model). The product configuration never is.
   const bootstrapExecutionsAllowed = isBootstrapExecutionReplayAllowed(process.env);
   // The caller's input, not a pinned artifact: a genuine absence keeps the repository's own
   // not-found error; a storage fault is the typed technical error (OD-R2).

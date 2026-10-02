@@ -55,6 +55,7 @@ import { LU_EXECUTION_AUTHORITY_ISSUER_TYPE } from "../artifacts/LuExecutionAuth
 import { verifyLuExecutionAuthorityChain } from "./LuExecutionAuthorityChain.js";
 import { verifyLuSourceAuthorityForAssessment } from "../governance/LuSourceAuthorityWiring.js";
 import { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
+import { assertBootstrapAdmitFlagOnlyInExplicitTestProcess } from "./LuReExecutionBootstrapAllowance.js";
 export { LU_EXECUTION_PRINCIPAL_ID } from "./LuExecutionPrincipal.js";
 
 /**
@@ -650,6 +651,11 @@ export async function runCanonicalLuProductAssessment(
         "bootstrap is available only through the explicit general engine used by tests and proof tooling",
     );
   }
+  // U30-R5 flag gate (the same check as re-execution; owner principle, the K0 model): the flag PRESENT with any other
+  // value in a process that is not an explicit test process (NODE_ENV exactly "test" AND APP_ENV exactly "test" or
+  // "ci") is a configuration error -- refused before the engine is entered. The flag "1" keeps its own refusal above,
+  // checked first in every process (the R1 proof pins LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN for it).
+  assertBootstrapAdmitFlagOnlyInExplicitTestProcess(process.env, "canonical_product_assessment");
   assertCanonicalIdentitySubjectV3(input);
   return executeLuAssessment(input, false);
 }
