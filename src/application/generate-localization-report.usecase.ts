@@ -858,6 +858,23 @@ export function sanitizeGovernedErrorMessage(message: string): string {
   return code ? code[0] : GOVERNED_ERROR_GENERIC_SV;
 }
 
+/**
+ * U20CDF (U30-R2 follow-up): internal diagnostics only. The provider's raw technical text for a
+ * layer whose governed query failed (SpatialLayerUnavailable.diagnostic) may name a connection
+ * string, a credential or a token; those are masked before the text reaches the server log, and it
+ * is truncated. It is never put in a response, an artifact, a PDF or the kernel input.
+ */
+const DIAGNOSTIC_MAX_LENGTH = 1000;
+
+export function redactInternalDiagnostic(text: unknown): string | null {
+  if (typeof text !== 'string' || text.length === 0) return null;
+  return text
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+(?::[^\s/@]*)?@/gi, '$1***@')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/g, 'Bearer ***')
+    .replace(/\b(password|passwd|pwd|secret|token|api[_-]?key|authorization)(\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1$2***')
+    .slice(0, DIAGNOSTIC_MAX_LENGTH);
+}
+
 /** U20-C: the Swedish summary of a site without a governed assessment (no verdict, no legacy text). */
 function nonVerdictSummarySv(status: LuAssessmentStatus | undefined): string {
   switch (status) {
@@ -1023,8 +1040,21 @@ async function analyzeSite(
       },
     };
 
-    const { evidence: mpsEvidence, unavailable_layers: mpsUnavailableLayers } =
+    const { evidence: mpsEvidence, unavailable_layers: providerUnavailableLayers } =
       await provider.query(queryRequest);
+    // U20CDF (U30-R2 follow-up): the raw provider text of a failed layer query is internal
+    // diagnostics -- logged here, structured and redacted, and passed on nowhere: the kernel gets
+    // only the stable cause code (reason), so the diagnostic cannot reach a finding, an artifact,
+    // a response or a PDF.
+    for (const unavailable of providerUnavailableLayers) {
+      logger.warn('Governed LU layer query failed (internal diagnostic)', {
+        site: site.id,
+        layer: unavailable.dataset,
+        reason: unavailable.reason,
+        diagnostic: redactInternalDiagnostic(unavailable.diagnostic),
+      });
+    }
+    const mpsUnavailableLayers = providerUnavailableLayers.map(({ dataset, reason }) => ({ dataset, reason }));
     const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
       site.documentEvidenceRefs,
       propRef.artifact_id,

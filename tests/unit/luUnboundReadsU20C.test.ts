@@ -145,7 +145,8 @@ import { queryVissPoint } from '../../server/services/vissService';
 import { searchSluByCoordinates } from '../../server/services/sluService';
 import { evaluateComplianceRules } from '../../server/services/complianceRuleEngine';
 import { auditTrail } from '../../server/services/auditTrailService';
-import { sanitizeGovernedErrorMessage } from '../../src/application/generate-localization-report.usecase';
+import { redactInternalDiagnostic, sanitizeGovernedErrorMessage } from '../../src/application/generate-localization-report.usecase';
+import { logger } from '../../server/logger';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
 const LAYERS = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'] as const;
@@ -317,6 +318,46 @@ describe('U20-C: unbound reads never steer the governed generate-report request'
     ['', 'tekniskt fel (detaljer finns i serverloggen)'],
   ])('U20CDF (F7): sanitizeGovernedErrorMessage is an allowlist -- %j -> %j', (message, expected) => {
     expect(sanitizeGovernedErrorMessage(message)).toBe(expected);
+  });
+});
+
+describe('U20CDF (U30-R2 follow-up): the raw diagnostic of a failed layer query is logged internally, redacted, and goes nowhere else', () => {
+  const DIAGNOSTIC =
+    'PrismaClientKnownRequestError: connect ECONNREFUSED postgresql://mimer:hemligt-losen@10.0.0.5:5432/lu ' +
+    '(relation "env.protected_area" does not exist) password=hemligt2 Authorization: Bearer abc.def.ghi';
+
+  it('logged as structured internal diagnostics with secrets redacted; never in the HTTP body, warnings or the kernel input', async () => {
+    queryMock.mockResolvedValue({
+      evidence: LAYERS.filter((l) => l !== 'protected_area').map(spatialEvidence),
+      unavailable_layers: [{ dataset: 'protected_area', reason: 'SOURCE_UNAVAILABLE', diagnostic: DIAGNOSTIC }],
+    });
+    const res = await post('/api/localization/generate-report');
+    expect(res.status).toBe(200);
+
+    const call = vi.mocked(logger.warn).mock.calls.find((c) => c[0] === 'Governed LU layer query failed (internal diagnostic)');
+    expect(call, 'the diagnostic must be logged').toBeDefined();
+    const meta = call![1] as Record<string, unknown>;
+    expect(meta).toMatchObject({ site: 'ALT-1', layer: 'protected_area', reason: 'SOURCE_UNAVAILABLE' });
+    expect(meta.diagnostic).toContain('ECONNREFUSED');
+    expect(meta.diagnostic).toContain('relation "env.protected_area" does not exist');
+    expect(String(meta.diagnostic)).not.toMatch(/hemligt|abc\.def\.ghi/);
+
+    // Nowhere else: not in the answer, not in a warning, not handed to the kernel.
+    const body = JSON.stringify(res.body);
+    for (const fragment of ['ECONNREFUSED', 'hemligt', 'PrismaClientKnownRequestError', 'does not exist']) {
+      expect(body).not.toContain(fragment);
+    }
+    const kernelInput = kernelMock.mock.calls[0]![0] as { unavailable_layers: unknown[] };
+    expect(kernelInput.unavailable_layers).toEqual([{ dataset: 'protected_area', reason: 'SOURCE_UNAVAILABLE' }]);
+  });
+
+  it('redactInternalDiagnostic: credentials, key=value secrets and bearer tokens are masked; null for nothing', () => {
+    expect(redactInternalDiagnostic('postgres://u:p@h/db x')).toBe('postgres://***@h/db x');
+    expect(redactInternalDiagnostic('token: abc123 api_key=xyz secret="s p"')).toBe('token: *** api_key=*** secret=***');
+    expect(redactInternalDiagnostic('Bearer eyJhbGciOi.x.y rest')).toBe('Bearer *** rest');
+    expect(redactInternalDiagnostic('x'.repeat(5000))!.length).toBe(1000);
+    expect(redactInternalDiagnostic(undefined)).toBeNull();
+    expect(redactInternalDiagnostic('')).toBeNull();
   });
 });
 
