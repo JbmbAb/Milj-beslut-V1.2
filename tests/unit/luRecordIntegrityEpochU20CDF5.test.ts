@@ -401,3 +401,70 @@ describe('W-U20CDF5 L3 (verifier probes C4/C4a): a record WITHOUT a findings fie
     expect(res.body.overallStatement).toMatchObject({ coverage_state: 'DETERMINED' });
   });
 });
+
+/**
+ * L2 -- the classification table (version x content -> class), locked here. The VERIFIER'S PROPOSAL
+ * (U20CDF4 verification L2 / open question 4); the owner has not decided it.
+ *
+ *  version          | content                                         | class
+ *  V1 (no version)  | a governed layer silent (LAYER_NOT_RECORDED)    | HISTORICAL_COVERAGE_UNKNOWN (200)
+ *  V2 / V3 / V4     | a governed layer silent (LAYER_NOT_RECORDED)    | RECORD_INTEGRITY_ERROR (424)
+ *  V1..V4           | all five layers answered, nothing else           | DETERMINED (200)
+ *  V1..V4           | a hit without its finding (HIT_WITHOUT_FINDING)  | HISTORICAL_COVERAGE_UNKNOWN (200) -- NOT
+ *                   |                                                   | promoted: the natura2000/water_protection_area
+ *                   |                                                   | rules (b673a5e8, 2026-08-24) postdate V2 (29f83705)
+ */
+describe('W-U20CDF5 L2 (verifier proposal): assessment_contract_version is the epoch marker -- a silent layer breaks the contract of a V2+ record, never of a V1 record', () => {
+  const FOUR = ALL.filter((layer) => layer !== 'natura2000');
+
+  it('V1 with a silent layer -> 200 HISTORICAL_COVERAGE_UNKNOWN (LAYER_NOT_RECORDED:natura2000), "denna historiska bedömning"', async () => {
+    await provisionRecord({ version: 'V1', negatives: FOUR, findings: [] });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(200);
+    expect(res.body.overallStatement).toMatchObject({ coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', coverage_basis: ['LAYER_NOT_RECORDED:natura2000'] });
+    expect(res.body.overallStatement.statement_sv).toBe('Täckningsgrad kan inte fastställas för denna historiska bedömning.');
+  });
+
+  it.each<Version>(['V2', 'V3', 'V4'])('%s with a silent layer -> 424 RECORD_INTEGRITY_ERROR (LAYER_NOT_RECORDED): its own contract promised the layer -- never "historisk"', async (version) => {
+    await provisionRecord({ version, negatives: FOUR, findings: [] });
+    const res = await PATHS.readBack();
+    expectIntegrity424(res, 'LAYER_NOT_RECORDED');
+    expect(res.body.record_integrity.basis_codes).toEqual(['LAYER_NOT_RECORDED']);
+  });
+
+  it('verifier probe C6 (a V3 record with only three layers): read-back, verify, the map and the PDF all 424; never replayed', async () => {
+    await provisionRecord({ version: 'V3', negatives: ['water', 'ebh', 'protected_area'], findings: [] });
+    for (const path of ['readBack', 'verify', 'map', 'pdf'] as const) expectIntegrity424(await PATHS[path](), 'LAYER_NOT_RECORDED');
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('a stored risk finding on a V3 record with a silent layer is still named (unverified) in the 424 -- a known risk never disappears', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL.filter((l) => l !== 'natura2000' && l !== 'ebh'), hits: ['ebh'], findings: [{ finding_id: 'finding-ebh-high', rule_id: RULE.ebh, rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: [] }] });
+    const res = await PATHS.readBack();
+    expectIntegrity424(res, 'LAYER_NOT_RECORDED');
+    expect(res.body.error).toContain('risknivå hög – Potentiellt förorenade områden (EBH)');
+    expect(res.body.record_integrity.stored_findings_unverified).toMatchObject({ total: 1, highest_level: 'HIGH' });
+  });
+
+  it.each<Version>(['V1', 'V2', 'V3', 'V4'])('control: %s with all five layers answered -> 200 DETERMINED, 6 checks', async (version) => {
+    await provisionRecord({ version, negatives: ALL, findings: [] });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(200);
+    expect(res.body.overallStatement).toMatchObject({ coverage_state: 'DETERMINED', coverage: { checks_total: 6 } });
+  });
+
+  it.each<Version>(['V1', 'V2', 'V3', 'V4'])('%s with a hit and no finding (HIT_WITHOUT_FINDING) stays HISTORICAL: not promoted by the epoch marker', async (version) => {
+    await provisionRecord({ version, negatives: ALL.filter((l) => l !== 'natura2000'), hits: ['natura2000'], findings: [] });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(200);
+    expect(res.body.overallStatement).toMatchObject({ coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', coverage_basis: ['HIT_WITHOUT_FINDING:natura2000'] });
+  });
+
+  it('control: a V1 record with a silent layer is still verified and shown on the map (historical, not an integrity error)', async () => {
+    await provisionRecord({ version: 'V1', negatives: FOUR, findings: [] });
+    expect((await PATHS.verify()).status).toBe(200);
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect((await PATHS.map()).status).toBe(200);
+  });
+});
