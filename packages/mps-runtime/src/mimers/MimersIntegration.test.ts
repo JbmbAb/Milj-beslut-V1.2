@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { sha256ContentHash } from "../kernel/ExecutionKernel.js";
@@ -92,5 +92,118 @@ describe("Mimers Integration (Epoch II §2.4)", () => {
         MIMERS_REQUIRED: "1",
       } as NodeJS.ProcessEnv),
     ).rejects.toThrow(/MIMERS_REQUIRED/);
+  });
+});
+
+/**
+ * U30-A: no silent CAS fallbacks outside an explicit test environment.
+ *
+ * `process.cwd` is redirected to a scratch directory so that the pre-fix behaviour (a silent
+ * `path.resolve(".data/mimers")` CAS in the working directory) is observable without ever
+ * writing into the repository checkout.
+ */
+describe("Mimers Integration fail-closed CAS root (U30-A)", () => {
+  let root: string;
+  let fakeCwd: string;
+
+  beforeEach(() => {
+    resetMimersCasCacheForTests();
+    root = mkdtempSync(path.join(tmpdir(), "mimers-u30a-root-"));
+    fakeCwd = mkdtempSync(path.join(tmpdir(), "mimers-u30a-cwd-"));
+    vi.spyOn(process, "cwd").mockReturnValue(fakeCwd);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetMimersCasCacheForTests();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(fakeCwd, { recursive: true, force: true });
+  });
+
+  it("outside test, a missing MIMERS_ROOT fails closed with MIMERS_ROOT_REQUIRED (no .data/mimers in cwd)", async () => {
+    await expect(
+      MimersIntegration.create({ env: { NODE_ENV: "development" } as NodeJS.ProcessEnv }),
+    ).rejects.toThrow(/^MIMERS_ROOT_REQUIRED: /);
+    expect(existsSync(path.join(fakeCwd, ".data"))).toBe(false);
+  });
+
+  it("outside test, MIMERS_REQUIRED without a root keeps its fail-closed message", async () => {
+    await expect(
+      MimersIntegration.create({
+        env: { NODE_ENV: "production", MIMERS_REQUIRED: "true" } as NodeJS.ProcessEnv,
+      }),
+    ).rejects.toThrow(/MIMERS_ROOT_REQUIRED: MIMERS_REQUIRED set but MIMERS_ROOT missing/);
+    expect(existsSync(path.join(fakeCwd, ".data"))).toBe(false);
+  });
+
+  it("LU_MPS_CAS=memory outside test is rejected, not honoured as a silent memory CAS", async () => {
+    await expect(
+      MimersIntegration.create({
+        env: { NODE_ENV: "production", LU_MPS_CAS: "memory", MIMERS_ROOT: root } as NodeJS.ProcessEnv,
+      }),
+    ).rejects.toThrow(/^LU_MPS_CAS_MEMORY_OUTSIDE_TEST: /);
+  });
+
+  it("LU_MPS_CAS=memory outside test is rejected even when MIMERS_REQUIRED/forceMimers would pick Mimers", async () => {
+    await expect(
+      MimersIntegration.create({
+        env: { NODE_ENV: "development", LU_MPS_CAS: "memory", MIMERS_ROOT: root, MIMERS_REQUIRED: "1" } as NodeJS.ProcessEnv,
+        forceMimers: true,
+      }),
+    ).rejects.toThrow(/^LU_MPS_CAS_MEMORY_OUTSIDE_TEST: /);
+  });
+
+  it.each([
+    ["NODE_ENV=test", { NODE_ENV: "test" }],
+    ["VITEST", { VITEST: "true" }],
+    ["NODE_ENV=test with LU_MPS_CAS=memory", { NODE_ENV: "test", LU_MPS_CAS: "memory" }],
+  ])("explicit test environment (%s) still gets the in-memory CAS", async (_label, env) => {
+    const integration = await MimersIntegration.create({ env: env as NodeJS.ProcessEnv });
+    expect(integration.isMimersBacked).toBe(false);
+    expect(existsSync(path.join(fakeCwd, ".data"))).toBe(false);
+  });
+
+  it("an explicit MIMERS_ROOT outside test opens the durable Mimers CAS under that root", async () => {
+    const integration = await MimersIntegration.create({
+      env: { NODE_ENV: "development", MIMERS_ROOT: root, MIMERS_DURABILITY_MODE: "none" } as NodeJS.ProcessEnv,
+    });
+    expect(integration.isMimersBacked).toBe(true);
+    expect(existsSync(path.join(root, "cas", "objects"))).toBe(true);
+    expect(existsSync(path.join(fakeCwd, ".data"))).toBe(false);
+  });
+
+  it("assertReady outside test fails closed without MIMERS_REQUIRED when MIMERS_ROOT is missing", async () => {
+    await expect(
+      MimersIntegration.assertReady({ NODE_ENV: "development" } as NodeJS.ProcessEnv),
+    ).rejects.toThrow(/^MIMERS_ROOT_REQUIRED: /);
+    expect(existsSync(path.join(fakeCwd, ".data"))).toBe(false);
+  });
+
+  it("assertReady outside test rejects LU_MPS_CAS=memory", async () => {
+    await expect(
+      MimersIntegration.assertReady({
+        NODE_ENV: "production",
+        LU_MPS_CAS: "memory",
+        MIMERS_ROOT: root,
+      } as NodeJS.ProcessEnv),
+    ).rejects.toThrow(/^LU_MPS_CAS_MEMORY_OUTSIDE_TEST: /);
+  });
+
+  it("assertReady outside test initializes the durable CAS when MIMERS_ROOT is set", async () => {
+    await expect(
+      MimersIntegration.assertReady({
+        NODE_ENV: "development",
+        MIMERS_ROOT: root,
+        MIMERS_DURABILITY_MODE: "none",
+      } as NodeJS.ProcessEnv),
+    ).resolves.toBeUndefined();
+    expect(existsSync(path.join(root, "cas", "objects"))).toBe(true);
+  });
+
+  it("assertReady in an explicit test environment without MIMERS_REQUIRED stays a no-op", async () => {
+    await expect(
+      MimersIntegration.assertReady({ NODE_ENV: "test" } as NodeJS.ProcessEnv),
+    ).resolves.toBeUndefined();
+    expect(existsSync(path.join(fakeCwd, ".data"))).toBe(false);
   });
 });

@@ -21,8 +21,15 @@ import {
   CasArtifactResolver,
   type ArtifactResolverPort,
 } from "./ArtifactResolver.js";
+import {
+  MimersRootRequiredError,
+  isMimersTestEnvironment,
+  resolveDurableMimersRoot,
+} from "./DurableMimersRoot.js";
 
 export const MIMERS_INTEGRATION_VERSION = "1.0.0" as const;
+
+export const LU_MPS_CAS_MEMORY_OUTSIDE_TEST = "LU_MPS_CAS_MEMORY_OUTSIDE_TEST" as const;
 
 export type MimersIntegrationOptions = {
   readonly env?: NodeJS.ProcessEnv;
@@ -59,8 +66,15 @@ export class MimersIntegration {
   }
 
   /**
-   * Create the sole platform artifact stack (memory under test, Mimers otherwise).
-   * MIMERS_REQUIRED → fail-closed (no silent fallback).
+   * Create the sole platform artifact stack.
+   *
+   * U30-A fail-closed (no silent fallbacks):
+   * - in-memory CAS ONLY in an explicit test environment (`NODE_ENV=test` / `VITEST`), and only
+   *   when neither `MIMERS_REQUIRED` nor `forceMimers` asks for the durable store;
+   * - `LU_MPS_CAS=memory` outside a test environment is a configuration error, never honoured;
+   * - otherwise the durable root from `resolveDurableMimersRoot` (PRES-19); a missing
+   *   `MIMERS_ROOT` throws `MIMERS_ROOT_REQUIRED` -- there is no `.data/mimers` fallback.
+   * `MIMERS_DURABILITY_MODE` handling is unchanged (owner decision DP-12 is open).
    */
   static async create(
     options: MimersIntegrationOptions = {},
@@ -72,12 +86,16 @@ export class MimersIntegration {
 
     const env = options.env ?? process.env;
     const required = isTruthyFlag(env.MIMERS_REQUIRED);
+    const testEnvironment = isMimersTestEnvironment(env);
 
-    if (
-      !options.forceMimers &&
-      !required &&
-      (env.NODE_ENV === "test" || env.VITEST || env.LU_MPS_CAS === "memory")
-    ) {
+    if (env.LU_MPS_CAS === "memory" && !testEnvironment) {
+      throw new Error(
+        `${LU_MPS_CAS_MEMORY_OUTSIDE_TEST}: LU_MPS_CAS=memory is only honoured under NODE_ENV=test or VITEST; ` +
+          "outside a test environment it would silently drop every persisted artifact (fail-closed)",
+      );
+    }
+
+    if (!options.forceMimers && !required && testEnvironment) {
       if (!cachedMemoryMimers) {
         const repo = new CasBackedArtifactRepository(new MemoryByteStorageBackend());
         cachedMemoryMimers = new MimersIntegration(repo, repo.resolver, null);
@@ -85,20 +103,15 @@ export class MimersIntegration {
       return cachedMemoryMimers;
     }
 
-    const root = env.MIMERS_ROOT?.trim();
-    if (!root) {
-      if (required) {
-        throw new Error(
-          "MIMERS_REQUIRED set but MIMERS_ROOT missing for ExecutionKernel CAS (fail-closed)",
-        );
-      }
-      const fallback = path.resolve(".data/mimers");
-      return MimersIntegration.createMimersBacked(
-        fallback,
-        env.MIMERS_DURABILITY_MODE,
-        required,
+    if (!env.MIMERS_ROOT?.trim()) {
+      throw new MimersRootRequiredError(
+        "ExecutionKernel CAS",
+        required
+          ? "MIMERS_REQUIRED set but MIMERS_ROOT missing for ExecutionKernel CAS"
+          : undefined,
       );
     }
+    const root = resolveDurableMimersRoot(env, "ExecutionKernel CAS");
 
     return MimersIntegration.createMimersBacked(
       root,
@@ -107,9 +120,13 @@ export class MimersIntegration {
     );
   }
 
-  /** Boot-time gate: when MIMERS_REQUIRED, refuse to continue unless CAS initializes. */
+  /**
+   * Boot-time gate (web process, LU workers): refuse to continue unless the durable CAS
+   * initializes. Unconditional outside an explicit test environment (U30-A); inside one it only
+   * applies when `MIMERS_REQUIRED` is set.
+   */
   static async assertReady(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-    if (!isTruthyFlag(env.MIMERS_REQUIRED)) return;
+    if (!isTruthyFlag(env.MIMERS_REQUIRED) && isMimersTestEnvironment(env)) return;
     await MimersIntegration.create({ env, forceMimers: true });
   }
 
