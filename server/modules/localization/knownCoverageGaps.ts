@@ -12,9 +12,12 @@
  *  - KNOWN_INCOMPLETE_DATA: admitted data that a reconciliation found missing from the governed
  *    table. Stated with its date and basis; this code does NOT re-check it against the table.
  *
- * Nothing here claims full coverage: a dataset with no entry is shown as "Saknas i underlaget" (the
- * contracts say nothing), never as complete. Presentation only: no finding, status, risk level,
- * permit probability or score is derived from these entries.
+ * Nothing here claims full coverage: each text says what the check was made against ("kontrollen
+ * avser endast inläst ...") as opposed to full coverage, and a dataset with no entry is shown as
+ * "Saknas i underlaget" (the contracts say nothing), never as complete. The entries themselves travel
+ * as machine-readable `known_coverage_gaps` (kind, date, basis, rechecked_against_current_table:
+ * false, sources) on the evidence details and the layer checks -- not only as text. Presentation
+ * only: no finding, status, risk level, permit probability or score is derived from these entries.
  */
 
 export type KnownCoverageGapKind = 'CONTRACT_SCOPE' | 'KNOWN_INCOMPLETE_DATA';
@@ -35,6 +38,11 @@ export interface KnownCoverageGap {
   readonly as_of: string;
   /** How the statement is known, and what it has NOT been checked against. */
   readonly basis_sv: string;
+  /**
+   * Machine-readable "ej omkontrollerad": no entry is re-checked against the current governed table
+   * by this code (contract scope is a contract statement; a reconciliation figure is as of its date).
+   */
+  readonly rechecked_against_current_table: false;
   /** Where it is stated (repository path:line unless marked otherwise). */
   readonly sources: readonly string[];
 }
@@ -53,11 +61,14 @@ export const KNOWN_COVERAGE_GAPS: readonly KnownCoverageGap[] = [
     layer_id: 'lu.natura2000',
     source_sha256: NATURA2000_SPA_SHA256,
     layer_label_sv: 'Natura 2000',
-    text_sv: 'endast fågelskyddsområden (SPA)',
+    text_sv:
+      'kontrollen avser endast inläst SPA-underlag (fågelskyddsområden), inte fullständig Natura 2000-täckning; ' +
+      'särskilda bevarandeområden (SCI/SAC) ingår inte',
     as_of: '2026-08-08',
     basis_sv: ADMIT_V1_FREEZE_BASIS_SV,
+    rechecked_against_current_table: false,
     sources: [
-      'docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md:22 ("SPA rikstäckande only v1; SCI = later wave")',
+      'docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md:22 (lu.natura2000: SPA only v1; SCI = later wave)',
       'docs/architecture/admit-v1/ADMIT-V1-SET.md:60',
     ],
   },
@@ -67,9 +78,12 @@ export const KNOWN_COVERAGE_GAPS: readonly KnownCoverageGap[] = [
     layer_id: 'lu.natura2000',
     source_sha256: NATURA2000_SPA_SHA256,
     layer_label_sv: 'Natura 2000',
-    text_sv: 'underlaget är känt ofullständigt (103 av 558 SPA-områden saknas enligt avstämning 2026-09-25)',
+    text_sv:
+      'underlaget är känt ofullständigt (103 av 558 SPA-områden saknas enligt avstämning 2026-09-25, ' +
+      'ej omkontrollerad mot nuvarande tabell)',
     as_of: '2026-09-25',
     basis_sv: 'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell',
+    rechecked_against_current_table: false,
     sources: [
       // Lane report outside the repository (main checkout, "Claude outputs/").
       'Claude outputs/db-provenance-lane-2026-09-25/DB-LANE-RECONCILIATION-CRITIC.md:103 ' +
@@ -86,9 +100,12 @@ export const KNOWN_COVERAGE_GAPS: readonly KnownCoverageGap[] = [
     layer_id: 'lu.protected_area',
     source_sha256: PROTECTED_AREA_SHA256,
     layer_label_sv: 'Skyddad natur',
-    text_sv: 'endast naturreservat; övriga skyddsformer ingår inte i underlaget',
+    text_sv:
+      'kontrollen avser endast inlästa naturreservat, inte fullständig täckning av skyddad natur; ' +
+      'övriga skyddsformer ingår inte i underlaget',
     as_of: '2026-08-08',
     basis_sv: `${ADMIT_V1_FREEZE_BASIS_SV}; följer av kontraktets source_id (…/SkyddadeOmraden/Naturreservat/…)`,
+    rechecked_against_current_table: false,
     sources: [
       'docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md:20',
       'docs/architecture/admit-v1/ADMIT-V1-SET.md:58',
@@ -101,10 +118,11 @@ export const KNOWN_COVERAGE_GAPS: readonly KnownCoverageGap[] = [
     source_sha256: WATER_PROTECTION_SHA256,
     layer_label_sv: 'Vattenskyddsområde',
     text_sv:
-      'endast Naturvårdsverkets vattenskyddsområden; Länsstyrelsens vattenskydd (VISS lst_vattenskydd) ' +
-      'ingår inte i underlaget',
+      'kontrollen avser endast Naturvårdsverkets inlästa vattenskyddsområden, inte fullständig täckning av ' +
+      'vattenskyddsområden; Länsstyrelsens vattenskydd (VISS lst_vattenskydd) ingår inte i underlaget',
     as_of: '2026-08-08',
     basis_sv: ADMIT_V1_FREEZE_BASIS_SV,
+    rechecked_against_current_table: false,
     sources: [
       'docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md:21 ("NV sole"; "forbid VISS/lst_vattenskydd")',
       'docs/architecture/admit-v1/ADMIT-V1-SET.md:16-29,68 (LST vattenskydd OUT_OF_SCOPE v1)',

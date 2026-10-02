@@ -32,9 +32,11 @@ afterEach(() => {
 });
 
 describe('U20CDF: known coverage gaps -- one register, traceable, never a full-coverage claim', () => {
-  it('Natura 2000: SPA only, and the SPA basis is known to be incomplete (103 of 558, reconciliation 2026-09-25)', () => {
+  it('Natura 2000: checked against the loaded SPA basis only, not full Natura coverage, and that basis is known incomplete (103 of 558)', () => {
     expect(knownCoverageLimitationSv(HASH.natura2000)).toBe(
-      'Natura 2000: endast fågelskyddsområden (SPA); underlaget är känt ofullständigt (103 av 558 SPA-områden saknas enligt avstämning 2026-09-25).',
+      'Natura 2000: kontrollen avser endast inläst SPA-underlag (fågelskyddsområden), inte fullständig Natura 2000-täckning; ' +
+        'särskilda bevarandeområden (SCI/SAC) ingår inte; underlaget är känt ofullständigt (103 av 558 SPA-områden saknas ' +
+        'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell).',
     );
     const gap = KNOWN_COVERAGE_GAPS.find((g) => g.gap_id === 'NATURA2000_SPA_103_OF_558_ABSENT')!;
     expect(gap).toMatchObject({
@@ -43,18 +45,24 @@ describe('U20CDF: known coverage gaps -- one register, traceable, never a full-c
       source_sha256: HASH.natura2000,
       as_of: '2026-09-25',
       basis_sv: 'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell',
+      rechecked_against_current_table: false,
     });
     expect(gap.sources.join(' ')).toMatch(/DB-LANE-RECONCILIATION-CRITIC\.md:103/);
     expect(knownCoverageGapsFor(HASH.natura2000).map((g) => g.kind)).toEqual(['CONTRACT_SCOPE', 'KNOWN_INCOMPLETE_DATA']);
   });
 
-  it('protected nature and water protection state their contract scope, word for word as before', () => {
+  it('protected nature and water protection: what the check was made against, as opposed to full coverage', () => {
     expect(knownCoverageLimitationSv(HASH.protected_area)).toBe(
-      'Skyddad natur: endast naturreservat; övriga skyddsformer ingår inte i underlaget.',
+      'Skyddad natur: kontrollen avser endast inlästa naturreservat, inte fullständig täckning av skyddad natur; ' +
+        'övriga skyddsformer ingår inte i underlaget.',
     );
     expect(knownCoverageLimitationSv(HASH.water_protection_area)).toBe(
-      'Vattenskyddsområde: endast Naturvårdsverkets vattenskyddsområden; Länsstyrelsens vattenskydd (VISS lst_vattenskydd) ingår inte i underlaget.',
+      'Vattenskyddsområde: kontrollen avser endast Naturvårdsverkets inlästa vattenskyddsområden, inte fullständig ' +
+        'täckning av vattenskyddsområden; Länsstyrelsens vattenskydd (VISS lst_vattenskydd) ingår inte i underlaget.',
     );
+    for (const hash of [HASH.protected_area, HASH.water_protection_area]) {
+      expect(knownCoverageGapsFor(hash).map((g) => g.kind)).toEqual(['CONTRACT_SCOPE']);
+    }
   });
 
   it('nothing is stated where the contracts say nothing, or for another dataset version', () => {
@@ -76,13 +84,20 @@ describe('U20CDF: known coverage gaps -- one register, traceable, never a full-c
       expect(gap.as_of).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(gap.basis_sv.length).toBeGreaterThan(0);
       expect(gap.sources.length).toBeGreaterThan(0);
+      expect(gap.rechecked_against_current_table).toBe(false);
       expect(gap.text_sv).not.toMatch(/\.$/);
     }
   });
 
-  it('no composed text claims full coverage', () => {
+  it('no composed text claims full coverage: "fullständig" only ever appears negated', () => {
     for (const hash of Object.values(HASH)) {
-      expect(knownCoverageLimitationSv(hash) ?? '').not.toMatch(/rikstäckande|hela landet|samtliga|alla (SPA|områden)|fullständig täckning/i);
+      const text = knownCoverageLimitationSv(hash) ?? '';
+      expect(text).not.toMatch(/rikstäckande|hela landet|samtliga|alla (SPA|områden)/i);
+      // ("ofullständigt" is the opposite claim and allowed.)
+      expect(text.replace(/inte fullständig/g, '')).not.toMatch(/(^|[^a-zåäö])fullständig/i);
+    }
+    for (const hash of [HASH.natura2000, HASH.protected_area, HASH.water_protection_area]) {
+      expect(knownCoverageLimitationSv(hash)).toMatch(/kontrollen avser endast .*inläst.*, inte fullständig/);
     }
   });
 

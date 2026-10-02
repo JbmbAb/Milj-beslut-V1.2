@@ -581,7 +581,12 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     const protectedArea = byLayer.get('protected_area')!;
     expect(protectedArea.binding_assurance).toBe('HASH_BOUND_LEGACY_ADOPTED');
     expect(protectedArea.binding_note_sv).toMatch(/legacy-adopterad leverans \(legacy-adopted-2026-07-20\)/);
-    expect(protectedArea.coverage_limitation_sv).toBe('Skyddad natur: endast naturreservat; övriga skyddsformer ingår inte i underlaget.');
+    // U20CDF (owner directive): what the check was made against, as opposed to full coverage.
+    expect(protectedArea.coverage_limitation_sv).toBe(
+      'Skyddad natur: kontrollen avser endast inlästa naturreservat, inte fullständig täckning av skyddad natur; ' +
+        'övriga skyddsformer ingår inte i underlaget.',
+    );
+    expect(protectedArea.known_coverage_gaps.map((g) => [g.gap_id, g.kind])).toEqual([['PROTECTED_AREA_NATURRESERVAT_ONLY', 'CONTRACT_SCOPE']]);
     // SI-2: a negative register result is "ingen registrerad träff", a register check -- nothing more.
     expect(byLayer.get('ebh')!.message_sv).toBe(
       'Ingen registrerad träff i Potentiellt förorenade områden (EBH) (Länsstyrelsen) inom 500 m (registerkontroll, inte markundersökning).',
@@ -590,13 +595,40 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     const natura = byLayer.get('natura2000')!;
     expect(natura.result?.cap_reached).toBe(true);
     expect(natura.message_sv).toContain('minst 50 objekt (taket på 50 träffar nåddes; fler kan finnas)');
-    // U20CDF (U20CD verification F1): SPA only AND the SPA basis itself is known to be incomplete --
-    // never read as "all SPA areas". From the one register (knownCoverageGaps.ts), with its date.
+    // U20CDF (U20CD verification F1; owner directive 2026-10-02): checked against the loaded SPA basis,
+    // not full Natura coverage, AND that basis is known to be incomplete -- never read as "all SPA
+    // areas". From the one register (knownCoverageGaps.ts): as text AND as machine-readable entries.
     const NATURA_LIMITATION =
-      'Natura 2000: endast fågelskyddsområden (SPA); underlaget är känt ofullständigt (103 av 558 SPA-områden saknas enligt avstämning 2026-09-25).';
+      'Natura 2000: kontrollen avser endast inläst SPA-underlag (fågelskyddsområden), inte fullständig Natura 2000-täckning; ' +
+      'särskilda bevarandeområden (SCI/SAC) ingår inte; underlaget är känt ofullständigt (103 av 558 SPA-områden saknas ' +
+      'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell).';
     expect(natura.coverage_limitation_sv).toBe(NATURA_LIMITATION);
     expect(natura.contract?.coverage_limitation_sv).toBe(NATURA_LIMITATION);
-    expect(summary.governedLayerChecks.find((c) => c.layer === 'natura2000')!.coverage_limitation_sv).toBe(NATURA_LIMITATION);
+    const naturaCheck = summary.governedLayerChecks.find((c) => c.layer === 'natura2000')!;
+    expect(naturaCheck.coverage_limitation_sv).toBe(NATURA_LIMITATION);
+    const NATURA_GAPS = [
+      { gap_id: 'NATURA2000_SPA_ONLY', kind: 'CONTRACT_SCOPE', as_of: '2026-08-08', rechecked_against_current_table: false },
+      {
+        gap_id: 'NATURA2000_SPA_103_OF_558_ABSENT', kind: 'KNOWN_INCOMPLETE_DATA', as_of: '2026-09-25',
+        basis_sv: 'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell', rechecked_against_current_table: false,
+      },
+    ];
+    for (const gaps of [natura.known_coverage_gaps, naturaCheck.known_coverage_gaps]) {
+      expect(gaps).toHaveLength(2);
+      gaps.forEach((gap, i) => {
+        expect(gap).toMatchObject({ ...NATURA_GAPS[i], layer_id: 'lu.natura2000', source_sha256: REGISTRY_HASH.natura2000 });
+        expect(gap.sources.length).toBeGreaterThan(0);
+      });
+    }
+    // Wells: the contracts state nothing -> no entry, never a completeness claim.
+    expect(water.known_coverage_gaps).toEqual([]);
+    // The same entries reach the HTTP read-back.
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    const httpNatura = res.body.evidenceDetails.find((d: { layer: string }) => d.layer === 'natura2000');
+    expect(httpNatura.known_coverage_gaps).toEqual(JSON.parse(JSON.stringify(natura.known_coverage_gaps)));
+    expect(res.body.governedLayerChecks.find((c: { layer: string }) => c.layer === 'natura2000').known_coverage_gaps).toEqual(
+      JSON.parse(JSON.stringify(naturaCheck.known_coverage_gaps)),
+    );
 
     await exportCurrentLuAssessmentPdf(s.deps());
     const text = JSON.stringify(capturedPdfData);
@@ -607,6 +639,16 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
     expect(text).toContain(REGISTRY_HASH.water);
     const pdfWater = (capturedPdfData as PdfData).evidensdetaljer.find((d) => d.evidens_artifact_id === water.evidence_artifact_id)!;
     expect(pdfWater).toMatchObject({ importbatch: 'Saknas i underlaget', sokradie_m: 500, antal_traffar: 3, tak_natt: false, kalla: 'SGU' });
+    const pdfNatura = (capturedPdfData as PdfData).evidensdetaljer.find((d) => d.evidens_artifact_id === natura.evidence_artifact_id)!;
+    expect(pdfNatura.kanda_tackningsluckor).toEqual([
+      expect.objectContaining({ id: 'NATURA2000_SPA_ONLY', typ: 'CONTRACT_SCOPE', datum: '2026-08-08', omkontrollerad_mot_nuvarande_tabell: false }),
+      expect.objectContaining({
+        id: 'NATURA2000_SPA_103_OF_558_ABSENT', typ: 'KNOWN_INCOMPLETE_DATA', datum: '2026-09-25',
+        grund: 'enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell', omkontrollerad_mot_nuvarande_tabell: false,
+      }),
+    ]);
+    const pdfNaturaRow = (capturedPdfData as PdfData).lagerkontroller.find((c) => c.lager === 'natura2000')!;
+    expect(pdfNaturaRow.kanda_tackningsluckor).toEqual(pdfNatura.kanda_tackningsluckor);
     // SI-2: never a soil/risk-free claim anywhere in the governed PDF.
     expect(text).not.toMatch(/oförorenad|inga risker|inga avvikelser/i);
   });

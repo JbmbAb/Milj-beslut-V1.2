@@ -50,6 +50,7 @@ import {
   type PropertyRootDetails,
 } from './governedEvidenceDetails';
 import { governedLayerLabelSv } from './governedCoverageStatement';
+import type { KnownCoverageGap } from './knownCoverageGaps';
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
@@ -838,6 +839,7 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
       underlag_artifact_id: check.evidence_artifact_id,
       beskrivning: check.message_sv,
       tackning: check.coverage_limitation_sv,
+      kanda_tackningsluckor: pdfKnownCoverageGaps(check.known_coverage_gaps),
     })),
     // U20-D (K3/C10): per pinned evidence -- dataset version, radius, result, cap, time, binding.
     evidensdetaljer: summary.evidenceDetails.map(pdfEvidenceDetail),
@@ -897,10 +899,24 @@ function pdfEvidenceDetail(detail: GovernedEvidenceDetail) {
     bindning: detail.binding_assurance,
     bindning_beskrivning: detail.binding_note_sv,
     tackning: detail.coverage_limitation_sv,
+    kanda_tackningsluckor: pdfKnownCoverageGaps(detail.known_coverage_gaps),
     integritet: orMissing(detail.integrity),
     tekniskt_fel: detail.technical_error_class,
     fynd: detail.cited_by_finding_ids,
   };
+}
+
+/** U20CDF: the machine-readable coverage-gap entries behind "tackning", with date, basis and source. */
+function pdfKnownCoverageGaps(gaps: readonly KnownCoverageGap[]) {
+  return gaps.map((gap) => ({
+    id: gap.gap_id,
+    typ: gap.kind,
+    lager: gap.layer_id,
+    datum: gap.as_of,
+    grund: gap.basis_sv,
+    omkontrollerad_mot_nuvarande_tabell: gap.rechecked_against_current_table,
+    kallor: gap.sources,
+  }));
 }
 
 function pdfPropertyRoot(root: PropertyRootDetails) {

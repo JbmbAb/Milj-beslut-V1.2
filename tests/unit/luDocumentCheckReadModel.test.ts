@@ -420,7 +420,7 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     }
     // The presented row is the same check, as TECHNICAL_ERROR (like spatial), and is not counted as done.
     const checks = (summary as unknown as { governedLayerChecks: Array<Record<string, unknown>> }).governedLayerChecks;
-    const { coverage_state, coverage_limitation_sv: _limitation, ...documentRow } = checks.at(-1)!;
+    const { coverage_state, coverage_limitation_sv: _limitation, known_coverage_gaps: _gaps, ...documentRow } = checks.at(-1)!;
     expect(coverage_state).toBe('TECHNICAL_ERROR');
     expect(documentRow).toEqual(readBack);
     const statement = (summary as unknown as { overallStatement: { coverage: { not_completed_layers: string[] } } }).overallStatement;

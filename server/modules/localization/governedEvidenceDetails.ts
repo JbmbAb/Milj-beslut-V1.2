@@ -61,7 +61,7 @@ import {
   summarizeGovernedCheckCoverage,
   type GovernedCheckCoverage,
 } from './governedCoverageStatement';
-import { knownCoverageLimitationSv } from './knownCoverageGaps';
+import { knownCoverageGapsFor, knownCoverageLimitationSv, type KnownCoverageGap } from './knownCoverageGaps';
 
 /** The governed spatial layers of LU v1, in check order. The product query requests exactly these. */
 export const LU_V1_GOVERNED_SPATIAL_LAYERS = [
@@ -171,6 +171,11 @@ export interface PresentedGovernedLayerCheck extends GovernedLayerCheck {
   readonly message_sv: string;
   /** From the ADMIT v1 contract of the evidence's dataset version; "Saknas i underlaget" otherwise. */
   readonly coverage_limitation_sv: string;
+  /**
+   * U20CDF (owner directive 2026-10-02): the same limitation as machine-readable entries of the one
+   * register (knownCoverageGaps.ts) for the evidence's dataset version; [] when none is stated.
+   */
+  readonly known_coverage_gaps: readonly KnownCoverageGap[];
 }
 
 const COVERAGE_STATE_BY_REASON: Readonly<Record<string, GovernedCoverageState>> = {
@@ -252,7 +257,13 @@ function presentCheck(check: GovernedLayerCheck, evidenceById: ReadonlyMap<strin
   const existing = (check as { message_sv?: unknown }).message_sv;
   if (typeof existing === 'string') {
     // The document check (K0) brings its own Swedish text; it has no ADMIT contract.
-    return { ...check, coverage_state: state, message_sv: existing, coverage_limitation_sv: MISSING_IN_BASIS_SV };
+    return {
+      ...check,
+      coverage_state: state,
+      message_sv: existing,
+      coverage_limitation_sv: MISSING_IN_BASIS_SV,
+      known_coverage_gaps: [],
+    };
   }
   const evidence = check.evidence_artifact_id ? evidenceById.get(check.evidence_artifact_id) : undefined;
   const view = spatialEvidenceView(evidence);
@@ -261,6 +272,7 @@ function presentCheck(check: GovernedLayerCheck, evidenceById: ReadonlyMap<strin
     coverage_state: state,
     message_sv: spatialCheckMessageSv(check, state, view),
     coverage_limitation_sv: admitV1ContractFacts(view.versionHash)?.coverage_limitation_sv ?? MISSING_IN_BASIS_SV,
+    known_coverage_gaps: knownCoverageGapsFor(view.versionHash),
   };
 }
 
@@ -377,6 +389,8 @@ export interface GovernedEvidenceDetail {
   readonly binding_assurance: EvidenceBindingAssurance;
   readonly contract: AdmitV1LayerContractFacts | null;
   readonly coverage_limitation_sv: string;
+  /** U20CDF: machine-readable entries behind coverage_limitation_sv (kind, date, basis, not rechecked, sources). */
+  readonly known_coverage_gaps: readonly KnownCoverageGap[];
   /** Findings of the assessment that cite this evidence (Finding -> Evidence drilldown). */
   readonly cited_by_finding_ids: readonly string[];
   readonly message_sv: string;
@@ -423,6 +437,7 @@ function emptyDetail(ref: { artifact_id: string; artifact_type: string }, citedB
     result: null,
     contract: null,
     coverage_limitation_sv: MISSING_IN_BASIS_SV,
+    known_coverage_gaps: [] as readonly KnownCoverageGap[],
     cited_by_finding_ids: citedBy,
   } as const;
 }
@@ -526,6 +541,7 @@ function spatialDetail(
     binding_assurance: bindingAssurance,
     contract,
     coverage_limitation_sv: contract?.coverage_limitation_sv ?? MISSING_IN_BASIS_SV,
+    known_coverage_gaps: knownCoverageGapsFor(view.versionHash),
     cited_by_finding_ids: citedBy,
     message_sv: spatialCheckMessageSv(pseudoCheck, coverageStateOf(pseudoCheck), view),
     binding_note_sv:
