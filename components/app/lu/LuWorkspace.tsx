@@ -8,6 +8,7 @@ import {
   checkDefinitionForLayer,
   checkDefinitionForRule,
   checkEvidenceBinding,
+  governedCheckLabelSv,
   knowledgeStateForError,
   limitedCoverageLayersOf,
   parseServerArray,
@@ -183,6 +184,37 @@ type RunOutcome = {
   messageSv: string | null;
 };
 
+/** W-M2d item 4: one machine notice of a verification (LuReExecutionResult.notices). */
+type VerifyNotice = { code: string; finding_ids: readonly string[] };
+
+function parseVerifyNotices(raw: unknown): VerifyNotice[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry): VerifyNotice[] => {
+    const n = entry && typeof entry === 'object' ? (entry as { code?: unknown; finding_ids?: unknown }) : null;
+    if (!n || typeof n.code !== 'string' || !n.code) return [];
+    const ids = Array.isArray(n.finding_ids) ? n.finding_ids.filter((id): id is string => typeof id === 'string') : [];
+    return [{ code: n.code, finding_ids: ids }];
+  });
+}
+
+const NOT_CHECKED_FINDING_PREFIX = 'finding-notchecked-';
+
+/**
+ * W-M2d item 4 (owner 2026-10-02 night): the Swedish line of one verification notice, shown directly
+ * under the result. NOT_CHECKED_CAUSE_NOT_PINNED: the layer's NOT_CHECKED finding was reproduced, but
+ * its stored cause was never pinned and cannot be reproduced. Codes stay in the technical section.
+ */
+function verifyNoticeSv(notice: VerifyNotice): string {
+  if (notice.code === 'NOT_CHECKED_CAUSE_NOT_PINNED') {
+    const layers = notice.finding_ids
+      .filter((id) => id.startsWith(NOT_CHECKED_FINDING_PREFIX))
+      .map((id) => governedCheckLabelSv(id.slice(NOT_CHECKED_FINDING_PREFIX.length)));
+    const which = layers.length === 0 ? 'ett eller flera lager' : layers.length === 1 ? `lagret ${layers[0]}` : `lagren ${layers.join(', ')}`;
+    return `Orsaken till att ${which} inte kontrollerades sparades inte vid bedömningen och kan inte återskapas.`;
+  }
+  return 'Kontrollen gav en notis som inte kan visas här – se teknisk information.';
+}
+
 /** How the run that produced no assessment ended, as the end of a sentence. */
 function runOutcomeClause(status: string): string {
   if (status === 'GOVERNANCE_DENIED') return 'nekades av styrningen';
@@ -258,10 +290,10 @@ function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assess
 
 function incoherenceReason(i: Incoherence): string {
   if (i.currentId === null && i.projectionRegistered === false) {
-    return 'Bedömningen gjordes och sparades, men registrerades inte som projektets aktuella bedömning. Den kan därför inte läsas tillbaka, verifieras eller exporteras ännu.';
+    return 'Bedömningen gjordes och sparades, men registrerades inte som projektets aktuella bedömning. Den kan därför ännu inte läsas tillbaka, kontrolleras eller exporteras.';
   }
   if (i.currentId === null) {
-    return 'Bedömningen gjordes, men projektet har ingen aktuell bedömning att läsa tillbaka. Den kan därför inte visas, verifieras eller exporteras.';
+    return 'Bedömningen gjordes, men projektet har ingen aktuell bedömning att läsa tillbaka. Den kan därför inte visas, kontrolleras eller exporteras.';
   }
   return 'Den nyss gjorda bedömningen är inte den som projektet nu anger som aktuell. Mimer visar inte en blandning av två bedömningar.';
 }
@@ -310,6 +342,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     outcome: 'PASS' | 'DENY' | 'OTHER_ASSESSMENT' | 'UNKNOWN';
     verifiedId: string | null;
     mismatches: readonly { code: string; detail: string }[];
+    /** W-M2d item 4: the server's machine notices (e.g. NOT_CHECKED_CAUSE_NOT_PINNED), unchanged. */
+    notices: readonly VerifyNotice[];
+    /** The server's own Swedish outcome text -- technical section only (it may claim more than replay). */
+    serverOutcomeSv: string | null;
   } | null>(null);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
   const [persistedAssessmentError, setPersistedAssessmentError] = useState<LuErrorPresentation | null>(null);
@@ -694,12 +730,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
   // LU-REEXECUTION-VERIFY-UI-V1 / DEMO M2b item 2: deterministic re-execution of the project's
   // current assessment; the result counts only if it names the DISPLAYED assessment.
+  // W-M2d item 4: what this proves is REPLAY CONSISTENCY against the pinned artifacts -- never
+  // authenticity (no signature or attestation is checked at verify; U30R3-REPORT section 7).
   const verifyAssessment = async () => {
     if (verifyingAssessment) return; // duplicate-click guard
     const projectId = getActiveProjectId();
     const shownId = governed?.assessmentArtifactId ?? null;
     if (!projectId || !shownId) {
-      setVerifyError(presentLuError(new LuClientError('Det finns ingen visad bedömning att verifiera.'), 'verify'));
+      setVerifyError(presentLuError(new LuClientError('Det finns ingen visad bedömning att kontrollera.'), 'verify'));
       return;
     }
     setVerifyError(null);
@@ -711,15 +749,19 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         outcome: string;
         assessmentArtifactId: string;
         mismatches?: readonly { code: string; detail: string }[];
+        notices?: unknown;
+        outcome_sv?: unknown;
       }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, { method: 'POST' });
       const verifiedId = typeof result?.assessmentArtifactId === 'string' ? result.assessmentArtifactId : null;
       const mismatches = Array.isArray(result?.mismatches) ? result.mismatches : [];
+      const notices = parseVerifyNotices(result?.notices);
+      const serverOutcomeSv = typeof result?.outcome_sv === 'string' && result.outcome_sv ? result.outcome_sv : null;
       if (verifiedId !== shownId) {
-        setVerifyResult({ outcome: 'OTHER_ASSESSMENT', verifiedId, mismatches: [] });
+        setVerifyResult({ outcome: 'OTHER_ASSESSMENT', verifiedId, mismatches: [], notices: [], serverOutcomeSv: null });
       } else if (result.outcome === 'PASS' || result.outcome === 'DENY') {
-        setVerifyResult({ outcome: result.outcome, verifiedId, mismatches });
+        setVerifyResult({ outcome: result.outcome, verifiedId, mismatches, notices, serverOutcomeSv });
       } else {
-        setVerifyResult({ outcome: 'UNKNOWN', verifiedId, mismatches });
+        setVerifyResult({ outcome: 'UNKNOWN', verifiedId, mismatches, notices, serverOutcomeSv });
       }
     } catch (err) {
       setVerifyError(presentLuError(err, 'verify'));
@@ -1209,7 +1251,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           <h2 className="text-xl font-bold" style={{ color: 'inherit' }}>Kan inte visa en sammanhängande bedömning</h2>
           <p className="text-sm">{incoherenceReason(incoherence)}</p>
           <p className="text-sm opacity-80">
-            Fynd, kontrollresultat, karta, verifiering och export visas inte förrän bedömningen kan läsas tillbaka som projektets
+            Fynd, kontrollresultat, karta, reproducerbarhetskontroll och export visas inte förrän bedömningen kan läsas tillbaka som projektets
             aktuella bedömning.
           </p>
           <button
@@ -1254,7 +1296,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                   className="px-4 py-2 text-sm font-semibold border disabled:opacity-40"
                   style={{ borderColor: colors.coreTurquoise.hex, color: colors.flowLightCyan.hex }}
                 >
-                  {verifyingAssessment ? 'Verifierar…' : 'Verifiera bedömningen'}
+                  {verifyingAssessment ? 'Kontrollerar…' : 'Kontrollera reproducerbarhet'}
                 </button>
               ) : null}
               {governed.assessmentArtifactId ? (
@@ -1275,29 +1317,52 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           {verifyError ? <LuErrorNotice testId="lu-verify-error" error={verifyError} className="" /> : null}
           {verifyResult ? (
             verifyResult.outcome === 'PASS' ? (
-              <p data-testid="lu-verify-result-pass" className="text-sm" style={{ color: '#34D399' }}>
-                Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.
-              </p>
+              // W-M2d item 4: consistency/replay against the pinned artifacts -- never "identical", never
+              // authenticity; the server's notices directly under the claim.
+              <div data-testid="lu-verify-result-pass" className="text-sm space-y-1" style={{ color: '#A5F3FC' }}>
+                <p data-testid="lu-verify-result-pass-head" className="font-semibold">
+                  Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.
+                </p>
+                {verifyResult.notices.length > 0 ? (
+                  <ul data-testid="lu-verify-result-notices" className="space-y-0.5" style={{ color: '#FDBA74' }}>
+                    {verifyResult.notices.map((notice, i) => (
+                      <li key={`${notice.code}-${i}`}>{verifyNoticeSv(notice)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <p className="text-xs opacity-80">
+                  Kontrollen visar att bedömningen kan återskapas ur sitt sparade underlag. Den intygar inte vem som har skapat
+                  underlaget.
+                </p>
+                <details data-testid="lu-verify-result-technical" className="text-xs opacity-80">
+                  <summary className="cursor-pointer">Teknisk information</summary>
+                  <p className="font-mono break-all">Kontrollerad bedömning: {verifyResult.verifiedId ?? 'okänd'}</p>
+                  {verifyResult.notices.map((notice, i) => (
+                    <p key={`tech-${notice.code}-${i}`} className="font-mono break-all">
+                      Notis: {notice.code}
+                      {notice.finding_ids.length > 0 ? ` (${notice.finding_ids.join(', ')})` : ''}
+                    </p>
+                  ))}
+                  {verifyResult.serverOutcomeSv ? <p className="break-all">Serverns text: {verifyResult.serverOutcomeSv}</p> : null}
+                </details>
+              </div>
             ) : verifyResult.outcome === 'OTHER_ASSESSMENT' ? (
               <div data-testid="lu-verify-result-other" className="text-sm space-y-1" style={{ color: '#F0ABFC' }}>
-                <p>
-                  Verifieringen gällde en annan bedömning än den som visas, så den räknas inte som en verifiering av den här
-                  bedömningen. Läs in bedömningen på nytt.
-                </p>
+                <p>Kontrollen gällde en annan bedömning än den som visas och räknas inte för den här. Läs in bedömningen på nytt.</p>
                 <details className="text-xs opacity-80">
                   <summary className="cursor-pointer">Teknisk information</summary>
                   <p className="font-mono break-all">Visad bedömning: {governed.assessmentArtifactId}</p>
-                  <p className="font-mono break-all">Verifierad bedömning: {verifyResult.verifiedId ?? 'okänd'}</p>
+                  <p className="font-mono break-all">Kontrollerad bedömning: {verifyResult.verifiedId ?? 'okänd'}</p>
                 </details>
               </div>
             ) : (
               <div data-testid="lu-verify-result-mismatch" className="text-sm space-y-1" style={{ color: '#F87171' }}>
                 <p data-testid="lu-verify-result-mismatch-summary">
                   {verifyResult.outcome === 'UNKNOWN'
-                    ? 'Verifieringen gav ett okänt utfall. Bedömningen kunde inte bekräftas som identisk.'
+                    ? 'Kontrollen gav ett okänt utfall. Reproducerbarheten kunde inte bekräftas.'
                     : verifyMismatchCount > 0
-                      ? `Verifieringen hittade ${verifyMismatchCount} ${verifyMismatchCount === 1 ? 'avvikelse' : 'avvikelser'} mot det ursprungliga underlaget. Bedömningen kunde inte bekräftas som identisk.`
-                      : 'Verifieringen kunde inte bekräfta bedömningen som identisk.'}
+                      ? `Kontrollen hittade ${verifyMismatchCount} ${verifyMismatchCount === 1 ? 'avvikelse' : 'avvikelser'} mot de pinnade artefakterna. Reproducerbarheten kunde inte bekräftas.`
+                      : 'Reproducerbarheten kunde inte bekräftas – återexekveringen matchar inte de pinnade artefakterna.'}
                 </p>
                 {verifyMismatchCount > 0 ? (
                   <details data-testid="lu-verify-result-mismatch-technical" className="text-xs opacity-80">

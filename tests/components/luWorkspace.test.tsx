@@ -608,8 +608,9 @@ describe('LuWorkspace', () => {
       '/api/localization/proj-1/verify-assessment',
       expect.objectContaining({ method: 'POST' }),
     );
-    expect(await screen.findByTestId('lu-verify-result-pass')).toHaveTextContent(
-      'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.',
+    // W-M2d item 4: reproducibility against the pinned artifacts -- never "identiskt", never authenticity.
+    expect(await screen.findByTestId('lu-verify-result-pass-head')).toHaveTextContent(
+      'Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.',
     );
     // Proof 11: the assessment itself remains visible after verification.
     expect(screen.getByTestId('lu-results')).toBeInTheDocument();
@@ -631,7 +632,7 @@ describe('LuWorkspace', () => {
     await user.click(screen.getByTestId('lu-verify-assessment'));
 
     expect(await screen.findByTestId('lu-verify-result-mismatch')).toHaveTextContent('FINDINGS_MISMATCH');
-    expect(screen.getByTestId('lu-verify-result-mismatch-summary')).toHaveTextContent('Verifieringen hittade 1 avvikelse');
+    expect(screen.getByTestId('lu-verify-result-mismatch-summary')).toHaveTextContent('Kontrollen hittade 1 avvikelse');
     expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   });
 
@@ -642,7 +643,7 @@ describe('LuWorkspace', () => {
 
     await user.click(screen.getByTestId('lu-verify-assessment'));
     // DEMO M2b item 3: plain Swedish; the raw text stays in the collapsed technical section.
-    expect(await screen.findByTestId('lu-verify-error-message')).toHaveTextContent('Verifieringen kunde inte genomföras.');
+    expect(await screen.findByTestId('lu-verify-error-message')).toHaveTextContent('Reproducerbarhetskontrollen kunde inte genomföras.');
     expect(screen.getByTestId('lu-verify-error-technical')).toHaveTextContent('Verifiering misslyckades på servern.');
     expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   });
@@ -1197,7 +1198,7 @@ describe('LuWorkspace DEMO M2b', () => {
     mockM2b({ currentAssessment: () => apiError(424, 'Governed LU assessment failed tamper verification.') });
     await openM2b(user);
     const message = await screen.findByTestId('lu-persisted-assessment-error-message');
-    expect(message).toHaveTextContent('Den sparade bedömningen klarade inte integritetskontrollen. Den visas, verifieras och exporteras därför inte.');
+    expect(message).toHaveTextContent('Den sparade bedömningen klarade inte integritetskontrollen. Den visas, kontrolleras och exporteras därför inte.');
     expect(message).not.toHaveTextContent(/Governed|tamper/);
     const technical = screen.getByTestId('lu-persisted-assessment-error-technical');
     expect(technical).not.toHaveAttribute('open');
@@ -1264,7 +1265,7 @@ describe('LuWorkspace DEMO M2b', () => {
     await openM2b(user);
     await user.click(await screen.findByTestId('lu-verify-assessment'));
     const other = await screen.findByTestId('lu-verify-result-other');
-    expect(other).toHaveTextContent('Verifieringen gällde en annan bedömning än den som visas');
+    expect(other).toHaveTextContent('Kontrollen gällde en annan bedömning än den som visas');
     expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   });
 
@@ -1917,6 +1918,86 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-check-state-natura2000')).toHaveTextContent('Kontrollerat – ingen registrerad träff · okänd datasetversion');
     expect(screen.getByTestId('lu-check-state-natura2000')).toHaveAttribute('data-qualified', 'unknown-version');
     expect(screen.getByTestId('lu-check-coverage-note-natura2000')).toHaveTextContent('Datasetversionen finns inte i importkontrakten');
+  });
+
+  it('item 4: a PASS claims reproducibility against the pinned artifacts -- never "identiskt", never authenticity', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => persisted('assessment-shown'),
+      verify: () => ({
+        ok: true,
+        outcome: 'PASS',
+        assessmentArtifactId: 'assessment-shown',
+        mismatches: [],
+        notices: [],
+        outcome_sv: 'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.',
+      }),
+    });
+    await openM2b(user);
+    const button = await screen.findByTestId('lu-verify-assessment');
+    expect(button).toHaveTextContent('Kontrollera reproducerbarhet');
+    await user.click(button);
+    const pass = await screen.findByTestId('lu-verify-result-pass');
+    expect(screen.getByTestId('lu-verify-result-pass-head').textContent).toBe(
+      'Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.',
+    );
+    expect(pass).toHaveTextContent('Den intygar inte vem som har skapat underlaget.');
+    // The server's older wording is technical only; nothing in the result claims identity or authenticity.
+    const visible = screen.getByTestId('lu-results').textContent ?? '';
+    expect(visible.replace(screen.getByTestId('lu-verify-result-technical').textContent ?? '', '')).not.toMatch(
+      /identisk|intakt|äkta|äkthet bekräft|autentisk|signerad|attester/i,
+    );
+    expect(screen.queryByTestId('lu-verify-result-notices')).not.toBeInTheDocument();
+  });
+
+  it('item 4: the server\'s notices are shown directly under the PASS line -- an unsaved NOT_CHECKED cause is said honestly', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => persisted('assessment-shown'),
+      verify: () => ({
+        ok: true,
+        outcome: 'PASS',
+        assessmentArtifactId: 'assessment-shown',
+        mismatches: [],
+        notices: [
+          { code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-ebh'] },
+          { code: 'SOMETHING_NEW', finding_ids: [] },
+        ],
+      }),
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-verify-assessment'));
+    const head = await screen.findByTestId('lu-verify-result-pass-head');
+    const notices = screen.getByTestId('lu-verify-result-notices');
+    expect(head.nextElementSibling).toBe(notices);
+    expect(notices).toHaveTextContent(
+      'Orsaken till att lagren Natura 2000, Potentiellt förorenade områden (EBH) inte kontrollerades sparades inte vid bedömningen och kan inte återskapas.',
+    );
+    expect(notices).toHaveTextContent('Kontrollen gav en notis som inte kan visas här – se teknisk information.');
+    expect(notices).not.toHaveTextContent('NOT_CHECKED_CAUSE_NOT_PINNED');
+    expect(screen.getByTestId('lu-verify-result-technical')).toHaveTextContent('NOT_CHECKED_CAUSE_NOT_PINNED');
+  });
+
+  it('item 4: DENY, an unknown outcome and another assessment say reproducibility could not be confirmed -- in plain Swedish', async () => {
+    const user = userEvent.setup();
+    let verify: unknown = { ok: true, outcome: 'DENY', assessmentArtifactId: 'assessment-shown', mismatches: [{ code: 'FINDINGS_MISMATCH', detail: 'x' }] };
+    mockM2b({ currentAssessment: () => persisted('assessment-shown'), verify: () => verify });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-verify-assessment'));
+    expect(await screen.findByTestId('lu-verify-result-mismatch-summary')).toHaveTextContent(
+      'Kontrollen hittade 1 avvikelse mot de pinnade artefakterna. Reproducerbarheten kunde inte bekräftas.',
+    );
+    verify = { ok: true, outcome: 'SOMETHING', assessmentArtifactId: 'assessment-shown', mismatches: [] };
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+    await waitFor(() =>
+      expect(screen.getByTestId('lu-verify-result-mismatch-summary')).toHaveTextContent('Kontrollen gav ett okänt utfall. Reproducerbarheten kunde inte bekräftas.'),
+    );
+    verify = { ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-other', mismatches: [] };
+    await user.click(screen.getByTestId('lu-verify-assessment'));
+    expect(await screen.findByTestId('lu-verify-result-other')).toHaveTextContent(
+      'Kontrollen gällde en annan bedömning än den som visas och räknas inte för den här. Läs in bedömningen på nytt.',
+    );
+    expect(screen.getByTestId('lu-results')).not.toHaveTextContent(/identisk/i);
   });
 
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {

@@ -85,7 +85,8 @@ const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
   'geometry-save': 'Kontrollpunkten kunde inte sparas.',
   'geometry-retry': 'Förberedelsen av analysen kunde inte startas om.',
   export: 'Rapporten kunde inte exporteras.',
-  verify: 'Verifieringen kunde inte genomföras.',
+  // W-M2d item 4: verify is a reproducibility (replay) check, never a proof of authenticity.
+  verify: 'Reproducerbarhetskontrollen kunde inte genomföras.',
   'property-lookup': 'Fastigheten kunde inte slås upp.',
   'property-search': 'Fastighetssökningen misslyckades.',
   'project-create': 'Lokaliseringen kunde inte skapas.',
@@ -95,7 +96,7 @@ const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
 const NOT_FOUND_TEXT: Readonly<Partial<Record<LuErrorContext, string>>> = {
   'current-assessment': 'Det finns ingen sparad bedömning för kontrollpunkten ännu.',
   export: 'Det finns ingen sparad bedömning att exportera.',
-  verify: 'Det finns ingen sparad bedömning att verifiera.',
+  verify: 'Det finns ingen sparad bedömning att kontrollera.',
 };
 
 /**
@@ -176,14 +177,14 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.message === LU_SERVER_MESSAGE.ASSESSMENT_TAMPER) {
     return make(
       'INTEGRITY',
-      'Den sparade bedömningen klarade inte integritetskontrollen. Den visas, verifieras och exporteras därför inte.',
+      'Den sparade bedömningen klarade inte integritetskontrollen. Den visas, kontrolleras och exporteras därför inte.',
       false,
     );
   }
   if (f.message === LU_SERVER_MESSAGE.ASSESSMENT_NOT_BOUND) {
     return make(
       'INTEGRITY',
-      'Det gick inte att bekräfta att den sparade bedömningen hör till det här projektet. Den visas, verifieras och exporteras därför inte.',
+      'Det gick inte att bekräfta att den sparade bedömningen hör till det här projektet. Den visas, kontrolleras och exporteras därför inte.',
       false,
     );
   }
@@ -195,7 +196,7 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.status === 403 || f.message === LU_SERVER_MESSAGE.NOT_AUTHORIZED) {
     return make('UNAUTHORIZED', `${lead} Du saknar behörighet till det här projektet.`, false);
   }
-  if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget kunde inte verifieras och visas därför inte.`, false);
+  if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget stämmer inte med sin lagrade identitet och visas därför inte.`, false);
   if (f.status === 404) {
     if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NOT_FOUND, true);
     return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det som efterfrågades finns inte.`, false);

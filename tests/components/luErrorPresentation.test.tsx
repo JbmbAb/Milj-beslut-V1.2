@@ -21,7 +21,7 @@ describe('DEMO M2b presentLuError', () => {
     [httpError(403, 'Not authorized for this project.'), 'verify', 'UNAUTHORIZED', 'Du saknar behörighet till det här projektet.'],
     [httpError(401, 'Unauthorized'), 'export', 'UNAUTHORIZED', 'Sessionen har gått ut'],
     [httpError(500, 'Cannot read properties of undefined'), 'run', 'TECHNICAL', 'Bedömningen kunde inte köras. Ett tekniskt fel uppstod på servern.'],
-    [httpError(424, 'Unsupported assessment contract version 9'), 'current-assessment', 'INTEGRITY', 'Underlaget kunde inte verifieras'],
+    [httpError(424, 'Unsupported assessment contract version 9'), 'current-assessment', 'INTEGRITY', 'Underlaget stämmer inte med sin lagrade identitet'],
     [new TypeError('Failed to fetch'), 'viewer-evidence', 'TECHNICAL', 'Servern kunde inte nås eller svarade oväntat.'],
     [httpError(503, 'Otillräcklig datakvalitet för plats site-1 i strikt läge.', { code: 'LOCALIZATION_DATA_UNAVAILABLE' }), 'run', 'TECHNICAL', 'För många datakällor var otillgängliga'],
   ] as const)('%s (%s) -> %s, plain Swedish main text', (err, context, kind, text) => {
@@ -95,7 +95,7 @@ describe('DEMO M2b presentLuError', () => {
     const { rerender } = render(
       <LuErrorNotice testId="x" error={presentLuError(httpError(500, 'raw server text'), 'verify')} onRetry={onRetry} />,
     );
-    expect(screen.getByTestId('x-message')).toHaveTextContent('Verifieringen kunde inte genomföras. Ett tekniskt fel uppstod på servern.');
+    expect(screen.getByTestId('x-message')).toHaveTextContent('Reproducerbarhetskontrollen kunde inte genomföras. Ett tekniskt fel uppstod på servern.');
     expect(screen.getByTestId('x-message')).not.toHaveTextContent('raw server text');
     expect(screen.getByTestId('x-technical')).not.toHaveAttribute('open');
     expect(screen.getByTestId('x-technical')).toHaveTextContent('raw server text');
