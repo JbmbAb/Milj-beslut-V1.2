@@ -248,10 +248,15 @@ function spatialCheckMessageSv(
   state: GovernedCoverageState,
   view: SpatialEvidenceView,
   storedRiskLevel: string | null = null,
+  /** U20CDF4 (U20CDF3 verification L4): the layer's repeated evidence is one and the same pinned ref. */
+  sameEvidencePinnedRepeatedly = false,
 ): string {
   const source = sourceLabelSv(check.layer, view);
   if (check.reason === 'DUPLICATE_LAYER_EVIDENCE') {
-    const duplicate = `Integritetsfel: bedömningen innehåller mer än en evidens för ${governedLayerLabelSv(check.layer)}.`;
+    // U20CDF4 (L4): the same ref pinned twice is ONE evidence -- "mer än en evidens" would be false.
+    const duplicate = sameEvidencePinnedRepeatedly
+      ? `Integritetsfel: bedömningen pinnar samma evidens för ${governedLayerLabelSv(check.layer)} mer än en gång.`
+      : `Integritetsfel: bedömningen innehåller mer än en evidens för ${governedLayerLabelSv(check.layer)}.`;
     return check.status === 'CHECKED_HIT'
       ? `Träff enligt bedömningens lagrade fynd för ${source}` +
           (storedRiskLevel ? ` (${riskLevelPhraseSv(storedRiskLevel)})` : '') +
@@ -322,6 +327,7 @@ function presentCheck(
   check: GovernedLayerCheck,
   evidenceById: ReadonlyMap<string, SpatialEvidenceArtifact>,
   findings: readonly StoredFindingLike[],
+  sameEvidencePinnedRepeatedly = false,
 ): PresentedGovernedLayerCheck {
   const state = coverageStateOf(check);
   const existing = (check as { message_sv?: unknown }).message_sv;
@@ -341,7 +347,7 @@ function presentCheck(
   return {
     ...check,
     coverage_state: state,
-    message_sv: spatialCheckMessageSv(check, state, view, storedRiskLevel),
+    message_sv: spatialCheckMessageSv(check, state, view, storedRiskLevel, sameEvidencePinnedRepeatedly),
     coverage_limitation_sv: admitV1ContractFacts(view.versionHash)?.coverage_limitation_sv ?? MISSING_IN_BASIS_SV,
     known_coverage_gaps: knownCoverageGapsFor(view.versionHash),
   };
@@ -386,10 +392,20 @@ export function presentedGovernedLayerChecks(input: {
       : check,
   );
   const evidenceById = new Map(input.spatialEvidence.map((evidence) => [evidence.artifact_id, evidence] as const));
+  // U20CDF4 (U20CDF3 verification L4): which layers hold the same pinned evidence more than once (one
+  // ref pinned twice) rather than more than one evidence.
+  const sameEvidenceRepeated = (layer: string): boolean => {
+    const ids = input.spatialEvidence
+      .filter((evidence) => evidence.payload?.source_metadata?.dataset === layer)
+      .map((evidence) => evidence.artifact_id);
+    return ids.length > 1 && new Set(ids).size === 1;
+  };
   const documentCheck = computeGovernedDocumentCheck(input.pinnedEvidenceRefs, {
     unreadableArtifactIds: input.unreadableArtifactIds,
   });
-  return [...spatial, documentCheck].map((check) => presentCheck(check, evidenceById, input.findings));
+  return [...spatial, documentCheck].map((check) =>
+    presentCheck(check, evidenceById, input.findings, sameEvidenceRepeated(check.layer)),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
