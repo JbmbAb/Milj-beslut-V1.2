@@ -8,15 +8,31 @@
 import type { LocalizationReport } from './localizationReportService';
 import {
   isGovernedVerdict,
+  legacyObservationTag,
   type LuAssessmentStatus,
   type LuComparisonStatus,
 } from '../../src/application/generate-localization-report.usecase';
+import type { GovernedLayerCheck } from '../modules/localization/governedLayerChecks';
+
+/**
+ * U20-C: this projection (POST /api/localization/generate-pdf-data) is the older report path. It
+ * says so in its own answer: only the governed fields below come from the governed assessment;
+ * everything sourced from `legacyObservations` is an older, ungoverned observation.
+ */
+export const LEGACY_PDF_GOVERNANCE_NOTE_SV =
+  'Äldre rapportväg. Endast assessment_status, assessment_artifact_id, overallRisk, ' +
+  'permitProbability/permitProbabilityStatus, unresolvedChecks, overall_statement_sv och ' +
+  'governed_layer_checks kommer från den styrda bedömningen. Övriga platsuppgifter (fornlämningar, ' +
+  'VISS, SLU, skyddade områden, avstånd till vatten, datakällor, restrictions och rules) är äldre ' +
+  'observationer som inte är styrd evidens och inte ingår i bedömningen.';
 
 export interface LocalizationPdfData {
   title: string;
   generatedAt: string;
   projectId: string;
   disclaimer: string;
+  /** U20-C: what in this older report path is governed and what is not. */
+  governance_note_sv: string;
   summary: {
     /**
      * P3-LU-CANONICAL-CHAIN-01 — omitted when no site carries a governed verdict.
@@ -57,6 +73,14 @@ export interface LocalizationPdfData {
     permitProbabilityText?: string;
     /** The governed rules whose required evidence could not be checked, so the withholding is traceable. */
     unresolvedChecks?: Array<{ ruleId: string; findingId: string }>;
+    /**
+     * U20-C / OD-K0-1: the governed risk level in words, never alone: always with how many
+     * governed checks were completed ("… underlaget är ofullständigt: 5 av 6 kontroller
+     * genomförda."). Present IFF the site carries a governed verdict.
+     */
+    overall_statement_sv?: string;
+    /** U20-C (K0 verification finding 1): the governed layer checks, document check included; null without a governed run. */
+    governed_layer_checks: readonly GovernedLayerCheck[] | null;
     /** Why a site carries no verdict, so the PDF can state it rather than leave a blank. */
     assessment_status: LuAssessmentStatus;
     assessment_artifact_id: string | null;
@@ -123,6 +147,7 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
       'Human in the Loop: Detta dokument är AI-genererat beslutsstöd och ersätter inte ' +
       'juridisk eller teknisk expertbedömning. Alla rekommendationer ska granskas av ' +
       'behörig handläggare innan formellt beslut fattas.',
+    governance_note_sv: LEGACY_PDF_GOVERNANCE_NOTE_SV,
     summary: {
       // Spread rather than assign: an absent winner must leave the key OFF the object, not
       // present-with-a-placeholder. `|| 'N/A'` previously manufactured a summary value.
@@ -134,59 +159,75 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
       assessed_site_ids: [...report.summary.assessed_site_ids],
       unassessed_site_ids: [...report.summary.unassessed_site_ids],
     },
-    sites: report.siteAnalyses.map((analysis) => ({
-      id: analysis.site.id,
-      name: analysis.site.name || 'Namnlöst alternativ',
-      lat: analysis.site.lat,
-      lng: analysis.site.lng,
-      // Same rule as the report: verdict keys are omitted, never rendered as undefined or 0.
-      // The narrowing is what makes the fields readable at all — LU_VERDICT_TYPE_BOUNDARY_V1
-      // removes them from the non-verdict variant, so an undefined can no longer reach the
-      // caseworker-facing document by way of a field this projection forgot to check.
-      ...(isGovernedVerdict(analysis.complianceAnalysis)
-        ? analysis.complianceAnalysis.permitProbability === null
-          ? {
-              overallRisk: analysis.complianceAnalysis.overallRisk,
-              permitProbabilityStatus: 'NOT_CHECKED' as const,
-              permitProbabilityText: 'kan inte anges',
-              unresolvedChecks: analysis.complianceAnalysis.unresolvedChecks.map((c) => ({
-                ruleId: c.rule_id,
-                findingId: c.finding_id,
-              })),
-            }
-          : {
-              overallRisk: analysis.complianceAnalysis.overallRisk,
-              permitProbability: analysis.complianceAnalysis.permitProbability,
-            }
-        : {}),
-      assessment_status: analysis.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
-      assessment_artifact_id: analysis.executionMotor?.assessment_artifact_id ?? null,
-      restrictions: analysis.complianceAnalysis.restrictions,
-      rules: analysis.complianceAnalysis.rules.map((rule) => ({
-        ruleId: rule.ruleId,
-        chapter: rule.chapter,
-        title: rule.title,
-        risk: rule.risk,
-        description: rule.description,
-        recommendation: rule.recommendation,
-      })),
-      ...(analysis.complianceAnalysis.legacyObservation
-        ? { legacyObservationLabel: 'Observation från äldre regelmotor — ej del av den styrda bedömningen' }
-        : {}),
-      monumentCount: analysis.monuments.length,
-      monumentNames: analysis.monuments.slice(0, 5).map((m) => m.name),
-      warnings: analysis.warnings,
-      dataSources: analysis.dataSources,
-      sluObservationCount: analysis.sluObservationCount,
-      vissWaterName: analysis.vissWaterStatus?.waterName ?? null,
-      vissEcologicalStatus: analysis.vissWaterStatus?.ecologicalStatus ?? null,
-      vissChemicalStatus: analysis.vissWaterStatus?.chemicalStatus ?? null,
-      distanceToWaterMeters: analysis.distanceToWaterMeters,
-      isProtected: analysis.spatialAudit.isProtected,
-      protectedAreaNames: analysis.spatialAudit.protectedAreaHits
-        .slice(0, 5)
-        .map((hit) => hit.name || 'Namnlöst område'),
-    })),
+    sites: report.siteAnalyses.map((analysis) => {
+      // U20-C: the older observations come only from their explicit, ungoverned block. This
+      // projection is never built without them (both callers opt in); failing loudly beats
+      // printing zero monuments / "not protected" for observations that were never read.
+      const legacy = analysis.legacyObservations;
+      if (!legacy) {
+        throw new Error(
+          'LEGACY_OBSERVATIONS_NOT_INCLUDED: buildLocalizationPdfData needs a report generated with ' +
+            'includeLegacyObservations; it will not print absent observations as empty results.',
+        );
+      }
+      return {
+        id: analysis.site.id,
+        name: analysis.site.name || 'Namnlöst alternativ',
+        lat: analysis.site.lat,
+        lng: analysis.site.lng,
+        // Same rule as the report: verdict keys are omitted, never rendered as undefined or 0.
+        // The narrowing is what makes the fields readable at all — LU_VERDICT_TYPE_BOUNDARY_V1
+        // removes them from the non-verdict variant, so an undefined can no longer reach the
+        // caseworker-facing document by way of a field this projection forgot to check.
+        ...(isGovernedVerdict(analysis.complianceAnalysis)
+          ? analysis.complianceAnalysis.permitProbability === null
+            ? {
+                overallRisk: analysis.complianceAnalysis.overallRisk,
+                permitProbabilityStatus: 'NOT_CHECKED' as const,
+                permitProbabilityText: 'kan inte anges',
+                unresolvedChecks: analysis.complianceAnalysis.unresolvedChecks.map((c) => ({
+                  ruleId: c.rule_id,
+                  findingId: c.finding_id,
+                })),
+              }
+            : {
+                overallRisk: analysis.complianceAnalysis.overallRisk,
+                permitProbability: analysis.complianceAnalysis.permitProbability,
+              }
+          : {}),
+        // U20-C / OD-K0-1: the qualified statement travels with the verdict, never the bare level.
+        ...(isGovernedVerdict(analysis.complianceAnalysis)
+          ? { overall_statement_sv: analysis.complianceAnalysis.summary }
+          : {}),
+        governed_layer_checks: analysis.executionMotor?.governed_layer_checks ?? null,
+        assessment_status: analysis.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
+        assessment_artifact_id: analysis.executionMotor?.assessment_artifact_id ?? null,
+        restrictions: [...legacy.restrictions],
+        rules: legacy.rules.map((rule) => ({
+          ruleId: rule.ruleId,
+          chapter: rule.chapter,
+          title: rule.title,
+          risk: rule.risk,
+          description: rule.description,
+          recommendation: rule.recommendation,
+        })),
+        ...(legacyObservationTag({ restrictions: [...legacy.restrictions], rules: legacy.rules }).legacyObservation
+          ? { legacyObservationLabel: 'Observation från äldre regelmotor — ej del av den styrda bedömningen' }
+          : {}),
+        monumentCount: legacy.monuments.length,
+        monumentNames: legacy.monuments.slice(0, 5).map((m) => m.name),
+        // Governed-path warnings first, then the (labelled, sanitized) legacy ones.
+        warnings: [...analysis.warnings, ...legacy.warnings],
+        dataSources: [...legacy.dataSources],
+        sluObservationCount: legacy.sluObservationCount,
+        vissWaterName: legacy.vissWaterStatus?.waterName ?? null,
+        vissEcologicalStatus: legacy.vissWaterStatus?.ecologicalStatus ?? null,
+        vissChemicalStatus: legacy.vissWaterStatus?.chemicalStatus ?? null,
+        distanceToWaterMeters: legacy.distanceToWater.meters,
+        isProtected: legacy.protectedArea.isProtected,
+        protectedAreaNames: legacy.protectedArea.hitNames.slice(0, 5),
+      };
+    }),
     legalBasis:
       'Denna rapport baseras på data från Naturvårdsregistret (NVR), SGU jordarts- och ' +
       'skredkartor, Riksantikvarieämbetets fornlämningsregister (FMIS/K-samsök), ' +

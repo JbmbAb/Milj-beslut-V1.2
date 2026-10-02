@@ -1,8 +1,9 @@
 /**
  * localizationOrchestrator — felfall och saknade grenar
  *
- * Täcker: parseSiteAlternatives edge cases, assertStrictReportUsable
- * (spatialDown+2 externa), validateLocalizationBody, fetchLocalizationAuditTrail.
+ * Täcker: parseSiteAlternatives edge cases, att strikt läge inte längre spärrar på de äldre,
+ * ostyrda källorna (U20-C; tidigare assertStrictReportUsable), validateLocalizationBody,
+ * fetchLocalizationAuditTrail.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,8 @@ import {
 } from '../../server/modules/localization/localizationOrchestrator';
 import type { LocalizationReport } from '../../server/services/localizationReportService';
 import type { AuthUser } from '../../server/security/types';
+
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
 
 vi.mock('../../server/services/auditTrailService', () => ({
   auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) },
@@ -58,67 +61,48 @@ const AUTH: AuthUser = {
 const PROJECT_ID = 'proj-lok-felfall';
 const VALID_SITE = { id: 'alt-1', lat: 59.33, lng: 18.07 };
 
-function makeReport(projectId = PROJECT_ID): LocalizationReport {
+function makeReport(projectId = PROJECT_ID, legacy?: { spatialDown: boolean; unavailable: string[] }): LocalizationReport {
   return {
     projectId,
     generatedAt: '2026-05-21T10:00:00.000Z',
     siteAnalyses: [
       {
         site: { id: 'alt-1', lat: 59.33, lng: 18.07 },
-        spatialAudit: {
-          protectedAreaHits: [],
-          protectedAreaAvailable: true,
-          isProtected: false,
-          sgu: {
-            coverageMode: 'sample',
-            manualReviewRequired: false,
-            riskLevel: 'LOW',
-            groundLayer: {
-              intersects: false,
-              hit: null,
-              advisory: 'Ingen avvikelse i grundlager.',
-            },
-            landslideFeatures: {
-              nearby: false,
-              bufferMeters: 150,
-              nearestDistanceMeters: null,
-              hits: [],
-              advisory: 'Inga SGU-indikatorer inom buffert.',
-            },
-            flags: [],
-            summary: 'SGU-risk: låg',
-          },
-          insar: {
-            pointCount: 0,
-            averageVelocityMmYear: 0,
-            maxSubsidenceMmYear: 0,
-            riskLevel: 'LOW' as const,
-            advisory: 'Ingen markrörelse',
-            sourceUrl: '',
-            points: [],
-            warningFlags: [],
-          },
-          distanceToWaterMeters: null,
-          distanceToWaterAvailable: true,
-          text: 'OK',
-          sources: [],
-        },
         complianceAnalysis: {
-          overallRisk: 'LOW',
-          permitProbability: 0.8,
+          assessment_status: 'NOT_ASSESSED',
           restrictions: [],
           rules: [],
-          summary: 'OK',
+          summary: 'Ingen styrd bedömning gjordes. Ingen risknivå anges.',
         },
-        monuments: [],
-        vissWaterStatus: null,
-        distanceToWaterMeters: null,
-        dataSources: [],
         warnings: [],
-        sluObservationCount: 0,
+        // U20-C: the older, ungoverned observations exist only in this labelled block.
+        ...(legacy
+          ? {
+              legacyObservations: {
+                governed: false as const,
+                source: 'legacy_observation' as const,
+                version: 'v1' as const,
+                note_sv: 'Äldre observationer (test).',
+                protectedArea: { available: !legacy.spatialDown, isProtected: false, hitNames: [] },
+                distanceToWater: { available: !legacy.spatialDown, meters: null },
+                monuments: [],
+                vissWaterStatus: null,
+                sluObservationCount: 0,
+                dataSources: legacy.unavailable.map((source) => ({ source, status: 'unavailable' as const })),
+                warnings: [],
+                restrictions: [],
+                rules: [],
+              },
+            }
+          : {}),
       },
     ],
-    summary: { bestAlternativeId: 'alt-1', reasoning: 'Minst risk' },
+    summary: {
+      reasoning: 'Ingen rangordning tillgänglig.',
+      comparison_status: 'UNAVAILABLE',
+      assessed_site_ids: [],
+      unassessed_site_ids: ['alt-1'],
+    },
     warnings: [],
     humanInTheLoop: 'Granska innan beslut.',
   };
@@ -193,98 +177,23 @@ describe('localizationOrchestrator — felfall och saknade grenar', () => {
     });
   });
 
-  // ── assertStrictReportUsable — spatialDown-gren ──────────────────────────
+  // ── U20-C: strikt läge spärrar inte längre på de äldre, ostyrda källorna ──
+  //
+  // Tidigare kastade assertStrictReportUsable "Otillräcklig datakvalitet" (503) här, efter att den
+  // styrda bedömningen redan sparats i CAS. U20-C (DP-04) tar bort spärren: samma lägen ger ok.
 
-  describe('assertStrictReportUsable — spatialDown + externa otillgängliga', () => {
-    it('kastar vid spatialDown och 2 externa otillgängliga (< 3 externa totalt)', async () => {
+  describe('U20-C: strikt läge och nere äldre källor ger ingen spärr', () => {
+    it.each<[string, { spatialDown: boolean; unavailable: string[] }]>([
+      ['spatialDown och 2 externa otillgängliga', { spatialDown: true, unavailable: ['NVR API', 'RAA API'] }],
+      ['3 externa otillgängliga', { spatialDown: false, unavailable: ['NVR API', 'RAA API', 'VISS'] }],
+    ])('%s -> ok, ingen LocalizationDataUnavailableError', async (_label, legacy) => {
       const { isLocalizationStrictMode, generateLocalizationReport } =
         await import('../../server/services/localizationReportService');
       (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      (generateLocalizationReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce(makeReport(PROJECT_ID, legacy));
 
-      const base = makeReport();
-      const badReport: LocalizationReport = {
-        ...base,
-        siteAnalyses: [
-          {
-            ...(base.siteAnalyses[0] as SiteAnalysisResult),
-            spatialAudit: {
-              ...base.siteAnalyses[0].spatialAudit,
-              protectedAreaAvailable: false,
-              distanceToWaterAvailable: false,
-            },
-            dataSources: [
-              { source: 'NVR API', status: 'unavailable' },
-              { source: 'RAA API', status: 'unavailable' },
-            ],
-          },
-        ],
-      };
-      (generateLocalizationReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce(badReport);
-
-      await expect(
-        runLocalizationReport({ authUser: AUTH, projectId: PROJECT_ID, siteAlternatives: [VALID_SITE] }),
-      ).rejects.toThrow('Otillräcklig datakvalitet');
-    });
-
-    it('felmeddelande innehåller "degraderad" vid spatialDown', async () => {
-      const { isLocalizationStrictMode, generateLocalizationReport } =
-        await import('../../server/services/localizationReportService');
-      (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
-
-      const base = makeReport();
-      const badReport: LocalizationReport = {
-        ...base,
-        siteAnalyses: [
-          {
-            ...(base.siteAnalyses[0] as SiteAnalysisResult),
-            spatialAudit: {
-              ...base.siteAnalyses[0].spatialAudit,
-              protectedAreaAvailable: false,
-              distanceToWaterAvailable: false,
-            },
-            dataSources: [
-              { source: 'NVR API', status: 'unavailable' },
-              { source: 'RAA API', status: 'unavailable' },
-            ],
-          },
-        ],
-      };
-      (generateLocalizationReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce(badReport);
-
-      await expect(
-        runLocalizationReport({ authUser: AUTH, projectId: PROJECT_ID, siteAlternatives: [VALID_SITE] }),
-      ).rejects.toThrow('degraderad');
-    });
-
-    it('felmeddelande innehåller "delvis" när spatial INTE är nere (3 externa nere)', async () => {
-      const { isLocalizationStrictMode, generateLocalizationReport } =
-        await import('../../server/services/localizationReportService');
-      (isLocalizationStrictMode as ReturnType<typeof vi.fn>).mockReturnValue(true);
-
-      const base = makeReport();
-      const badReport: LocalizationReport = {
-        ...base,
-        siteAnalyses: [
-          {
-            ...(base.siteAnalyses[0] as SiteAnalysisResult),
-            spatialAudit: {
-              ...base.siteAnalyses[0].spatialAudit,
-              protectedAreaAvailable: true,
-              distanceToWaterAvailable: true,
-            },
-            dataSources: [
-              { source: 'NVR API', status: 'unavailable' },
-              { source: 'RAA API', status: 'unavailable' },
-              { source: 'VISS', status: 'unavailable' },
-            ],
-          },
-        ],
-      };
-      (generateLocalizationReport as ReturnType<typeof vi.fn>).mockResolvedValueOnce(badReport);
-
-      await expect(
-        runLocalizationReport({ authUser: AUTH, projectId: PROJECT_ID, siteAlternatives: [VALID_SITE] }),
-      ).rejects.toThrow('delvis');
+      const result = await runLocalizationReport({ authUser: AUTH, projectId: PROJECT_ID, siteAlternatives: [VALID_SITE] });
+      expect(result.ok).toBe(true);
     });
 
     it('lyckas när strict mode och alla källor tillgängliga', async () => {

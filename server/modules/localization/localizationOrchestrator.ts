@@ -120,33 +120,23 @@ function parseSiteAlternatives(raw: unknown): SiteAlternative[] | null {
   return sites.length > 0 ? sites : null;
 }
 
-function assertStrictReportUsable(report: LocalizationReport): void {
-  if (!isLocalizationStrictMode()) return;
-
-  const externalSources = new Set(['NVR API', 'RAA API', 'VISS', 'SLU Artdata']);
-
-  for (const analysis of report.siteAnalyses) {
-    const unavailableExternal = analysis.dataSources.filter(
-      (ds) => externalSources.has(ds.source) && ds.status === 'unavailable',
-    ).length;
-    const spatialDown =
-      !analysis.spatialAudit.protectedAreaAvailable && !analysis.spatialAudit.distanceToWaterAvailable;
-
-    if (unavailableExternal >= 3 || (spatialDown && unavailableExternal >= 2)) {
-      throw new LocalizationDataUnavailableError(
-        `Otillräcklig datakvalitet för plats ${analysis.site.id} i strikt läge. ` +
-          `Externa källor otillgängliga: ${unavailableExternal}. Spatial: ${
-            spatialDown ? 'degraderad' : 'delvis'
-          }.`,
-      );
-    }
-  }
-}
+/*
+ * U20-C (U20-U30 spec 1.4 U-1/U-2, K1): the former strict-mode gate `assertStrictReportUsable`
+ * is gone. It turned the old local spatialAudit and the live NVR / RAÄ / VISS / SLU outcomes --
+ * unbound reads, none of them governed evidence -- into a 503 AFTER the governed assessment had
+ * already been persisted to CAS, so the answer and CAS drifted apart. Gating now rests on the
+ * governed outcome alone, which every response already carries per site as
+ * `executionMotor.assessment_status` (ASSESSED / GOVERNANCE_DENIED / EXECUTION_FAILED /
+ * NOT_ASSESSED) with its reason codes. `LocalizationDataUnavailableError` stays exported for the
+ * route's error mapping.
+ */
 
 export async function runLocalizationReport(input: {
   authUser: AuthUser;
   projectId: string;
   siteAlternatives: unknown;
+  /** U20-C: only the older generate-pdf-data route sets this (see GenerateLocalizationReportUseCase). */
+  includeLegacyObservations?: boolean;
 }): Promise<
   | { ok: true; report: LocalizationReport; meta: { strictMode: boolean; warningCount: number } }
   | { ok: false; status: number; error: string }
@@ -168,9 +158,8 @@ export async function runLocalizationReport(input: {
     siteAlternatives: sites,
     userId: input.authUser.id,
     user: input.authUser,
+    includeLegacyObservations: input.includeLegacyObservations === true,
   });
-
-  assertStrictReportUsable(report);
 
   const warningCount = report.warnings.length + report.siteAnalyses.reduce((n, s) => n + s.warnings.length, 0);
 
@@ -202,9 +191,9 @@ export async function exportLocalizationPdf(input: {
     siteAlternatives: sites,
     userId: input.authUser.id,
     user: input.authUser,
+    // The older PDF projection prints the legacy observations (labelled, never governed).
+    includeLegacyObservations: true,
   });
-
-  assertStrictReportUsable(report);
 
   const pdfPayload = buildLocalizationPdfData(report);
   const buffer = await buildJsonPdfBuffer(

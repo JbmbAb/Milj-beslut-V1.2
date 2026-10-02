@@ -3,6 +3,15 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTokenPair } from '../../server/security/auth';
 
+// U20-C: hermetic. The real database client is never evaluated, and the governed run has no
+// spatial runtime here (it ends as EXECUTION_FAILED), so no pool is ever created.
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
+vi.mock('../../server/modules/localization/createLocalizationSpatialRuntime', () => ({
+  createLocalizationSpatialRuntime: vi.fn(async () => {
+    throw new Error('NO_SPATIAL_RUNTIME_IN_THIS_TEST');
+  }),
+}));
+
 vi.mock('../../server/repositories/tokenRepository', () => ({
   isTokenRevoked: vi.fn(async () => false),
   markRefreshTokenAsUsed: vi.fn(async () => undefined),
@@ -131,7 +140,7 @@ describe('localization.routes', () => {
     expect(res.body.ok).toBe(false);
   });
 
-  it('generates report with dataSources and warnings envelope', async () => {
+  it('generates the governed report envelope without any older, ungoverned observation (U20-C, DP-04)', async () => {
     const res = await request(app)
       .post('/api/localization/generate-report')
       .set('Authorization', authHeader())
@@ -140,10 +149,23 @@ describe('localization.routes', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.projectId).toBe('proj-loc-1');
     expect(res.body.siteAnalyses).toHaveLength(1);
-    expect(res.body.siteAnalyses[0].dataSources).toEqual(
+    expect(res.body.siteAnalyses[0].executionMotor.assessment_status).toBe('EXECUTION_FAILED');
+    expect(res.body.siteAnalyses[0]).not.toHaveProperty('dataSources');
+    expect(res.body.siteAnalyses[0]).not.toHaveProperty('legacyObservations');
+    expect(fetchProtectedAreas).not.toHaveBeenCalled();
+    expect(res.body.humanInTheLoop).toContain('Human in the loop');
+  });
+
+  it('generate-pdf-data still carries the older observations, labelled as not governed (U20-C)', async () => {
+    const res = await request(app)
+      .post('/api/localization/generate-pdf-data')
+      .set('Authorization', authHeader())
+      .send(validBody);
+    expect(res.status).toBe(200);
+    expect(res.body.pdfData.governance_note_sv).toMatch(/inte är styrd evidens/);
+    expect(res.body.pdfData.sites[0].dataSources).toEqual(
       expect.arrayContaining([expect.objectContaining({ source: 'NVR API', status: 'ok' })]),
     );
-    expect(res.body.humanInTheLoop).toContain('Human in the loop');
   });
 
   it('returns audit trail for project', async () => {
@@ -164,18 +186,21 @@ describe('localization.routes', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 503 in strict mode when external sources are unavailable', async () => {
+  // U20-C: this case used to assert a 503 (LOCALIZATION_DATA_UNAVAILABLE). The older sources no
+  // longer gate anything: strict mode with every one of them down is an ordinary 200 whose
+  // governed outcome is carried per site in executionMotor.
+  it('strict mode with every older source down -> 200 on both routes, never 503 (U20-C)', async () => {
     process.env.LOCALIZATION_STRICT_SOURCES = 'true';
-    vi.mocked(fetchProtectedAreas).mockRejectedValueOnce(new Error('NVR down'));
-    vi.mocked(fetchAncientMonuments).mockRejectedValueOnce(new Error('RAA down'));
-    vi.mocked(queryVissPoint).mockRejectedValueOnce(new Error('VISS down'));
-    vi.mocked(searchSluByCoordinates).mockRejectedValueOnce(new Error('SLU down'));
+    for (const path of ['/api/localization/generate-report', '/api/localization/generate-pdf-data']) {
+      vi.mocked(fetchProtectedAreas).mockRejectedValueOnce(new Error('NVR down'));
+      vi.mocked(fetchAncientMonuments).mockRejectedValueOnce(new Error('RAA down'));
+      vi.mocked(queryVissPoint).mockRejectedValueOnce(new Error('VISS down'));
+      vi.mocked(searchSluByCoordinates).mockRejectedValueOnce(new Error('SLU down'));
 
-    const res = await request(app)
-      .post('/api/localization/generate-report')
-      .set('Authorization', authHeader())
-      .send(validBody);
-    expect(res.status).toBe(503);
-    expect(res.body.code).toBe('LOCALIZATION_DATA_UNAVAILABLE');
+      const res = await request(app).post(path).set('Authorization', authHeader()).send(validBody);
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toMatch(/NVR down|RAA down|VISS down|SLU down/);
+    }
   });
 });

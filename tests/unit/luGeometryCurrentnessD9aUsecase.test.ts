@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const kernelMock = vi.fn();
 const resolveOrDeriveMock = vi.fn();
 
+// Hermetic (U20-C touch): the real database client is never evaluated.
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
 vi.mock('@miljobeslut/mps-lu', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   LU_SPATIAL_CAPABILITY_KEY: 'lu.spatial',
@@ -152,7 +154,7 @@ describe('D9(a) through generate-report: every non-NOT_FOUND currentness class f
 });
 
 describe('D9(a) + U12 through generate-report: successful run keeps provenance and honest coverage', () => {
-  it('derived-on-NOT_FOUND geometry -> provenance carried; governed layer checks distinguish hit / no hit / not checked; legacy block labelled', async () => {
+  it('derived-on-NOT_FOUND geometry -> provenance carried; governed layer checks distinguish hit / no hit / not checked; no legacy observation in the governed request (U20-C)', async () => {
     resolveOrDeriveMock.mockResolvedValue({
       geometry: { artifact_id: 'localization-geometry-derived', artifact_type: 'localization_geometry', payload: { provenance: 'derived_from_property_boundary' } },
       wasDerived: true,
@@ -185,11 +187,14 @@ describe('D9(a) + U12 through generate-report: successful run keeps provenance a
     expect((analysis.complianceAnalysis as { unresolvedChecks?: unknown[] }).unresolvedChecks).toEqual([
       { rule_id: 'LU-PROTECTED-001', finding_id: 'finding-notchecked-protected_area' },
     ]);
-    // U12 (2): the older spatialAudit observation is explicitly labelled as legacy, never as governed.
-    expect(analysis.spatialAuditProvenance).toMatchObject({ source: 'legacy_observation', governed: false });
-    const legacyWarnings = analysis.warnings.filter((w) => w.includes('kunde inte verifieras i lokal databas'));
-    expect(legacyWarnings.length).toBeGreaterThan(0);
-    expect(legacyWarnings.every((w) => w.startsWith(LEGACY_SPATIAL_AUDIT_PREFIX_SV))).toBe(true);
+    // U12 (2), superseded by U20-C (DP-04): the governed request no longer performs the older
+    // spatialAudit read at all, so no legacy observation or legacy warning can sit next to the
+    // governed result (previously it was labelled; now it is absent).
+    expect(analysis).not.toHaveProperty('spatialAuditProvenance');
+    expect(analysis).not.toHaveProperty('spatialAudit');
+    expect(analysis.legacyObservations).toBeUndefined();
+    expect(analysis.warnings.some((w) => w.startsWith(LEGACY_SPATIAL_AUDIT_PREFIX_SV))).toBe(false);
+    expect(analysis.warnings.some((w) => w.includes('does not exist'))).toBe(false);
   });
 });
 

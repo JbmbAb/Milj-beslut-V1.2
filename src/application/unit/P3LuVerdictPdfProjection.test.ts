@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Hermetic: the projection is pure; the real database client is never evaluated.
+vi.mock("../../../server/db/prisma", async () => (await import("../../../tests/helpers/hermeticPrismaGuard")).hermeticPrismaModule());
 
 import { buildLocalizationPdfData } from "../../../server/services/localizationPdfService";
 import type {
@@ -35,7 +38,6 @@ function site(
 ): SiteAnalysisResult {
   return {
     site: { id, name: `Alternativ ${id}`, lat: 59.3, lng: 18.0 },
-    spatialAudit: { isProtected: false, protectedAreaHits: [] } as never,
     complianceAnalysis: {
       ...(verdict ?? {}),
       // LU_VERDICT_TYPE_BOUNDARY_V1 — the discriminant now lives on the analysis itself, and is
@@ -47,12 +49,23 @@ function site(
       requiredActions: [],
       notes: [],
     } as never,
-    monuments: [],
-    vissWaterStatus: null,
-    distanceToWaterMeters: null,
-    dataSources: [],
     warnings: [],
-    sluObservationCount: 0,
+    // U20-C: the older, ungoverned observations live only in their labelled block.
+    legacyObservations: {
+      governed: false,
+      source: "legacy_observation",
+      version: "v1",
+      note_sv: "Äldre observationer (test).",
+      protectedArea: { available: true, isProtected: false, hitNames: [] },
+      distanceToWater: { available: true, meters: null },
+      monuments: [],
+      vissWaterStatus: null,
+      sluObservationCount: 0,
+      dataSources: [],
+      warnings: [],
+      restrictions: [],
+      rules: [],
+    },
     executionMotor: {
       admitted: verdict !== null,
       reason_codes: verdict ? [] : ["CAPABILITY_DENIED"],

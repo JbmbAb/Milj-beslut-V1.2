@@ -101,6 +101,9 @@ router.post(
         authUser: req.authUser!,
         projectId: String(req.body?.projectId || ''),
         siteAlternatives: req.body?.siteAlternatives,
+        // U20-C: this older route is the one existing consumer of the ungoverned observations; it
+        // gets them in their labelled block (never in gating, verdict or reasoning).
+        includeLegacyObservations: true,
       });
       if (result.ok === false) {
         res.status(result.status).json(failureBody(result));

@@ -34,6 +34,8 @@ export async function generateLocalizationReport(input: {
   siteAlternatives: SiteAlternative[];
   userId?: string;
   user?: AuthUser;
+  /** U20-C: opt-in for the older, ungoverned observations (see GenerateLocalizationReportUseCase). */
+  includeLegacyObservations?: boolean;
 }): Promise<LocalizationReport> {
   return useCase.execute(input);
 }

@@ -3,6 +3,11 @@
  *
  * Täcker isLocalizationStrictMode (alla grenar via env-vars)
  * och den publika generateLocalizationReport (mocked dependencies).
+ *
+ * U20-C (DP-04): the governed request performs no unbound read. The older observations (local
+ * spatialAudit, NVR/RAÄ/VISS/SLU, legacy compliance rules) are collected only with
+ * `includeLegacyObservations: true` and returned only in `legacyObservations` (governed: false),
+ * with sanitized texts. The legacy-source cases below therefore opt in and read that block.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +15,16 @@ import {
   generateLocalizationReport,
   isLocalizationStrictMode,
 } from '../../../server/services/localizationReportService';
+
+vi.mock('../../../server/db/prisma', async () => (await import('../../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
+
+// No governed run in this file: the spatial runtime is unavailable, so every site ends as a
+// non-verdict result (EXECUTION_FAILED) without any database or pool being created.
+vi.mock('../../../server/modules/localization/createLocalizationSpatialRuntime', () => ({
+  createLocalizationSpatialRuntime: vi.fn(async () => {
+    throw new Error('NO_SPATIAL_RUNTIME_IN_THIS_TEST');
+  }),
+}));
 
 vi.mock('../../../server/services/spatialAuditService', () => ({
   runSpatialAudit: vi.fn().mockResolvedValue({
@@ -69,6 +84,14 @@ vi.mock('../../../server/logger', () => ({
 }));
 
 const SITE = { id: 'alt-1', lat: 59.33, lng: 18.07 };
+
+/** U20-C: the legacy block of the first site (present only when the caller opted in). */
+function legacyOf(report: Awaited<ReturnType<typeof generateLocalizationReport>>) {
+  const block = report.siteAnalyses[0].legacyObservations;
+  expect(block, 'legacyObservations must be present when requested').toBeDefined();
+  expect(block!.governed).toBe(false);
+  return block!;
+}
 
 describe('isLocalizationStrictMode', () => {
   const originalEnv = { ...process.env };
@@ -132,6 +155,19 @@ describe('generateLocalizationReport', () => {
     expect(report.summary.comparison_status).toBe('UNAVAILABLE');
   });
 
+  it('U20-C/DP-04: utan uttrycklig begäran görs ingen ostyrd läsning och inget legacy-block finns', async () => {
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    const { fetchProtectedAreas } = await import('../../../server/services/nvrService');
+    const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
+    const report = await generateLocalizationReport({ projectId: 'proj-governed', siteAlternatives: [SITE] });
+
+    expect(runSpatialAudit).not.toHaveBeenCalled();
+    expect(fetchProtectedAreas).not.toHaveBeenCalled();
+    expect(evaluateComplianceRules).not.toHaveBeenCalled();
+    expect(report.siteAnalyses[0].legacyObservations).toBeUndefined();
+    expect(report.siteAnalyses[0].executionMotor?.assessment_status).toBe('EXECUTION_FAILED');
+  });
+
   it('returnerar rapport för tom siteAlternatives-lista', async () => {
     const report = await generateLocalizationReport({
       projectId: 'proj-empty',
@@ -178,6 +214,7 @@ describe('generateLocalizationReport', () => {
         { id: 'alt-low', lat: 59.33, lng: 18.07 },
         { id: 'alt-high', lat: 59.34, lng: 18.08 },
       ],
+      includeLegacyObservations: true,
     });
 
     expect(report.siteAnalyses).toHaveLength(2);
@@ -231,8 +268,9 @@ describe('SLU-integration via generateLocalizationReport (user-kontext)', () => 
       projectId: 'proj-slu-off',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
-    expect(report.siteAnalyses[0].sluObservationCount).toBe(0);
+    expect(legacyOf(report).sluObservationCount).toBe(0);
   });
 
   it('parseSluObservations körs och returnerar träffar när SLU konfigurerad', async () => {
@@ -249,8 +287,9 @@ describe('SLU-integration via generateLocalizationReport (user-kontext)', () => 
       projectId: 'proj-slu-on',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
-    expect(report.siteAnalyses[0].sluObservationCount).toBeGreaterThan(0);
+    expect(legacyOf(report).sluObservationCount).toBeGreaterThan(0);
   });
 
   it('parseSluObservations hanterar features-format', async () => {
@@ -264,8 +303,9 @@ describe('SLU-integration via generateLocalizationReport (user-kontext)', () => 
       projectId: 'proj-slu-feat',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
-    expect(report.siteAnalyses[0].sluObservationCount).toBeGreaterThan(0);
+    expect(legacyOf(report).sluObservationCount).toBeGreaterThan(0);
   });
 });
 
@@ -295,11 +335,12 @@ describe('generateLocalizationReport — externa API-felfall', () => {
     const report = await generateLocalizationReport({
       projectId: 'proj-nvr-fail',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const nvr = report.siteAnalyses[0].dataSources.find((d) => d.source === 'NVR API');
+    const nvr = legacyOf(report).dataSources.find((d) => d.source === 'NVR API');
     expect(nvr?.status).toBe('unavailable');
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('NVR'))).toBe(true);
+    expect(legacyOf(report).warnings.some((w) => w.includes('NVR'))).toBe(true);
   });
 
   it('NVR-fel med strict=true inkluderar skyddskällevarning', async () => {
@@ -311,8 +352,9 @@ describe('generateLocalizationReport — externa API-felfall', () => {
       const report = await generateLocalizationReport({
         projectId: 'proj-nvr-strict',
         siteAlternatives: [SITE],
+        includeLegacyObservations: true,
       });
-      const nvr = report.siteAnalyses[0].dataSources.find((d) => d.source === 'NVR API');
+      const nvr = legacyOf(report).dataSources.find((d) => d.source === 'NVR API');
       expect(nvr?.status).toBe('unavailable');
     } finally {
       delete process.env.LOCALIZATION_STRICT_SOURCES;
@@ -326,11 +368,12 @@ describe('generateLocalizationReport — externa API-felfall', () => {
     const report = await generateLocalizationReport({
       projectId: 'proj-raa-fail',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const raa = report.siteAnalyses[0].dataSources.find((d) => d.source === 'RAA API');
+    const raa = legacyOf(report).dataSources.find((d) => d.source === 'RAA API');
     expect(raa?.status).toBe('unavailable');
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('RAA'))).toBe(true);
+    expect(legacyOf(report).warnings.some((w) => w.includes('RAÄ'))).toBe(true);
   });
 
   it('VISS-fel ger varning och dataSources unavailable', async () => {
@@ -340,9 +383,10 @@ describe('generateLocalizationReport — externa API-felfall', () => {
     const report = await generateLocalizationReport({
       projectId: 'proj-viss-fail',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const viss = report.siteAnalyses[0].dataSources.find((d) => d.source === 'VISS');
+    const viss = legacyOf(report).dataSources.find((d) => d.source === 'VISS');
     expect(viss?.status).toBe('unavailable');
   });
 
@@ -356,9 +400,10 @@ describe('generateLocalizationReport — externa API-felfall', () => {
     const report = await generateLocalizationReport({
       projectId: 'proj-viss-notok',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const viss = report.siteAnalyses[0].dataSources.find((d) => d.source === 'VISS');
+    const viss = legacyOf(report).dataSources.find((d) => d.source === 'VISS');
     expect(viss?.status).toBe('unavailable');
   });
 
@@ -371,10 +416,11 @@ describe('generateLocalizationReport — externa API-felfall', () => {
       projectId: 'proj-slu-err',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].sluObservationCount).toBe(0);
-    const slu = report.siteAnalyses[0].dataSources.find((d) => d.source === 'SLU Artdata');
+    expect(legacyOf(report).sluObservationCount).toBe(0);
+    const slu = legacyOf(report).dataSources.find((d) => d.source === 'SLU Artdata');
     expect(slu?.status).toBe('unavailable');
   });
 
@@ -387,9 +433,10 @@ describe('generateLocalizationReport — externa API-felfall', () => {
       projectId: 'proj-slu-null',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].sluObservationCount).toBe(0);
+    expect(legacyOf(report).sluObservationCount).toBe(0);
   });
 
   it('parseSluObservations hanterar data-format och null i observationslista', async () => {
@@ -403,9 +450,10 @@ describe('generateLocalizationReport — externa API-felfall', () => {
       projectId: 'proj-slu-data',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].sluObservationCount).toBeGreaterThan(0);
+    expect(legacyOf(report).sluObservationCount).toBeGreaterThan(0);
   });
 });
 
@@ -436,11 +484,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-viss-ok',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const viss = report.siteAnalyses[0].dataSources.find((d) => d.source === 'VISS');
+    const viss = legacyOf(report).dataSources.find((d) => d.source === 'VISS');
     expect(viss?.status).toBe('ok');
-    expect(report.siteAnalyses[0].vissWaterStatus).not.toBeNull();
+    expect(legacyOf(report).vissWaterStatus).not.toBeNull();
   });
 
   it('VISS ok=true men primaryWaterStatus=null (fallback null)', async () => {
@@ -453,11 +502,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-viss-ok-null',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const viss = report.siteAnalyses[0].dataSources.find((d) => d.source === 'VISS');
+    const viss = legacyOf(report).dataSources.find((d) => d.source === 'VISS');
     expect(viss?.status).toBe('ok');
-    expect(report.siteAnalyses[0].vissWaterStatus).toBeNull();
+    expect(legacyOf(report).vissWaterStatus).toBeNull();
   });
 
   it('hasSluSpeciesConfigured via SLU_SPECIES_OBS_BASE_PATH + SLU_API_KEY', async () => {
@@ -478,9 +528,10 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
       projectId: 'proj-slu-base',
       siteAlternatives: [SITE],
       user: AUTH_USER,
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].sluObservationCount).toBeGreaterThan(0);
+    expect(legacyOf(report).sluObservationCount).toBeGreaterThan(0);
   });
 
   it('NVR-catch hanterar icke-Error throw (String-gren)', async () => {
@@ -490,9 +541,10 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-nvr-str',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const nvr = report.siteAnalyses[0].dataSources.find((d) => d.source === 'NVR API');
+    const nvr = legacyOf(report).dataSources.find((d) => d.source === 'NVR API');
     expect(nvr?.status).toBe('unavailable');
   });
 
@@ -503,9 +555,10 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-raa-str',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const raa = report.siteAnalyses[0].dataSources.find((d) => d.source === 'RAA API');
+    const raa = legacyOf(report).dataSources.find((d) => d.source === 'RAA API');
     expect(raa?.status).toBe('unavailable');
   });
 
@@ -525,11 +578,12 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-degraded',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    const spatial = report.siteAnalyses[0].dataSources.find((d) => d.source === 'PostGIS spatial');
+    const spatial = legacyOf(report).dataSources.find((d) => d.source === 'PostGIS spatial');
     expect(spatial?.status).toBe('degraded');
-    const sgu = report.siteAnalyses[0].dataSources.find((d) => d.source === 'SGU jord/skred');
+    const sgu = legacyOf(report).dataSources.find((d) => d.source === 'SGU jord/skred');
     expect(sgu?.status).toBe('degraded');
   });
 
@@ -555,15 +609,16 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-strict-nowater',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
     // The real measured value (null) passes through unmolested — never a fabricated 200.
-    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
+    expect(legacyOf(report).distanceToWater.meters).toBeNull();
     // The pre-existing strict-mode warning is preserved when distanceToWaterAvailable is false
     // (the query technically could not run). OD-03 (W2): this comment previously called that
     // case "genuinely-unavailable" as if it were the only interpretation; the producer state is
     // proven and tested directly in tests/unit/spatialAuditServiceExtended.test.ts instead.
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(true);
+    expect(legacyOf(report).warnings.some((w) => w.includes('Avstånd'))).toBe(true);
 
     // DISCRIMINATING call-site proof, not a restrictions/rules check: complianceRuleEngine is
     // vi.mock'd at the top of this file to always return a fixed { restrictions: [], rules: []
@@ -608,10 +663,11 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-strict-beyond-range',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+    expect(legacyOf(report).distanceToWater.meters).toBeNull();
+    expect(legacyOf(report).warnings.some((w) => w.includes('Avstånd'))).toBe(false);
 
     // Same call-site proof as above (see that test's comment on why restrictions/rules
     // assertions are vacuous against this file's mock).
@@ -643,10 +699,11 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-nonstrict-nowater',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].distanceToWaterMeters).toBeNull();
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+    expect(legacyOf(report).distanceToWater.meters).toBeNull();
+    expect(legacyOf(report).warnings.some((w) => w.includes('Avstånd'))).toBe(false);
 
     const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
     expect(vi.mocked(evaluateComplianceRules)).toHaveBeenCalledTimes(1);
@@ -681,10 +738,11 @@ describe('generateLocalizationReport — VISS ok=true och SLU via BASE_PATH', ()
     const report = await generateLocalizationReport({
       projectId: 'proj-finite-distance',
       siteAlternatives: [SITE],
+      includeLegacyObservations: true,
     });
 
-    expect(report.siteAnalyses[0].distanceToWaterMeters).toBe(42);
-    expect(report.siteAnalyses[0].warnings.some((w) => w.includes('Avstånd'))).toBe(false);
+    expect(legacyOf(report).distanceToWater.meters).toBe(42);
+    expect(legacyOf(report).warnings.some((w) => w.includes('Avstånd'))).toBe(false);
 
     const { evaluateComplianceRules } = await import('../../../server/services/complianceRuleEngine');
     expect(vi.mocked(evaluateComplianceRules)).toHaveBeenCalledTimes(1);

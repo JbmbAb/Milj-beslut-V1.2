@@ -2,8 +2,14 @@
  * generate-localization-report.usecase.ts
  *
  * Clean Architecture Use Case for generating a localization study report.
- * Integrates spatial analysis, compliance rule evaluation, cultural heritage (RAA),
- * VISS water status, SLU species observations, and audit trail logging.
+ *
+ * The governed path: property/project context -> current localization geometry -> registry-bound
+ * spatial evidence -> kernel -> LocalizationAssessmentArtifact, plus audit trail logging.
+ *
+ * U20-C (LU 72h, DP-04): the older, unbound reads (local spatialAudit, live NVR / RAÄ / VISS / SLU
+ * and the legacy compliance rules over them) are no longer part of the governed request. They run
+ * only when a caller asks for them explicitly (`includeLegacyObservations`) and are then returned
+ * in `legacyObservations` (governed: false) -- never in gating, the verdict or the reasoning.
  */
 
 import { runSpatialAudit, type SpatialAuditSummary } from '../../server/services/spatialAuditService';
@@ -49,6 +55,10 @@ import {
   computeGovernedLayerChecks,
   type GovernedLayerCheck,
 } from '../../server/modules/localization/governedLayerChecks';
+import {
+  governedOverallStatementSv,
+  summarizeGovernedCheckCoverage,
+} from '../../server/modules/localization/governedCoverageStatement';
 
 export interface SiteAlternative {
   id: string;
@@ -116,8 +126,8 @@ export interface ExecutionMotorMeta {
    * produced) -- structured data for the client to present as finding cards via the
    * rule_id/risk_level -> category/attention presentation model, instead of the pre-flattened
    * text this file used to push into requiredActions/notes. Legacy compliance-rule-engine output
-   * (VISS, monuments, protected areas -- see evaluateComplianceRules) is untouched; it never came
-   * from AssessmentFinding[] and stays in requiredActions/notes exactly as before.
+   * (VISS, monuments, protected areas -- see evaluateComplianceRules) never came from
+   * AssessmentFinding[]; since U20-C it is returned only in `legacyObservations`, on request.
    */
   findings: readonly AssessmentFinding[];
   /**
@@ -293,18 +303,52 @@ export function governedVerdictFromFindings(
  */
 export type LuComparisonStatus = 'COMPLETE' | 'PARTIAL' | 'UNAVAILABLE';
 
+/**
+ * U20-C (U20-U30 spec 1.4 U-1/U-2, 1.5 K1; owner decision DP-04): the observations of the older,
+ * ungoverned sources -- the local spatialAudit (U-1), the live NVR / RAÄ / VISS / SLU fetchers
+ * (U-2) and the legacy compliance rules evaluated over them.
+ *
+ * Present ONLY when the caller explicitly asks for it (`includeLegacyObservations`, used by the
+ * older generate-pdf-data route, the one existing consumer). The governed generate-report request
+ * never performs these reads. Nothing in this block feeds the verdict, `summary.reasoning`, the
+ * site/report warnings outside this block, strict gating or the assessment artifact.
+ *
+ * Technical failures are reported by status plus a sanitized Swedish text; the raw error (SQL
+ * state, provider response) goes to the server log only, never into the HTTP body. No source or
+ * table is removed by this (PRES-14); only its role changes.
+ */
+export interface LegacyObservationsBlock {
+  readonly governed: false;
+  readonly source: 'legacy_observation';
+  readonly version: 'v1';
+  readonly note_sv: string;
+  readonly protectedArea: {
+    readonly available: boolean;
+    readonly isProtected: boolean;
+    readonly hitNames: readonly string[];
+  };
+  readonly distanceToWater: { readonly available: boolean; readonly meters: number | null };
+  readonly monuments: readonly Monument[];
+  readonly vissWaterStatus: VissWaterStatus | null;
+  readonly sluObservationCount: number;
+  readonly dataSources: readonly DataSourceStatus[];
+  readonly warnings: readonly string[];
+  /** The legacy compliance engine's observations. Its own risk/probability are discarded. */
+  readonly restrictions: readonly string[];
+  readonly rules: SiteAnalysis['rules'];
+}
+
 export interface SiteAnalysisResult {
   site: SiteAlternative;
-  spatialAudit: SpatialAuditSummary;
-  /** DEMO M1a / U12: says explicitly that `spatialAudit` is the older, ungoverned observation. */
-  spatialAuditProvenance?: typeof LEGACY_SPATIAL_AUDIT_PROVENANCE;
+  /**
+   * The governed verdict projection only (LU_VERDICT_AUTHORITY_V1). Since U20-C the legacy
+   * engine's `restrictions`/`rules` are always [] here: they live only in `legacyObservations`.
+   */
   complianceAnalysis: LuVerdictAnalysis;
-  monuments: Monument[];
-  vissWaterStatus: VissWaterStatus | null;
-  distanceToWaterMeters: number | null;
-  dataSources: DataSourceStatus[];
+  /** Governed-path warnings only (geometry, admission, kernel), sanitized. Never legacy-source text. */
   warnings: string[];
-  sluObservationCount: number;
+  /** U20-C: only when explicitly requested (older generate-pdf-data route). Never governed. */
+  legacyObservations?: LegacyObservationsBlock;
   /**
    * K0: the governed DocumentEvidence this run resolved from the caller's explicit
    * `documentEvidenceRefs` (CAS-resolved, property-bound) -- `[]` when none were given. Never an
@@ -440,13 +484,6 @@ function parseSluObservations(raw: unknown): SluObservation[] {
 
 type FetchOutcome<T> = { ok: true; data: T } | { ok: false; error: string };
 
-function getFetchError<T>(outcome: FetchOutcome<T>): string {
-  if ('error' in outcome) {
-    return outcome.error;
-  }
-  return '';
-}
-
 async function fetchNvrAreas(
   lat: number,
   lng: number,
@@ -555,68 +592,69 @@ async function fetchSluObservations(input: {
   }
 }
 
+/** U20-C: the only text a legacy-source failure may show. The raw error is logged, never returned. */
+const LEGACY_SOURCE_UNREADABLE_SV = 'Källan kunde inte läsas (tekniskt fel; detaljer finns i serverloggen).';
+
 function buildDataSources(input: {
-  spatial: SpatialAuditSummary;
+  spatial: SpatialAuditSummary | null;
   nvr: FetchOutcome<ProtectedArea[]>;
   raa: FetchOutcome<Monument[]>;
   viss: FetchOutcome<VissWaterStatus | null>;
   slu: FetchOutcome<SluObservation[]>;
 }): DataSourceStatus[] {
+  const spatial = input.spatial;
+  const spatialStatus: DataSourceStatus['status'] = !spatial
+    ? 'unavailable'
+    : spatial.protectedAreaAvailable && spatial.distanceToWaterAvailable
+      ? 'ok'
+      : spatial.protectedAreaAvailable || spatial.distanceToWaterAvailable
+        ? 'degraded'
+        : 'unavailable';
   const sources: DataSourceStatus[] = [
     {
       source: 'PostGIS spatial',
-      status:
-        input.spatial.protectedAreaAvailable && input.spatial.distanceToWaterAvailable
-          ? 'ok'
-          : input.spatial.protectedAreaAvailable || input.spatial.distanceToWaterAvailable
-            ? 'degraded'
-            : 'unavailable',
-      detail: input.spatial.protectedAreaWarning || input.spatial.distanceToWaterWarning,
+      status: spatialStatus,
+      detail: spatialStatus === 'ok' ? 'Lokal kontroll läst' : LEGACY_SOURCE_UNREADABLE_SV,
     },
     {
       source: 'SGU jord/skred',
-      status: input.spatial.sgu.manualReviewRequired ? 'degraded' : 'ok',
-      detail: input.spatial.sgu.summary,
+      status: !spatial ? 'unavailable' : spatial.sgu.manualReviewRequired ? 'degraded' : 'ok',
+      detail: !spatial || spatial.sgu.manualReviewRequired ? LEGACY_SOURCE_UNREADABLE_SV : 'SGU-underlag läst',
     },
     {
       source: 'NVR API',
       status: input.nvr.ok ? 'ok' : 'unavailable',
-      detail: input.nvr.ok ? `${input.nvr.data.length} träffar` : getFetchError(input.nvr),
+      detail: input.nvr.ok ? `${input.nvr.data.length} träffar` : LEGACY_SOURCE_UNREADABLE_SV,
     },
     {
       source: 'RAA API',
       status: input.raa.ok ? 'ok' : 'unavailable',
-      detail: input.raa.ok ? `${input.raa.data.length} fornlämningar` : getFetchError(input.raa),
+      detail: input.raa.ok ? `${input.raa.data.length} fornlämningar` : LEGACY_SOURCE_UNREADABLE_SV,
     },
     {
       source: 'VISS',
       status: input.viss.ok ? 'ok' : 'unavailable',
-      detail: input.viss.ok ? input.viss.data?.waterName || 'ingen primär status' : getFetchError(input.viss),
+      detail: input.viss.ok ? input.viss.data?.waterName || 'ingen primär status' : LEGACY_SOURCE_UNREADABLE_SV,
     },
     {
       source: 'SLU Artdata',
       status: input.slu.ok ? 'ok' : 'unavailable',
-      detail: input.slu.ok ? `${input.slu.data.length} observationer` : getFetchError(input.slu),
+      detail: input.slu.ok ? `${input.slu.data.length} observationer` : LEGACY_SOURCE_UNREADABLE_SV,
     },
   ];
   return sources;
 }
 
-/** DEMO M1a / U12: marks text that comes from the older, ungoverned spatialAudit. */
+/** DEMO M1a / U12: marks text that comes from the older, ungoverned sources. */
 export const LEGACY_SPATIAL_AUDIT_PREFIX_SV = 'Äldre observation (ingår inte i den styrda bedömningen):';
 
-/** DEMO M1a / U12: tag on SiteAnalysisResult.spatialAudit's provenance (the block itself is unchanged). */
-export const LEGACY_SPATIAL_AUDIT_PROVENANCE = {
-  source: 'legacy_observation',
-  version: 'v1',
-  governed: false,
-  note_sv:
-    'Äldre observation från den lokala PostGIS-kontrollen (spatialAudit). Den ingår inte i den styrda ' +
-    'bedömningen och kan inte motsäga den; se executionMotor för det styrda resultatet.',
-} as const;
+const LEGACY_OBSERVATIONS_NOTE_SV =
+  'Äldre observationer från den lokala PostGIS-kontrollen (spatialAudit) och livekällorna NVR, RAÄ, VISS ' +
+  'och SLU. De är inte styrd evidens, ingår inte i den styrda bedömningen och kan inte motsäga den; se ' +
+  'executionMotor för det styrda resultatet.';
 
 function collectWarnings(input: {
-  spatial: SpatialAuditSummary;
+  spatial: SpatialAuditSummary | null;
   nvr: FetchOutcome<ProtectedArea[]>;
   raa: FetchOutcome<Monument[]>;
   viss: FetchOutcome<VissWaterStatus | null>;
@@ -624,43 +662,45 @@ function collectWarnings(input: {
   strict: boolean;
 }): string[] {
   const warnings: string[] = [];
-  // DEMO M1a / U12: these two come from the older, ungoverned spatialAudit (runSpatialAudit), not
-  // from the governed layer query. Labelled as such so they cannot read as contradicting the
-  // governed result (e.g. "kunde inte verifieras" next to a governed protected_area check).
-  if (!input.spatial.protectedAreaAvailable && input.spatial.protectedAreaWarning) {
-    warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Skyddad natur (lokal): ${input.spatial.protectedAreaWarning}`);
-  }
-  if (!input.spatial.distanceToWaterAvailable && input.spatial.distanceToWaterWarning) {
-    warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Avstånd vatten: ${input.spatial.distanceToWaterWarning}`);
+  const unreadable = (what: string) => `${LEGACY_SPATIAL_AUDIT_PREFIX_SV} ${what}: ${LEGACY_SOURCE_UNREADABLE_SV}`;
+  // DEMO M1a / U12 + U20-C: every warning here comes from an older, ungoverned source, carries the
+  // legacy prefix, and never echoes the raw error (U-1 used to put Prisma/SQL errors in the body).
+  if (!input.spatial) {
+    warnings.push(unreadable('Lokal PostGIS-kontroll'));
+  } else {
+    if (!input.spatial.protectedAreaAvailable && input.spatial.protectedAreaWarning) {
+      warnings.push(unreadable('Skyddad natur (lokal)'));
+    }
+    if (!input.spatial.distanceToWaterAvailable && input.spatial.distanceToWaterWarning) {
+      warnings.push(unreadable('Avstånd vatten'));
+    }
   }
   if (!input.nvr.ok) {
-    warnings.push(
-      input.strict
-        ? `NVR API otillgänglig — skyddade områden från livekälla saknas: ${getFetchError(input.nvr)}`
-        : `NVR API otillgänglig (använder endast lokal PostGIS): ${getFetchError(input.nvr)}`,
-    );
+    warnings.push(unreadable(input.strict ? 'NVR API (skyddade områden från livekälla saknas)' : 'NVR API'));
   }
-  if (!input.raa.ok) {
-    warnings.push(`RAA/fornlämningar otillgängliga: ${getFetchError(input.raa)}`);
-  }
-  if (!input.viss.ok) {
-    warnings.push(`VISS otillgänglig: ${getFetchError(input.viss)}`);
-  }
-  if (!input.slu.ok) {
-    warnings.push(`SLU Artdata: ${getFetchError(input.slu)}`);
-  }
+  if (!input.raa.ok) warnings.push(unreadable('RAÄ/fornlämningar'));
+  if (!input.viss.ok) warnings.push(unreadable('VISS'));
+  if (!input.slu.ok) warnings.push(unreadable('SLU Artdata'));
   return warnings;
 }
 
-async function analyzeSite(
+/**
+ * U20-C: the older, ungoverned observations, collected only on explicit request. Never throws: a
+ * failing legacy source must not be able to break (or otherwise touch) the governed run.
+ */
+async function collectLegacyObservations(
   site: SiteAlternative,
   ctx: { projectId: string; user?: AuthUser },
-  createSpatialRuntime: () => Promise<LocalizationSpatialRuntime>,
-): Promise<SiteAnalysisResult> {
-  logger.info(`Analyzing site: ${site.id} at (${site.lat}, ${site.lng})`);
+): Promise<LegacyObservationsBlock> {
   const strict = isLocalizationStrictMode();
 
-  const spatialAudit = await runSpatialAudit(site.lat, site.lng);
+  let spatialAudit: SpatialAuditSummary | null;
+  try {
+    spatialAudit = await runSpatialAudit(site.lat, site.lng);
+  } catch (err) {
+    logger.warn('runSpatialAudit failed (legacy observation)', { site: site.id, err: String(err) });
+    spatialAudit = null;
+  }
 
   const [nvrOutcome, raaOutcome, vissOutcome, sluOutcome] = await Promise.all([
     fetchNvrAreas(site.lat, site.lng, site.id),
@@ -695,8 +735,8 @@ async function analyzeSite(
     strict,
   });
 
-  const geologicalData = toGeologicalData(spatialAudit.sgu);
-  const distanceToWaterMeters = spatialAudit.distanceToWaterMeters;
+  const distanceToWaterMeters = spatialAudit ? spatialAudit.distanceToWaterMeters : null;
+  const distanceToWaterAvailable = spatialAudit ? spatialAudit.distanceToWaterAvailable : false;
 
   // NO_LEGACY_WATER_DISTANCE_FALLBACK_MECHANICAL_V1: an unknown distance must reach the
   // compliance engine as `null`, never as a fabricated numeric value (the legacy 200 m
@@ -714,17 +754,95 @@ async function analyzeSite(
   // it from available=false, it does not interpret it. The trichotomy itself (technical
   // failure / checked-and-nothing-found / measured distance) is proven directly against the
   // producer in tests/unit/spatialAuditServiceExtended.test.ts.
-  if (distanceToWaterMeters == null && strict && !spatialAudit.distanceToWaterAvailable) {
-    warnings.push('Avstånd till vatten okänt — compliance använder inte standardfallback i strikt läge.');
+  // U20-C: the warning now lives in the legacy block only.
+  if (distanceToWaterMeters == null && strict && !distanceToWaterAvailable) {
+    warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Avstånd till vatten okänt — compliance använder inte standardfallback i strikt läge.`);
   }
 
-  const complianceAnalysis = evaluateComplianceRules(
-    observations,
-    protectedAreas,
-    geologicalData,
+  // The legacy engine's own overallRisk / permitProbability / summary are discarded here: only its
+  // restrictions and rules are kept, as labelled observations (W3a SEM-2).
+  let restrictions: string[] = [];
+  let rules: SiteAnalysis['rules'] = [];
+  try {
+    const legacyRules = evaluateComplianceRules(
+      observations,
+      protectedAreas,
+      spatialAudit ? toGeologicalData(spatialAudit.sgu) : {},
+      monuments,
+      distanceToWaterMeters,
+    );
+    restrictions = legacyRules.restrictions;
+    rules = legacyRules.rules;
+  } catch (err) {
+    logger.warn('evaluateComplianceRules failed (legacy observation)', { site: site.id, err: String(err) });
+    warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Äldre regelmotor: ${LEGACY_SOURCE_UNREADABLE_SV}`);
+  }
+
+  return {
+    governed: false,
+    source: 'legacy_observation',
+    version: 'v1',
+    note_sv: LEGACY_OBSERVATIONS_NOTE_SV,
+    protectedArea: {
+      available: spatialAudit ? spatialAudit.protectedAreaAvailable : false,
+      isProtected: spatialAudit ? spatialAudit.isProtected : false,
+      hitNames: spatialAudit ? spatialAudit.protectedAreaHits.map((hit) => hit.name || 'Namnlöst område') : [],
+    },
+    distanceToWater: { available: distanceToWaterAvailable, meters: distanceToWaterMeters },
     monuments,
-    distanceToWaterMeters,
-  );
+    vissWaterStatus,
+    sluObservationCount: observations.length,
+    dataSources,
+    warnings,
+    restrictions,
+    rules,
+  };
+}
+
+/**
+ * U20-C: a governed-path technical failure is reported without the raw database / provider text.
+ * A governed error vocabulary message (`REJECT_*`, `LU_*`, ... -- an upper-case code first) is kept
+ * as written, unless it embeds raw driver output; anything else becomes a generic Swedish text.
+ * The full message always goes to the server log.
+ */
+const RAW_TECHNICAL_ERROR_PATTERN =
+  /does not exist|syntax error|violates|SQLSTATE|\$queryRaw|prisma|relation "|column "|ECONN|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|<html/i;
+
+export function sanitizeGovernedErrorMessage(message: string): string {
+  const codeFirst = /^[A-Z][A-Z0-9_]{2,}(?=[:\s]|$)/.exec(message);
+  if (codeFirst) {
+    return RAW_TECHNICAL_ERROR_PATTERN.test(message) ? codeFirst[0] : message.slice(0, 300);
+  }
+  return 'tekniskt fel (detaljer finns i serverloggen)';
+}
+
+/** U20-C: the Swedish summary of a site without a governed assessment (no verdict, no legacy text). */
+function nonVerdictSummarySv(status: LuAssessmentStatus | undefined): string {
+  switch (status) {
+    case 'GOVERNANCE_DENIED':
+      return 'Ingen styrd bedömning: körningen nekades av styrningen. Ingen risknivå anges.';
+    case 'EXECUTION_FAILED':
+      return 'Ingen styrd bedömning: körningen avbröts av ett tekniskt fel. Ingen risknivå anges.';
+    default:
+      return 'Ingen styrd bedömning gjordes. Ingen risknivå anges.';
+  }
+}
+
+async function analyzeSite(
+  site: SiteAlternative,
+  ctx: { projectId: string; user?: AuthUser },
+  createSpatialRuntime: () => Promise<LocalizationSpatialRuntime>,
+  options: { readonly includeLegacyObservations: boolean },
+): Promise<SiteAnalysisResult> {
+  logger.info(`Analyzing site: ${site.id} at (${site.lat}, ${site.lng})`);
+
+  // U20-C / DP-04: the governed request performs no unbound read. The older observations exist
+  // only for a caller that explicitly asks for them, in their own labelled block, and are
+  // collected independently of (and can never alter) anything below.
+  const legacyObservations = options.includeLegacyObservations
+    ? await collectLegacyObservations(site, ctx)
+    : undefined;
+  const warnings: string[] = [];
 
   // Magic Moment path: property CAS → registry-resolved spatial provider → evidence → kernel → assessment
   let mpsFindings: AssessmentFinding[] = [];
@@ -1040,7 +1158,8 @@ async function analyzeSite(
     } else {
       const msg = err?.message || String(err);
       logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
-      warnings.push(`ExecutionKernel error: ${msg}`);
+      // U20-C: never the raw database/provider text in the HTTP body (it stays in the log above).
+      warnings.push(`ExecutionKernel error: ${sanitizeGovernedErrorMessage(msg)}`);
       executionMotor = {
         admitted: false,
         reason_codes: ['EXECUTION_KERNEL_ERROR'],
@@ -1067,24 +1186,32 @@ async function analyzeSite(
   // branch that forgets to fail closed still cannot leak a verdict.
   const hasGovernedAssessment = executionMotor?.assessment_artifact_id != null;
 
+  // U20-C: the verdict projection is built from the governed findings only -- never from the legacy
+  // engine (its restrictions/rules live in `legacyObservations`). The summary text states the risk
+  // level only together with how many governed checks were completed (owner decision OD-K0-1);
+  // the machine-readable overallRisk / permitProbability / unresolvedChecks are unchanged.
+  let complianceAnalysis: LuVerdictAnalysis;
+  if (hasGovernedAssessment) {
+    const verdict = governedVerdictFromFindings(executionMotor?.findings ?? []);
+    complianceAnalysis = {
+      restrictions: [],
+      rules: [],
+      ...verdict,
+      summary: governedOverallStatementSv(verdict.overallRisk, executionMotor?.governed_layer_checks),
+      assessment_status: 'ASSESSED',
+    };
+  } else {
+    complianceAnalysis = withoutVerdict(
+      { restrictions: [], rules: [], summary: nonVerdictSummarySv(executionMotor?.assessment_status) },
+      executionMotor?.assessment_status,
+    );
+  }
+
   return {
     site,
-    spatialAudit,
-    spatialAuditProvenance: LEGACY_SPATIAL_AUDIT_PROVENANCE,
-    complianceAnalysis: hasGovernedAssessment
-      ? {
-          ...complianceAnalysis,
-          ...governedVerdictFromFindings(executionMotor?.findings ?? []),
-          ...legacyObservationTag(complianceAnalysis),
-          assessment_status: 'ASSESSED',
-        }
-      : { ...withoutVerdict(complianceAnalysis, executionMotor?.assessment_status), ...legacyObservationTag(complianceAnalysis) },
-    monuments,
-    vissWaterStatus,
-    distanceToWaterMeters,
-    dataSources,
+    complianceAnalysis,
     warnings,
-    sluObservationCount: observations.length,
+    ...(legacyObservations ? { legacyObservations } : {}),
     documentEvidence,
     executionMotor: executionMotor ?? {
       admitted: false,
@@ -1111,7 +1238,8 @@ async function analyzeSite(
  * be mistaken for a finding.
  */
 function withoutVerdict(
-  analysis: SiteAnalysis,
+  analysis: Omit<SiteAnalysis, 'overallRisk' | 'permitProbability'> &
+    Partial<Pick<SiteAnalysis, 'overallRisk' | 'permitProbability'>>,
   status: LuAssessmentStatus | undefined,
 ): NonVerdictAnalysis {
   const { overallRisk: _risk, permitProbability: _probability, ...rest } = analysis;
@@ -1222,6 +1350,12 @@ export class GenerateLocalizationReportUseCase {
     siteAlternatives: SiteAlternative[];
     userId?: string;
     user?: AuthUser;
+    /**
+     * U20-C / DP-04: false (default) for the governed request -- no unbound read is performed.
+     * Only the older generate-pdf-data route, the one existing consumer of those observations,
+     * sets it; they then come back in `legacyObservations` (governed: false) and nowhere else.
+     */
+    includeLegacyObservations?: boolean;
   }): Promise<LocalizationReport> {
     const analyses = await Promise.all(
       input.siteAlternatives.map((site) =>
@@ -1229,6 +1363,7 @@ export class GenerateLocalizationReportUseCase {
           site,
           { projectId: input.projectId, user: input.user },
           this.createSpatialRuntime,
+          { includeLegacyObservations: input.includeLegacyObservations === true },
         ),
       ),
     );
@@ -1255,8 +1390,11 @@ export class GenerateLocalizationReportUseCase {
           `Ej bedömda alternativ (${unassessed.map((a) => a.site.id).join(', ')}) ingår inte i rangordningen.`
         : '';
 
+    // U20-C / DP-10: no "tillståndssannolikhet (NN%)" and no count from an unbound read (RAÄ, SLU):
+    // the reasoning names the ranked alternative and repeats its governed, qualified statement.
     const reasoning = bestAlternative
-      ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) har högst tillståndssannolikhet (${(rankedProbability(bestAlternative) * 100).toFixed(0)}%) bland bedömda alternativ, baserat på spatial analys, ${bestAlternative.monuments.length} kulturmiljöträffar, ${bestAlternative.sluObservationCount} SLU-observationer, och riskklassning ${bestAlternative.complianceAnalysis.overallRisk}.${coverageNote}`
+      ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) rangordnas först bland de bedömda alternativen enligt de styrda fynden. ` +
+        `${bestAlternative.complianceAnalysis.summary}${coverageNote}`
       : analyses.length === 0
         ? // Noll kandidater är inte samma sak som kandidater utan bedömning. Att säga
           // "inget av 0 alternativ har en governad bedömning" beskriver en frånvaro som
@@ -1288,7 +1426,9 @@ export class GenerateLocalizationReportUseCase {
         'Document',
         input.projectId,
         input.userId || 'SYSTEM',
-        `Lokaliseringsutredning genererad med ${input.siteAlternatives.length} alternativ. Bästa: ${bestAlternative?.site.id || 'N/A'}.`,
+        // U20-C / OD-K0-1: the description never states the risk level without its coverage.
+        `Lokaliseringsutredning genererad med ${input.siteAlternatives.length} alternativ. Bästa: ${bestAlternative?.site.id || 'N/A'}.` +
+          (bestAlternative ? ` ${bestAlternative.complianceAnalysis.summary}` : ''),
         {
           severity: reportWarnings.length > 0 ? 'warning' : 'info',
           details: {
@@ -1309,6 +1449,9 @@ export class GenerateLocalizationReportUseCase {
                     bestAlternative.executionMotor?.assessment_artifact_id ?? null,
                   bestPermitProbability: bestAlternative.complianceAnalysis.permitProbability,
                   overallRisk: bestAlternative.complianceAnalysis.overallRisk,
+                  bestCheckCoverage: summarizeGovernedCheckCoverage(
+                    bestAlternative.executionMotor?.governed_layer_checks,
+                  ),
                 }
               : {}),
             warningCount: reportWarnings.length,

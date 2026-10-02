@@ -7,6 +7,8 @@ import {
 } from '../../server/modules/localization/localizationOrchestrator';
 import type { LocalizationReport } from '../../server/services/localizationReportService';
 
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
+
 vi.mock('../../server/services/localizationReportService', () => ({
   generateLocalizationReport: vi.fn(),
   isLocalizationStrictMode: vi.fn().mockReturnValue(false),
@@ -33,6 +35,9 @@ function makeReport(overrides: Partial<LocalizationReport> = {}): LocalizationRe
     summary: {
       bestAlternativeId: 'A',
       reasoning: 'Baseline motivering',
+      comparison_status: 'COMPLETE',
+      assessed_site_ids: ['A'],
+      unassessed_site_ids: [],
     },
     warnings: [],
     siteAnalyses: [],
@@ -41,6 +46,10 @@ function makeReport(overrides: Partial<LocalizationReport> = {}): LocalizationRe
   };
 }
 
+/**
+ * U20-C: a site whose OLDER, ungoverned sources are partly or wholly down. Since U20-C those
+ * observations live only in `legacyObservations` (governed: false) and can never gate the request.
+ */
 function makeSiteAnalysis(
   siteId: string,
   unavailableSources: string[],
@@ -49,60 +58,34 @@ function makeSiteAnalysis(
   const externalSources = ['NVR API', 'RAA API', 'VISS', 'SLU Artdata'];
   return {
     site: { id: siteId, lat: 59.3, lng: 18.07 },
-    dataSources: externalSources.map((source) => ({
-      source,
-      status: unavailableSources.includes(source) ? ('unavailable' as const) : ('ok' as const),
-    })),
-    spatialAudit: {
-      protectedAreaHits: [],
-      protectedAreaAvailable: !spatialDown,
-      isProtected: false,
-      sgu: {
-        coverageMode: 'sample',
-        manualReviewRequired: false,
-        riskLevel: 'LOW',
-        groundLayer: {
-          intersects: false,
-          hit: null,
-          advisory: 'Ingen avvikelse i grundlager.',
-        },
-        landslideFeatures: {
-          nearby: false,
-          bufferMeters: 150,
-          nearestDistanceMeters: null,
-          hits: [],
-          advisory: 'Inga SGU-indikatorer inom buffert.',
-        },
-        flags: [],
-        summary: 'SGU-risk: låg',
-      },
-      insar: {
-        pointCount: 0,
-        averageVelocityMmYear: 0,
-        maxSubsidenceMmYear: 0,
-        riskLevel: 'LOW' as const,
-        advisory: 'Ingen markrörelse',
-        sourceUrl: '',
-        points: [],
-        warningFlags: [],
-      },
-      distanceToWaterMeters: null,
-      distanceToWaterAvailable: !spatialDown,
-      text: 'Spatial audit genomford.',
-      sources: [],
-    },
     complianceAnalysis: {
-      overallRisk: 'LOW',
-      permitProbability: 0.75,
+      assessment_status: 'NOT_ASSESSED',
       restrictions: [],
       rules: [],
-      summary: 'Låg risk.',
+      summary: 'Ingen styrd bedömning gjordes. Ingen risknivå anges.',
     },
     warnings: [],
-    monuments: [],
-    vissWaterStatus: null,
-    distanceToWaterMeters: null,
-    sluObservationCount: 0,
+    legacyObservations: {
+      governed: false,
+      source: 'legacy_observation',
+      version: 'v1',
+      note_sv: 'Äldre observationer (test).',
+      protectedArea: { available: !spatialDown, isProtected: false, hitNames: [] },
+      distanceToWater: { available: !spatialDown, meters: null },
+      monuments: [],
+      vissWaterStatus: null,
+      sluObservationCount: 0,
+      dataSources: [
+        { source: 'PostGIS spatial', status: spatialDown ? ('unavailable' as const) : ('ok' as const) },
+        ...externalSources.map((source) => ({
+          source,
+          status: unavailableSources.includes(source) ? ('unavailable' as const) : ('ok' as const),
+        })),
+      ],
+      warnings: [],
+      restrictions: [],
+      rules: [],
+    },
   };
 }
 
@@ -247,20 +230,43 @@ describe('validateLocalizationBody', () => {
   });
 });
 
-// ─── assertStrictReportUsable (via runLocalizationReport) ────────────────────
+// ─── U20-C: strict mode never gates on the unbound reads ─────────────────────
+//
+// The former assertStrictReportUsable turned the old spatialAudit and the live NVR / RAÄ / VISS /
+// SLU outcomes into a 503 -- after the governed assessment was already persisted. These cases used
+// to assert that 503; U20-C (U20-U30 spec 1.5 K1, owner decision DP-04) removes the gate, so the
+// same reports now pass in every mode. The governed outcome is carried per site in executionMotor.
 
-describe('assertStrictReportUsable via runLocalizationReport', () => {
+describe('U20-C: runLocalizationReport never gates on the older, ungoverned sources', () => {
   beforeEach(() => {
     vi.mocked(isLocalizationStrictMode).mockReturnValue(false);
     vi.mocked(generateLocalizationReport).mockResolvedValue(makeReport());
   });
 
-  it('non-strict mode: passes even with 3 unavailable external sources', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(false);
+  it.each<[string, string[], boolean]>([
+    ['3 external sources down', ['NVR API', 'RAA API', 'VISS'], false],
+    ['all 4 external sources down', ['NVR API', 'RAA API', 'VISS', 'SLU Artdata'], false],
+    ['2 external sources down + spatialAudit down', ['NVR API', 'RAA API'], true],
+    ['1 external source down + spatialAudit down', ['NVR API'], true],
+  ])('strict mode, %s -> ok (no LocalizationDataUnavailableError)', async (_label, down, spatialDown) => {
+    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
+    vi.mocked(generateLocalizationReport).mockResolvedValue(
+      makeReport({ siteAnalyses: [makeSiteAnalysis('A', down, spatialDown)] }),
+    );
+
+    const result = await runLocalizationReport({
+      authUser: mockAuth,
+      projectId: 'proj-1',
+      siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.meta.strictMode).toBe(true);
+  });
+
+  it('non-strict mode: passes with 3 unavailable external sources (unchanged)', async () => {
     vi.mocked(generateLocalizationReport).mockResolvedValue(
       makeReport({ siteAnalyses: [makeSiteAnalysis('A', ['NVR API', 'RAA API', 'VISS'])] }),
     );
-
     const result = await runLocalizationReport({
       authUser: mockAuth,
       projectId: 'proj-1',
@@ -269,111 +275,23 @@ describe('assertStrictReportUsable via runLocalizationReport', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('strict mode: 3 unavailable external sources → LocalizationDataUnavailableError', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({ siteAnalyses: [makeSiteAnalysis('A', ['NVR API', 'RAA API', 'VISS'])] }),
-    );
+  it('the governed request does not ask for the older observations; the opt-in is passed through', async () => {
+    await runLocalizationReport({ authUser: mockAuth, projectId: 'proj-1', siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }] });
+    expect(vi.mocked(generateLocalizationReport).mock.calls.at(-1)?.[0]).toMatchObject({ includeLegacyObservations: false });
 
-    await expect(
-      runLocalizationReport({
-        authUser: mockAuth,
-        projectId: 'proj-1',
-        siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
-      }),
-    ).rejects.toThrow(LocalizationDataUnavailableError);
-  });
-
-  it('strict mode: 4 unavailable external sources → LocalizationDataUnavailableError', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({
-        siteAnalyses: [makeSiteAnalysis('A', ['NVR API', 'RAA API', 'VISS', 'SLU Artdata'])],
-      }),
-    );
-
-    await expect(
-      runLocalizationReport({
-        authUser: mockAuth,
-        projectId: 'proj-1',
-        siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
-      }),
-    ).rejects.toThrow(LocalizationDataUnavailableError);
-  });
-
-  it('strict mode: 2 unavailable + spatial degraded → throws', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({ siteAnalyses: [makeSiteAnalysis('A', ['NVR API', 'RAA API'], true)] }),
-    );
-
-    await expect(
-      runLocalizationReport({
-        authUser: mockAuth,
-        projectId: 'proj-1',
-        siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
-      }),
-    ).rejects.toThrow(LocalizationDataUnavailableError);
-  });
-
-  it('strict mode: 2 unavailable + spatial OK → passes', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({ siteAnalyses: [makeSiteAnalysis('A', ['NVR API', 'RAA API'], false)] }),
-    );
-
-    const result = await runLocalizationReport({
+    await runLocalizationReport({
       authUser: mockAuth,
       projectId: 'proj-1',
       siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
+      includeLegacyObservations: true,
     });
-    expect(result.ok).toBe(true);
+    expect(vi.mocked(generateLocalizationReport).mock.calls.at(-1)?.[0]).toMatchObject({ includeLegacyObservations: true });
   });
 
-  it('strict mode: 1 unavailable + spatial degraded → passes', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({ siteAnalyses: [makeSiteAnalysis('A', ['NVR API'], true)] }),
-    );
-
-    const result = await runLocalizationReport({
-      authUser: mockAuth,
-      projectId: 'proj-1',
-      siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  it('strict mode: all sources available → passes', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({ siteAnalyses: [makeSiteAnalysis('A', [])] }),
-    );
-
-    const result = await runLocalizationReport({
-      authUser: mockAuth,
-      projectId: 'proj-1',
-      siteAlternatives: [{ id: 'A', lat: 59.3, lng: 18.07 }],
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  it('strict mode: error contains site id and external count', async () => {
-    vi.mocked(isLocalizationStrictMode).mockReturnValue(true);
-    vi.mocked(generateLocalizationReport).mockResolvedValue(
-      makeReport({ siteAnalyses: [makeSiteAnalysis('site-XYZ', ['NVR API', 'RAA API', 'VISS'])] }),
-    );
-
-    const err = await runLocalizationReport({
-      authUser: mockAuth,
-      projectId: 'proj-1',
-      siteAlternatives: [{ id: 'site-XYZ', lat: 59.3, lng: 18.07 }],
-    }).catch((e) => e);
-
-    expect(err).toBeInstanceOf(LocalizationDataUnavailableError);
-    expect((err as Error).message).toContain('site-XYZ');
-    expect((err as LocalizationDataUnavailableError).status).toBe(503);
-    expect((err as LocalizationDataUnavailableError).code).toBe('LOCALIZATION_DATA_UNAVAILABLE');
+  it('LocalizationDataUnavailableError keeps its public contract (status 503, code) for the route mapping', () => {
+    const err = new LocalizationDataUnavailableError('x');
+    expect(err.status).toBe(503);
+    expect(err.code).toBe('LOCALIZATION_DATA_UNAVAILABLE');
   });
 
   it('returns 400 when projectId missing', async () => {

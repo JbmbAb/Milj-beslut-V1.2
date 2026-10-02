@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildLocalizationPdfData } from '../../../server/services/localizationPdfService';
-import type { LocalizationReport } from '../../../server/services/localizationReportService';
+import type { LocalizationReport, SiteAnalysisResult } from '../../../server/services/localizationReportService';
+
+// Hermetic: the projection is pure; the real database client is never evaluated.
+vi.mock('../../../server/db/prisma', async () => (await import('../../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
 
 // ── Byggstenar ─────────────────────────────────────────────────────────────
 
@@ -14,46 +17,28 @@ function makeSite(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeSpatialAudit(overrides: Record<string, unknown> = {}) {
+/**
+ * U20-C: the older, ungoverned observations reach this projection only through their own labelled
+ * block (`legacyObservations`, governed: false), never through top-level site fields.
+ */
+function makeLegacy(overrides: Record<string, unknown> = {}): NonNullable<SiteAnalysisResult['legacyObservations']> {
+  // Fixture objects (monuments with only id/name, etc.) are deliberately partial.
   return {
-    protectedAreaHits: [],
-    protectedAreaAvailable: true,
-    isProtected: false,
-    sgu: {
-      coverageMode: 'sample' as const,
-      manualReviewRequired: false,
-      riskLevel: 'LOW' as const,
-      groundLayer: {
-        intersects: false,
-        hit: null,
-        advisory: 'Ingen avvikelse i grundlager.',
-      },
-      landslideFeatures: {
-        nearby: false,
-        bufferMeters: 150,
-        nearestDistanceMeters: null,
-        hits: [],
-        advisory: 'Inga SGU-indikatorer inom buffert.',
-      },
-      flags: [],
-      summary: 'SGU-risk: låg',
-    },
-    insar: {
-      pointCount: 0,
-      averageVelocityMmYear: 0,
-      maxSubsidenceMmYear: 0,
-      riskLevel: 'LOW' as const,
-      advisory: 'Ingen markrörelse',
-      sourceUrl: '',
-      points: [],
-      warningFlags: [],
-    },
-    distanceToWaterMeters: null,
-    distanceToWaterAvailable: false,
-    text: 'OK',
-    sources: [],
+    governed: false as const,
+    source: 'legacy_observation' as const,
+    version: 'v1' as const,
+    note_sv: 'Äldre observationer (test).',
+    protectedArea: { available: true, isProtected: false, hitNames: [] as string[] },
+    distanceToWater: { available: true, meters: null as number | null },
+    monuments: [] as Array<{ name: string }>,
+    vissWaterStatus: null,
+    sluObservationCount: 0,
+    dataSources: [],
+    warnings: [] as string[],
+    restrictions: [] as string[],
+    rules: [],
     ...overrides,
-  };
+  } as unknown as NonNullable<SiteAnalysisResult['legacyObservations']>;
 }
 
 function makeCompliance(siteId: string, overrides: Record<string, unknown> = {}) {
@@ -67,6 +52,8 @@ function makeCompliance(siteId: string, overrides: Record<string, unknown> = {})
     restrictions: [],
     rules: [],
     summary: `Sammanfattning ${siteId}`,
+    // Required on a governed verdict since SEM-1 (W2); the fixture omitted it.
+    unresolvedChecks: [],
     ...overrides,
   };
 }
@@ -86,8 +73,10 @@ function makeExecutionMotor(id: string, overrides: Record<string, unknown> = {})
     ticket_id: null,
     finding_ids: [],
     assessment_artifact_id: `assessment-${id}`,
+    assessment_projection_registered: true,
     property_context_id: `prop-${id}`,
     assessment_status: 'ASSESSED' as const,
+    findings: [],
     ...overrides,
   };
 }
@@ -95,14 +84,9 @@ function makeExecutionMotor(id: string, overrides: Record<string, unknown> = {})
 function makeSiteAnalysis(id: string, overrides: Record<string, unknown> = {}) {
   return {
     site: makeSite(id),
-    spatialAudit: makeSpatialAudit(),
     complianceAnalysis: makeCompliance(id),
-    monuments: [],
-    vissWaterStatus: null,
-    distanceToWaterMeters: null,
-    dataSources: [],
     warnings: [],
-    sluObservationCount: 0,
+    legacyObservations: makeLegacy(),
     executionMotor: makeExecutionMotor(id),
     ...overrides,
   };
@@ -257,10 +241,7 @@ describe('buildLocalizationPdfData', () => {
       const report = makeReport({
         siteAnalyses: [
           makeSiteAnalysis('alt-1', {
-            complianceAnalysis: makeCompliance('alt-1', {
-              restrictions: ['Naturreservat'],
-              legacyObservation: { source: 'legacy_observation', version: 'v1' },
-            }),
+            legacyObservations: makeLegacy({ restrictions: ['Naturreservat'] }),
           }),
         ],
       });
@@ -275,10 +256,7 @@ describe('buildLocalizationPdfData', () => {
       const report = makeReport({
         siteAnalyses: [
           makeSiteAnalysis('alt-1', {
-            complianceAnalysis: makeCompliance('alt-1', {
-              restrictions: [],
-              rules: [],
-            }),
+            legacyObservations: makeLegacy({ restrictions: [], rules: [] }),
           }),
         ],
       });
@@ -298,7 +276,7 @@ describe('buildLocalizationPdfData', () => {
     it('trunkerar monument till max 5 namn', () => {
       const monuments = Array.from({ length: 8 }, (_, i) => ({ name: `Fornl ${i}`, id: `m${i}` }));
       const report = makeReport({
-        siteAnalyses: [makeSiteAnalysis('alt-1', { monuments })],
+        siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: makeLegacy({ monuments }) })],
       });
       const pdf = buildLocalizationPdfData(report);
       expect(pdf.sites[0].monumentCount).toBe(8);
@@ -306,16 +284,11 @@ describe('buildLocalizationPdfData', () => {
     });
 
     it('trunkerar skyddade områden till max 5', () => {
-      const hits = Array.from({ length: 7 }, (_, i) => ({
-        nvr_id: `nvr-${i}`,
-        name: `Område ${i}`,
-        protection_type: 'NR',
-        decision_status: 'ACTIVE',
-      }));
+      const hitNames = Array.from({ length: 7 }, (_, i) => `Område ${i}`);
       const report = makeReport({
         siteAnalyses: [
           makeSiteAnalysis('alt-1', {
-            spatialAudit: makeSpatialAudit({ protectedAreaHits: hits, isProtected: true }),
+            legacyObservations: makeLegacy({ protectedArea: { available: true, isProtected: true, hitNames } }),
           }),
         ],
       });
@@ -324,12 +297,11 @@ describe('buildLocalizationPdfData', () => {
       expect(pdf.sites[0].protectedAreaNames).toHaveLength(5);
     });
 
-    it('mappar skyddat område utan namn till "Namnlöst område"', () => {
-      const hits = [{ nvr_id: 'nvr-1', name: null, protection_type: 'NR', decision_status: 'ACTIVE' }];
+    it('U20-C: skyddade områdens namn kommer oförändrade ur legacy-blocket (namnlösa sätts redan där)', () => {
       const report = makeReport({
         siteAnalyses: [
           makeSiteAnalysis('alt-1', {
-            spatialAudit: makeSpatialAudit({ protectedAreaHits: hits, isProtected: true }),
+            legacyObservations: makeLegacy({ protectedArea: { available: true, isProtected: true, hitNames: ['Namnlöst område'] } }),
           }),
         ],
       });
@@ -356,7 +328,7 @@ describe('buildLocalizationPdfData', () => {
         typeCode: 'WB1',
       };
       const report = makeReport({
-        siteAnalyses: [makeSiteAnalysis('alt-1', { vissWaterStatus: viss })],
+        siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: makeLegacy({ vissWaterStatus: viss }) })],
       });
       const pdf = buildLocalizationPdfData(report);
       expect(pdf.sites[0].vissWaterName).toBe('Fyrisån');
@@ -366,7 +338,7 @@ describe('buildLocalizationPdfData', () => {
   });
 
   describe('rules-mappning', () => {
-    it('mappar regler i complianceAnalysis', () => {
+    it('mappar den äldre regelmotorns regler ur legacy-blocket (U20-C; inte ur complianceAnalysis)', () => {
       const rules = [
         {
           ruleId: 'MB-2-3',
@@ -378,11 +350,73 @@ describe('buildLocalizationPdfData', () => {
         },
       ];
       const report = makeReport({
-        siteAnalyses: [makeSiteAnalysis('alt-1', { complianceAnalysis: makeCompliance('alt-1', { rules }) })],
+        siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: makeLegacy({ rules }) })],
       });
       const pdf = buildLocalizationPdfData(report);
       expect(pdf.sites[0].rules[0].ruleId).toBe('MB-2-3');
       expect(pdf.sites[0].rules[0].chapter).toBe('MB 2:3');
+    });
+  });
+
+  describe('U20-C: styrt och ostyrt hålls isär i den äldre rapportvägen', () => {
+    it('svaret säger själv vad som är styrt och vad som är äldre, ostyrd observation', () => {
+      const pdf = buildLocalizationPdfData(makeReport());
+      expect(pdf.governance_note_sv).toMatch(/Äldre rapportväg/);
+      expect(pdf.governance_note_sv).toMatch(/inte är styrd evidens/);
+    });
+
+    it('bär de styrda lagerkontrollerna (dokumentkontrollen inräknad) och den kvalificerade helhetstexten', () => {
+      const checks = [
+        { layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'e1', reason: null },
+        { layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED' },
+      ];
+      const statement = 'Låg risk i de kontroller som utfördes; underlaget är ofullständigt: 1 av 2 kontroller genomförda.';
+      const report = makeReport({
+        siteAnalyses: [
+          makeSiteAnalysis('alt-1', {
+            complianceAnalysis: makeCompliance('alt-1', { summary: statement }),
+            executionMotor: makeExecutionMotor('alt-1', { governed_layer_checks: checks }),
+          }),
+        ],
+      });
+      const site = buildLocalizationPdfData(report).sites[0];
+      expect(site.governed_layer_checks).toEqual(checks);
+      expect(site.overall_statement_sv).toBe(statement);
+    });
+
+    it('utan styrd bedömning: ingen helhetstext, lagerkontroller null', () => {
+      const report = makeReport({
+        siteAnalyses: [
+          makeSiteAnalysis('alt-1', {
+            complianceAnalysis: { assessment_status: 'EXECUTION_FAILED', restrictions: [], rules: [], summary: 'x' },
+            executionMotor: makeExecutionMotor('alt-1', { assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null }),
+          }),
+        ],
+        summary: { reasoning: 'x', comparison_status: 'UNAVAILABLE', assessed_site_ids: [], unassessed_site_ids: ['alt-1'] },
+      });
+      const site = buildLocalizationPdfData(report).sites[0];
+      expect(Object.prototype.hasOwnProperty.call(site, 'overall_statement_sv')).toBe(false);
+      expect(site.governed_layer_checks).toBeNull();
+    });
+
+    it('styrda varningar först, därefter de märkta äldre', () => {
+      const report = makeReport({
+        siteAnalyses: [
+          makeSiteAnalysis('alt-1', {
+            warnings: ['ExecutionKernel denied: X'],
+            legacyObservations: makeLegacy({ warnings: ['Äldre observation (ingår inte i den styrda bedömningen): VISS: x'] }),
+          }),
+        ],
+      });
+      expect(buildLocalizationPdfData(report).sites[0].warnings).toEqual([
+        'ExecutionKernel denied: X',
+        'Äldre observation (ingår inte i den styrda bedömningen): VISS: x',
+      ]);
+    });
+
+    it('utan legacy-block skriver projektionen aldrig ut tomma observationer som resultat (fail-closed)', () => {
+      const report = makeReport({ siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: undefined })] });
+      expect(() => buildLocalizationPdfData(report)).toThrow(/LEGACY_OBSERVATIONS_NOT_INCLUDED/);
     });
   });
 
