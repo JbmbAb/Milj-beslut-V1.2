@@ -163,7 +163,8 @@ describe('localization.routes', () => {
       .send(validBody);
     expect(res.status).toBe(200);
     expect(res.body.pdfData.governance_note_sv).toMatch(/inte är styrd evidens/);
-    expect(res.body.pdfData.sites[0].dataSources).toEqual(
+    expect(res.body.pdfData.sites[0].legacyObservations.governed).toBe(false);
+    expect(res.body.pdfData.sites[0].legacyObservations.dataSources).toEqual(
       expect.arrayContaining([expect.objectContaining({ source: 'NVR API', status: 'ok' })]),
     );
   });

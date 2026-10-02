@@ -339,15 +339,30 @@ export interface LegacyObservationsBlock {
   readonly source: 'legacy_observation';
   readonly version: 'v1';
   readonly note_sv: string;
+  /**
+   * U20CDF (U20CD verification F4): whether each older source could be read at all. An unreadable
+   * source is "not available" -- never "nothing found": its values below are null / empty and every
+   * consumer must show it as unavailable, never as false or 0.
+   */
+  readonly sourceAvailability: {
+    readonly spatialAudit: boolean;
+    readonly nvr: boolean;
+    readonly raa: boolean;
+    readonly viss: boolean;
+    readonly slu: boolean;
+  };
   readonly protectedArea: {
     readonly available: boolean;
-    readonly isProtected: boolean;
+    /** null when the protected-area read was not available (never false for "could not read"). */
+    readonly isProtected: boolean | null;
     readonly hitNames: readonly string[];
   };
   readonly distanceToWater: { readonly available: boolean; readonly meters: number | null };
+  /** [] when RAÄ was not available -- see sourceAvailability.raa. */
   readonly monuments: readonly Monument[];
   readonly vissWaterStatus: VissWaterStatus | null;
-  readonly sluObservationCount: number;
+  /** null when SLU was not available (never 0 for "could not read"). */
+  readonly sluObservationCount: number | null;
   readonly dataSources: readonly DataSourceStatus[];
   readonly warnings: readonly string[];
   /** The legacy compliance engine's observations. Its own risk/probability are discarded. */
@@ -795,20 +810,29 @@ async function collectLegacyObservations(
     warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Äldre regelmotor: ${LEGACY_SOURCE_UNREADABLE_SV}`);
   }
 
+  const protectedAreaAvailable = spatialAudit ? spatialAudit.protectedAreaAvailable === true : false;
   return {
     governed: false,
     source: 'legacy_observation',
     version: 'v1',
     note_sv: LEGACY_OBSERVATIONS_NOTE_SV,
+    sourceAvailability: {
+      spatialAudit: spatialAudit !== null,
+      nvr: nvrOutcome.ok,
+      raa: raaOutcome.ok,
+      viss: vissOutcome.ok,
+      slu: sluOutcome.ok,
+    },
     protectedArea: {
-      available: spatialAudit ? spatialAudit.protectedAreaAvailable : false,
-      isProtected: spatialAudit ? spatialAudit.isProtected : false,
-      hitNames: spatialAudit ? spatialAudit.protectedAreaHits.map((hit) => hit.name || 'Namnlöst område') : [],
+      available: protectedAreaAvailable,
+      // U20CDF (F4): "could not read" is null, never "not protected".
+      isProtected: protectedAreaAvailable ? spatialAudit!.isProtected : null,
+      hitNames: protectedAreaAvailable ? spatialAudit!.protectedAreaHits.map((hit) => hit.name || 'Namnlöst område') : [],
     },
     distanceToWater: { available: distanceToWaterAvailable, meters: distanceToWaterMeters },
     monuments,
     vissWaterStatus,
-    sluObservationCount: observations.length,
+    sluObservationCount: sluOutcome.ok ? observations.length : null,
     dataSources,
     warnings,
     restrictions,

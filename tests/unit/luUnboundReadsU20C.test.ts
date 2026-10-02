@@ -365,9 +365,31 @@ describe('U20-C: the older generate-pdf-data route -- legacy only in a labelled,
     expect(site.governed_layer_checks.at(-1)).toMatchObject({ layer: 'document', status: 'NOT_CHECKED' });
     // The legacy observations are still available to this route, labelled and sanitized.
     expect(site.legacyObservationLabel).toMatch(/ej del av den styrda bedömningen/);
-    const nvr = site.dataSources.find((d: { source: string }) => d.source === 'NVR API');
+    const nvr = site.legacyObservations.dataSources.find((d: { source: string }) => d.source === 'NVR API');
     expect(nvr).toMatchObject({ status: 'unavailable' });
     expect(fetchProtectedAreas).toHaveBeenCalledTimes(1);
+  });
+
+  it('U20CDF (F4): the outage reads as "ej tillgänglig" per source in a governed:false block, never as "not protected" / 0', async () => {
+    const res = await post('/api/localization/generate-pdf-data');
+    const site = res.body.pdfData.sites[0];
+    expect(site.legacyObservations).toMatchObject({
+      governed: false,
+      // spatialAudit's protected-area read failed, RAÄ is down; VISS and SLU answered.
+      protectedArea: { available: false, status_sv: 'ej tillgänglig', isProtected: null, names: [] },
+      monuments: { available: false, status_sv: 'ej tillgänglig', count: null, names: [] },
+      distanceToWater: { available: false, status_sv: 'ej tillgänglig', meters: null },
+      viss: { available: true, status_sv: 'tillgänglig', waterName: 'Testsjön' },
+      slu: { available: true, status_sv: 'tillgänglig', observationCount: 2 },
+    });
+    for (const key of ['isProtected', 'protectedAreaNames', 'monumentCount', 'monumentNames', 'sluObservationCount', 'dataSources', 'distanceToWaterMeters']) {
+      expect(Object.keys(site)).not.toContain(key);
+    }
+    // Sources up: the same block carries the read values.
+    legacy.down = false;
+    const up = (await post('/api/localization/generate-pdf-data')).body.pdfData.sites[0].legacyObservations;
+    expect(up.protectedArea).toMatchObject({ available: true, isProtected: true, names: ['Testreservatet'] });
+    expect(up.monuments).toMatchObject({ available: true, count: 3 });
   });
 
   it('the summary reasoning in the legacy PDF data carries the same qualification and no percentage', async () => {

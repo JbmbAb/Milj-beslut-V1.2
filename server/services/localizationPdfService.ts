@@ -22,9 +22,49 @@ import type { GovernedLayerCheck } from '../modules/localization/governedLayerCh
 export const LEGACY_PDF_GOVERNANCE_NOTE_SV =
   'Äldre rapportväg. Endast assessment_status, assessment_artifact_id, overallRisk, ' +
   'permitProbability/permitProbabilityStatus, unresolvedChecks, overall_statement_sv och ' +
-  'governed_layer_checks kommer från den styrda bedömningen. Övriga platsuppgifter (fornlämningar, ' +
-  'VISS, SLU, skyddade områden, avstånd till vatten, datakällor, restrictions och rules) är äldre ' +
-  'observationer som inte är styrd evidens och inte ingår i bedömningen.';
+  'governed_layer_checks kommer från den styrda bedömningen. Äldre observationer (fornlämningar, ' +
+  'VISS, SLU, skyddade områden, avstånd till vatten, datakällor) står i blocket legacyObservations ' +
+  '(governed: false) med tillgänglighet per källa; restrictions och rules kommer från den äldre ' +
+  'regelmotorn. Allt detta är äldre observationer som inte är styrd evidens och inte ingår i ' +
+  'bedömningen. En källa som inte kunde läsas anges som ej tillgänglig, aldrig som nej eller 0.';
+
+export const LEGACY_SOURCE_UNAVAILABLE_SV = 'ej tillgänglig';
+export const LEGACY_SOURCE_AVAILABLE_SV = 'tillgänglig';
+
+/**
+ * U20CDF (U20CD verification F4; owner directive 2026-10-02): the older observations stay ONE
+ * separate block in this projection -- governed: false, availability per source -- instead of being
+ * flattened into site fields. A source that could not be read is shown as unavailable ("ej
+ * tillgänglig", value null), never as false / 0 (a false negative observation).
+ */
+export interface LegacyPdfObservations {
+  readonly governed: false;
+  readonly source: 'legacy_observation';
+  readonly version: 'v1';
+  readonly note_sv: string;
+  readonly protectedArea: {
+    readonly available: boolean;
+    readonly status_sv: string;
+    readonly isProtected: boolean | null;
+    readonly names: string[];
+  };
+  readonly monuments: {
+    readonly available: boolean;
+    readonly status_sv: string;
+    readonly count: number | null;
+    readonly names: string[];
+  };
+  readonly slu: { readonly available: boolean; readonly status_sv: string; readonly observationCount: number | null };
+  readonly viss: {
+    readonly available: boolean;
+    readonly status_sv: string;
+    readonly waterName: string | null;
+    readonly ecologicalStatus: string | null;
+    readonly chemicalStatus: string | null;
+  };
+  readonly distanceToWater: { readonly available: boolean; readonly status_sv: string; readonly meters: number | null };
+  readonly dataSources: Array<{ source: string; status: string; detail?: string }>;
+}
 
 export interface LocalizationPdfData {
   title: string;
@@ -100,21 +140,66 @@ export interface LocalizationPdfData {
      * ungoverned and still carry a legacy observation, or governed and still carry one alongside it.
      */
     legacyObservationLabel?: string;
-    monumentCount: number;
-    monumentNames: string[];
     warnings: string[];
-    dataSources: Array<{ source: string; status: string; detail?: string }>;
-    sluObservationCount: number;
-    vissWaterName: string | null;
-    vissEcologicalStatus: string | null;
-    vissChemicalStatus: string | null;
-    distanceToWaterMeters: number | null;
-    isProtected: boolean;
-    protectedAreaNames: string[];
+    /** U20CDF (F4): the older observations, as their own block -- never flattened into site fields. */
+    legacyObservations: LegacyPdfObservations;
   }>;
   legalBasis: string;
   reportWarnings: string[];
   humanInTheLoop: string;
+}
+
+type LegacyObservationsBlockInput = NonNullable<LocalizationReport['siteAnalyses'][number]['legacyObservations']>;
+
+/**
+ * U20CDF (F4): the block as a block. Availability comes from the block itself (per source); a
+ * missing availability entry counts as NOT available -- a value is only ever shown for a source that
+ * was actually read.
+ */
+function legacyPdfObservations(legacy: LegacyObservationsBlockInput): LegacyPdfObservations {
+  const read = legacy.sourceAvailability as Partial<LegacyObservationsBlockInput['sourceAvailability']> | undefined;
+  const statusSv = (available: boolean) => (available ? LEGACY_SOURCE_AVAILABLE_SV : LEGACY_SOURCE_UNAVAILABLE_SV);
+  const protectedAvailable = legacy.protectedArea.available === true && typeof legacy.protectedArea.isProtected === 'boolean';
+  const monumentsAvailable = read?.raa === true;
+  const sluAvailable = read?.slu === true && typeof legacy.sluObservationCount === 'number';
+  const vissAvailable = read?.viss === true;
+  const waterAvailable = legacy.distanceToWater.available === true;
+  return {
+    governed: false,
+    source: 'legacy_observation',
+    version: 'v1',
+    note_sv: legacy.note_sv,
+    protectedArea: {
+      available: protectedAvailable,
+      status_sv: statusSv(protectedAvailable),
+      isProtected: protectedAvailable ? legacy.protectedArea.isProtected : null,
+      names: protectedAvailable ? legacy.protectedArea.hitNames.slice(0, 5) : [],
+    },
+    monuments: {
+      available: monumentsAvailable,
+      status_sv: statusSv(monumentsAvailable),
+      count: monumentsAvailable ? legacy.monuments.length : null,
+      names: monumentsAvailable ? legacy.monuments.slice(0, 5).map((m) => m.name) : [],
+    },
+    slu: {
+      available: sluAvailable,
+      status_sv: statusSv(sluAvailable),
+      observationCount: sluAvailable ? legacy.sluObservationCount : null,
+    },
+    viss: {
+      available: vissAvailable,
+      status_sv: statusSv(vissAvailable),
+      waterName: vissAvailable ? legacy.vissWaterStatus?.waterName ?? null : null,
+      ecologicalStatus: vissAvailable ? legacy.vissWaterStatus?.ecologicalStatus ?? null : null,
+      chemicalStatus: vissAvailable ? legacy.vissWaterStatus?.chemicalStatus ?? null : null,
+    },
+    distanceToWater: {
+      available: waterAvailable,
+      status_sv: statusSv(waterAvailable),
+      meters: waterAvailable ? legacy.distanceToWater.meters : null,
+    },
+    dataSources: [...legacy.dataSources],
+  };
 }
 
 /**
@@ -214,18 +299,9 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
         ...(legacyObservationTag({ restrictions: [...legacy.restrictions], rules: legacy.rules }).legacyObservation
           ? { legacyObservationLabel: 'Observation från äldre regelmotor — ej del av den styrda bedömningen' }
           : {}),
-        monumentCount: legacy.monuments.length,
-        monumentNames: legacy.monuments.slice(0, 5).map((m) => m.name),
         // Governed-path warnings first, then the (labelled, sanitized) legacy ones.
         warnings: [...analysis.warnings, ...legacy.warnings],
-        dataSources: [...legacy.dataSources],
-        sluObservationCount: legacy.sluObservationCount,
-        vissWaterName: legacy.vissWaterStatus?.waterName ?? null,
-        vissEcologicalStatus: legacy.vissWaterStatus?.ecologicalStatus ?? null,
-        vissChemicalStatus: legacy.vissWaterStatus?.chemicalStatus ?? null,
-        distanceToWaterMeters: legacy.distanceToWater.meters,
-        isProtected: legacy.protectedArea.isProtected,
-        protectedAreaNames: legacy.protectedArea.hitNames.slice(0, 5),
+        legacyObservations: legacyPdfObservations(legacy),
       };
     }),
     legalBasis:

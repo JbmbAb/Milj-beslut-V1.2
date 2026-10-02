@@ -28,6 +28,7 @@ function makeLegacy(overrides: Record<string, unknown> = {}): NonNullable<SiteAn
     source: 'legacy_observation' as const,
     version: 'v1' as const,
     note_sv: 'Äldre observationer (test).',
+    sourceAvailability: { spatialAudit: true, nvr: true, raa: true, viss: true, slu: true },
     protectedArea: { available: true, isProtected: false, hitNames: [] as string[] },
     distanceToWater: { available: true, meters: null as number | null },
     monuments: [] as Array<{ name: string }>,
@@ -279,8 +280,8 @@ describe('buildLocalizationPdfData', () => {
         siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: makeLegacy({ monuments }) })],
       });
       const pdf = buildLocalizationPdfData(report);
-      expect(pdf.sites[0].monumentCount).toBe(8);
-      expect(pdf.sites[0].monumentNames).toHaveLength(5);
+      expect(pdf.sites[0].legacyObservations.monuments).toMatchObject({ available: true, status_sv: 'tillgänglig', count: 8 });
+      expect(pdf.sites[0].legacyObservations.monuments.names).toHaveLength(5);
     });
 
     it('trunkerar skyddade områden till max 5', () => {
@@ -293,8 +294,8 @@ describe('buildLocalizationPdfData', () => {
         ],
       });
       const pdf = buildLocalizationPdfData(report);
-      expect(pdf.sites[0].isProtected).toBe(true);
-      expect(pdf.sites[0].protectedAreaNames).toHaveLength(5);
+      expect(pdf.sites[0].legacyObservations.protectedArea.isProtected).toBe(true);
+      expect(pdf.sites[0].legacyObservations.protectedArea.names).toHaveLength(5);
     });
 
     it('U20-C: skyddade områdens namn kommer oförändrade ur legacy-blocket (namnlösa sätts redan där)', () => {
@@ -306,7 +307,7 @@ describe('buildLocalizationPdfData', () => {
         ],
       });
       const pdf = buildLocalizationPdfData(report);
-      expect(pdf.sites[0].protectedAreaNames[0]).toBe('Namnlöst område');
+      expect(pdf.sites[0].legacyObservations.protectedArea.names[0]).toBe('Namnlöst område');
     });
   });
 
@@ -314,9 +315,9 @@ describe('buildLocalizationPdfData', () => {
     it('null vissWaterStatus ger null-fält', () => {
       const pdf = buildLocalizationPdfData(makeReport());
       const site = pdf.sites[0];
-      expect(site.vissWaterName).toBeNull();
-      expect(site.vissEcologicalStatus).toBeNull();
-      expect(site.vissChemicalStatus).toBeNull();
+      expect(site.legacyObservations.viss).toEqual({
+        available: true, status_sv: 'tillgänglig', waterName: null, ecologicalStatus: null, chemicalStatus: null,
+      });
     });
 
     it('mappar vissWaterStatus korrekt', () => {
@@ -331,9 +332,9 @@ describe('buildLocalizationPdfData', () => {
         siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: makeLegacy({ vissWaterStatus: viss }) })],
       });
       const pdf = buildLocalizationPdfData(report);
-      expect(pdf.sites[0].vissWaterName).toBe('Fyrisån');
-      expect(pdf.sites[0].vissEcologicalStatus).toBe('GOD');
-      expect(pdf.sites[0].vissChemicalStatus).toBe('GOD');
+      expect(pdf.sites[0].legacyObservations.viss).toEqual({
+        available: true, status_sv: 'tillgänglig', waterName: 'Fyrisån', ecologicalStatus: 'GOD', chemicalStatus: 'GOD',
+      });
     });
   });
 
@@ -412,6 +413,57 @@ describe('buildLocalizationPdfData', () => {
         'ExecutionKernel denied: X',
         'Äldre observation (ingår inte i den styrda bedömningen): VISS: x',
       ]);
+    });
+
+    it('U20CDF (F4): de äldre observationerna är ett eget block med governed:false -- aldrig utplattade i platsfälten', () => {
+      const site = buildLocalizationPdfData(makeReport()).sites[0];
+      expect(site.legacyObservations).toMatchObject({ governed: false, source: 'legacy_observation', version: 'v1' });
+      for (const key of [
+        'isProtected', 'protectedAreaNames', 'monumentCount', 'monumentNames', 'sluObservationCount',
+        'vissWaterName', 'vissEcologicalStatus', 'vissChemicalStatus', 'distanceToWaterMeters', 'dataSources',
+      ]) {
+        expect(Object.prototype.hasOwnProperty.call(site, key), key).toBe(false);
+      }
+    });
+
+    it('U20CDF (F4): en otillgänglig källa visas som "ej tillgänglig" med null, aldrig som false eller 0', () => {
+      const report = makeReport({
+        siteAnalyses: [
+          makeSiteAnalysis('alt-1', {
+            legacyObservations: makeLegacy({
+              sourceAvailability: { spatialAudit: false, nvr: false, raa: false, viss: false, slu: false },
+              protectedArea: { available: false, isProtected: null, hitNames: [] },
+              distanceToWater: { available: false, meters: null },
+              monuments: [],
+              vissWaterStatus: null,
+              sluObservationCount: null,
+            }),
+          }),
+        ],
+      });
+      const legacy = buildLocalizationPdfData(report).sites[0].legacyObservations;
+      expect(legacy).toEqual({
+        governed: false,
+        source: 'legacy_observation',
+        version: 'v1',
+        note_sv: 'Äldre observationer (test).',
+        protectedArea: { available: false, status_sv: 'ej tillgänglig', isProtected: null, names: [] },
+        monuments: { available: false, status_sv: 'ej tillgänglig', count: null, names: [] },
+        slu: { available: false, status_sv: 'ej tillgänglig', observationCount: null },
+        viss: { available: false, status_sv: 'ej tillgänglig', waterName: null, ecologicalStatus: null, chemicalStatus: null },
+        distanceToWater: { available: false, status_sv: 'ej tillgänglig', meters: null },
+        dataSources: [],
+      });
+    });
+
+    it('U20CDF (F4): ett block som inte anger tillgänglighet för en källa visar den som ej tillgänglig (fail-safe)', () => {
+      const legacyWithout = makeLegacy({ monuments: [{ name: 'Fornl' }], sluObservationCount: 3 }) as unknown as Record<string, unknown>;
+      delete legacyWithout.sourceAvailability;
+      const report = makeReport({ siteAnalyses: [makeSiteAnalysis('alt-1', { legacyObservations: legacyWithout })] });
+      const legacy = buildLocalizationPdfData(report).sites[0].legacyObservations;
+      expect(legacy.monuments).toMatchObject({ available: false, count: null });
+      expect(legacy.slu).toMatchObject({ available: false, observationCount: null });
+      expect(legacy.viss).toMatchObject({ available: false });
     });
 
     it('utan legacy-block skriver projektionen aldrig ut tomma observationer som resultat (fail-closed)', () => {

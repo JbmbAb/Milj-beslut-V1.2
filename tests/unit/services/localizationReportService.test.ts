@@ -270,7 +270,9 @@ describe('SLU-integration via generateLocalizationReport (user-kontext)', () => 
       user: AUTH_USER,
       includeLegacyObservations: true,
     });
-    expect(legacyOf(report).sluObservationCount).toBe(0);
+    // U20CDF (F4): an unconfigured / failed SLU read is "not available" (null), never 0 observations.
+    expect(legacyOf(report).sluObservationCount).toBeNull();
+    expect(legacyOf(report).sourceAvailability.slu).toBe(false);
   });
 
   it('parseSluObservations körs och returnerar träffar när SLU konfigurerad', async () => {
@@ -374,6 +376,38 @@ describe('generateLocalizationReport — externa API-felfall', () => {
     const raa = legacyOf(report).dataSources.find((d) => d.source === 'RAA API');
     expect(raa?.status).toBe('unavailable');
     expect(legacyOf(report).warnings.some((w) => w.includes('RAÄ'))).toBe(true);
+    // U20CDF (F4): the block itself says the source was not read -- an empty list is not "no monuments".
+    expect(legacyOf(report).sourceAvailability).toMatchObject({ spatialAudit: true, nvr: true, raa: false });
+    expect(legacyOf(report).monuments).toEqual([]);
+  });
+
+  it('U20CDF (F4): a protected-area read that failed is isProtected null (not available), never false', async () => {
+    const { runSpatialAudit } = await import('../../../server/services/spatialAuditService');
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      protectedAreaHits: [],
+      protectedAreaAvailable: false,
+      isProtected: false,
+      sgu: { riskLevel: 'LOW', riskFactors: [], sources: [] },
+      distanceToWaterMeters: null,
+      distanceToWaterAvailable: true,
+      text: 'Skyddad natur kunde inte läsas',
+      sources: [],
+    });
+    const report = await generateLocalizationReport({
+      projectId: 'proj-protected-unavailable',
+      siteAlternatives: [SITE],
+      includeLegacyObservations: true,
+    });
+    expect(legacyOf(report).protectedArea).toEqual({ available: false, isProtected: null, hitNames: [] });
+
+    (runSpatialAudit as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('spatial audit down'));
+    const down = await generateLocalizationReport({
+      projectId: 'proj-spatial-down',
+      siteAlternatives: [SITE],
+      includeLegacyObservations: true,
+    });
+    expect(legacyOf(down).protectedArea).toEqual({ available: false, isProtected: null, hitNames: [] });
+    expect(legacyOf(down).sourceAvailability.spatialAudit).toBe(false);
   });
 
   it('VISS-fel ger varning och dataSources unavailable', async () => {
@@ -407,7 +441,7 @@ describe('generateLocalizationReport — externa API-felfall', () => {
     expect(viss?.status).toBe('unavailable');
   });
 
-  it('SLU-fel (throw) ger varning och sluObservationCount=0', async () => {
+  it('SLU-fel (throw) ger varning och sluObservationCount=null (ej tillgänglig, aldrig 0)', async () => {
     process.env.SLU_SPECIES_OBS_API_KEY = 'test-key';
     const { searchSluByCoordinates } = await import('../../../server/services/sluService');
     (searchSluByCoordinates as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('SLU API down'));
@@ -419,7 +453,8 @@ describe('generateLocalizationReport — externa API-felfall', () => {
       includeLegacyObservations: true,
     });
 
-    expect(legacyOf(report).sluObservationCount).toBe(0);
+    expect(legacyOf(report).sluObservationCount).toBeNull();
+    expect(legacyOf(report).sourceAvailability.slu).toBe(false);
     const slu = legacyOf(report).dataSources.find((d) => d.source === 'SLU Artdata');
     expect(slu?.status).toBe('unavailable');
   });
