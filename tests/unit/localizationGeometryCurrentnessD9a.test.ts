@@ -159,6 +159,7 @@ describe('D9(a) classifier: only the exact "no projection" NOT_FOUND permits der
     ['REJECT_LOCALIZATION_GEOMETRY_HEAD: missing relation geometry', 'INVALID_GEOMETRY_HEAD'],
     ['REJECT_LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_CONFIGURATION: missing X', 'VERIFIER_CONFIGURATION'],
     ['connect ECONNREFUSED 127.0.0.1:5432', 'CURRENTNESS_RESOLUTION_ERROR'],
+    ['LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE: geometry g-1 could not be read or verified: EIO', 'CURRENTNESS_RESOLUTION_ERROR'],
     [`${LOCALIZATION_GEOMETRY_NOT_FOUND_NO_PROJECTION_MESSAGE} (reworded)`, 'NO_VERIFIED_GEOMETRY_CANDIDATE'],
   ])('%s -> %s', (message, expected) => {
     expect(classifyLocalizationGeometryCurrentnessError(new Error(message))).toBe(expected);

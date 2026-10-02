@@ -9,14 +9,20 @@
  * no governed verdict, a Swedish user-facing reason, and the failure class kept as structured data.
  *
  * Classification is by the existing, stable error-message prefixes of
- * LocalizationGeometryCurrentProvider / resolveCurrentLocalizationGeometryHead (both unchanged by
- * this unit). It is deliberately asymmetric: only the EXACT "no projection" NOT_FOUND message
- * permits derivation. If that message ever changes, the error falls through to a fail-closed class,
- * never to derivation -- a wording drift can only make the system stricter, never laxer.
+ * LocalizationGeometryCurrentProvider / resolveCurrentLocalizationGeometryHead. It is deliberately
+ * asymmetric: only the EXACT "no projection" NOT_FOUND message permits derivation. If that message
+ * ever changes, the error falls through to a fail-closed class, never to derivation -- a wording
+ * drift can only make the system stricter, never laxer.
+ *
+ * M1a-repair (F1/F2): the provider no longer swallows a technical read/verification failure on a
+ * single candidate (it used to drop the candidate, which could make a superseded point current). It
+ * now throws LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE, classified here as the retryable
+ * technical class CURRENTNESS_RESOLUTION_ERROR (503), never as a refusal.
  */
 import type { ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import type { LocalizationGeometryProvenance } from '@miljobeslut/mps-lu';
 import { resolveCurrentLocalizationGeometry, type CurrentLocalizationGeometry } from './localizationGeometryProjection';
+import { LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX } from './localizationGeometryCurrentProvider';
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import type { LocalizationGeometrySupersessionIndex } from '../../repositories/localizationGeometrySupersessionRepository';
 
@@ -123,6 +129,10 @@ export function classifyLocalizationGeometryCurrentnessError(
   if (error instanceof LocalizationGeometryCurrentnessError) return error.failureClass;
   const message = messageOf(error);
   if (message === LOCALIZATION_GEOMETRY_NOT_FOUND_NO_PROJECTION_MESSAGE) return 'NOT_FOUND';
+  // A candidate whose state could not be determined (technical CAS/verification failure): a
+  // retryable technical failure -- never a refusal, never NOT_FOUND. Explicit so that a later change
+  // to the default below cannot silently move it.
+  if (message.startsWith(LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX)) return 'CURRENTNESS_RESOLUTION_ERROR';
   if (message.startsWith('AMBIGUOUS_CURRENT_GEOMETRY')) return 'AMBIGUOUS_CURRENT_GEOMETRY';
   if (message.startsWith('INVALID_SUPERSESSION_GRAPH')) return 'INVALID_SUPERSESSION_GRAPH';
   // Same NOT_FOUND prefix, but candidates DO exist and none survived CAS re-verification: that is

@@ -1,11 +1,15 @@
 /**
- * DEMO M1a-repair, verifier finding F1 (owner decision D9(a), 2026-10-02).
+ * DEMO M1a-repair, verifier findings F1 + F2 (owner decision D9(a), 2026-10-02).
  *
  * F1: a TECHNICAL failure while reading or verifying ONE currentness candidate (a CAS read error on a
  * geometry, a supersession edge or its issuer; a verification step that throws for a reason other
  * than a verification verdict, e.g. an unparsable verifier key) must fail the whole resolution
  * closed. It must never just drop that candidate: dropping the current head lets its superseded
  * predecessor resolve as CURRENT, and a governed run would then use a stale point.
+ *
+ * F2: such a failure is a retryable technical error -- CURRENTNESS_RESOLUTION_ERROR, HTTP 503 --
+ * never a refusal class (AMBIGUOUS / NO_VERIFIED, 409), and code / failureClass / reasonCode survive
+ * the service result, the read-back result and the HTTP route.
  *
  * The frozen reject-and-continue posture (LocalizationGeometryCurrentProvider; LU-PROJECTION-
  * RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B) for candidates whose state WAS determined -- missing
@@ -16,14 +20,20 @@
  * Hermetic: both projection repositories and server/db/prisma are mocked (the prisma guard throws
  * and records on any access); CAS is an in-memory repository with the real "Artifact not found"
  * contract plus per-artifact fault injection. Real: LocalizationGeometryCurrentProvider, graph
- * reduction, geometry validation, supersession signing/verification and the D9(a) classifier.
+ * reduction, geometry validation, supersession signing/verification, the D9(a) classifier, the
+ * geometry service, the read-back orchestrator and the Express route.
  */
+import express from 'express';
+import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   geometryRows: [] as Array<{ projectId: string; geometryArtifactId: string; propertyContextRefId: string; propertyContextRefType: string; createdAt: Date }>,
   supersessionRows: [] as Array<{ projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; createdAt: Date }>,
   registerCalls: 0,
+  provisioningCalls: 0,
+  /** The CAS the route-level path gets from MimersIntegration.create(). */
+  routeRepository: null as unknown,
 }));
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
@@ -50,10 +60,45 @@ vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', 
     }
   },
 }));
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+vi.mock('../../server/security/projectAccess', () => ({ assertProjectAccess: vi.fn(async () => undefined) }));
+vi.mock('../../src/application/resolveCanonicalProjectContext', () => ({
+  resolveCanonicalProjectContext: vi.fn(async () => ({
+    propertyContextRef: { artifact_id: 'property-ctx-m1a-repair', artifact_type: 'LU_PROPERTY_CONTEXT' },
+    coordinates: [6580743.04, 674571.86],
+  })),
+}));
+vi.mock('../../server/modules/localization/localizationIdentityProvisioningQueue', () => ({
+  ensureLocalizationIdentityProvisioningRequested: vi.fn(async () => {
+    state.provisioningCalls += 1;
+    return { status: 'PENDING', failureDetail: null };
+  }),
+  enqueueLocalizationIdentityProvisioningRequest: vi.fn(async () => ({ status: 'PENDING', failureDetail: null })),
+}));
+vi.mock('../../server/modules/localization/localizationGeometrySupersessionQueue', () => ({
+  ensureLocalizationGeometrySupersessionRequested: vi.fn(async () => ({ status: 'PENDING', failureDetail: null })),
+}));
+vi.mock('../../server/modules/localization/createLocalizationSpatialRuntime', () => ({
+  createLocalizationSpatialRuntime: vi.fn(async () => ({
+    sweref99ToWgs84: vi.fn(async () => [59.33, 18.07] as const),
+    wgs84ToSweref99: vi.fn(async () => [6580943.04, 674571.86] as const),
+    close: vi.fn(async () => undefined),
+  })),
+}));
+vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  MimersIntegration: { create: vi.fn(async () => ({ artifactRepository: state.routeRepository })) },
+}));
 
 import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { CASIntegrityError } from '@miljobeslut/mimers-brunn-core';
 import {
+  LOCALIZATION_GEOMETRY_SUPERSESSION_VERSION,
   createLocalizationGeometryArtifactV2,
   createLocalizationGeometrySupersessionArtifact,
   createLocalizationGeometrySupersessionIssuerArtifact,
@@ -65,8 +110,14 @@ import {
   attestLocalizationGeometrySupersessionIssuerArtifact,
 } from '../../server/modules/localization/localizationGeometrySupersessionAuthority';
 import { LocalizationGeometryCurrentnessError } from '../../server/modules/localization/localizationGeometryCurrentness';
-import { resolveOrDeriveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryService';
+import {
+  getCurrentLocalizationGeometryForProject,
+  resolveOrDeriveCurrentLocalizationGeometry,
+} from '../../server/modules/localization/localizationGeometryService';
+import { resolveCurrentLuAssessmentSummary } from '../../server/modules/localization/localizationOrchestrator';
 import { __resetLocalizationGeometrySupersessionVerifierForTests } from '../../server/security/localizationGeometrySupersessionVerifier';
+import { createTokenPair } from '../../server/security/auth';
+import localizationRoutes from '../../server/routes/localization.routes';
 import type { AuthUser } from '../../server/security/types';
 
 const PROJECT_ID = 'project-m1a-repair';
@@ -130,6 +181,7 @@ async function supersede(repo: CasRepository, predecessor: LocalizationGeometryA
   const issuer = { ...bareIssuer, attestation: await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bareIssuer, signing: supersessionKey.provider }) };
   await repo.put({ artifact_id: issuer.artifact_id, body: issuer });
   const bareEdge = createLocalizationGeometrySupersessionArtifact({
+    contract_version: LOCALIZATION_GEOMETRY_SUPERSESSION_VERSION,
     project_id: PROJECT_ID,
     predecessor_geometry_ref: { artifact_id: predecessor.artifact_id, artifact_type: predecessor.artifact_type },
     successor_geometry_ref: { artifact_id: successor.artifact_id, artifact_type: successor.artifact_type },
@@ -202,6 +254,8 @@ beforeEach(() => {
   state.geometryRows.length = 0;
   state.supersessionRows.length = 0;
   state.registerCalls = 0;
+  state.provisioningCalls = 0;
+  state.routeRepository = null;
   delete process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID;
   delete process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM;
   __resetLocalizationGeometrySupersessionVerifierForTests(null);
@@ -336,5 +390,62 @@ describe('Frozen reject-and-continue posture is UNCHANGED for candidates whose s
     repo.values.delete(b.artifact_id);
     const resolved = await derive(repo);
     expect(resolved.geometry.artifact_id).toBe(a.artifact_id);
+  });
+});
+
+describe('F2: the technical class survives the service result, the read-back and the HTTP route', () => {
+  it('GET-geometry service: head unreadable -> { ok:false, 503, code, failureClass, reasonCode }, Swedish retry text; no derived point, no provisioning', async () => {
+    const { repo, b } = await movedPoint();
+    repo.faults.set(b.artifact_id, ioError());
+    const putsBefore = repo.putCalls;
+    const result = await getCurrentLocalizationGeometryForProject({
+      authUser: USER, projectId: PROJECT_ID, artifactRepository: repo as never,
+      spatialRuntime: { sweref99ToWgs84: vi.fn(async () => [59.33, 18.07] as const), wgs84ToSweref99: vi.fn(), close: vi.fn(async () => undefined) } as never,
+    });
+    expect(result).toMatchObject({
+      ok: false, status: 503, code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+      failureClass: 'CURRENTNESS_RESOLUTION_ERROR', reasonCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR',
+    });
+    expect((result as { error: string }).error).toMatch(/tekniskt fel.*försök igen/);
+    expect(repo.putCalls).toBe(putsBefore);
+    expect(state.registerCalls).toBe(0);
+    expect(state.provisioningCalls).toBe(0);
+  });
+
+  it('read-back (current-assessment): head unreadable -> 503 with the class kept; the assessment index is never consulted', async () => {
+    const { repo, b } = await movedPoint();
+    repo.faults.set(b.artifact_id, ioError());
+    const assessmentIndex = { listForProject: vi.fn(async () => []), register: vi.fn() };
+    const bindingProvider = { resolveCurrent: vi.fn(async () => { throw new Error('binding provider must not be consulted'); }) };
+    const result = await resolveCurrentLuAssessmentSummary({
+      authUser: USER, projectId: PROJECT_ID, artifactRepository: repo as never,
+      currentBindingProvider: bindingProvider as never, assessmentProjectionIndex: assessmentIndex as never,
+    });
+    expect(result).toMatchObject({
+      ok: false, status: 503, code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+      failureClass: 'CURRENTNESS_RESOLUTION_ERROR', reasonCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR',
+    });
+    expect(assessmentIndex.listForProject).not.toHaveBeenCalled();
+  });
+
+  it('HTTP GET /api/localization/:projectId/geometry: head unreadable -> HTTP 503 and the structured class on the wire', async () => {
+    const { repo, b } = await movedPoint();
+    repo.faults.set(b.artifact_id, ioError());
+    state.routeRepository = repo;
+    const app = express();
+    app.use(express.json());
+    app.use(localizationRoutes);
+    const token = createTokenPair({ id: USER.id, organisationId: USER.organisationId, bankidId: USER.bankidId, role: 'ADMIN' }).accessToken;
+
+    const res = await request(app).get(`/api/localization/${PROJECT_ID}/geometry`).set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({
+      ok: false, code: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED',
+      failureClass: 'CURRENTNESS_RESOLUTION_ERROR', reasonCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR',
+    });
+    expect(res.body.error).toMatch(/Ingen bedömning görs/);
+    expect(res.body.geometry).toBeUndefined();
+    expect(state.provisioningCalls).toBe(0);
   });
 });
