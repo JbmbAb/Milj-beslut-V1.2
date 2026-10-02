@@ -13,6 +13,8 @@ export interface PropertyLookupInput {
   projectId: string;
   propertyDesignation: string;
   purpose: string;
+  /** Optional county (län) code; when given, the exact property lookup only matches within it. */
+  lanKod?: number;
 }
 
 export interface ProjectRecord {

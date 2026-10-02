@@ -136,7 +136,12 @@ describe('C-P1-04 — property lookup fallback authority enforcement', () => {
       },
     ]);
 
-    const result = await lookupPropertyByDesignationFromPostgis(input, user);
+    // U20-A: the request names the row's own designation -- an exact lookup no longer accepts a
+    // row whose designation differs from the requested one.
+    const result = await lookupPropertyByDesignationFromPostgis(
+      { ...input, propertyDesignation: 'NACKA ORMINGE 7:9' },
+      user,
+    );
 
     expect((result as { boundaries: { properties: Record<string, unknown> } }).boundaries.properties).not.toHaveProperty(
       'centroidSweref99Tm',
