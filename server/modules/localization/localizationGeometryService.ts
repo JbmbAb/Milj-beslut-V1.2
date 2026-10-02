@@ -59,6 +59,7 @@ import {
   ensureLocalizationGeometrySupersessionRequested,
   type LocalizationGeometrySupersessionRequestRecord,
 } from './localizationGeometrySupersessionQueue';
+import { presentProvisioningRequestDetail } from './provisioningRequestPresentation';
 
 const DERIVED_LABEL = 'Fastighetens centrumpunkt (automatiskt härledd)';
 const USER_DEFINED_LABEL = 'Användardefinierad lokalisering';
@@ -127,9 +128,11 @@ function toView(
     provenance: geometry.payload.provenance,
     wgs84LngLat: geometry.payload.geometry.coordinates,
     provisioningStatus: provisioning?.status ?? null,
-    provisioningFailureDetail: provisioning?.failureDetail ?? null,
+    // W-CATCH3 (owner decision: sanitise at presentation, no data change): a stored row is shown by its
+    // failureCode, never by its stored failureDetail (older rows hold raw paths, provider text and ids).
+    provisioningFailureDetail: presentProvisioningRequestDetail('execution-identity', provisioning),
     supersessionStatus: supersession?.status ?? null,
-    supersessionFailureDetail: supersession?.failureDetail ?? null,
+    supersessionFailureDetail: presentProvisioningRequestDetail('geometry-supersession', supersession),
   };
 }
 
