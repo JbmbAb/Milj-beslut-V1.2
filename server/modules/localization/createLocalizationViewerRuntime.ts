@@ -13,6 +13,7 @@ import {
 } from "./viewerCapabilityProvisioningQueue.js";
 import { resolveCanonicalProductRelease } from "../release/productReleaseRuntime.js";
 import { resolveCurrentViewerIdentity } from "../../../src/application/resolveCurrentViewerIdentity.js";
+import { classifyReadFault, isProvenBindingAbsence, toReadFaultError } from "./readFaultClassification.js";
 
 function defaultCurrentBindingProvider(artifactRepository: ArtifactRepositoryPort): ProjectContextBindingProvider {
   return new ProjectContextBindingProvider(
@@ -65,6 +66,29 @@ export interface ViewerCapabilityCurrentnessDependencies {
   readonly now?: () => Date;
 }
 
+/**
+ * W-CATCH2 #13: verifyProductViewerCapability's refusals that rest on the capability's OWN content
+ * (validated against its id before these checks) and prove it is not the current capability: bound to
+ * another project, binding, viewer identity or release, to a binding that is no longer current, or a
+ * validity window that has not started or has ended. Exactly these, by the plain refusal itself (no
+ * cause): every other refusal (tampered, forged, issuer, scope, release hash, malformed window, a
+ * viewer identity or current binding that cannot be verified) and every read fault is not proof of
+ * anything, so it fails the resolution closed.
+ */
+const PROVABLY_NOT_CURRENT_CAPABILITY: ReadonlySet<string> = new Set([
+  "REJECT_VIEWER_CAPABILITY_PROJECT",
+  "REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING",
+  "REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY",
+  "REJECT_VIEWER_CAPABILITY_RELEASE_REF",
+  "REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING_SUPERSEDED",
+  "REJECT_VIEWER_CAPABILITY_NOT_YET_VALID",
+  "REJECT_VIEWER_CAPABILITY_EXPIRED",
+]);
+
+function isProvablyNotCurrentCapability(error: unknown): boolean {
+  return error instanceof Error && error.cause === undefined && PROVABLY_NOT_CURRENT_CAPABILITY.has(error.message);
+}
+
 function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value) {
@@ -105,7 +129,15 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
   dependencies: ViewerCapabilityCurrentnessDependencies = {},
 ): Promise<LocalizationViewerRuntimeConfig | null> {
   const currentBindingProvider = dependencies.currentBindingProvider ?? defaultCurrentBindingProvider(artifactRepository);
-  const currentBinding = await currentBindingProvider.resolveCurrent(projectId);
+  let currentBinding: Awaited<ReturnType<ProjectContextBindingProvider["resolveCurrent"]>>;
+  try {
+    currentBinding = await currentBindingProvider.resolveCurrent(projectId);
+  } catch (error) {
+    // W-CATCH2 #13: only a project PROVABLY without a binding has no capability (null); a binding that
+    // cannot be read or verified is a typed fault, never "not configured" and never a raw provider error.
+    if (isProvenBindingAbsence(error)) return null;
+    throw toReadFaultError("current-binding", error, "read");
+  }
   const release = await (dependencies.resolveRelease ?? resolveCanonicalProductRelease)({ artifactRepository });
   const viewerIdentity = await (dependencies.resolveViewerIdentity ?? resolveCurrentViewerIdentity)({
     artifactRepository,
@@ -123,11 +155,22 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
   for (const request of requests) {
     if (!request.capabilityArtifactId) continue;
 
+    // W-CATCH2 #13 (OD-R1/OD-R2, the pattern W-APR closed for assessments): a COMPLETED request records
+    // a capability that was minted, so it must exist and verify. A capability whose own content proves
+    // it is not the current one is skipped (it can never be the current capability); one that cannot be
+    // read or verified MAY be the current one, so the whole resolution fails closed with a typed fault --
+    // never null ("not configured") and never a silent win for another capability past the ambiguity
+    // check below.
+    let capability: ProductViewerCapabilityArtifact;
     try {
-      const capability = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
+      capability = await artifactRepository.resolve<ProductViewerCapabilityArtifact>({
         artifact_id: request.capabilityArtifactId,
         artifact_type: 'viewer_capability',
       });
+    } catch (error) {
+      throw toReadFaultError("viewer-capability", error, "read");
+    }
+    try {
       await verifyProductViewerCapability({
         capability,
         repository: artifactRepository,
@@ -140,11 +183,11 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
         now: (dependencies.now ?? (() => new Date()))(),
         currentBindingProvider,
       });
-      capabilities.set(capability.artifact_id, capability);
-    } catch {
-      // A stale, malformed, missing, or unverifiable completed row is not a valid capability and
-      // cannot win currentness merely because it exists in the operational queue.
+    } catch (error) {
+      if (isProvablyNotCurrentCapability(error)) continue;
+      throw toReadFaultError("viewer-capability", error, "verify");
     }
+    capabilities.set(capability.artifact_id, capability);
   }
 
   if (capabilities.size === 0) return null;
@@ -196,8 +239,15 @@ export class LocalizationViewerCapabilityProvider {
         artifact_id: this.config.capabilityArtifactId,
         artifact_type: "viewer_capability",
       });
-    } catch {
-      throw new Error(`REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE: ${this.config.capabilityArtifactId}`);
+    } catch (error) {
+      // W-CATCH2 #13: still the same refusal (its callers and the presentation path key on it), but the
+      // original fault is kept as `cause` and classified (`faultClass`, `retryable`), so a read error is
+      // never indistinguishable from a capability that is not there.
+      const fault = classifyReadFault(error);
+      throw Object.assign(new Error(`REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE: ${this.config.capabilityArtifactId}`, { cause: error }), {
+        faultClass: fault.faultClass,
+        retryable: fault.retryable,
+      });
     }
 
     await verifyProductViewerCapability({

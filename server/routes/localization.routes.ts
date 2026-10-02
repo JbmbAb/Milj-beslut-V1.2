@@ -30,6 +30,7 @@ import {
 } from '../modules/localization/public';
 import { logger } from '../logger';
 import { isPersistentStorageFault, retrySentenceSv } from '../modules/localization/storageFaultClassification';
+import { LuReadFaultError, readFaultHttpStatus, readFaultSentenceSv } from '../modules/localization/readFaultClassification';
 
 const router = express.Router();
 
@@ -108,6 +109,32 @@ function handleOrchestratorError(error: unknown, res: express.Response): boolean
     return true;
   }
   return false;
+}
+
+/** W-CATCH2 #13: the governed viewer's capability (or the binding it needs) could not be read or verified. */
+const VIEWER_CAPABILITY_UNRESOLVED = 'VIEWER_CAPABILITY_UNRESOLVED';
+
+const VIEWER_READ_FAULT_SUBJECT_SV: Readonly<Record<string, string>> = {
+  'viewer-capability': 'Kartvisningens behörighet (kapabilitet)',
+  'current-binding': 'Projektets koppling till fastigheten',
+};
+
+/**
+ * W-CATCH2 #13 (OD-R1/OD-R2): a capability that could not be read or verified -- or the current binding
+ * it is bound to -- is never "not configured" (404) and never a generic 500: 503 (retryable only for a
+ * read error) or 409 for a refusal, with the shared class and a Swedish text. The fault stays
+ * server-side; the reasonCode is the refusal token or the subject, never free text.
+ */
+function viewerCapabilityReadFaultBody(error: LuReadFaultError): Record<string, unknown> {
+  const subjectSv = VIEWER_READ_FAULT_SUBJECT_SV[error.subject] ?? 'Kartvisningens underlag';
+  return {
+    ok: false,
+    error: `${readFaultSentenceSv(error, subjectSv)} Kartan kan inte visa kontrollresultaten. Ingen annan behörighet används i dess ställe.`,
+    code: VIEWER_CAPABILITY_UNRESOLVED,
+    failureClass: error.faultClass,
+    reasonCode: error.refusalCode ?? error.subject.toUpperCase().replace(/-/g, '_'),
+    retryable: error.retryable,
+  };
 }
 
 /**
@@ -394,6 +421,10 @@ router.get(
       }
       res.status(200).json(result.geojson);
     } catch (error) {
+      if (error instanceof LuReadFaultError) {
+        res.status(readFaultHttpStatus(error)).json(viewerCapabilityReadFaultBody(error));
+        return;
+      }
       if (handleOrchestratorError(error, res)) return;
       next(error);
     }

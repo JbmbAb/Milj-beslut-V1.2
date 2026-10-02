@@ -161,8 +161,10 @@ export async function verifyProductViewerCapability(args: {
   let currentBinding;
   try {
     currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
-  } catch {
-    throw new Error("REJECT_VIEWER_CAPABILITY_CURRENT_BINDING_UNAVAILABLE");
+  } catch (error) {
+    // W-CATCH2 #9: the same refusal, but the cause is kept -- a binding that could not be READ is a
+    // technical fault (readFaultClassification.ts classifies the root), not a verification verdict.
+    throw new Error("REJECT_VIEWER_CAPABILITY_CURRENT_BINDING_UNAVAILABLE", { cause: error });
   }
   if (currentBinding.artifact_id !== c.payload.project_context_binding_ref.artifact_id) {
     throw new Error("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING_SUPERSEDED");
