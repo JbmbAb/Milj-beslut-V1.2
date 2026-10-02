@@ -923,10 +923,10 @@ describe('W-CATCH3: the candidate read uses the shared classification (no second
     const index = new FakeAssessmentProjectionIndex();
     const assessment = await s.buildAndPersistAssessment(contextNew);
     await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
-    const original = s.repository.resolve.bind(s.repository);
+    const stored = s.repository;
     s.repository.resolve = (async <T,>(reference: ArtifactReference): Promise<T> => {
       if (reference.artifact_id === assessment.artifact_id) throw thrown();
-      return original<T>(reference);
+      return MemoryRepository.prototype.resolve.call(stored, reference) as Promise<T>;
     }) as typeof s.repository.resolve;
     const error = await resolveCurrentAssessmentProjection({
       projectId: PROJECT_ID,
