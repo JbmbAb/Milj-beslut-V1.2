@@ -409,9 +409,16 @@ export interface LocalizationReport {
     bestAlternativeId?: string;
     reasoning: string;
     comparison_status: LuComparisonStatus;
-    /** Ranking population — sites with a governed LocalizationAssessmentArtifact. */
+    /**
+     * Ranking population — sites with a governed LocalizationAssessmentArtifact AND a non-null
+     * permitProbability (isAssessed).
+     */
     assessed_site_ids: string[];
-    /** Candidates excluded from ranking because they carry no verdict. */
+    /**
+     * Candidates excluded from ranking. U20CDF3 (H2): despite the field name this includes sites
+     * that ARE assessed (artifact present) but whose permitProbability is withheld (SEM-1); the
+     * reasoning names them as assessed. The name is kept (machine contract; owner decision).
+     */
     unassessed_site_ids: string[];
   };
   warnings: string[];
@@ -1428,6 +1435,71 @@ function isAssessed(
 }
 
 /**
+ * U20CDF3 (U20CDF2 verification H2): a site that HAS a governed assessment (status ASSESSED, an
+ * artifact) but is outside the ranking population because its permitProbability is withheld
+ * (SEM-1: a NOT_CHECKED finding and no HIGH/MEDIUM one). It is assessed -- never described as
+ * "ej bedömd" or as lacking a LocalizationAssessmentArtifact.
+ */
+function isAssessedButUnranked(analysis: SiteAnalysisResult): boolean {
+  return (
+    analysis.executionMotor?.assessment_status === 'ASSESSED' &&
+    analysis.executionMotor?.assessment_artifact_id != null &&
+    isGovernedVerdict(analysis.complianceAnalysis) &&
+    analysis.complianceAnalysis.permitProbability === null
+  );
+}
+
+function siteLabelSv(site: SiteAlternative): string {
+  return `Alternativ ${site.id} (${site.name || 'namnlöst'})`;
+}
+
+/**
+ * U20CDF3 (H2): the report reasoning, sentence by sentence from the analyses themselves. Three kinds
+ * of candidates, each named for what it is:
+ *  - ranked: a governed assessment with a probability (isAssessed);
+ *  - assessed but not ranked: a governed assessment whose probability is withheld -- its own
+ *    coverage-qualified summary is repeated (so "0 av M" never comes with a risk word);
+ *  - without a governed assessment: denied, failed or not produced.
+ * No sentence claims an absence that is not there, and no risk level is named except inside a
+ * site's own governed summary.
+ */
+function comparisonReasoningSv(
+  analyses: readonly SiteAnalysisResult[],
+  ranked: readonly SiteAnalysisResult[],
+  best: SiteAnalysisResult | null,
+): string {
+  // Noll kandidater är inte samma sak som kandidater utan bedömning.
+  if (analyses.length === 0) return 'Inga alternativ analyserade.';
+  const sentences: string[] = [];
+  if (best) {
+    sentences.push(
+      `${siteLabelSv(best.site)} rangordnas först bland de rangordnade alternativen enligt de styrda fynden. ` +
+        best.complianceAnalysis.summary,
+    );
+    if (ranked.length < analyses.length) {
+      // The qualifier is load-bearing: a winner drawn from a subset must never read as best of all.
+      sentences.push(`Jämförelsen är partiell: ${ranked.length} av ${analyses.length} alternativ ingår i rangordningen.`);
+    }
+  } else {
+    sentences.push(`Ingen rangordning tillgänglig: inget av ${analyses.length} alternativ kan rangordnas.`);
+  }
+  for (const analysis of analyses.filter(isAssessedButUnranked)) {
+    sentences.push(
+      `${siteLabelSv(analysis.site)} har en styrd bedömning men rangordnas inte: bedömningen är ofullständig ` +
+        '(minst en styrd kontroll kunde inte genomföras) och ingen sannolikhet anges för den. ' +
+        `Bedömningens sammanfattning: ${analysis.complianceAnalysis.summary}`,
+    );
+  }
+  const withoutAssessment = analyses.filter((analysis) => !isAssessed(analysis) && !isAssessedButUnranked(analysis));
+  if (withoutAssessment.length > 0) {
+    sentences.push(
+      `Alternativ utan styrd bedömning ingår inte i rangordningen: ${withoutAssessment.map((a) => a.site.id).join(', ')}.`,
+    );
+  }
+  return sentences.join(' ');
+}
+
+/**
  * The ranking value for an assessed site.
  *
  * Throws rather than defaulting. `?? 0` here would be a silent fail-open: if `isAssessed` ever
@@ -1528,25 +1600,11 @@ export class GenerateLocalizationReportUseCase {
     const comparisonStatus: LuComparisonStatus =
       assessed.length === 0 ? 'UNAVAILABLE' : unassessed.length === 0 ? 'COMPLETE' : 'PARTIAL';
 
-    // The qualifier is load-bearing: a winner drawn from a subset must never read as best of
-    // all candidates.
-    const coverageNote =
-      comparisonStatus === 'PARTIAL'
-        ? ` Jämförelsen är partiell: ${assessed.length} av ${analyses.length} alternativ har en governad bedömning. ` +
-          `Ej bedömda alternativ (${unassessed.map((a) => a.site.id).join(', ')}) ingår inte i rangordningen.`
-        : '';
-
     // U20-C / DP-10: no "tillståndssannolikhet (NN%)" and no count from an unbound read (RAÄ, SLU):
     // the reasoning names the ranked alternative and repeats its governed, qualified statement.
-    const reasoning = bestAlternative
-      ? `Alternativ ${bestAlternative.site.id} (${bestAlternative.site.name || 'namnlöst'}) rangordnas först bland de bedömda alternativen enligt de styrda fynden. ` +
-        `${bestAlternative.complianceAnalysis.summary}${coverageNote}`
-      : analyses.length === 0
-        ? // Noll kandidater är inte samma sak som kandidater utan bedömning. Att säga
-          // "inget av 0 alternativ har en governad bedömning" beskriver en frånvaro som
-          // aldrig fanns.
-          'Inga alternativ analyserade.'
-        : `Ingen rangordning tillgänglig: inget av ${analyses.length} alternativ har en governad bedömning (LocalizationAssessmentArtifact saknas).`;
+    // U20CDF3 (H2): an assessed site whose probability is withheld is named as assessed and not
+    // ranked, never as "ej bedömd" / "LocalizationAssessmentArtifact saknas" (comparisonReasoningSv).
+    const reasoning = comparisonReasoningSv(analyses, assessed, bestAlternative);
 
     const reportWarnings = analyses.flatMap((a) => a.warnings.map((w) => `${a.site.id}: ${w}`));
 

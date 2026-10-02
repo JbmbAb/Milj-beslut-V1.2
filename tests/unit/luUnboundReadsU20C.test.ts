@@ -414,9 +414,11 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
   });
 
   // U20CDF2: with the record a current run writes, NOT_CHECKED findings withhold permitProbability
-  // (SEM-1 / K-35 M5), so the site is not ranked: the reasoning and the audit description then say
-  // that no ranking is available (they used to repeat the summary only because the old fixture's
-  // record had no NOT_CHECKED finding). No text may name a risk level.
+  // (SEM-1 / K-35 M5), so the site is not ranked. No text may name a risk level.
+  // U20CDF3 (U20CDF2 verification H2): the reasoning used to say "inget av 1 alternativ har en governad
+  // bedömning (LocalizationAssessmentArtifact saknas)" -- false: the site IS assessed and HAS the
+  // artifact. It now says what is true: assessed, not ranked, incomplete, no probability, and the
+  // assessment's own coverage statement (0 of 6 here, so no risk level at all).
   it('generate-report: the summary states that no assessment can be made; no text names a risk level', async () => {
     const res = await post('/api/localization/generate-report');
     expect(res.status).toBe(200);
@@ -425,9 +427,16 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
       Array(6).fill('NOT_CHECKED'),
     );
     expect(site.complianceAnalysis.summary).toBe(NONE_COMPLETED);
+    expect(site.executionMotor.assessment_status).toBe('ASSESSED');
+    expect(site.executionMotor.assessment_artifact_id).toBe('assessment-u20c');
     expect(res.body.summary.reasoning).toBe(
-      'Ingen rangordning tillgänglig: inget av 1 alternativ har en governad bedömning (LocalizationAssessmentArtifact saknas).',
+      'Ingen rangordning tillgänglig: inget av 1 alternativ kan rangordnas. ' +
+        'Alternativ ALT-1 (Plats A) har en styrd bedömning men rangordnas inte: bedömningen är ofullständig ' +
+        '(minst en styrd kontroll kunde inte genomföras) och ingen sannolikhet anges för den. ' +
+        `Bedömningens sammanfattning: ${NONE_COMPLETED}`,
     );
+    // Never the false absence claim for an assessed site.
+    expect(res.body.summary.reasoning).not.toMatch(/saknas|ingen styrd bedömning|utan styrd bedömning|har en governad bedömning/i);
     const description = String(vi.mocked(auditTrail.logAction).mock.calls[0]![5]);
     for (const text of [site.complianceAnalysis.summary, res.body.summary.reasoning, description]) {
       expect(text).not.toMatch(/låg risk|måttlig risk|hög risk|i de kontroller som utfördes/i);
@@ -444,6 +453,76 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
     for (const key of ['overallRisk', 'bestCoverageState', 'bestCheckCoverage', 'bestPermitProbability']) {
       expect(Object.prototype.hasOwnProperty.call(details, key)).toBe(false);
     }
+  });
+
+  it('U20CDF3 (H2): a PARTIAL comparison never calls an assessed but unranked site "ej bedömd"', async () => {
+    // ALT-1: every layer answered negative, no finding -> ranked. ALT-2: every layer unavailable, the
+    // rule engine's NOT_CHECKED finding for each -> assessed, probability withheld, not ranked.
+    // The provider is called once per site, in site order (same construction as P3's kernelPerSite).
+    queryMock
+      .mockResolvedValueOnce({ evidence: LAYERS.map(spatialEvidence), unavailable_layers: [] })
+      .mockResolvedValueOnce({ evidence: [], unavailable_layers: LAYERS.map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' })) });
+    kernelMock.mockImplementation(async (input: { assessment_draft: { site_id: string } }) =>
+      input.assessment_draft.site_id === 'ALT-1'
+        ? {
+            admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1', findings: [], finding_ids: [],
+            assessment: { artifact_id: 'assessment-alt-1', payload: { evidence_refs: SPATIAL_REFS, findings: [] } },
+          }
+        : {
+            admitted: true, reason_codes: [], attempt_id: 'a2', outcome_id: 'o2', manifest_id: 'm2',
+            findings: NOT_CHECKED_FINDINGS, finding_ids: NOT_CHECKED_FINDINGS.map((f) => f.finding_id),
+            assessment: { artifact_id: 'assessment-alt-2', payload: { evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
+          },
+    );
+    const res = await request(app)
+      .post('/api/localization/generate-report')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...BODY, siteAlternatives: [...BODY.siteAlternatives, { id: 'ALT-2', name: 'Plats B', lat: 59.34, lng: 18.07 }] });
+    expect(res.status).toBe(200);
+    const [alt1, alt2] = res.body.siteAnalyses;
+    expect(alt2.executionMotor.assessment_status).toBe('ASSESSED');
+    expect(alt2.executionMotor.assessment_artifact_id).toBe('assessment-alt-2');
+    expect(res.body.summary.comparison_status).toBe('PARTIAL');
+    expect(res.body.summary.bestAlternativeId).toBe('ALT-1');
+    expect(res.body.summary.reasoning).toBe(
+      'Alternativ ALT-1 (Plats A) rangordnas först bland de rangordnade alternativen enligt de styrda fynden. ' +
+        `${alt1.complianceAnalysis.summary} ` +
+        'Jämförelsen är partiell: 1 av 2 alternativ ingår i rangordningen. ' +
+        'Alternativ ALT-2 (Plats B) har en styrd bedömning men rangordnas inte: bedömningen är ofullständig ' +
+        '(minst en styrd kontroll kunde inte genomföras) och ingen sannolikhet anges för den. ' +
+        `Bedömningens sammanfattning: ${NONE_COMPLETED}`,
+    );
+    expect(alt1.complianceAnalysis.summary).toBe(INCOMPLETE);
+    expect(res.body.summary.reasoning).not.toMatch(/Ej bedömda|har en governad bedömning|saknas/i);
+  });
+
+  it('U20CDF3 (H2): an assessed-but-unranked site and a site without an assessment are told apart', async () => {
+    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: LAYERS.map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' })) });
+    kernelMock.mockImplementation(async (input: { assessment_draft: { site_id: string } }) => {
+      if (input.assessment_draft.site_id === 'ALT-2') throw new Error('kernel exploded');
+      return {
+        admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
+        findings: NOT_CHECKED_FINDINGS, finding_ids: NOT_CHECKED_FINDINGS.map((f) => f.finding_id),
+        assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
+      };
+    });
+    const res = await request(app)
+      .post('/api/localization/generate-report')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...BODY, siteAlternatives: [...BODY.siteAlternatives, { id: 'ALT-2', name: 'Plats B', lat: 59.34, lng: 18.07 }] });
+    expect(res.status).toBe(200);
+    expect(res.body.siteAnalyses.map((a: { executionMotor: { assessment_status: string } }) => a.executionMotor.assessment_status)).toEqual([
+      'ASSESSED', 'EXECUTION_FAILED',
+    ]);
+    expect(res.body.summary.comparison_status).toBe('UNAVAILABLE');
+    expect(res.body.summary.reasoning).toBe(
+      'Ingen rangordning tillgänglig: inget av 2 alternativ kan rangordnas. ' +
+        'Alternativ ALT-1 (Plats A) har en styrd bedömning men rangordnas inte: bedömningen är ofullständig ' +
+        '(minst en styrd kontroll kunde inte genomföras) och ingen sannolikhet anges för den. ' +
+        `Bedömningens sammanfattning: ${NONE_COMPLETED} ` +
+        'Alternativ utan styrd bedömning ingår inte i rangordningen: ALT-2.',
+    );
+    expect(res.body.summary.reasoning).not.toMatch(/låg risk|måttlig risk|hög risk|saknas/i);
   });
 
   it('generate-pdf-data: overall_statement_sv says no assessment can be made, with its coverage state; never "Låg risk"', async () => {
