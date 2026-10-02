@@ -31,7 +31,8 @@
  * The message is the Swedish text the bootstrap-status API shows (failureDetail): no id, path,
  * storage code or REJECT_* token. The original failure stays server-side in `cause`.
  */
-import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
+import { retrySentenceSv } from './storageFaultClassification';
+import { classifyReadFault, isProvenBindingAbsence } from './readFaultClassification';
 
 export const PROJECT_CONTEXT_BOOTSTRAP_BINDING_UNRESOLVED = 'PROJECT_CONTEXT_BOOTSTRAP_BINDING_UNRESOLVED' as const;
 
@@ -48,10 +49,6 @@ export type BootstrapBindingFailureCode =
   | 'CURRENT_BINDING_INTEGRITY_FAULT'
   | 'CURRENT_BINDING_REFUSED';
 
-/** The refusal resolveCurrent throws for every failure (W-APR: unchanged message, typed fields). */
-const CURRENT_BINDING_UNAVAILABLE = 'REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE';
-/** resolveCurrentProjectContextBindingHead's refusal for a graph without any binding. */
-const EMPTY_BINDING_GRAPH = 'REJECT_PROJECT_CONTEXT_BINDING_HEAD: bindings';
 /** projectContextBindingRuntime.ts PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT, matched by value. */
 const BINDING_INDEX_INCONSISTENT_CODE = 'PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT';
 
@@ -102,30 +99,21 @@ export class ProjectContextBootstrapBindingUnresolvedError extends Error {
   }
 }
 
-/** The nature of a failure to resolve (or list) the project's bindings, read from its cause (value-based). */
+/**
+ * The nature of a failure to resolve (or list) the project's bindings. W-CATCH2: the shared rule
+ * (readFaultClassification.ts classifyReadFault) -- no second copy here. Structural index damage behind
+ * a head refusal (a binding listed twice, a listed binding or relation of another project, a relation
+ * naming a binding the index lost) is BINDING_INDEX_INCONSISTENT, not a verification refusal (W-BOOT
+ * verifier finding 3).
+ */
 export function classifyBindingResolutionFailure(error: unknown): ProjectContextBootstrapBindingUnresolvedError {
-  const inner = error instanceof Error && error.cause !== undefined ? error.cause : error;
-  if ((inner as { code?: unknown } | null)?.code === BINDING_INDEX_INCONSISTENT_CODE) {
-    return new ProjectContextBootstrapBindingUnresolvedError('BINDING_INDEX_INCONSISTENT', null, error);
-  }
-  if (inner instanceof Error && inner.message.startsWith('Artifact not found: ')) {
-    return new ProjectContextBootstrapBindingUnresolvedError('MISSING_FROM_CAS', null, error);
-  }
-  if (isPersistentStorageFault(inner)) {
-    return new ProjectContextBootstrapBindingUnresolvedError('STORAGE_INTEGRITY_FAULT', null, error);
-  }
-  const refusal = inner instanceof Error ? /^(REJECT_[A-Z0-9_]+)/.exec(inner.message)?.[1] : undefined;
-  if (refusal) {
-    return new ProjectContextBootstrapBindingUnresolvedError('REFUSED', refusal, error);
-  }
-  return new ProjectContextBootstrapBindingUnresolvedError('READ_ERROR', null, error);
+  const fault = classifyReadFault(error);
+  return new ProjectContextBootstrapBindingUnresolvedError(fault.faultClass, fault.refusalCode, error);
 }
 
 /** Exactly W-APR's genuine absence: the provider's own refusal, noBindingRegistered === true, empty graph. */
 function isNoBindingRegistered(error: unknown): boolean {
-  if (!(error instanceof Error) || error.message !== CURRENT_BINDING_UNAVAILABLE) return false;
-  if ((error as { noBindingRegistered?: unknown }).noBindingRegistered !== true) return false;
-  return error.cause instanceof Error && error.cause.message === EMPTY_BINDING_GRAPH;
+  return isProvenBindingAbsence(error);
 }
 
 /**

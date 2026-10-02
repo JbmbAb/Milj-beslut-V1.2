@@ -316,15 +316,19 @@ describe('W-BOOT: a binding that exists but cannot be resolved is never replaced
       () => new Error('REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE'),
       refused('REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE'),
     ],
+    // W-CATCH2 (shared classification, W-BOOT verifier finding 3): an empty-graph cause OUTSIDE the
+    // provider's strict absence contract is an index that contradicts itself (the real provider only ever
+    // gives it with the flag strictly true; with the flag off it means the same binding listed twice) --
+    // a lasting integrity fault, still never a mint. Before: REFUSED (REJECT_PROJECT_CONTEXT_BINDING_HEAD).
     [
       "another refusal than the provider's own, even with noBindingRegistered and an empty-graph cause",
       () => Object.assign(new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE', { cause: emptyGraph() }), { noBindingRegistered: true }),
-      refused('REJECT_PROJECT_CONTEXT_BINDING_HEAD'),
+      INCONSISTENT,
     ],
     [
       'noBindingRegistered is not strictly true',
       () => Object.assign(new Error('REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE', { cause: emptyGraph() }), { noBindingRegistered: 'true' }),
-      refused('REJECT_PROJECT_CONTEXT_BINDING_HEAD'),
+      INCONSISTENT,
     ],
     // W-APR sets noBindingRegistered as soon as the index lists no binding, even when a supersession
     // relation of the project then fails: that is not an empty graph, and never a reason to mint.

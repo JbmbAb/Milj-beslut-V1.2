@@ -32,6 +32,7 @@ import {
 } from "../../repositories/projectAssessmentProjectionRepository.js";
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
 import { isPersistentStorageFault } from "./storageFaultClassification.js";
+import { classifyReadFault } from "./readFaultClassification.js";
 
 function sameHash(
   left: { readonly algorithm: string; readonly value: string },
@@ -178,12 +179,6 @@ export const ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE = "ASSESSMENT_PROJECTION
 export type CurrentBindingFaultReason = "READ_ERROR" | "STORAGE_INTEGRITY_FAULT" | "MISSING_FROM_CAS" | "REFUSED" | "BINDING_INDEX_INCONSISTENT";
 
 /**
- * projectContextBindingRuntime.ts PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT, matched by value (not
- * imported: suites that replace that module with a stub keep working, as for every other code here).
- */
-const BINDING_INDEX_INCONSISTENT_CODE = "PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT";
-
-/**
  * W-APR add-on 2: the current binding could not be resolved, so no assessment can be selected. Not a
  * REJECT_* error (callers map REJECT_* absence to 404). The message is server-side detail.
  */
@@ -206,23 +201,14 @@ export class AssessmentProjectionBindingUnresolvableError extends Error {
   }
 }
 
-/** W-APR add-on 2: the nature of a resolveCurrent failure, read from its cause (value-based). */
+/**
+ * W-APR add-on 2: the nature of a resolveCurrent failure. W-CATCH2: the shared rule
+ * (readFaultClassification.ts classifyReadFault) -- no second copy here; structural binding-index damage
+ * behind a head refusal is BINDING_INDEX_INCONSISTENT (W-BOOT verifier finding 3).
+ */
 function currentBindingFault(error: unknown): AssessmentProjectionBindingUnresolvableError {
-  const inner = error instanceof Error && error.cause !== undefined ? error.cause : error;
-  if ((inner as { code?: unknown } | null)?.code === BINDING_INDEX_INCONSISTENT_CODE) {
-    return new AssessmentProjectionBindingUnresolvableError("BINDING_INDEX_INCONSISTENT", null, error);
-  }
-  if (inner instanceof Error && inner.message.startsWith("Artifact not found: ")) {
-    return new AssessmentProjectionBindingUnresolvableError("MISSING_FROM_CAS", null, error);
-  }
-  if (isPersistentStorageFault(inner)) {
-    return new AssessmentProjectionBindingUnresolvableError("STORAGE_INTEGRITY_FAULT", null, error);
-  }
-  const refusal = inner instanceof Error ? /^(REJECT_[A-Z0-9_]+)/.exec(inner.message)?.[1] : undefined;
-  if (refusal) {
-    return new AssessmentProjectionBindingUnresolvableError("REFUSED", refusal, error);
-  }
-  return new AssessmentProjectionBindingUnresolvableError("READ_ERROR", null, error);
+  const fault = classifyReadFault(error);
+  return new AssessmentProjectionBindingUnresolvableError(fault.faultClass, fault.refusalCode, error);
 }
 
 /** Classifies a failed CAS read of a candidate (OD-R2: only a read of unknown persistence is retryable). */
