@@ -562,6 +562,22 @@ describe('canaries: changes to real files and lists are caught', () => {
   });
 });
 
+describe('canaries: a reviewed marker is a call of the policy\'s own gate door, never an arbitrary pattern (U30F3, U30F2 verifier L-1)', () => {
+  // the verifier's canary2: a new GATED_VIA entry whose marker "pg" whitelisted an ungated TRUNCATE env.sgu_well
+  const file = 'scripts/rogue/l1-marker.ts';
+  const content = `${"import pg from 'pg';\nconst pool = new pg.Pool();\n"}await pool.query('TRUNCATE env.sgu_well');\n`;
+  const withEntry = (markers: string[]): Problem[] => {
+    const scan = scanFile(file, content, { readRepoFile: readRepo(REPO_ROOT) });
+    const entry: ReviewedChannels = { file, policy: 'GATED_VIA', markers, justification: 'canary: an entry that names no gate door at all, only a word the file happens to contain', sites: scan.sites.map(siteKey) };
+    return evaluateFile(file, content, scan, { ...CONTEXT, reviewed: new Map([...CONTEXT.reviewed, [file, entry]]) });
+  };
+
+  it('a GATED_VIA entry whose marker is not a gate call ("pg", a bare word) is a problem even though the file matches it', () => {
+    expect(scanFile(file, content, { readRepoFile: readRepo(REPO_ROOT) }).sites.some((s) => s.verdict === 'PROTECTED')).toBe(true);
+    for (const markers of [['pg'], ['TRUNCATE'], ['pool\\.query\\(']]) expect(withEntry(markers).length, JSON.stringify(markers)).toBeGreaterThan(0);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // U30F3 H-1 (U30F2-VERIFICATION H-1): the fold cap fails closed
 // ---------------------------------------------------------------------------------------------
