@@ -914,6 +914,10 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
     ['B1 indirect eval (0, eval)(x)', 'scripts/vrogue/b1e.ts', '(0, eval)(process.argv[2]!);\n'],
     ['B1 Reflect.apply(eval, ...)', 'scripts/vrogue/b1f.ts', 'Reflect.apply(eval, undefined, [process.argv[2]]);\n'],
     ["B1 globalThis['ev' + 'al'](x)", 'scripts/vrogue/b1g.ts', "globalThis['ev' + 'al'](process.argv[2]);\n"],
+    // U30F4 mutation round: each rule on its own (b1f is caught twice -- eval as a value and Reflect.apply)
+    ['B1 eval of a literal (the code in the string is not read)', 'scripts/vrogue/b1h.ts', "eval(\"require('node:child_process').execSync(process.env.W_CMD)\");\n"],
+    ['B1 Reflect.construct(Function, [x])', 'scripts/vrogue/b1i.ts', 'Reflect.construct(Function, [process.argv[2]!])();\n'],
+    ['B1 new Worker(x, options the source does not hold)', 'scripts/vrogue/b1j.ts', "import { Worker } from 'node:worker_threads';\nconst opts = JSON.parse(process.env.W_OPTS!);\nnew Worker(process.argv[2]!, opts);\n"],
   ])('%s -> caught', (_label, file, content) => {
     expect(isScannedPath(file), file).toBe(true);
     expect(problemsOf(file, content).length).toBeGreaterThan(0);
@@ -924,6 +928,7 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
     ['asyncpg fetch of a static SELECT', 'scripts/vrogue/c7.py', `${PY_ASYNCPG}    await conn.fetch('SELECT 1')\n`],
     ['a worker running a file, not code', 'scripts/vrogue/c8.ts', "import { Worker } from 'node:worker_threads';\nnew Worker(new URL('./w.mjs', import.meta.url));\n"],
     ['an object key named eval', 'scripts/vrogue/c9.ts', 'export const opts = { eval: false };\n'],
+    ['a worker running a file with eval: false', 'scripts/vrogue/c10.ts', "import { Worker } from 'node:worker_threads';\nnew Worker(new URL('./w.mjs', import.meta.url), { eval: false });\n"],
   ])('control: %s passes', (_label, file, content) => {
     expect(problemsOf(file, content)).toEqual([]);
   });
