@@ -1277,6 +1277,9 @@ describe('TDG-6: a link to an ANCESTOR of a root may exist, but no copy writes t
     const bundle = path.join(area, 'bundle');
     const plainBundle = path.join(area, 'plain-bundle');
     makeFakeProductTree(tree);
+    // the links' targets exist (Node 24.15's cpSync took the whole process down on a DANGLING junction in the
+    // destination: a worker exit, not a refusal -- seen in the first RED run of this test)
+    fs.mkdirSync(path.join(tree, 'tests', 'fixtures'), { recursive: true });
     fs.mkdirSync(outside, { recursive: true });
     fs.mkdirSync(path.join(bundle, 'j-tree', 'storage', 'keep'), { recursive: true });
     fs.writeFileSync(path.join(bundle, 'j-tree', 'storage', 'keep', 'planted.pem'), 'planted');
