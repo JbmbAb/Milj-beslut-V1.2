@@ -323,3 +323,381 @@ describe('the decision (server/modules/test-db-guard/installTestDataRootWriteGua
     }
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// TDG-5 (TDG4-VERIFICATION findings 2, 3, 8, 9, 12 and 4): every write surface in all three styles, the
+// real bypass (a recursive copy onto the tree root), the forms Windows resolves to the same file, the
+// exceptions' scope, and the workstation's actual live roots.
+
+type Style = 'sync' | 'callback' | 'promise';
+const STYLES: readonly Style[] = ['sync', 'callback', 'promise'];
+const isWin = process.platform === 'win32';
+const caseInsensitiveFs = isWin || process.platform === 'darwin';
+
+/** Calls node:fs `name` in one style (the module object the guard patches). */
+function fsCall(style: Style, name: string, ...args: unknown[]): Promise<unknown> {
+  const anyFs = fs as unknown as Record<string, (...a: unknown[]) => unknown>;
+  if (style === 'sync') return new Promise((resolve) => resolve(anyFs[`${name}Sync`](...args)));
+  if (style === 'promise')
+    return (fs.promises as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args);
+  return new Promise((resolve, reject) =>
+    anyFs[name](...args, (error: unknown, value: unknown) => (error ? reject(error) : resolve(value))),
+  );
+}
+
+/** 'WROTE' or the error code; an opened descriptor/handle is closed again. */
+async function outcomeOf(run: () => Promise<unknown>): Promise<string> {
+  try {
+    const value = await run();
+    if (typeof value === 'number') fs.closeSync(value);
+    else if (value && typeof (value as { close?: unknown }).close === 'function')
+      await (value as { close: () => Promise<void> }).close();
+    return 'WROTE';
+  } catch (error) {
+    const code = (error as { code?: unknown })?.code;
+    return typeof code === 'string' ? code : String((error as Error)?.message ?? error);
+  }
+}
+
+/** Every path that a broken guard could turn into a link: removed (never recursively) before cleanup. */
+const linkPathsToRemove: string[] = [];
+
+function removeLinksThenTree(root: string): void {
+  for (const link of linkPathsToRemove.splice(0)) {
+    const stat = (() => {
+      try {
+        return fs.lstatSync(link);
+      } catch {
+        return null;
+      }
+    })();
+    if (!stat) continue;
+    // a junction or directory symlink is removed as the link itself, never through it
+    if (stat.isSymbolicLink() || stat.isDirectory()) fs.rmdirSync(link);
+    else fs.unlinkSync(link);
+  }
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        process.stderr.write(`[wtdg5] link left behind, ${root} kept: ${full}\n`);
+        return; // never delete recursively through a link
+      }
+      if (entry.isDirectory()) stack.push(full);
+    }
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+describe('TDG-5: every write surface is refused -- sync, callback and promise -- and nothing changes', () => {
+  let area: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg5-surfaces-'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  for (const style of STYLES) {
+    it(`${style}: cp onto the tree root (recursive) and into a root, copyFile, rename (both ends, onto an ancestor), rm, symlink (both ends), link (both names), truncate, open r+/rs+/O_RDWR, a file: URL, mkdir, mkdtemp, utimes, chmod`, async () => {
+      const tree = path.join(area, `tree-${style}`);
+      const outside = path.join(area, `outside-${style}`);
+      makeFakeProductTree(tree);
+      fs.mkdirSync(path.join(outside, 'src-tree', 'storage', 'drafts'), { recursive: true });
+      fs.writeFileSync(path.join(outside, 'src-tree', 'storage', 'drafts', 'landed.docx'), 'x');
+      fs.mkdirSync(path.join(outside, 'ren', 'fixtures'), { recursive: true });
+      fs.writeFileSync(path.join(outside, 'ren', 'fixtures', 'landed.txt'), 'x');
+      fs.writeFileSync(path.join(outside, 'file.txt'), 'outside');
+      fs.mkdirSync(path.join(outside, 'sub'), { recursive: true });
+      const live = path.join(tree, 'storage', 'keep', 'live.txt');
+      const keep = path.join(tree, 'storage', 'keep');
+      const relTargetFromSub = path.relative(path.join(outside, 'sub'), keep);
+      linkPathsToRemove.push(
+        path.join(outside, 'alias'),
+        path.join(outside, 'sub', 'alias-rel'),
+        path.join(keep, 'link'),
+        path.join(outside, 'hard.txt'),
+        path.join(keep, 'hard.txt'),
+      );
+      const treeBefore = listing(tree);
+      const outsideBefore = listing(outside);
+      vi.spyOn(process, 'cwd').mockReturnValue(tree);
+      const c = fs.constants;
+      const attempts: Record<string, () => Promise<unknown>> = {
+        'cp dir onto the tree root, recursive': () =>
+          fsCall(style, 'cp', path.join(outside, 'src-tree'), tree, { recursive: true }),
+        'cp a file into storage': () =>
+          fsCall(style, 'cp', path.join(outside, 'file.txt'), path.join(keep, 'cp.txt'), {}),
+        'copyFile into storage': () =>
+          fsCall(style, 'copyFile', path.join(outside, 'file.txt'), path.join(keep, 'copy.txt')),
+        'rename a dir onto an ancestor of tests/fixtures': () =>
+          fsCall(style, 'rename', path.join(outside, 'ren'), path.join(tree, 'tests')),
+        'rename a file into storage': () =>
+          fsCall(style, 'rename', path.join(outside, 'file.txt'), path.join(keep, 'moved.txt')),
+        'rename a live file out': () => fsCall(style, 'rename', live, path.join(outside, 'stolen.txt')),
+        'rm storage recursive': () =>
+          fsCall(style, 'rm', path.join(tree, 'storage'), { recursive: true, force: true }),
+        'rm the tree recursive': () => fsCall(style, 'rm', tree, { recursive: true, force: true }),
+        'symlink (junction) from outside INTO storage': () =>
+          fsCall(style, 'symlink', keep, path.join(outside, 'alias'), 'junction'),
+        'symlink (junction), relative target, from outside INTO storage': () =>
+          fsCall(style, 'symlink', relTargetFromSub, path.join(outside, 'sub', 'alias-rel'), 'junction'),
+        'symlink placed inside storage': () =>
+          fsCall(style, 'symlink', outside, path.join(keep, 'link'), 'junction'),
+        'link a live file out (hard link)': () => fsCall(style, 'link', live, path.join(outside, 'hard.txt')),
+        'link into storage (hard link)': () =>
+          fsCall(style, 'link', path.join(outside, 'file.txt'), path.join(keep, 'hard.txt')),
+        'truncate a live file': () => fsCall(style, 'truncate', live, 0),
+        'open r+ a live file': () => fsCall(style, 'open', live, 'r+'),
+        'open rs+ a live file': () => fsCall(style, 'open', live, 'rs+'),
+        'open O_RDWR a live file': () => fsCall(style, 'open', live, c.O_RDWR),
+        'writeFile through a file: URL': () =>
+          fsCall(style, 'writeFile', pathToFileURL(path.join(keep, 'url.txt')), 'x'),
+        'mkdir in storage': () => fsCall(style, 'mkdir', path.join(keep, 'new-dir'), { recursive: true }),
+        'mkdtemp in storage': () => fsCall(style, 'mkdtemp', path.join(keep, 'tmp-')),
+        'utimes a live file': () => fsCall(style, 'utimes', live, new Date(0), new Date(0)),
+        'chmod a live file': () => fsCall(style, 'chmod', live, 0o666),
+      };
+      const results: Record<string, string> = {};
+      for (const [name, run] of Object.entries(attempts)) results[name] = await outcomeOf(run);
+      // controls: a recursive copy and a write outside every root still work (not a blanket refusal)
+      results['control: cp dir into a temp dir'] = await outcomeOf(() =>
+        fsCall(style, 'cp', path.join(outside, 'src-tree'), path.join(area, `copy-ok-${style}`), {
+          recursive: true,
+        }),
+      );
+      vi.restoreAllMocks();
+      expect(results).toEqual({
+        ...Object.fromEntries(Object.keys(attempts).map((name) => [name, REFUSED])),
+        'control: cp dir into a temp dir': 'WROTE',
+      });
+      expect(listing(tree)).toEqual(treeBefore);
+      expect(listing(outside)).toEqual(outsideBefore);
+      expect(fs.readFileSync(live, 'utf8')).toBe('live');
+    });
+  }
+
+  it.runIf(caseInsensitiveFs)(
+    'another spelling of the same file (case) is refused, written and decided',
+    async () => {
+      const tree = path.join(area, 'tree-case');
+      makeFakeProductTree(tree);
+      const before = listing(tree);
+      vi.spyOn(process, 'cwd').mockReturnValue(tree);
+      const upper = path.join(tree.toUpperCase(), 'STORAGE', 'KEEP', 'UPPER.TXT');
+      const outcome = await outcomeOf(() => fsCall('sync', 'writeFile', upper, 'x'));
+      vi.restoreAllMocks();
+      expect(outcome).toBe(REFUSED);
+      expect(listing(tree)).toEqual(before);
+      const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+      // as written, without the real-path lookup: the case-folded comparison alone refuses it
+      expect(
+        testDataRootWriteRefusal('fs.writeFileSync', 'write', upper, {
+          trees: [tree],
+          testFile: null,
+          resolveLinks: false,
+        }),
+      ).not.toBeNull();
+    },
+  );
+});
+
+describe('TDG-5: the forms Windows resolves to the same file (findings 8 and 10)', () => {
+  let area: string;
+  let tree: string;
+
+  beforeAll(() => {
+    area = fs.mkdtempSync(path.join(os.tmpdir(), 'wtdg5-forms-'));
+    tree = path.join(area, 'tree');
+    makeFakeProductTree(tree);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+    removeLinksThenTree(area);
+  });
+
+  const decideAsWritten = async (target: string) => {
+    const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+    return testDataRootWriteRefusal('fs.writeFileSync', 'write', target, {
+      trees: [tree],
+      testFile: null,
+      resolveLinks: false,
+    });
+  };
+
+  it.runIf(isWin)(
+    '\\\\?\\, \\\\.\\, \\\\?\\UNC\\localhost\\C$, \\\\localhost\\C$, an NTFS stream and a trailing dot are the root, as written',
+    async () => {
+      const inStorage = path.join(tree, 'storage', 'keep', 'x.txt');
+      const drive = inStorage.slice(0, 1);
+      const rest = inStorage.slice(3); // after "C:\"
+      const forms = {
+        win32File: `\\\\?\\${inStorage}`,
+        win32Device: `\\\\.\\${inStorage}`,
+        uncLong: `\\\\?\\UNC\\localhost\\${drive}$\\${rest}`,
+        adminShare: `\\\\localhost\\${drive}$\\${rest}`,
+        loopbackShare: `\\\\127.0.0.1\\${drive}$\\${rest}`,
+        streamOnRoot: `${path.join(tree, 'storage')}:ads`,
+        streamOnFile: `${inStorage}:s:$DATA`,
+        trailingDot: path.join(tree, 'storage.', 'keep', 'x.txt'),
+        trailingSpace: `${path.join(tree, 'storage')} \\keep\\x.txt`,
+      };
+      const decided: Record<string, boolean> = {};
+      for (const [name, target] of Object.entries(forms))
+        decided[name] = Boolean(await decideAsWritten(target));
+      expect(decided).toEqual(Object.fromEntries(Object.keys(forms).map((name) => [name, true])));
+      // not over-wide: a sibling that only starts with the root's name is still outside
+      expect(await decideAsWritten(path.join(tree, 'storage-not', 'x.txt'))).toBeNull();
+    },
+  );
+
+  it.runIf(isWin)(
+    'written for real: \\\\?\\, \\\\.\\ and an NTFS stream on the root directory are refused, nothing lands',
+    async () => {
+      const before = listing(tree);
+      vi.spyOn(process, 'cwd').mockReturnValue(tree);
+      const keep = path.join(tree, 'storage', 'keep');
+      const results = {
+        win32File: await outcomeOf(() =>
+          fsCall('sync', 'writeFile', `\\\\?\\${path.join(keep, 'a.txt')}`, 'x'),
+        ),
+        win32Device: await outcomeOf(() =>
+          fsCall('sync', 'writeFile', `\\\\.\\${path.join(keep, 'b.txt')}`, 'x'),
+        ),
+        streamOnRoot: await outcomeOf(() =>
+          fsCall('sync', 'writeFile', `${path.join(tree, 'storage')}:ads`, 'x'),
+        ),
+      };
+      vi.restoreAllMocks();
+      expect(results).toEqual({ win32File: REFUSED, win32Device: REFUSED, streamOnRoot: REFUSED });
+      expect(listing(tree)).toEqual(before);
+    },
+  );
+
+  it('through a junction (or symlink) from outside into a root: refused via the real path, nothing lands', async () => {
+    const outside = path.join(area, 'outside-link');
+    fs.mkdirSync(outside, { recursive: true });
+    const junction = path.join(outside, 'into-storage');
+    linkPathsToRemove.push(junction);
+    // made BEFORE cwd points at the fake tree: a link that already exists (the guard refuses making it now)
+    fs.symlinkSync(path.join(tree, 'storage', 'keep'), junction, isWin ? 'junction' : 'dir');
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const results = {
+      writeThroughLink: await outcomeOf(() =>
+        fsCall('sync', 'writeFile', path.join(junction, 'via.txt'), 'x'),
+      ),
+      mkdirThroughLink: await outcomeOf(() => fsCall('promise', 'mkdir', path.join(junction, 'via-dir'))),
+      truncateThroughLink: await outcomeOf(() =>
+        fsCall('callback', 'truncate', path.join(junction, 'live.txt'), 0),
+      ),
+    };
+    vi.restoreAllMocks();
+    expect(results).toEqual({
+      writeThroughLink: REFUSED,
+      mkdirThroughLink: REFUSED,
+      truncateThroughLink: REFUSED,
+    });
+    expect(listing(tree)).toEqual(before);
+    expect(fs.readFileSync(path.join(tree, 'storage', 'keep', 'live.txt'), 'utf8')).toBe('live');
+  });
+
+  it.runIf(isWin)('through an 8.3 short name of the tree: refused via the real path', async (ctx) => {
+    const query = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${tree}") do @echo %~sI`], {
+      encoding: 'utf8',
+      windowsVerbatimArguments: true,
+    });
+    const short = String(query.stdout ?? '').trim();
+    if (!short || short.toLowerCase() === tree.toLowerCase()) ctx.skip(); // no 8.3 names on this volume
+    expect(await decideAsWritten(path.join(short, 'storage', 'keep', 's.txt'))).toBeNull(); // as written: not seen
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const outcome = await outcomeOf(() =>
+      fsCall('sync', 'writeFile', path.join(short, 'storage', 'keep', 's.txt'), 'x'),
+    );
+    vi.restoreAllMocks();
+    expect(outcome).toBe(REFUSED);
+    expect(listing(tree)).toEqual(before);
+  });
+});
+
+describe('TDG-5: an exception is exactly its file and its own parents, for exactly its owner (finding 2: M04, M05; finding 12)', () => {
+  it('the owner is matched by its full path, never by its name; nothing beside the file, no mkdtemp, no recursive copy', async () => {
+    const { testDataRootWriteRefusal, TEST_DATA_ROOT_WRITE_EXCEPTIONS } = await import(GUARD_MODULE);
+    for (const exception of TEST_DATA_ROOT_WRITE_EXCEPTIONS as Array<{ path: string; testFile: string }>) {
+      const owner = path.join(fakeTree, exception.testFile);
+      const file = path.join(fakeTree, exception.path);
+      const parent = path.dirname(file);
+      const opts = { cwd: fakeTree, trees: [fakeTree], testFile: owner };
+      const refused = (op: string, kind: string, target: string, o: object = opts) =>
+        Boolean(testDataRootWriteRefusal(op, kind, target, o));
+      // the same file name in another directory is another test file
+      const namesake = path.join(fakeTree, 'tests', 'unit', 'elsewhere', path.basename(exception.testFile));
+      expect({
+        exception: exception.path,
+        namesake: refused('fs.writeFileSync', 'write', file, { ...opts, testFile: namesake }),
+      }).toEqual({ exception: exception.path, namesake: true });
+      // mkdir: the file's own ancestors only
+      expect(refused('fs.mkdirSync', 'mkdir', parent)).toBe(false);
+      expect(refused('fs.mkdirSync', 'mkdir', path.join(parent, 'beside'))).toBe(true);
+      expect(refused('fs.mkdirSync', 'mkdir', path.join(path.dirname(parent), 'sibling-dir'))).toBe(true);
+      expect(refused('fs.mkdirSync', 'mkdir', file)).toBe(true);
+      // a unique directory next to a prefix, a recursive copy or a link are never excepted
+      expect(refused('fs.mkdtempSync', 'mkdtemp', parent)).toBe(true);
+      expect(refused('fs.mkdtempSync', 'mkdtemp', path.join(parent, 'x-'))).toBe(true);
+      expect(refused('fs.cpSync', 'tree', file)).toBe(true);
+      expect(refused('fs.cpSync', 'tree', parent)).toBe(true);
+    }
+  });
+
+  it("finding 12 (E04), written for real: while an owner runs, mkdtemp on its exception's parent prefix makes no sibling", () => {
+    const tree = freshFakeTree('owner-mkdtemp');
+    const exception = {
+      path: 'tests/fixtures/EndToEnd/Case_Fusion/original/beslut.txt',
+      testFile: 'packages/mps-lu/tests/LUEndToEnd.test.ts',
+    };
+    fs.mkdirSync(path.join(tree, 'tests', 'fixtures', 'EndToEnd'), { recursive: true });
+    const before = listing(tree);
+    const state = (globalThis as { __vitest_worker__?: { filepath?: string } }).__vitest_worker__ as {
+      filepath?: string;
+    };
+    const ownFile = state.filepath;
+    const results: Record<string, string> = {};
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    try {
+      state.filepath = path.join(tree, exception.testFile); // the owner, for these two synchronous calls only
+      for (const [name, prefix] of [
+        [
+          'mkdtemp on an ancestor of the exception',
+          path.join(tree, 'tests', 'fixtures', 'EndToEnd', 'Case_Fusion'),
+        ],
+        ['mkdtemp beside the exception', path.join(tree, 'tests', 'fixtures', 'EndToEnd', 'x-')],
+      ] as const) {
+        try {
+          fs.mkdtempSync(prefix);
+          results[name] = 'WROTE';
+        } catch (error) {
+          results[name] = String((error as { code?: string }).code);
+        }
+      }
+    } finally {
+      state.filepath = ownFile;
+      vi.restoreAllMocks();
+    }
+    expect(results).toEqual({
+      'mkdtemp on an ancestor of the exception': REFUSED,
+      'mkdtemp beside the exception': REFUSED,
+    });
+    expect(listing(tree)).toEqual(before);
+  });
+});

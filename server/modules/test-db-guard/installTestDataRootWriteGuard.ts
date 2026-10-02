@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,17 +14,30 @@ import { TEST_DB_GUARD_LABEL } from './testDatabaseTargetPolicy';
  * `tests/fixtures/...` -- and with cwd in the demonstrator's worktree that IS the live tree: the
  * demonstrator runs with that cwd. Where a module supports a root setting, the test setup gives it a
  * fresh temp root (testDataRootIsolation.ts); this guard is the backstop for every root, whether or not
- * a setting exists: a write, a mkdir, a rename, a copy, a removal -- sync, callback or promise -- whose
- * target is inside a protected root is refused BEFORE anything happens, with a TestDataRootWriteRefusedError
- * (code TEST_DATA_ROOT_WRITE_REFUSED) that names the operation, the path and the root.
+ * a setting exists: a write, a mkdir, a rename, a copy, a link, a removal, a truncation or a metadata
+ * change -- sync, callback or promise -- whose target is inside a protected root is refused BEFORE
+ * anything happens, with a TestDataRootWriteRefusedError (code TEST_DATA_ROOT_WRITE_REFUSED) that names
+ * the operation, the path and the root.
+ *
+ * KNOWN LIMITATION (TDG-5, TDG4-VERIFICATION finding 7) -- skyddar bara fs-anrop i processen och barn som
+ * laddar guardens preload; breda körningar ska ha cwd utanför arbetsträdet. In words: the guard patches
+ * node:fs in THIS process only. A child that does not load it (the Vitest setup file or
+ * server/loadEnvFirst.ts) -- cmd `>` / `copy`, bash `tee`, PowerShell `Out-File`, python, git, `node -e`
+ * without loadEnvFirst -- and a worker_threads Worker (its own fs bindings) write unguarded; so do writes
+ * through a file descriptor or FileHandle opened before, and native addons. It is a backstop in the
+ * process, not an isolation: broad runs (sweeps, integration) keep cwd OUTSIDE the worktree (an export).
  *
  * Protected: every root below under the product tree of this checkout (the repo root this module lives in)
  * and under the current working directory when that is a product tree (package.json + server/ + packages/),
- * and the absolute live locations data-root keys fall back to. Reads are never refused.
+ * and the absolute live locations data-root keys fall back to. A target is compared as written
+ * (canonical: \\?\ and \\.\ prefixes, a local administrative share, an NTFS stream suffix and trailing dots
+ * removed, case-folded on Windows/macOS) AND, when that is allowed, through its real path (junctions,
+ * symbolic links, 8.3 short names). Reads are never refused.
  *
  * Exceptions: the reviewed list TEST_DATA_ROOT_WRITE_EXCEPTIONS -- each one exact file, owned by one test
- * file (it applies only while that Vitest test file runs), with the reason it cannot get a temp root in
- * this unit. The inventory test locks its size: a new entry fails it until the lock is changed in review.
+ * file (it applies only while that Vitest test file runs, matched by its full path), with the reason it
+ * cannot get a temp root in this unit. The inventory test locks its size: a new entry fails it until the
+ * lock is changed in review.
  *
  * Installed in a test runtime only (the Vitest setup file, server/loadEnvFirst.ts in a NODE_ENV=test /
  * MIMER_TEST_MODE process, playwright.config.ts). Outside a test runtime nothing here runs.
@@ -182,13 +196,94 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 /** The product tree this module belongs to: server/modules/test-db-guard -> repo root. */
 export const THIS_PRODUCT_TREE = path.resolve(MODULE_DIR, '..', '..', '..');
 
-const caseFold = process.platform === 'win32' || process.platform === 'darwin';
+const isWindows = process.platform === 'win32';
+const caseFold = isWindows || process.platform === 'darwin';
 const norm = (p: string) => {
   const resolved = path.resolve(p);
   return caseFold ? resolved.toLowerCase() : resolved;
 };
 const isInsideOrSame = (target: string, root: string) =>
   target === root || target.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+
+// ---------------------------------------------------------------------------------------------------
+// TDG-5: canonical forms of a target (TDG4-VERIFICATION findings 8 and 10).
+
+const safe = <T>(fn: () => T): T | null => {
+  try {
+    return fn();
+  } catch {
+    return null;
+  }
+};
+
+/** Names of THIS machine in a UNC path (an administrative share \\<name>\C$ is the local drive C:). */
+function localHostNames(): Set<string> {
+  const names = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0--1.ipv6-literal.net']);
+  const host = safe(() => os.hostname());
+  if (host) names.add(host.toLowerCase());
+  return names;
+}
+
+/**
+ * The path as Windows resolves it, lexically: `\\?\C:\x` and `\\.\C:\x` -> `C:\x`; `\\?\UNC\h\s` -> `\\h\s`;
+ * `\\localhost\C$\x` (an administrative share of this machine) -> `C:\x`; an NTFS stream (`storage:ads`,
+ * `x.txt:s:$DATA`) and trailing dots/spaces of a segment (`storage.`) removed. Elsewhere: path.resolve.
+ */
+export function canonicalTargetPath(target: string): string {
+  if (!isWindows) return path.resolve(target);
+  let s = target.replace(/\//g, '\\');
+  const unc = /^\\\\[?.]\\UNC\\(.*)$/i.exec(s);
+  if (unc) s = `\\\\${unc[1]}`;
+  const device = /^\\\\[?.]\\([A-Za-z]:(?:\\.*)?)$/.exec(s);
+  if (device) s = device[1];
+  const share = /^\\\\([^\\]+)\\([A-Za-z])\$(\\.*)?$/.exec(s);
+  if (share && (localHostNames().has(share[1].toLowerCase()) || /^127\.\d+\.\d+\.\d+$/.test(share[1])))
+    s = `${share[2]}:${share[3] ?? '\\'}`;
+  const resolved = path.win32.resolve(s);
+  const { root } = path.win32.parse(resolved);
+  const segments = resolved
+    .slice(root.length)
+    .split('\\')
+    .filter(Boolean)
+    .map((segment) => {
+      const colon = segment.indexOf(':');
+      const name = colon >= 0 ? segment.slice(0, colon) : segment;
+      return name.replace(/[. ]+$/, '') || name;
+    })
+    .filter(Boolean);
+  return path.win32.join(root, ...segments);
+}
+
+const realpathNative = fs.realpathSync.native;
+const lstatOriginal = fs.lstatSync;
+const readlinkOriginal = fs.readlinkSync;
+
+/**
+ * The real location a write to `canonical` reaches: the real path of its nearest existing ancestor (a
+ * junction, a symbolic link -- dangling ones followed -- or an 8.3 short name resolved) plus the rest.
+ * Null when nothing resolves. Uses only the unguarded originals.
+ */
+export function realTargetPath(canonical: string): string | null {
+  let probe = canonical;
+  const rest: string[] = [];
+  for (let hops = 0; hops < 64; hops += 1) {
+    const real = safe(() => realpathNative(probe));
+    if (real !== null) return canonicalTargetPath(path.join(real, ...rest));
+    const stat = safe(() => lstatOriginal(probe));
+    if (stat?.isSymbolicLink()) {
+      const link = safe(() => readlinkOriginal(probe));
+      if (link !== null) {
+        probe = canonicalTargetPath(path.resolve(path.dirname(probe), link));
+        continue;
+      }
+    }
+    const parent = path.dirname(probe);
+    if (parent === probe) return null;
+    rest.unshift(path.basename(probe));
+    probe = parent;
+  }
+  return null;
+}
 
 const productTreeCache = new Map<string, boolean>();
 /** package.json + server/ + packages/: a checkout or an export of this product. */
@@ -205,12 +300,38 @@ export function isProductTree(dir: string): boolean {
   return known;
 }
 
+const realTreeCache = new Map<string, string>();
+/** A tree and, when it exists and differs, its real path (memoized). */
+function treeForms(tree: string): string[] {
+  const key = norm(tree);
+  let real = realTreeCache.get(key);
+  if (real === undefined) {
+    real = safe(() => canonicalTargetPath(realpathNative(tree))) ?? tree;
+    realTreeCache.set(key, real);
+  }
+  return norm(real) === key ? [tree] : [tree, real];
+}
+
+const appliesHere = (root: string) => isWindows || !/^[A-Za-z]:\\/.test(root);
+
+/** Every absolute protected root in force on this platform. */
+export function protectedAbsoluteRootsNow(): string[] {
+  return TEST_PROTECTED_ABSOLUTE_ROOTS.map(({ root }) => root).filter(appliesHere);
+}
+
 function currentVitestTestFile(): string | null {
   const state = (globalThis as { __vitest_worker__?: { filepath?: unknown } }).__vitest_worker__;
   return typeof state?.filepath === 'string' ? state.filepath : null;
 }
 
-export type WriteKind = 'write' | 'mkdir' | 'remove';
+/**
+ * How a target is written. `write`: a file is created or changed (an exception may allow exactly its file).
+ * `mkdir`: a directory is created (an exception's own parent directories only). `mkdtemp`: a uniquely named
+ * directory is created next to the prefix (never excepted). `remove`: rm, rmdir, unlink, a rename's source --
+ * also refused for an ANCESTOR of a protected root. `tree`: a recursive copy's or a rename's destination, a
+ * new link -- also refused for an ancestor (it can land a whole tree, storage/ included).
+ */
+export type WriteKind = 'write' | 'mkdir' | 'mkdtemp' | 'remove' | 'tree';
 
 export type WriteRefusal = {
   readonly operation: string;
@@ -218,9 +339,12 @@ export type WriteRefusal = {
   readonly protectedRoot: string;
 };
 
+const reachesAncestors = (kind: WriteKind) => kind === 'remove' || kind === 'tree';
+
 /**
- * The decision, pure but for the product-tree check of cwd: null (allowed) or the refusal. `remove`
- * (rm, rmdir, unlink, the source of a rename) is also refused for an ANCESTOR of a protected root.
+ * The decision, pure but for the product-tree check of cwd and the real-path lookup: null (allowed) or the
+ * refusal. The target is judged as written (canonical) first -- a refusal there needs no file-system access
+ * at all -- and then, unless `resolveLinks` is false, through its real path.
  */
 export function testDataRootWriteRefusal(
   operation: string,
@@ -230,42 +354,75 @@ export function testDataRootWriteRefusal(
     readonly cwd?: string;
     readonly testFile?: string | null;
     readonly trees?: readonly string[];
+    readonly resolveLinks?: boolean;
   } = {},
 ): WriteRefusal | null {
-  const abs = norm(target);
   const cwd = options.cwd ?? process.cwd();
-  const trees = options.trees ?? [THIS_PRODUCT_TREE, ...(isProductTree(cwd) ? [cwd] : [])];
+  const baseTrees = options.trees ?? [THIS_PRODUCT_TREE, ...(isProductTree(cwd) ? [cwd] : [])];
+  const trees = [...new Map(baseTrees.flatMap(treeForms).map((tree) => [norm(tree), tree])).values()];
   const testFile = options.testFile === undefined ? currentVitestTestFile() : options.testFile;
-  for (const tree of new Set(trees.map(norm))) {
+  const lexical = canonicalTargetPath(target);
+  const refusal = decide(operation, kind, lexical, target, trees, testFile);
+  if (refusal || options.resolveLinks === false) return refusal;
+  const real = realTargetPath(lexical);
+  if (real === null || norm(real) === norm(lexical)) return null;
+  return decide(operation, kind, real, target, trees, testFile);
+}
+
+function decide(
+  operation: string,
+  kind: WriteKind,
+  candidate: string,
+  original: string,
+  trees: readonly string[],
+  testFile: string | null,
+): WriteRefusal | null {
+  const abs = norm(candidate);
+  const refusal = (protectedRoot: string): WriteRefusal => ({
+    operation,
+    target: path.resolve(original),
+    protectedRoot,
+  });
+  for (const tree of trees) {
     for (const { root } of TEST_PROTECTED_RELATIVE_ROOTS) {
       const rootAbs = norm(path.join(tree, root));
       const inside = isInsideOrSame(abs, rootAbs);
-      const ancestor = kind === 'remove' && isInsideOrSame(rootAbs, abs);
+      const ancestor = reachesAncestors(kind) && isInsideOrSame(rootAbs, abs);
       if (!inside && !ancestor) continue;
-      if (inside && isExcepted(abs, kind, tree, testFile)) continue;
-      return { operation, target: path.resolve(target), protectedRoot: path.join(tree, root) };
+      if (inside && isExcepted(abs, kind, trees, testFile)) continue;
+      return refusal(path.join(tree, root));
     }
   }
-  for (const { root } of TEST_PROTECTED_ABSOLUTE_ROOTS) {
-    // A drive-letter root exists only on Windows; a POSIX root is also reached there (on the current drive).
-    if (process.platform !== 'win32' && /^[A-Za-z]:\\/.test(root)) continue;
+  for (const root of protectedAbsoluteRootsNow()) {
     const rootAbs = norm(root);
-    if (isInsideOrSame(abs, rootAbs) || (kind === 'remove' && isInsideOrSame(rootAbs, abs))) {
-      return { operation, target: path.resolve(target), protectedRoot: root };
+    if (isInsideOrSame(abs, rootAbs) || (reachesAncestors(kind) && isInsideOrSame(rootAbs, abs))) {
+      return refusal(root);
     }
   }
   return null;
 }
 
-function isExcepted(abs: string, kind: WriteKind, tree: string, testFile: string | null): boolean {
-  if (kind === 'remove' || !testFile) return false;
-  const testAbs = norm(testFile);
-  for (const exception of TEST_DATA_ROOT_WRITE_EXCEPTIONS) {
-    if (testAbs !== norm(path.join(tree, exception.testFile))) continue;
-    const allowed = norm(path.join(tree, exception.path));
-    if (abs === allowed && kind === 'write') return true;
-    // creating the exception's own parent directories
-    if (kind === 'mkdir' && isInsideOrSame(allowed, abs) && abs !== allowed) return true;
+/**
+ * An exception allows `write` of exactly its file and `mkdir` of exactly the file's own ancestors, only
+ * while its owner test file runs -- the owner compared by its FULL path, never by its name. A uniquely named
+ * directory (mkdtemp), a removal, a recursive copy or a link is never excepted.
+ */
+function isExcepted(
+  abs: string,
+  kind: WriteKind,
+  trees: readonly string[],
+  testFile: string | null,
+): boolean {
+  if ((kind !== 'write' && kind !== 'mkdir') || !testFile) return false;
+  const testAbs = norm(canonicalTargetPath(testFile));
+  for (const tree of trees) {
+    for (const exception of TEST_DATA_ROOT_WRITE_EXCEPTIONS) {
+      if (testAbs !== norm(path.join(tree, exception.testFile))) continue;
+      const allowed = norm(path.join(tree, exception.path));
+      if (kind === 'write' && abs === allowed) return true;
+      // creating the exception's own parent directories -- nothing beside them
+      if (kind === 'mkdir' && abs !== allowed && isInsideOrSame(allowed, abs)) return true;
+    }
   }
   return false;
 }
@@ -276,10 +433,17 @@ function isExcepted(abs: string, kind: WriteKind, tree: string, testFile: string
 type AnyFn = (...args: unknown[]) => unknown;
 const GUARD_MARK = Symbol.for('mimer.testDbGuard.dataRootWriteGuard');
 
+/** A path argument: a string, a Buffer or a file: URL (also a URL-shaped object, as Node accepts). */
 function pathArg(value: unknown): string | null {
   if (typeof value === 'string') return value;
   if (Buffer.isBuffer(value)) return value.toString();
-  if (value instanceof URL) return value.protocol === 'file:' ? fileURLToPath(value) : null;
+  if (value !== null && typeof value === 'object') {
+    const { href, protocol } = value as { href?: unknown; protocol?: unknown };
+    if (typeof href === 'string' && typeof protocol === 'string') {
+      // a non-file URL is refused by Node itself; a file: URL is the path it names
+      return protocol === 'file:' ? safe(() => fileURLToPath(href)) : null;
+    }
+  }
   return null; // a file descriptor or a FileHandle: already opened, nothing new is reached
 }
 
@@ -296,6 +460,11 @@ type Check = {
   readonly index: number;
   readonly kind: WriteKind;
   readonly when?: (args: unknown[]) => boolean;
+  /**
+   * A link target: Node resolves a relative one against the link's own directory (a junction's too); it is
+   * judged that way AND, conservatively, against cwd.
+   */
+  readonly relativeToDirOf?: number;
 };
 
 /** Which argument of which function is a target, and how it is written. */
@@ -304,20 +473,37 @@ const CHECKS: Record<string, readonly Check[]> = {
   appendFile: [{ index: 0, kind: 'write' }],
   truncate: [{ index: 0, kind: 'write' }],
   mkdir: [{ index: 0, kind: 'mkdir' }],
-  mkdtemp: [{ index: 0, kind: 'mkdir' }],
+  mkdtemp: [{ index: 0, kind: 'mkdtemp' }],
   copyFile: [{ index: 1, kind: 'write' }],
-  cp: [{ index: 1, kind: 'write' }],
+  // TDG-5 (finding 3): a recursive copy onto an ANCESTOR of a root lands in it (Node's cpSync copies a
+  // directory natively, past every JS-level function)
+  cp: [{ index: 1, kind: 'tree' }],
   rename: [
     { index: 0, kind: 'remove' },
+    { index: 1, kind: 'tree' },
+  ],
+  // a hard link is a second name of the same file: neither name may be in a root
+  link: [
+    { index: 0, kind: 'write' },
     { index: 1, kind: 'write' },
   ],
-  link: [{ index: 1, kind: 'write' }],
-  symlink: [{ index: 1, kind: 'write' }],
+  // a symbolic link or junction INTO a root is an alias for writing it; a link placed in a root changes it
+  symlink: [
+    { index: 0, kind: 'write', relativeToDirOf: 1 },
+    { index: 1, kind: 'tree' },
+  ],
   rm: [{ index: 0, kind: 'remove' }],
   rmdir: [{ index: 0, kind: 'remove' }],
   unlink: [{ index: 0, kind: 'remove' }],
   open: [{ index: 0, kind: 'write', when: (args) => isWriteFlag(args[1]) }],
   createWriteStream: [{ index: 0, kind: 'write' }],
+  // TDG-5 (finding 9): metadata of a live file
+  utimes: [{ index: 0, kind: 'write' }],
+  lutimes: [{ index: 0, kind: 'write' }],
+  chmod: [{ index: 0, kind: 'write' }],
+  lchmod: [{ index: 0, kind: 'write' }],
+  chown: [{ index: 0, kind: 'write' }],
+  lchown: [{ index: 0, kind: 'write' }],
 };
 
 function refusalFor(name: string, args: unknown[]): TestDataRootWriteRefusedError | null {
@@ -326,9 +512,16 @@ function refusalFor(name: string, args: unknown[]): TestDataRootWriteRefusedErro
     if (check.when && !check.when(args)) continue;
     const target = pathArg(args[check.index]);
     if (target === null) continue;
-    const refusal = testDataRootWriteRefusal(`fs.${name}`, check.kind, target);
-    if (refusal)
-      return new TestDataRootWriteRefusedError(refusal.operation, refusal.target, refusal.protectedRoot);
+    const targets = [target];
+    if (check.relativeToDirOf !== undefined && !path.isAbsolute(target)) {
+      const link = pathArg(args[check.relativeToDirOf]);
+      if (link !== null) targets.push(path.resolve(path.dirname(path.resolve(link)), target));
+    }
+    for (const candidate of targets) {
+      const refusal = testDataRootWriteRefusal(`fs.${name}`, check.kind, candidate);
+      if (refusal)
+        return new TestDataRootWriteRefusedError(refusal.operation, refusal.target, refusal.protectedRoot);
+    }
   }
   return null;
 }
@@ -361,7 +554,13 @@ function wrap(
 
 const BASES = Object.keys(CHECKS);
 
-/** Idempotent. Installs the write guard on node:fs and node:fs/promises in this process. */
+/**
+ * Idempotent. Installs the write guard on node:fs and node:fs/promises in this process.
+ *
+ * KNOWN LIMITATION: skyddar bara fs-anrop i processen och barn som laddar guardens preload; breda körningar
+ * ska ha cwd utanför arbetsträdet (see the module comment: children that do not load the Vitest setup file
+ * or server/loadEnvFirst.ts, shell redirection, worker_threads and already opened descriptors are outside).
+ */
 export function installTestDataRootWriteGuard(): void {
   const fsObj = fs as unknown as Record<string | symbol, unknown>;
   if (fsObj[GUARD_MARK]) return;
