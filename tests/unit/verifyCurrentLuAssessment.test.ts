@@ -211,7 +211,7 @@ async function setup() {
     // governed layer -- the water hit above plus one negative evidence for each other layer; a silent layer in
     // a V3 record is an integrity error (verify then answers 424 and never replays it).
     const otherLayers = negativeLayerEvidence({ artifact_id: 'prop-verify', artifact_type: 'PROPERTY' }, ['ebh', 'protected_area', 'natura2000', 'water_protection_area']);
-    for (const e of otherLayers) await repository.put({ artifact_id: e.artifact_id, content_hash: e.content_hash, body: e });
+    for (const e of otherLayers) await repository.put({ artifact_id: e.artifact_id, body: e });
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: siteId,
       deterministic_seed: `seed:${siteId}`,

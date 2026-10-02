@@ -16,7 +16,7 @@ const DATASET_HASH = '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa
 export interface NegativeLayerEvidence {
   readonly artifact_id: string;
   readonly artifact_type: 'SPATIAL_EVIDENCE';
-  readonly content_hash: { readonly algorithm: string; readonly value: string };
+  readonly content_hash: ReturnType<typeof buildSpatialEvidenceContentHash>;
   readonly references: readonly { readonly artifact_id: string; readonly artifact_type: string }[];
   readonly payload: Record<string, unknown>;
 }
