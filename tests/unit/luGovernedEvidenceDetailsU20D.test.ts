@@ -437,8 +437,11 @@ async function setup(options: { readonly unavailable?: readonly string[]; readon
     ...extra,
   });
 
-  /** For the "older assessment" case: a governed assessment with no pinned evidence at all. */
-  async function persistBareAssessment() {
+  /**
+   * For the "older assessment" cases: a governed assessment with no pinned evidence, and (U20CDF)
+   * optionally stored findings as an older producer wrote them.
+   */
+  async function persistBareAssessment(findings: readonly Record<string, unknown>[] = []) {
     const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `u20d-${Math.random()}` });
     security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
@@ -448,7 +451,7 @@ async function setup(options: { readonly unavailable?: readonly string[]; readon
     };
     const assessment = createGovernedLocalizationAssessment({
       draft: { site_id: 'site-u20d-old', project_context_ref: projectContextRef, property_ref: propertyContextRef, evidence_refs: [], system_summary: 'older assessment' },
-      findings: [], outcome, attestation: security.attestOutcome(outcome.content_hash),
+      findings: findings as never, outcome, attestation: security.attestOutcome(outcome.content_hash),
     });
     await repository.put({ artifact_id: assessment.artifact_id, body: assessment });
     await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: bindingRef, releaseRef: { artifact_id: 'r', artifact_type: 'product_release' }, index: projectionIndex });
@@ -874,6 +877,46 @@ describe('U20-D: export and verify bound to an explicit assessment id', () => {
     const legacy = await request(app()).get(`/api/localization/${PROJECT_ID}/export-assessment-pdf`).set(auth);
     expect(legacy.status).toBe(200);
     expect(legacy.headers['x-assessment-artifact-id']).toBe(currentId);
+  });
+});
+
+describe('U20CDF (U30-R2 verification follow-up): a stored NOT_CHECKED cause text never reaches the user', () => {
+  const NEUTRAL = (layer: string) =>
+    `Lagret "${layer}" kunde inte kontrolleras: källan kunde inte frågas vid bedömningen. Ej kontrollerbart - underlag saknas.`;
+
+  it('an older assessment whose NOT_CHECKED finding embeds SQL/provider text: read-back, HTTP and PDF show only the neutral text', async () => {
+    const s = await setup({ legacyContext: true });
+    const RAW = 'Lagret "protected_area" kunde inte kontrolleras (error: relation "env.protected_area" does not exist; SQLSTATE 42P01 at 10.0.0.5:5432). Ej kontrollerbart - underlag saknas.';
+    const stored = {
+      finding_id: 'finding-notchecked-protected_area', rule_id: 'LU-PROTECTED-001', rule_version: '2.0',
+      risk_level: 'NOT_CHECKED', explanation: RAW, evidence_refs: [],
+    };
+    const assessment = await s.persistBareAssessment([stored]);
+    // The stored artifact keeps its bytes (and so its identity and replay): only the presentation changes.
+    expect((s.repository.values.get(assessment.artifact_id) as { payload: { findings: Array<{ explanation: string }> } }).payload.findings[0]!.explanation).toBe(RAW);
+
+    const summary = await readBack(s);
+    expect(summary.findings).toEqual([{ ...stored, explanation: NEUTRAL('protected_area') }]);
+
+    const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.findings[0]).toMatchObject({ finding_id: stored.finding_id, risk_level: 'NOT_CHECKED', explanation: NEUTRAL('protected_area') });
+
+    await exportCurrentLuAssessmentPdf(s.deps());
+    const pdfFindings = (capturedPdfData as { findings: Array<Record<string, unknown>> }).findings;
+    expect(pdfFindings[0]).toMatchObject({ finding_id: stored.finding_id, risk_level: 'NOT_CHECKED', explanation: NEUTRAL('protected_area') });
+    for (const text of [JSON.stringify(res.body), JSON.stringify(capturedPdfData)]) {
+      for (const fragment of ['does not exist', 'SQLSTATE', '42P01', '10.0.0.5']) expect(text).not.toContain(fragment);
+    }
+  });
+
+  it('the neutral text is exactly what the real rule engine writes today (fresh run with an unavailable layer)', async () => {
+    const s = await setup({ unavailable: ['water_protection_area'] });
+    const fresh = await s.runFresh();
+    const notChecked = fresh.executionMotor!.findings.find((f) => f.finding_id === 'finding-notchecked-water_protection_area')!;
+    expect(notChecked.explanation).toBe(NEUTRAL('water_protection_area'));
+    const summary = await readBack(s);
+    expect(summary.findings.find((f) => f.finding_id === notChecked.finding_id)).toEqual(notChecked);
   });
 });
 

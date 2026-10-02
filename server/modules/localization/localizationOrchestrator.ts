@@ -52,6 +52,7 @@ import {
 } from './governedEvidenceDetails';
 import { governedLayerLabelSv } from './governedCoverageStatement';
 import type { KnownCoverageGap } from './knownCoverageGaps';
+import { presentGovernedFindings } from './presentedGovernedFindings';
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
@@ -711,7 +712,9 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
   return {
     ok: true,
     assessmentArtifactId: assessment.artifact_id,
-    findings: assessment.payload.findings,
+    // U20CDF (U30-R2 verification follow-up): a NOT_CHECKED layer finding is shown with the neutral
+    // standard text, never a stored provider/SQL text; the stored artifact is untouched.
+    findings: presentGovernedFindings(assessment.payload.findings),
     ruleRefs: assessment.payload.rule_refs,
     evidenceRefs: assessment.payload.evidence_refs,
     systemSummary: assessment.payload.system_summary,
