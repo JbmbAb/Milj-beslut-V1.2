@@ -11,7 +11,10 @@
 //      importerar @miljobeslut/*.
 //   N1 negativ kontroll per @miljobeslut-paket som bara löses via tsconfig-paths:
 //      utan sin paths-rad ska importörerna inte gå att länka, med den ska de.
-//   N2 negativ kontroll: utan packages/ ska en LU-arbetare inte gå att länka.
+//   N2 negativ kontroll (läge `packages-hidden`, egen container med en tom tmpfs
+//      över /app/packages): utan packages/ ska en LU-arbetare inte gå att länka.
+//      overlayfs tillåter inte att en katalog från ett lägre lager döps om, så
+//      mutationen görs av docker, inte av smoken.
 //
 // Utfall PASS bara om S1-S4 är gröna och N1/N2 fallerar med väntad signatur.
 // Ett fall som inte kunde avgöras räknas som INCONCLUSIVE, aldrig som PASS.
@@ -19,8 +22,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { builtinModules, createRequire } from 'node:module';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
+const MODE = process.argv[2] || 'main';
 const APP = process.cwd();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REGISTER = path.join(HERE, 'link-only-register.mjs');
@@ -67,6 +71,15 @@ try {
   netIfs = ['(unreadable)'];
 }
 console.log(`network interfaces=${netIfs.join(',')}`);
+console.log(`mode=${MODE}`);
+
+if (MODE === 'packages-hidden') {
+  runPackagesHidden();
+  finish();
+} else if (MODE !== 'main') {
+  console.log(`unknown mode ${MODE} (main | packages-hidden)`);
+  process.exit(2);
+}
 
 // ---------------------------------------------------------------- S1 layout
 console.log('== S1 layout');
@@ -200,8 +213,9 @@ function miljobeslutImports(metafile) {
 }
 
 function summarizeGraph(id, g) {
-  const inputs = Object.keys(g.metafile?.inputs ?? {});
-  const top = [...new Set(inputs.map((p) => (p.includes('/') ? `${p.split('/')[0]}/` : p)))].sort();
+  // Aggregatfilen ligger i /tmp och räknas inte som en del av appen.
+  const inputs = Object.keys(g.metafile?.inputs ?? {}).filter((p) => !p.startsWith('../'));
+  const top =[...new Set(inputs.map((p) => (p.includes('/') ? `${p.split('/')[0]}/` : p)))].sort();
   const pkgs = [...new Set(inputs.filter((p) => p.startsWith('packages/')).map((p) => p.split('/')[1]))].sort();
   const staticMissing = g.missing.filter((m) => m.kind === 'import-statement');
   const softMissing = g.missing.filter((m) => m.kind !== 'import-statement');
@@ -244,9 +258,11 @@ function firstErrorLine(s) {
   return (s.split('\n').find((l) => /Error|ERR_|Cannot find/.test(l)) || s.split('\n')[0] || '').trim();
 }
 
+// Absoluta sökvägar, inte file:-URL:er: esbuild löser inte file:-URL:er, och
+// Node löser en specifierare som börjar med / som en fil-URL.
 function writeAggregate(name, files) {
   const file = path.join(TMP, `${name}.mjs`);
-  fs.writeFileSync(file, files.map((f) => `import ${JSON.stringify(pathToFileURL(f).href)};`).join('\n') + '\n');
+  fs.writeFileSync(file, files.map((f) => `import ${JSON.stringify(f)};`).join('\n') + '\n');
   return file;
 }
 
@@ -341,32 +357,48 @@ for (const [name, { specs, importers }] of [...byPackage].sort()) {
   });
 }
 
-// ---------------------------------------------------------------- N2 packages/ is load-bearing
-console.log('== N2 without packages/');
-{
-  const entryAbs = path.join(APP, 'server/workers/lu-project-context-bootstrap-worker.ts');
-  const hidden = path.join(APP, 'packages.smoke-hidden');
-  let red;
-  fs.renameSync(path.join(APP, 'packages'), hidden);
-  try {
-    red = linkOnly(entryAbs);
-  } finally {
-    fs.renameSync(hidden, path.join(APP, 'packages'));
+// Varje tsconfig-paths-only-paket som server/ eller src/ importerar ska ha fått sin N1.
+for (const spec of specsInSource) {
+  const name = spec.split('/')[1];
+  if (!linkedNames.has(name) && !byPackage.has(name)) {
+    record(`N1-tsconfig-paths:${name}`, 'INCONCLUSIVE', {
+      summary: `${spec} is imported from server/ or src/ but was not found in any esbuild graph`,
+    });
   }
-  const redSignature = !red.linked && /ERR_MODULE_NOT_FOUND|Cannot find/.test(red.stderr) && /@miljobeslut\/|\/app\/packages\//.test(red.stderr);
-  const restored = fs.existsSync(path.join(APP, 'packages'));
-  record('N2-packages-hidden', redSignature && restored ? 'PASS' : 'INCONCLUSIVE', {
-    summary: `without packages/: ${red.linked ? 'LINKED (unexpected)' : firstErrorLine(red.stderr)}; restored=${restored}`,
+}
+
+finish();
+
+// ---------------------------------------------------------------- N2 packages/ is load-bearing
+function runPackagesHidden() {
+  console.log('== N2 without packages/ (empty tmpfs over /app/packages)');
+  const left = fs.readdirSync(path.join(APP, 'packages'));
+  if (left.length !== 0) {
+    record('N2-packages-hidden', 'INCONCLUSIVE', {
+      summary: `/app/packages has ${left.length} entries; start this mode with --tmpfs /app/packages`,
+    });
+    return;
+  }
+  const entryAbs = path.join(APP, 'server/workers/lu-project-context-bootstrap-worker.ts');
+  const red = linkOnly(entryAbs);
+  const redSignature =
+    !red.linked &&
+    /ERR_MODULE_NOT_FOUND|Cannot find/.test(red.stderr) &&
+    /@miljobeslut\/|\/app\/packages\//.test(red.stderr);
+  record('N2-packages-hidden', redSignature ? 'PASS' : 'INCONCLUSIVE', {
+    summary: `${rel(entryAbs)} without packages/: ${red.linked ? 'LINKED (unexpected)' : firstErrorLine(red.stderr)}`,
     red: { linked: red.linked, status: red.status, stderr: tail(red.stderr, 1500) },
   });
 }
 
 // ---------------------------------------------------------------- verdict
-const counts = results.reduce((a, r) => ({ ...a, [r.verdict]: (a[r.verdict] || 0) + 1 }), {});
-const pass = results.every((r) => r.verdict === 'PASS');
-console.log('== verdict');
-console.log(`checks=${results.length} ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ')}`);
-console.log(`IMAGE_SMOKE=${pass ? 'PASS' : 'NOT_PASS'}`);
-console.log('== json');
-console.log(JSON.stringify({ pass, counts, results }, null, 1));
-process.exit(pass ? 0 : 1);
+function finish() {
+  const counts = results.reduce((a, r) => ({ ...a, [r.verdict]: (a[r.verdict] || 0) + 1 }), {});
+  const pass = results.length > 0 && results.every((r) => r.verdict === 'PASS');
+  console.log('== verdict');
+  console.log(`mode=${MODE} checks=${results.length} ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  console.log(`IMAGE_SMOKE_${MODE === 'main' ? 'MAIN' : 'PACKAGES_HIDDEN'}=${pass ? 'PASS' : 'NOT_PASS'}`);
+  console.log('== json');
+  console.log(JSON.stringify({ mode: MODE, pass, counts, results }, null, 1));
+  process.exit(pass ? 0 : 1);
+}
