@@ -16,6 +16,7 @@ import {
   presentedGovernedLayerChecks,
   resolveGovernedAssessmentDetails,
 } from '../../server/modules/localization/governedEvidenceDetails';
+import { governedVerdictFromFindings } from '../../src/application/generate-localization-report.usecase';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
 afterEach(() => {
@@ -305,5 +306,72 @@ describe('U20CDF4 (U20CDF3 verification L6.1): a NOT_CHECKED finding of the docu
     const statement = governedOverallStatement('LOW', checks, { findings });
     expect(statement.coverage_state).toBe('DETERMINED');
     expect(statement.coverage?.checks_completed).toBe(5);
+  });
+});
+
+describe('U20CDF4 (U20CDF3 verification L6.2): a malformed entry in evidence_refs breaks the ref contract -- never silently dropped into a "historical" silence', () => {
+  it.each<[string, unknown]>([
+    ['an id that is not a string (verifier probe E4)', { artifact_id: 42, artifact_type: 'SPATIAL_EVIDENCE' }],
+    ['the type in lower case (verifier probe E5)', { artifact_id: 'evidence-water-x', artifact_type: 'spatial_evidence' }],
+    ['the type with padding', { artifact_id: 'evidence-water-x', artifact_type: ' SPATIAL_EVIDENCE' }],
+    ['an empty id', { artifact_id: '', artifact_type: 'SPATIAL_EVIDENCE' }],
+    ['no id at all', { artifact_type: 'SPATIAL_EVIDENCE' }],
+    ['no type at all', { artifact_id: 'evidence-water-x' }],
+    ['null', null],
+    ['a bare string', 'evidence-water-x'],
+    ['a document ref with a numeric id', { artifact_id: 7, artifact_type: 'DOCUMENT_EVIDENCE' }],
+  ])('%s -> RECORD_INTEGRITY_ERROR (MALFORMED_RECORD_ENTRY:evidence_refs#<i>), never the historical LAYER_NOT_RECORDED', async (_label, malformed) => {
+    const stored = without('water');
+    const { details, statement } = await readBack({ stored, findings: [], refs: [malformed, ...stored.map(ref)] });
+    expect(details.integrity).toEqual({ ok: true });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['MALFORMED_RECORD_ENTRY:evidence_refs#0']);
+    expect(statement.statement_sv).toBe(INTEGRITY_SV);
+    expect(statement.statement_sv).not.toMatch(/historisk/);
+  });
+
+  it('a well-formed ref of a family this view does not interpret is NOT malformed (control: the silent layer stays historical)', async () => {
+    const stored = [...without('water'), { artifact_id: 'other-evidence-1', artifact_type: 'OTHER_EVIDENCE', content_hash: { value: 'x' } }];
+    const { details, statement } = await readBack({ stored, findings: [] });
+    expect(details.evidenceDetails.find((d) => d.evidence_artifact_id === 'other-evidence-1')?.integrity).toBe('NOT_INTERPRETED');
+    expect(statement.coverage_state).toBe('HISTORICAL_COVERAGE_UNKNOWN');
+    expect(statement.coverage_basis).toEqual(['LAYER_NOT_RECORDED:water']);
+  });
+});
+
+describe('U20CDF4 (U20CDF3 verification L6.3): a malformed finding never crashes the read-back -- it is a typed integrity error, and the known risk beside it is still named', () => {
+  const EBH = 'Potentiellt förorenade områden (EBH)';
+  it.each<[string, unknown, string]>([
+    ['null (verifier probe E3)', null, `risknivå hög – ${EBH}`],
+    ['a number', 42, `risknivå hög – ${EBH}`],
+    ['a string', 'finding', `risknivå hög – ${EBH}`],
+    ['an array', [], `risknivå hög – ${EBH}`],
+    // Still an object carrying HIGH: named (a known risk never disappears), its rule by a neutral label.
+    ['a rule id that is not a string', { finding_id: 'f-bad', rule_id: 5, rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: [] }, `risknivå hög – ${EBH}, regel med ogiltigt id`],
+    ['evidence refs that are not an array', { finding_id: 'f-bad', rule_id: 'LU-WATER-001', rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: 'evidence-water' }, `risknivå hög – Brunnar, ${EBH}`],
+  ])('%s next to a HIGH finding -> no throw; RECORD_INTEGRITY_ERROR (MALFORMED_RECORD_ENTRY:findings#1), every stored level named', async (_label, malformed, named) => {
+    const hit = HIT('ebh');
+    const stored = [...NEGATIVES.filter((e) => e.payload.source_metadata.dataset !== 'ebh'), hit];
+    const findings = [finding('ebh', 'HIGH', [hit]), malformed];
+    const { details, statement } = await readBack({ stored, findings });
+    expect(details.integrity).toEqual({ ok: true });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['MALFORMED_RECORD_ENTRY:findings#1']);
+    expect(statement.statement_sv).toBe(`${INTEGRITY_SV} Bedömningens lagrade fynd redovisas var för sig: ${named}.`);
+    expect(details.governedLayerChecks[1]).toMatchObject({ layer: 'ebh', status: 'CHECKED_HIT' });
+    // The machine derivation is unchanged and tolerates the entry (the read-back never presents it: 424).
+    expect(governedVerdictFromFindings(findings as never)).toMatchObject({ overallRisk: 'HIGH', permitProbability: 0.2 });
+  });
+
+  it('findings present but not an array -> RECORD_INTEGRITY_ERROR (MALFORMED_RECORD_ENTRY:findings), no throw', async () => {
+    const { statement } = await readBack({ stored: NEGATIVES, findings: { not: 'an array' } });
+    expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statement.coverage_basis).toEqual(['MALFORMED_RECORD_ENTRY:findings']);
+    expect(governedVerdictFromFindings({ not: 'an array' } as never)).toMatchObject({ overallRisk: 'LOW', unresolvedChecks: [] });
+  });
+
+  it('an absent findings field (the oldest records) is not "malformed" -- it is no stored finding (control)', async () => {
+    const { statement } = await readBack({ stored: NEGATIVES, findings: undefined });
+    expect(statement.coverage_state).toBe('DETERMINED');
   });
 });

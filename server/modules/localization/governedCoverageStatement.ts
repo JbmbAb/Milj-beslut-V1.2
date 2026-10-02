@@ -37,7 +37,9 @@ import {
   GOVERNED_DOCUMENT_CHECK_LAYER,
   GOVERNED_DOCUMENT_CHECK_RULE_ID,
   governedLayerOfRule,
+  isFindingObject,
   isGovernedRiskFinding,
+  isMalformedFinding,
   isUnknownSeverityFinding,
   type GovernedLayerCheck,
 } from './governedLayerChecks';
@@ -173,6 +175,12 @@ export interface PinnedEvidenceReadability {
    * RECORD_INTEGRITY_ERROR. Absent when there is none.
    */
   readonly outside_governed_layers_artifact_ids?: readonly string[];
+  /**
+   * U20CDF4 (U20CDF3 verification L6.2): positions in the assessment's `evidence_refs` of entries that are
+   * not a well-formed ref (not an object, no string id or type, a known evidence type in the wrong
+   * spelling). The record is a RECORD_INTEGRITY_ERROR. Absent when there is none.
+   */
+  readonly malformed_evidence_ref_indexes?: readonly number[];
 }
 
 export const HISTORICAL_COVERAGE_UNKNOWN_SV = 'Täckningsgrad kan inte fastställas för denna historiska bedömning.';
@@ -250,6 +258,13 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   // producer writes are a typed integrity error, ahead of the historical classification.
   const integrity: string[] = [];
   for (const id of pinned?.outside_governed_layers_artifact_ids ?? []) integrity.push(`EVIDENCE_OUTSIDE_GOVERNED_LAYERS:${id}`);
+  // U20CDF4 (U20CDF3 verification L6.2/L6.3; owner decision 2): entries that break the record's own
+  // contract -- a malformed evidence ref (used to be dropped silently, the layer then read "historical"),
+  // a findings field that is present but not a list, or a finding that is not one (used to throw: a
+  // generic 500). An ABSENT findings field (the oldest records) is no stored finding, not a break.
+  for (const index of pinned?.malformed_evidence_ref_indexes ?? []) integrity.push(`MALFORMED_RECORD_ENTRY:evidence_refs#${index}`);
+  const rawFindings = (context as { findings?: unknown } | undefined)?.findings;
+  if (rawFindings !== undefined && !Array.isArray(rawFindings)) integrity.push('MALFORMED_RECORD_ENTRY:findings');
   // U20CDF3 (U20CDF2 verification H5.1 / low 4): a NOT_CHECKED finding of a layer's rule next to stored
   // evidence for that layer -- with or without a risk finding beside it. The gate rejects evidence +
   // unavailable for one layer and the rule engine writes NOT_CHECKED only for an unavailable layer, so
@@ -284,6 +299,10 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   // values ('high', 'CRITICAL', ...) used to be silently ignored (machine level LOW, nothing in the
   // text). It is an integrity error, and storedRiskFindingsSv names it.
   findings.forEach((finding, index) => {
+    if (isMalformedFinding(finding)) {
+      integrity.push(`MALFORMED_RECORD_ENTRY:findings#${index}`);
+      return;
+    }
     if (!isUnknownSeverityFinding(finding)) return;
     const id = (finding as { finding_id?: unknown })?.finding_id;
     const ruleId = (finding as { rule_id?: unknown })?.rule_id;
@@ -322,28 +341,47 @@ const STORED_FINDING_LABEL_ORDER = ['water', 'ebh', 'protected_area', 'natura200
  * Brunnar"; U20CDF3 (low 3): findings of unknown severity last ("okänd allvarlighetsgrad – ...").
  * null when there is none.
  */
+/**
+ * U20CDF4 (owner decision 1: no raw text from a broken record): a rule id outside the governed checks is
+ * named only when it is a plain identifier; anything else (not a string, markup, a long text) is named
+ * by this neutral label -- the finding is still named, its stored value is not echoed.
+ */
+const SAFE_RULE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+export const INVALID_RULE_ID_LABEL_SV = 'regel med ogiltigt id';
+
 export function storedRiskFindingsSv(findings: readonly { readonly rule_id: string; readonly risk_level: string }[]): string | null {
   const parts: string[] = [];
   const order = (key: string) => {
     const index = STORED_FINDING_LABEL_ORDER.indexOf(key);
     return index >= 0 ? `0${index}` : `1${key}`;
   };
-  const labelsOf = (selected: readonly { readonly rule_id: string }[]) => {
+  const labelsOf = (selected: readonly { readonly rule_id?: unknown }[]) => {
     const keys = new Set<string>();
     for (const finding of selected) {
-      const layer = finding.rule_id === GOVERNED_DOCUMENT_CHECK_RULE_ID ? GOVERNED_DOCUMENT_CHECK_LAYER : governedLayerOfRule(finding.rule_id);
-      keys.add(layer ?? `rule:${finding.rule_id}`);
+      const ruleId = finding.rule_id;
+      const layer =
+        typeof ruleId !== 'string'
+          ? null
+          : ruleId === GOVERNED_DOCUMENT_CHECK_RULE_ID
+            ? GOVERNED_DOCUMENT_CHECK_LAYER
+            : governedLayerOfRule(ruleId);
+      keys.add(layer ?? (typeof ruleId === 'string' && SAFE_RULE_ID.test(ruleId) ? `rule:${ruleId}` : 'rule-invalid'));
     }
     return [...keys]
       .sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0))
-      .map((key) => (key.startsWith('rule:') ? key.slice('rule:'.length) : governedLayerLabelSv(key)));
+      .map((key) =>
+        key === 'rule-invalid' ? INVALID_RULE_ID_LABEL_SV : key.startsWith('rule:') ? key.slice('rule:'.length) : governedLayerLabelSv(key),
+      );
   };
+  // U20CDF4 (L6.3): only entries that are objects carry anything to name (a null entry is reported as
+  // MALFORMED_RECORD_ENTRY by assessGovernedCoverage, and named nowhere as a level).
+  const objects = (Array.isArray(findings) ? findings : []).filter(isFindingObject);
   for (const level of RISK_LEVEL_ORDER) {
-    const labels = labelsOf(findings.filter((finding) => finding?.risk_level === level));
+    const labels = labelsOf(objects.filter((finding) => finding.risk_level === level));
     if (labels.length > 0) parts.push(`${riskLevelPhraseSv(level)} – ${labels.join(', ')}`);
   }
   // U20CDF3 (low 3): a finding of unknown severity is never dropped; its raw value is not echoed.
-  const unknown = labelsOf(findings.filter((finding) => Boolean(finding) && isUnknownSeverityFinding(finding)));
+  const unknown = labelsOf(objects.filter((finding) => isUnknownSeverityFinding(finding)));
   if (unknown.length > 0) parts.push(`okänd allvarlighetsgrad – ${unknown.join(', ')}`);
   return parts.length > 0 ? parts.join('; ') : null;
 }

@@ -228,6 +228,26 @@ export function isUnknownSeverityFinding(finding: { readonly risk_level?: unknow
   return !(typeof finding?.risk_level === 'string' && GOVERNED_FINDING_LEVELS.includes(finding.risk_level));
 }
 
+/**
+ * U20CDF4 (U20CDF3 verification L6.3; owner decision 2): a stored `findings` entry that is not an object
+ * at all (null, a number, a string, an array) -- it carries nothing the read model can name.
+ */
+export function isFindingObject(finding: unknown): finding is { readonly rule_id?: unknown; readonly risk_level?: unknown; readonly evidence_refs?: unknown } {
+  return Boolean(finding) && typeof finding === 'object' && !Array.isArray(finding);
+}
+
+/**
+ * U20CDF4 (L6.3): a stored finding that breaks the finding contract (AssessmentFinding): not an object,
+ * a rule id that is not a non-empty string, or evidence refs that are present but not a list. No
+ * producer writes one; it made the read-back throw (a generic 500). It is a typed integrity error
+ * (MALFORMED_RECORD_ENTRY); a risk level it still carries is named, never dropped.
+ */
+export function isMalformedFinding(finding: unknown): boolean {
+  if (!isFindingObject(finding)) return true;
+  const { rule_id: ruleId, evidence_refs: refs } = finding;
+  return typeof ruleId !== 'string' || ruleId.length === 0 || (refs !== undefined && !Array.isArray(refs));
+}
+
 /** The governed rule of an LU v1 spatial layer (null for a layer without one). */
 export function governedLayerRuleId(layer: string): string | null {
   return LAYER_RULE_IDS[layer] ?? null;
@@ -295,13 +315,14 @@ export function computeGovernedLayerChecks(input: {
     const layerEvidence = input.evidence.filter((e) => e.payload?.source_metadata?.dataset === layer);
     // U20CDF2 (G3): the same normal form the fresh-run gate applies before the rule engine.
     const forms = layerEvidence.map((e) => readSpatialEvidenceForm(e));
-    const ruleFindings = ruleId ? input.findings.filter((f) => f.rule_id === ruleId) : [];
+    // U20CDF4 (L6.3): a stored entry that is not an object is never read here (it used to throw).
+    const ruleFindings = ruleId ? input.findings.filter((f) => isFindingObject(f) && f.rule_id === ruleId) : [];
     const riskFindings = ruleFindings.filter(isGovernedRiskFinding);
     const hasNotCheckedFinding = ruleFindings.some((f) => f.risk_level === 'NOT_CHECKED');
 
     if (riskFindings.length > 0) {
       const unreadableCited = riskFindings
-        .flatMap((f) => f.evidence_refs ?? [])
+        .flatMap((f) => (Array.isArray(f.evidence_refs) ? f.evidence_refs : []))
         .map((ref) => ref?.artifact_id)
         .filter((id): id is string => typeof id === 'string' && unreadable.has(id))
         .sort();

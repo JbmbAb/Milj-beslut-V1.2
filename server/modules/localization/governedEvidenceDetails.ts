@@ -354,7 +354,7 @@ function presentCheck(
   }
   const evidence = check.evidence_artifact_id ? evidenceById.get(check.evidence_artifact_id) : undefined;
   const view = spatialEvidenceView(evidence);
-  const storedRiskLevel = highestGovernedRiskLevel(findings.filter((f) => check.rule_id !== null && f.rule_id === check.rule_id));
+  const storedRiskLevel = highestGovernedRiskLevel(findings.filter((f) => check.rule_id !== null && f?.rule_id === check.rule_id));
   return {
     ...check,
     coverage_state: state,
@@ -516,6 +516,24 @@ async function readArtifact(repo: ArtifactRepositoryPort, ref: { artifact_id: st
     if (error instanceof Error && error.name === 'CASIntegrityError') return { kind: 'corrupted' };
     return { kind: 'error' };
   }
+}
+
+/** The evidence families an assessment's evidence_refs has ever named (in their one spelling). */
+const EVIDENCE_REF_TYPES: readonly string[] = ['SPATIAL_EVIDENCE', 'DOCUMENT_EVIDENCE', 'VERIFIED_DOCUMENT_FACT'];
+
+/**
+ * U20CDF4 (U20CDF3 verification L6.2; owner decision 2): an evidence_refs entry that is not a
+ * well-formed ref -- not an object, no non-empty string id or type, or a known evidence type in another
+ * spelling ('spatial_evidence', ' SPATIAL_EVIDENCE'). Refs are built from artifacts by every producer,
+ * so this breaks the ref contract. A well-formed ref of another family is not malformed (it is listed
+ * as NOT_INTERPRETED).
+ */
+function isMalformedEvidenceRef(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return true;
+  const { artifact_id: id, artifact_type: type } = entry as { artifact_id?: unknown; artifact_type?: unknown };
+  if (typeof id !== 'string' || id.length === 0 || typeof type !== 'string' || type.length === 0) return true;
+  const normalized = type.trim().toUpperCase();
+  return EVIDENCE_REF_TYPES.includes(normalized) && type !== normalized;
 }
 
 function asRef(value: unknown): { artifact_id: string; artifact_type: string } | null {
@@ -1002,12 +1020,32 @@ export async function resolveGovernedAssessmentDetails(input: {
   const rawRefs: unknown = payload?.evidence_refs;
   // U20CDF4: only a legacy (V1) assessment can pin evidence from before the result contract.
   const legacyAssessment = (payload as { assessment_contract_version?: unknown } | undefined)?.assessment_contract_version === undefined;
-  const refs = Array.isArray(rawRefs) ? rawRefs.map(asRef).filter((r): r is NonNullable<typeof r> => r !== null) : [];
+  // U20CDF4 (U20CDF3 verification L6.2): a malformed entry used to be dropped here silently (or, in a
+  // wrong spelling, read as an unknown family). It is not read -- it names no evidence that can be
+  // trusted -- and the record reports it (MALFORMED_RECORD_ENTRY), never "unreadable" or "historical".
+  const malformedRefIndexes = Array.isArray(rawRefs)
+    ? rawRefs.flatMap((entry, index) => (isMalformedEvidenceRef(entry) ? [index] : []))
+    : [];
+  const refs = Array.isArray(rawRefs)
+    ? rawRefs
+        .filter((entry) => !isMalformedEvidenceRef(entry))
+        .map(asRef)
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+    : [];
 
+  // U20CDF4 (L6.3): a stored finding that is not an object, or whose refs are not a list, is skipped
+  // here (it used to throw: a generic 500); the record reports it as MALFORMED_RECORD_ENTRY.
   const citedBy = (artifactId: string) =>
     findings
-      .filter((finding) => (finding.evidence_refs ?? []).some((r) => r.artifact_id === artifactId))
+      .filter(
+        (finding) =>
+          Boolean(finding) &&
+          typeof finding === 'object' &&
+          Array.isArray(finding.evidence_refs) &&
+          finding.evidence_refs.some((r) => r?.artifact_id === artifactId),
+      )
       .map((finding) => finding.finding_id)
+      .filter((id): id is string => typeof id === 'string')
       .sort();
 
   const evidenceDetails: GovernedEvidenceDetail[] = [];
@@ -1087,6 +1125,7 @@ export async function resolveGovernedAssessmentDetails(input: {
       ...(outsideGovernedLayerIds.length > 0
         ? { outside_governed_layers_artifact_ids: [...outsideGovernedLayerIds].sort() }
         : {}),
+      ...(malformedRefIndexes.length > 0 ? { malformed_evidence_ref_indexes: malformedRefIndexes } : {}),
     },
     propertyRoot,
     integrity: integrityFailure,

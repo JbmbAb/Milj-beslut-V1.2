@@ -277,6 +277,10 @@ export function isGovernedVerdict(
 export function governedVerdictFromFindings(
   findings: readonly AssessmentFinding[],
 ): Pick<GovernedVerdictAnalysis, 'overallRisk' | 'permitProbability' | 'summary' | 'unresolvedChecks'> {
+  // U20CDF4 (U20CDF3 verification L6.3): a stored record may hold an entry that is not a finding (null,
+  // a number) or no list at all; it is reported as MALFORMED_RECORD_ENTRY (the read-back answers 424)
+  // and must never make this derivation throw (it used to: a generic 500). Unchanged for real findings.
+  findings = (Array.isArray(findings) ? findings : []).filter((finding) => Boolean(finding) && typeof finding === 'object');
   // SEM-1 (W2): NOT_CHECKED is a non-severity state -- it never itself raises overallRisk to
   // HIGH/MEDIUM -- but its presence must never be silently absorbed into a clean LOW result.
   const unresolvedChecks = findings
