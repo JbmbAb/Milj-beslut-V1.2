@@ -505,17 +505,21 @@ export async function resolveLuViewerPresentation(input: {
   // current assessment -- the same 424 for a record integrity error, and for a pinned artifact that
   // fails its own identity (the presentation itself re-verifies only the spatial evidence). The
   // assessment the presentation verified is read again and its identity re-checked before it is used.
+  // W-U20CDF5-add (the CATCH3 class): the presentation must have presented exactly the selected assessment, and
+  // the re-read must BE it -- a misdirected index entry never puts another, self-consistent assessment on the map.
+  if (presentation.assessmentArtifactId !== assessmentArtifactId) return currentAssessmentCandidateIntegrityFault();
   let assessment: LocalizationAssessmentArtifact;
   try {
     assessment = await artifactRepository.resolve<LocalizationAssessmentArtifact>({
-      artifact_id: presentation.assessmentArtifactId,
+      artifact_id: assessmentArtifactId,
       artifact_type: 'LOCALIZATION_ASSESSMENT',
     });
   } catch (error) {
     return assessmentArtifactReadFailure(error, presentation.assessmentArtifactId);
   }
+  if (!isReadUnderItsOwnId(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
   const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
-  if (assessment.artifact_id !== presentation.assessmentArtifactId || assessment.artifact_id !== `assessment-${recomputed.value}`) {
+  if (assessment.artifact_id !== `assessment-${recomputed.value}`) {
     return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.' };
   }
   const recordRefusal = await currentRecordIntegrityRefusal(assessment, artifactRepository, 'map');
@@ -973,14 +977,7 @@ function assessmentResolutionFailure(error: unknown): { ok: false; status: numbe
             retrySentenceSv(true),
           'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR',
         )
-      : assessmentReadFailure(
-          'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
-          false,
-          'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
-            'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
-            `${retrySentenceSv(false)} Kontakta systemets administratör.`,
-          'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
-        );
+      : currentAssessmentCandidateIntegrityFault();
   }
   const refusal = error instanceof Error ? /^(REJECT_[A-Z0-9_]+)/.exec(error.message)?.[1] : undefined;
   if (refusal !== undefined) {
@@ -1015,6 +1012,33 @@ function assessmentResolutionFailure(error: unknown): { ok: false; status: numbe
     true,
     `Den aktuella bedömningen kunde inte fastställas på grund av ett tekniskt fel. ${retrySentenceSv(true)}`,
   );
+}
+
+/**
+ * W-APR: a candidate that may be the current assessment could not be read or verified -- a lasting storage or
+ * integrity fault (lost object, torn entry, corrupt bytes, tampered content, ANOTHER ARTIFACT UNDER ITS ID).
+ * W-U20CDF5-add: also the answer at the point of use, when the object read under the selected id names another
+ * artifact (a misdirected index entry or a misfiled object) -- never that other assessment, never "missing".
+ */
+function currentAssessmentCandidateIntegrityFault(): AssessmentReadFailure {
+  return assessmentReadFailure(
+    'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+    false,
+    'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
+      'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+      `${retrySentenceSv(false)} Kontakta systemets administratör.`,
+    'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
+  );
+}
+
+/**
+ * W-U20CDF5-add (the CATCH3 class): the object a repository returned for the selected assessment id must name
+ * exactly that id. Its id and its content are bound by its own hash (checked next), so an object that names the
+ * requested id IS the content the selection verified -- the same project context, property and localization
+ * point; one that names another id is another assessment.
+ */
+function isReadUnderItsOwnId(assessment: unknown, requestedId: string): boolean {
+  return typeof assessment === 'object' && assessment !== null && (assessment as { artifact_id?: unknown }).artifact_id === requestedId;
 }
 
 /** A failed read of the resolved assessment itself: only the repository's "not found" is absence. */
@@ -1160,6 +1184,8 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
     // failed is a technical 503 -- retryable unless the storage fault is lasting.
     return assessmentArtifactReadFailure(error, assessmentArtifactId);
   }
+  // W-U20CDF5-add: a misdirected index entry never yields another, self-consistent assessment.
+  if (!isReadUnderItsOwnId(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
 
   const recomputedAssessmentHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
   const untampered =
