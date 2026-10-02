@@ -40,6 +40,13 @@ import {
 } from './localizationGeometryCurrentness';
 import { createLocalizationSpatialRuntime, type LocalizationSpatialRuntime } from './createLocalizationSpatialRuntime';
 import {
+  classifyReadFault,
+  isProvenBindingAbsence,
+  readFaultHttpStatus,
+  readFaultSentenceSv,
+  type ReadFaultClass,
+} from './readFaultClassification';
+import {
   ensureLocalizationIdentityProvisioningRequested,
   enqueueLocalizationIdentityProvisioningRequest,
   type LocalizationIdentityProvisioningRequestRecord,
@@ -191,11 +198,51 @@ export type LocalizationGeometryServiceResult<T> =
       readonly ok: false;
       readonly status: number;
       readonly error: string;
-      /** DEMO M1a: present only for a fail-closed currentness failure. */
-      readonly code?: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED';
-      readonly failureClass?: LocalizationGeometryCurrentnessFailureClass;
+      /**
+       * DEMO M1a: present for a fail-closed currentness failure. W-CATCH2 #8: also for a canonical
+       * project context that could not be read or verified (PROJECT_CONTEXT_UNRESOLVED).
+       */
+      readonly code?: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED' | typeof PROJECT_CONTEXT_UNRESOLVED;
+      readonly failureClass?: LocalizationGeometryCurrentnessFailureClass | ReadFaultClass;
       readonly reasonCode?: string;
+      /** OD-R3 / W-CATCH2: whether repeating the same request can help (sent with every coded failure). */
+      readonly retryable?: boolean;
     };
+
+/**
+ * W-CATCH2 #8: the ONE neutral answer for a project that genuinely has no canonical context yet --
+ * ProjectContextBindingProvider's strict "no binding registered" (isProvenBindingAbsence). Same 404 and
+ * message prefix the UI recognises (luErrorPresentation.ts NO_CANONICAL_PROJECT_CONTEXT_PREFIX), but no
+ * raw text after it.
+ */
+export const NO_CANONICAL_PROJECT_CONTEXT_MESSAGE =
+  'No canonical project context available: the project has no registered project-context binding yet.';
+
+/** W-CATCH2 #8: the canonical project context could not be read or verified (never "missing"). */
+export const PROJECT_CONTEXT_UNRESOLVED = 'PROJECT_CONTEXT_UNRESOLVED' as const;
+
+/**
+ * W-CATCH2 #8 (OD-R2): before, every failure of resolveCanonicalProjectContext answered 404 "No
+ * canonical project context available: <raw text>" -- a read error read as absence, and storage
+ * text (ids, paths, codes) sent to the client. Now only genuine absence is 404; anything else is the
+ * shared classification (readFaultClassification.ts): 503 for a read error (retryable) or a lasting
+ * storage / index fault (not retryable), 409 for a binding refused at verification. The fault itself
+ * stays server-side. Nothing is derived, written or requested in either case (the callers return here,
+ * before any of that).
+ */
+function canonicalProjectContextFailure(error: unknown): LocalizationGeometryServiceResult<never> {
+  if (isProvenBindingAbsence(error)) return { ok: false, status: 404, error: NO_CANONICAL_PROJECT_CONTEXT_MESSAGE };
+  const fault = classifyReadFault(error);
+  return {
+    ok: false,
+    status: readFaultHttpStatus(fault),
+    error: `${readFaultSentenceSv(fault, 'Projektets koppling till fastigheten')} Ingen kontrollpunkt hämtas, härleds eller sparas.`,
+    code: PROJECT_CONTEXT_UNRESOLVED,
+    failureClass: fault.faultClass,
+    reasonCode: fault.refusalCode ?? fault.faultClass,
+    retryable: fault.retryable,
+  };
+}
 
 /**
  * GET-side: what the UI shows before/after any explicit save, including the initial
@@ -223,7 +270,8 @@ export async function getCurrentLocalizationGeometryForProject(args: {
   try {
     canonicalContext = await resolveCanonicalProjectContext(projectId, repo);
   } catch (error) {
-    return { ok: false, status: 404, error: `No canonical project context available: ${error instanceof Error ? error.message : String(error)}` };
+    // W-CATCH2 #8: absence only when proven; every other failure is a typed fault, never raw text.
+    return canonicalProjectContextFailure(error);
   }
 
   const spatialRuntime = args.spatialRuntime ?? (await createLocalizationSpatialRuntime());
@@ -317,7 +365,8 @@ export async function saveUserLocalizationGeometry(args: {
   try {
     canonicalContext = await resolveCanonicalProjectContext(projectId, repo);
   } catch (error) {
-    return { ok: false, status: 404, error: `No canonical project context available: ${error instanceof Error ? error.message : String(error)}` };
+    // W-CATCH2 #8: absence only when proven; every other failure is a typed fault, never raw text.
+    return canonicalProjectContextFailure(error);
   }
 
   const spatialRuntime = args.spatialRuntime ?? (await createLocalizationSpatialRuntime());
