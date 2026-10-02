@@ -98,6 +98,18 @@ export const LU_V1_CHECKS: readonly LuCheckDefinition[] = [
 /** Number of map layers the LU v1 run checks (every check except the property row). */
 export const LU_V1_LAYER_COUNT = LU_V1_CHECKS.filter((c) => c.key !== 'property').length;
 
+/** The server's document check (governedLayerChecks.ts `layer: 'document'`), in the server's own words. */
+export const LU_DOCUMENT_CHECK_LABEL = 'Dokument och tidigare beslut';
+
+/**
+ * W-M2d: the Swedish name of a governed check by the SERVER's layer id (presentation only). An id
+ * this UI does not know is never shown raw in main text.
+ */
+export function governedCheckLabelSv(layer: string): string {
+  if (layer === 'document') return LU_DOCUMENT_CHECK_LABEL;
+  return LU_V1_CHECKS.find((c) => c.key === layer && c.key !== 'property')?.label ?? 'annat underlag från servern';
+}
+
 export function checkDefinitionForRule(ruleId: string): LuCheckDefinition | null {
   return LU_V1_CHECKS.find((c) => c.ruleId === ruleId) ?? null;
 }

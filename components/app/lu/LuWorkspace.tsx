@@ -27,7 +27,15 @@ import {
 } from './luErrorPresentation';
 import { LuControlPanel } from './LuControlPanel';
 import { LuErrorNotice } from './LuErrorNotice';
+import { presentLuOverallStatement, type LuOverallTone } from './luOverallStatement';
 import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
+
+/** W-M2d item 2: the assessment line is never green -- complete is neutral, anything else is marked. */
+const OVERALL_TONE_STYLE: Readonly<Record<LuOverallTone, { color: string; border: string }>> = {
+  complete: { color: 'inherit', border: 'transparent' },
+  qualified: { color: '#FDBA74', border: '#F97316' },
+  technical: { color: '#F0ABFC', border: '#C026D3' },
+};
 
 const CesiumMapView = lazy(() => import('../../CesiumMapView'));
 
@@ -109,6 +117,12 @@ type CurrentAssessmentResponse = {
    * provenance_label_sv }; artifact_id is the assessment's own localization_geometry_ref).
    */
   localizationGeometry?: unknown;
+  /**
+   * U20-D/U20CDF2, W-M2d item 2: the server's coverage-qualified overall statement
+   * ({ risk_level, coverage_state, coverage_basis, coverage, pinned_evidence?, statement_sv }).
+   * Shown verbatim -- the UI composes no assessment line of its own.
+   */
+  overallStatement?: unknown;
 };
 
 /**
@@ -135,6 +149,8 @@ type GovernedResult = {
    * read-back; null when the answer does not state it.
    */
   assessedGeometryId: string | null;
+  /** W-M2d item 2: the read-back's overallStatement, unparsed (presentLuOverallStatement reads it). */
+  overallStatement: unknown;
 };
 
 /**
@@ -224,6 +240,7 @@ function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assess
     spatialEvidenceRefs: spatialRefsOf(result.evidenceRefs),
     serverLayerChecks: mergeServerChecks(result.documentCheck, serverLayerChecks),
     assessedGeometryId: assessedGeometryIdOf(result),
+    overallStatement: result.overallStatement,
   };
 }
 
@@ -902,53 +919,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const showProgress =
     Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidence.load.status === 'loading');
 
-  // DEMO M2b/M2c (§11, owner decision OD-K0-1): the assessment line never stands alone while any check
-  // is not done or any register has a known limited coverage. Owner's form: "... i de kontroller som
-  // utfördes; underlaget är ofullständigt: N av M kontroller genomförda." -- the governed assessment
-  // the UI reads carries no overall risk level, so the line opens with "Bedömningen gäller" instead
-  // of a risk word (none is invented). Counted from the SAME rows the control panel shows -- no new
-  // derivation, and the machine-readable states and risk levels are untouched.
-  const coverage = useMemo((): { complete: boolean; head: string; missing: string | null; limited: string | null } => {
-    const rows = checks.filter((c) => c.key !== 'property');
-    if (rows.some((c) => c.state === 'LOADING')) {
-      return {
-        complete: false,
-        head: 'Kontrollresultaten hämtas – underlagets fullständighet visas när de är hämtade.',
-        missing: null,
-        limited: null,
-      };
-    }
-    const shortState = (c: (typeof rows)[number]): string =>
-      c.key === 'extra-document' && c.state === 'NOT_CHECKED'
-        ? 'ej analyserat'
-        : c.state === 'NOT_CHECKED'
-          ? 'inte kontrollerat'
-          : c.state === 'SOURCE_UNAVAILABLE'
-            ? 'källa otillgänglig'
-            : c.state === 'UNCERTAIN'
-              ? 'ofullständigt underlag'
-              : 'tekniskt fel';
-    // The document check is part of DoD v1 (K-8): a missing server answer about it is a check without
-    // a result, never a smaller set.
-    const documentCheckMissing = !rows.some((c) => c.key === 'extra-document');
-    const total = rows.length + (documentCheckMissing ? 1 : 0);
-    const done = rows.filter((c) => c.state === 'HIT' || c.state === 'NO_HIT');
-    const withoutResult = [
-      ...rows.filter((c) => c.state !== 'HIT' && c.state !== 'NO_HIT').map((c) => `${c.label} (${shortState(c)})`),
-      ...(documentCheckMissing ? ['Dokumentbevis (uppgift saknas i svaret)'] : []),
-    ];
-    const limited = done.filter((c) => c.coverageLimited && c.limitedCoverageShort).map((c) => `${c.label} – ${c.limitedCoverageShort}`);
-    const head =
-      done.length < total
-        ? `Bedömningen gäller de kontroller som utfördes; underlaget är ofullständigt: ${done.length} av ${total} kontroller genomförda.`
-        : `Bedömningen gäller de kontroller som utfördes; ${done.length} av ${total} kontroller genomförda.`;
-    return {
-      complete: done.length === total && limited.length === 0,
-      head,
-      missing: withoutResult.length > 0 ? `Utan visat kontrollresultat: ${withoutResult.join('; ')}.` : null,
-      limited: limited.length > 0 ? `Begränsad täckning: ${limited.join('; ')}.` : null,
-    };
-  }, [checks]);
+  // W-M2d item 2 (§11, owner decision OD-K0-1 and the 2026-10-02 night specifications): the
+  // assessment line is the SERVER's overallStatement, word for word -- the UI composes, counts and
+  // names no risk level of its own. Notices under it come from the server's own machine fields.
+  const overall = useMemo(() => (governed ? presentLuOverallStatement(governed.overallStatement) : null), [governed]);
 
   // Item 4: one ring only when every checked layer used the same governed search radius.
   // DEMO M2c item 2: and only around the point the displayed assessment was made for -- the ring
@@ -1326,8 +1300,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             data-testid="lu-assessment-summary"
             className="space-y-1"
             style={
-              governed.assessmentStatus === 'ASSESSED' && !coverage.complete
-                ? { borderLeft: '3px solid #F97316', paddingLeft: '0.75rem' }
+              governed.assessmentStatus === 'ASSESSED' && overall && overall.tone !== 'complete'
+                ? { borderLeft: `3px solid ${OVERALL_TONE_STYLE[overall.tone].border}`, paddingLeft: '0.75rem' }
                 : undefined
             }
           >
@@ -1337,18 +1311,54 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 {ASSESSMENT_STATUS_LABEL[governed.assessmentStatus] ?? 'Okänd status'}
               </span>
             </p>
-            {governed.assessmentStatus === 'ASSESSED' ? (
+            {governed.assessmentStatus === 'ASSESSED' && overall ? (
               <div
-                data-testid="lu-assessment-coverage"
-                data-complete={coverage.complete ? 'true' : 'false'}
+                data-testid="lu-assessment-overall"
+                data-coverage-state={overall.coverageState}
+                data-tone={overall.tone}
                 className="text-sm space-y-1"
-                style={{ color: coverage.complete ? 'inherit' : '#FDBA74' }}
+                style={{ color: OVERALL_TONE_STYLE[overall.tone].color }}
               >
-                <p data-testid="lu-assessment-coverage-head" className="font-semibold">
-                  {coverage.head}
+                {overall.stateLabelSv ? (
+                  <p data-testid="lu-assessment-overall-state" className="text-xs uppercase tracking-widest">
+                    {overall.stateLabelSv}
+                  </p>
+                ) : null}
+                <p data-testid="lu-assessment-overall-statement" className="font-semibold">
+                  {overall.statementSv}
                 </p>
-                {coverage.missing ? <p data-testid="lu-assessment-coverage-missing">{coverage.missing}</p> : null}
-                {coverage.limited ? <p data-testid="lu-assessment-coverage-limited">{coverage.limited}</p> : null}
+                {overall.notices.length > 0 ? (
+                  <ul data-testid="lu-assessment-overall-notices" className="space-y-0.5">
+                    {overall.notices.map((notice) => (
+                      <li key={notice}>{notice}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {overall.retryable ? (
+                  <button
+                    type="button"
+                    data-testid="lu-assessment-overall-retry"
+                    disabled={persistedAssessmentLoading}
+                    onClick={() => void loadCurrentAssessment()}
+                    className="px-3 py-1 text-xs font-semibold border disabled:opacity-40"
+                    style={{ borderColor: OVERALL_TONE_STYLE[overall.tone].border }}
+                  >
+                    Läs in bedömningen på nytt
+                  </button>
+                ) : null}
+                {overall.technical.length > 0 ? (
+                  <details data-testid="lu-assessment-overall-technical" className="text-xs opacity-80">
+                    <summary className="cursor-pointer">Teknisk information</summary>
+                    <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 font-mono break-all">
+                      {overall.technical.map((row) => (
+                        <React.Fragment key={row.label}>
+                          <dt className="opacity-60 font-sans">{row.label}</dt>
+                          <dd>{row.value}</dd>
+                        </React.Fragment>
+                      ))}
+                    </dl>
+                  </details>
+                ) : null}
               </div>
             ) : null}
           </div>

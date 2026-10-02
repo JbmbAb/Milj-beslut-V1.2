@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LuWorkspace } from '../../components/app/lu/LuWorkspace';
+import { governedReadBack } from '../fixtures/luGovernedReadBack';
 
 vi.mock('@miljobeslut/mps-identity', () => ({
   designTokens: {
@@ -1385,46 +1386,45 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(screen.queryByTestId('lu-control-note')).not.toBeInTheDocument();
   });
 
-  it('§11 (coordinator): with a LOW finding and the document check not analysed, the assessment line is qualified in the same box -- never green alone', async () => {
+  it('§11 (coordinator, W-M2d item 2): with LOW findings and the document check not analysed, the server\'s qualified line stands in the same box -- never green alone', async () => {
     const user = userEvent.setup();
-    const lowFindings = FIVE_FINDINGS.map((f) => ({ ...f, risk_level: 'LOW' }));
-    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-low', lowFindings), documentCheck: DOCUMENT_CHECK }) });
-    await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
-    const summary = screen.getByTestId('lu-assessment-summary');
-    const coverage = screen.getByTestId('lu-assessment-coverage');
-    expect(summary).toContainElement(screen.getByTestId('lu-assessment-status'));
-    expect(summary).toContainElement(coverage);
-    expect(coverage).toHaveAttribute('data-complete', 'false');
-    // DEMO M2c item 1: the owner's form (OD-K0-1) -- N of M checks carried out.
-    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent(
-      'Bedömningen gäller de kontroller som utfördes; underlaget är ofullständigt: 5 av 6 kontroller genomförda.',
-    );
-    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Utan visat kontrollresultat: Dokumentbevis (ej analyserat).');
-    // Machine-readable levels are untouched: the LOW findings still say "Låg risk" for themselves.
-    expect(screen.getByTestId('lu-finding-finding-water')).toHaveTextContent('Låg risk');
-  });
-
-  it('§11 (coordinator): a technical error on a layer is never counted as a carried-out check in the assessment line', async () => {
-    const user = userEvent.setup();
-    mockM2b({
-      currentAssessment: () => ({ ...persisted('assessment-x'), documentCheck: DOCUMENT_CHECK }),
-      evidence: () => apiError(503, 'upstream down'),
+    const readBack = governedReadBack({
+      id: 'assessment-low',
+      layers: Object.fromEntries(LAYERS.map((layer) => [layer, { kind: 'hit', risk: 'LOW' }])),
     });
+    mockM2b({ currentAssessment: () => readBack });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-assessment-coverage')).toHaveTextContent('0 av 6 kontroller genomförda'));
-    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Brunnar (tekniskt fel)');
-    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Dokumentbevis (ej analyserat)');
+    const summary = await screen.findByTestId('lu-assessment-summary');
+    const overall = screen.getByTestId('lu-assessment-overall');
+    expect(summary).toContainElement(screen.getByTestId('lu-assessment-status'));
+    expect(summary).toContainElement(overall);
+    expect(overall).toHaveAttribute('data-tone', 'qualified');
+    // The owner's form (OD-K0-1), as the SERVER words it -- the UI adds no line of its own.
+    expect(screen.getByTestId('lu-assessment-overall-statement').textContent).toBe(
+      'Låg risk i de kontroller som utfördes; underlaget är ofullständigt: 5 av 6 kontroller genomförda.',
+    );
+    expect(screen.getByTestId('lu-assessment-overall-notices')).toHaveTextContent('Ej genomförda kontroller: Dokument och tidigare beslut.');
+    // Machine-readable levels are untouched: the LOW findings still say "Låg risk" for themselves.
+    expect(screen.getByTestId(`lu-finding-finding-water-evidence-water-test`)).toHaveTextContent('Låg risk');
   });
 
-  it('§11 (coordinator): all five map checks done but no document check in the answer is still not "complete"', async () => {
+  it('§11 (W-M2d item 2): a map-evidence failure never changes the server\'s assessment line', async () => {
     const user = userEvent.setup();
-    mockM2b({ currentAssessment: () => persisted('assessment-x') });
+    const readBack = governedReadBack({ id: 'assessment-x' });
+    mockM2b({ currentAssessment: () => readBack, evidence: () => apiError(503, 'upstream down') });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
-    expect(screen.getByTestId('lu-assessment-coverage')).toHaveAttribute('data-complete', 'false');
-    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent('underlaget är ofullständigt: 5 av 6 kontroller genomförda.');
-    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Dokumentbevis (uppgift saknas i svaret)');
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('error'));
+    expect(screen.getByTestId('lu-assessment-overall-statement').textContent).toBe(readBack.overallStatement.statement_sv);
+  });
+
+  it('§11 (coordinator, W-M2d item 2): all five map checks done but no document check is still not "complete" -- in the server\'s words', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-x' }) });
+    await openM2b(user);
+    const statement = await screen.findByTestId('lu-assessment-overall-statement');
+    expect(statement).toHaveTextContent('underlaget är ofullständigt: 5 av 6 kontroller genomförda.');
+    expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-tone', 'qualified');
+    expect(screen.getByTestId('lu-assessment-overall-notices')).toHaveTextContent('Ej genomförda kontroller: Dokument och tidigare beslut.');
   });
 
   // -----------------------------------------------------------------------------------------------
@@ -1461,36 +1461,37 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/utpekade|beslutade/);
   });
 
-  it('M2c item 1: with every check carried out, the assessment line still names the limited coverage -- never "Alla 6 kontroller"', async () => {
+  it('M2c item 1 (W-M2d item 2): with every check carried out, the server\'s line still names the limited coverage -- never "Alla 6 kontroller"', async () => {
     const user = userEvent.setup();
-    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-x', []), documentCheck: DOCUMENT_CHECK_HIT }), evidence: () => FIVE_NO_HIT });
+    const readBack = governedReadBack({ id: 'assessment-x', documents: 'pinned' });
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_NO_HIT });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
-    const coverage = screen.getByTestId('lu-assessment-coverage');
-    expect(coverage).not.toHaveTextContent(/Alla \d+ kontroller/);
-    expect(coverage).toHaveAttribute('data-complete', 'false');
-    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent(
-      'Bedömningen gäller de kontroller som utfördes; 6 av 6 kontroller genomförda.',
+    const statement = await screen.findByTestId('lu-assessment-overall-statement');
+    expect(statement.textContent).toBe('Låg risk i de kontroller som utfördes; 6 av 6 kontroller genomförda, varav 4 med begränsad täckning.');
+    const overall = screen.getByTestId('lu-assessment-overall');
+    expect(overall).not.toHaveTextContent(/Alla \d+ kontroller/);
+    expect(overall).toHaveAttribute('data-tone', 'qualified');
+    expect(screen.getByTestId('lu-assessment-overall-notices')).toHaveTextContent(
+      'Genomförda med begränsad täckning: Skyddad natur, Natura 2000, Vattenskyddsområde, Dokument och tidigare beslut.',
     );
-    const limited = screen.getByTestId('lu-assessment-coverage-limited');
-    expect(limited).toHaveTextContent('Begränsad täckning:');
-    expect(limited).toHaveTextContent('Skyddad natur – endast naturreservat');
-    expect(limited).toHaveTextContent('Natura 2000 – endast fågeldirektivets områden (SPA), inte habitatdirektivets (SCI/SAC)');
     expect(screen.getByTestId('lu-assessment-summary')).toHaveStyle({ borderLeft: '3px solid #F97316' });
   });
 
   it('M2c item 3: a document check with a hit is counted as carried out but named as limited -- the server says other documents are not checked', async () => {
     const user = userEvent.setup();
-    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-x', []), documentCheck: DOCUMENT_CHECK_HIT }), evidence: () => FIVE_HIT });
+    const readBack = governedReadBack({
+      id: 'assessment-x',
+      documents: 'pinned',
+      layers: Object.fromEntries(LAYERS.map((layer) => [layer, { kind: 'hit' }])),
+    });
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_HIT });
     await openM2b(user);
     await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
     expect(screen.getByTestId('lu-check-extra-document')).toHaveAttribute('data-coverage', 'limited');
     expect(screen.getByTestId('lu-check-state-extra-document')).toHaveTextContent('Kontrollerat – träff · begränsad täckning');
-    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent('6 av 6 kontroller genomförda.');
-    expect(screen.getByTestId('lu-assessment-coverage')).toHaveAttribute('data-complete', 'false');
-    expect(screen.getByTestId('lu-assessment-coverage-limited')).toHaveTextContent(
-      'Dokumentbevis – endast dokumentbevis knutet till bedömningen; övriga dokument för fastigheten är inte kontrollerade',
-    );
+    expect(screen.getByTestId('lu-assessment-overall-statement')).toHaveTextContent('6 av 6 kontroller genomförda, varav 4 med begränsad täckning.');
+    expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-tone', 'qualified');
+    expect(screen.getByTestId('lu-assessment-overall-notices')).toHaveTextContent('Dokument och tidigare beslut');
   });
 
   it('item 5: when neither the read-back nor a run carries the document check, the panel says the answer lacks it', async () => {
@@ -1697,5 +1698,109 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(screen.getByTestId('lu-run')).toBeDisabled();
     release(persisted('assessment-shown'));
     await waitFor(() => expect(screen.getByTestId('lu-run')).not.toBeDisabled());
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// W-M2d (LU UI integration unit): the server is the single source. Read-backs are built by the
+// server's own presentation functions (tests/fixtures/luGovernedReadBack.ts), so the texts asserted
+// are the server's, never a copy written for the test.
+// -------------------------------------------------------------------------------------------------
+describe('LuWorkspace W-M2d', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastCesiumMapViewProps = null;
+  });
+
+  it('item 2: the assessment line is the server\'s overallStatement word for word, with the server\'s notices directly under it', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({ id: 'assessment-m2d', layers: { water: { kind: 'hit', risk: 'MEDIUM' }, natura2000: { kind: 'unavailable' } } });
+    mockM2b({ currentAssessment: () => readBack });
+    await openM2b(user);
+    const statement = await screen.findByTestId('lu-assessment-overall-statement');
+    // The server's own owner-approved form, verbatim (no UI composition, no UI count).
+    expect(readBack.overallStatement.statement_sv).toBe(
+      'Måttlig risk i de kontroller som utfördes; underlaget är ofullständigt: 4 av 6 kontroller genomförda.',
+    );
+    expect(statement.textContent).toBe(readBack.overallStatement.statement_sv);
+    const overall = screen.getByTestId('lu-assessment-overall');
+    expect(overall).toHaveAttribute('data-coverage-state', 'DETERMINED');
+    expect(overall).toHaveAttribute('data-tone', 'qualified');
+    // Notices from the server's machine lists, in Swedish, directly under the statement.
+    const notices = screen.getByTestId('lu-assessment-overall-notices');
+    expect(notices).toHaveTextContent('Ej genomförda kontroller: Natura 2000, Dokument och tidigare beslut.');
+    expect(notices).toHaveTextContent('Genomförda med begränsad täckning: Skyddad natur, Vattenskyddsområde.');
+    expect(statement.nextElementSibling).toBe(notices);
+    // No statement of the UI's own any more.
+    expect(screen.getByTestId('lu-results')).not.toHaveTextContent('Bedömningen gäller de kontroller som utfördes');
+    expect(screen.queryByTestId('lu-assessment-coverage-head')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lu-assessment-summary')).toHaveStyle({ borderLeft: '3px solid #F97316' });
+  });
+
+  it('item 2: with 0 of M checks completed the line is the server\'s "Ingen samlad risknivå ..." -- the words "Låg risk" appear nowhere', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({
+      id: 'assessment-zero',
+      layers: Object.fromEntries(['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((l) => [l, { kind: 'unavailable' }])),
+    });
+    mockM2b({ currentAssessment: () => readBack });
+    await openM2b(user);
+    const statement = await screen.findByTestId('lu-assessment-overall-statement');
+    expect(statement.textContent).toBe('Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.');
+    expect(screen.getByTestId('lu-results')).not.toHaveTextContent(/låg risk/i);
+  });
+
+  it('item 2: a historical record states the server\'s "Täckningsgrad kan inte fastställas ..." with its own state label -- never "0 av M", never green', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({ id: 'assessment-historical', layers: { water: { kind: 'absent' }, ebh: { kind: 'hit', risk: 'HIGH' } } });
+    expect(readBack.overallStatement.coverage_state).toBe('HISTORICAL_COVERAGE_UNKNOWN');
+    mockM2b({ currentAssessment: () => readBack });
+    await openM2b(user);
+    const statement = await screen.findByTestId('lu-assessment-overall-statement');
+    expect(statement.textContent).toBe(readBack.overallStatement.statement_sv);
+    expect(statement).toHaveTextContent('Täckningsgrad kan inte fastställas för denna historiska bedömning.');
+    expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-coverage-state', 'HISTORICAL_COVERAGE_UNKNOWN');
+    expect(screen.getByTestId('lu-assessment-overall-state')).toHaveTextContent('Täckningsgrad okänd – historisk bedömning');
+    expect(screen.getByTestId('lu-assessment-overall')).not.toHaveTextContent(/\d+ av \d+ kontroller/);
+    expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-tone', 'qualified');
+  });
+
+  it('item 2: pinned evidence that cannot be read is a technical state of its own; a lasting loss offers no retry, a read error does', async () => {
+    const user = userEvent.setup();
+    const lost = governedReadBack({ id: 'assessment-lost', layers: { natura2000: { kind: 'unreadable', risk: 'HIGH' } } });
+    expect(lost.overallStatement.coverage_state).toBe('PINNED_EVIDENCE_UNREADABLE');
+    mockM2b({ currentAssessment: () => lost });
+    const view = render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'UPPSALA SVIA 1:111');
+    await user.click(screen.getByTestId('lu-lookup'));
+    const overall = await screen.findByTestId('lu-assessment-overall');
+    expect(overall).toHaveAttribute('data-coverage-state', 'PINNED_EVIDENCE_UNREADABLE');
+    expect(overall).toHaveAttribute('data-tone', 'technical');
+    expect(screen.getByTestId('lu-assessment-overall-state')).toHaveTextContent('Tekniskt fel – den bundna evidensen kan inte läsas');
+    expect(screen.getByTestId('lu-assessment-overall-statement').textContent).toBe(lost.overallStatement.statement_sv);
+    expect(screen.queryByTestId('lu-assessment-overall-retry')).not.toBeInTheDocument();
+    view.unmount();
+
+    callApi.mockReset();
+    const transient = governedReadBack({ id: 'assessment-transient', layers: { natura2000: { kind: 'unreadable', risk: 'HIGH', readError: true } } });
+    expect(transient.overallStatement.pinned_evidence?.retryable).toBe(true);
+    let healed = false;
+    mockM2b({ currentAssessment: () => (healed ? governedReadBack({ id: 'assessment-transient' }) : transient) });
+    const user2 = userEvent.setup();
+    await openM2b(user2);
+    const retry = await screen.findByTestId('lu-assessment-overall-retry');
+    healed = true;
+    await user2.click(retry);
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-coverage-state', 'DETERMINED'));
+  });
+
+  it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => persisted('assessment-old-server') });
+    await openM2b(user);
+    const statement = await screen.findByTestId('lu-assessment-overall-statement');
+    expect(statement).toHaveTextContent('Saknas i underlaget: svaret innehåller ingen samlad bedömning för den här bedömningen.');
+    expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-coverage-state', 'MISSING');
+    expect(screen.getByTestId('lu-results')).not.toHaveTextContent(/kontroller genomförda|Låg risk/);
   });
 });
