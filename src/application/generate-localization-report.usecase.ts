@@ -548,7 +548,7 @@ async function fetchNvrAreas(
     return { ok: true, data };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn('fetchProtectedAreas failed for localization', { site: siteId, err: msg });
+    logger.warn('fetchProtectedAreas failed for localization', { site: siteId, err: redactInternalDiagnostic(msg) });
     return { ok: false, error: msg };
   }
 }
@@ -563,7 +563,7 @@ async function fetchRaaMonuments(
     return { ok: true, data };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn('fetchAncientMonuments failed for localization', { site: siteId, err: msg });
+    logger.warn('fetchAncientMonuments failed for localization', { site: siteId, err: redactInternalDiagnostic(msg) });
     return { ok: false, error: msg };
   }
 }
@@ -581,7 +581,7 @@ async function fetchVissStatus(
     return { ok: false, error: (result as { error?: string }).error || 'VISS svarade inte ok' };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn('queryVissPoint failed for localization', { site: siteId, err: msg });
+    logger.warn('queryVissPoint failed for localization', { site: siteId, err: redactInternalDiagnostic(msg) });
     return { ok: false, error: msg };
   }
 }
@@ -634,14 +634,14 @@ async function fetchSluObservations(input: {
           };
         }
       } catch (enrichErr) {
-        logger.warn('Failed to enrich SLU observations with Artfakta facts', { err: String(enrichErr) });
+        logger.warn('Failed to enrich SLU observations with Artfakta facts', { err: redactInternalDiagnostic(String(enrichErr)) });
       }
     }
 
     return { ok: true, data: baseObservations };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn('searchSluByCoordinates failed for localization', { site: input.site.id, err: msg });
+    logger.warn('searchSluByCoordinates failed for localization', { site: input.site.id, err: redactInternalDiagnostic(msg) });
     return { ok: false, error: msg };
   }
 }
@@ -752,7 +752,7 @@ async function collectLegacyObservations(
   try {
     spatialAudit = await runSpatialAudit(site.lat, site.lng);
   } catch (err) {
-    logger.warn('runSpatialAudit failed (legacy observation)', { site: site.id, err: String(err) });
+    logger.warn('runSpatialAudit failed (legacy observation)', { site: site.id, err: redactInternalDiagnostic(String(err)) });
     spatialAudit = null;
   }
 
@@ -828,7 +828,7 @@ async function collectLegacyObservations(
     restrictions = legacyRules.restrictions;
     rules = legacyRules.rules;
   } catch (err) {
-    logger.warn('evaluateComplianceRules failed (legacy observation)', { site: site.id, err: String(err) });
+    logger.warn('evaluateComplianceRules failed (legacy observation)', { site: site.id, err: redactInternalDiagnostic(String(err)) });
     warnings.push(`${LEGACY_SPATIAL_AUDIT_PREFIX_SV} Äldre regelmotor: ${LEGACY_SOURCE_UNREADABLE_SV}`);
   }
 

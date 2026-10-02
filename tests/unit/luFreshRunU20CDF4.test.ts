@@ -69,7 +69,7 @@ vi.mock('../../server/modules/localization/localizationGeometryService', async (
 }));
 
 // ---- the older, ungoverned sources: answer normally, or fail with invented secret-bearing texts ----
-const legacy = vi.hoisted(() => ({ failWithSecrets: false }));
+const legacy = vi.hoisted(() => ({ failWithSecrets: false, sluSearchFails: false }));
 /** Invented values only. Each legacy failure text carries one secret and one piece of context. */
 const LEGACY_SECRET_TEXT: Readonly<Record<string, string>> = {
   spatialAudit: 'connect ECONNREFUSED postgresql://mimer:hemligtSA1@10.0.0.5:5432/lu (spatialAudit)',
@@ -109,9 +109,12 @@ vi.mock('../../server/services/vissService', () => ({
   }),
 }));
 vi.mock('../../server/services/sluService', () => ({
-  // When failing: the search itself answers (so the enrich step runs and fails) unless the search is
-  // the failing step -- toggled per call below.
-  searchSluByCoordinates: vi.fn(async () => ({ observations: [{ taxonName: 'Rana arvalis', taxonId: 101 }] })),
+  // When failing: the search itself answers (so the enrich step runs and fails), unless the search is
+  // the failing step (`sluSearchFails`).
+  searchSluByCoordinates: vi.fn(async () => {
+    if (legacy.sluSearchFails) throw new Error(LEGACY_SECRET_TEXT.slu);
+    return { observations: [{ taxonName: 'Rana arvalis', taxonId: 101 }] };
+  }),
   getSpeciesInformation: vi.fn(async () => {
     if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.sluEnrich);
     return null;
@@ -185,6 +188,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   hermeticPrismaTouches.length = 0;
   legacy.failWithSecrets = false;
+  legacy.sluSearchFails = false;
   queryMock.mockResolvedValue({ evidence: LAYERS.map((layer) => spatialEvidence(layer)), unavailable_layers: [] });
   kernelMock.mockResolvedValue(admitted('assessment-u20cdf4', [], LAYERS.map((layer) => spatialEvidence(layer))));
 });
@@ -242,5 +246,52 @@ describe('U20CDF4 (U20CDF3 verification L1): a malformed unavailable entry is th
     for (const secret of ['hemligtL1a', 'hemligtL1b', 'hemligtL1c']) expect(text, text).not.toContain(secret);
     expect(String(logged[1]!.layer)).toContain('10.0.0.5:5432/lu');
     expect(JSON.stringify(res.body)).not.toMatch(/hemligt|10\.0\.0\.5/);
+  });
+});
+
+describe('U20CDF4 (U20CDF3 verification L2): the seven log lines of the older, ungoverned path are redacted like every other diagnostic', () => {
+  beforeEach(() => {
+    process.env.SLU_SPECIES_OBS_API_KEY = 'test-key'; // SLU configured, so its search and enrich steps run
+  });
+  afterEach(() => {
+    delete process.env.SLU_SPECIES_OBS_API_KEY;
+  });
+
+  /** [log message, the source's invented failure text] -- the secret is the masked part, the context the rest. */
+  const LINES: ReadonlyArray<readonly [string, string, string, string]> = [
+    ['fetchProtectedAreas failed for localization', LEGACY_SECRET_TEXT.nvr!, 'nvrT0kenSecret1', '(nvr)'],
+    ['fetchAncientMonuments failed for localization', LEGACY_SECRET_TEXT.raa!, 'hemligtRAA2', '(raa)'],
+    ['queryVissPoint failed for localization', LEGACY_SECRET_TEXT.viss!, 'vissKey3secret', '(viss)'],
+    ['Failed to enrich SLU observations with Artfakta facts', LEGACY_SECRET_TEXT.sluEnrich!, 'artfaktaTok5', '(artfakta)'],
+    ['runSpatialAudit failed (legacy observation)', LEGACY_SECRET_TEXT.spatialAudit!, 'hemligtSA1', '10.0.0.5:5432/lu (spatialAudit)'],
+    ['evaluateComplianceRules failed (legacy observation)', LEGACY_SECRET_TEXT.rules!, 'hemligtRULES6', '(rules)'],
+  ];
+
+  it('generate-pdf-data with every older source failing: each failure is logged with its context, never with its secret', async () => {
+    legacy.failWithSecrets = true;
+    const res = await post('/api/localization/generate-pdf-data');
+    expect(res.status).toBe(200);
+    for (const [message, , secret, context] of LINES) {
+      const calls = warnCalls(message);
+      expect(calls, message).toHaveLength(1);
+      const err = String((calls[0]![1] as Record<string, unknown>).err);
+      expect(err, `${message}: ${err}`).not.toContain(secret);
+      expect(err, `${message}: ${err}`).toContain(context);
+      expect(err).toContain('***');
+    }
+    // Nothing of it in the answer either (unchanged: the older sources answer "ej tillgänglig").
+    const body = JSON.stringify(res.body);
+    for (const [, , secret] of LINES) expect(body).not.toContain(secret);
+  });
+
+  it('the seventh line: a failing SLU search is logged with its context, never with its secret', async () => {
+    legacy.failWithSecrets = true;
+    legacy.sluSearchFails = true;
+    await post('/api/localization/generate-pdf-data');
+    const calls = warnCalls('searchSluByCoordinates failed for localization');
+    expect(calls).toHaveLength(1);
+    const err = String((calls[0]![1] as Record<string, unknown>).err);
+    expect(err, err).not.toContain('hemligtSLU4');
+    expect(err, err).toContain('SLU search failed');
   });
 });
