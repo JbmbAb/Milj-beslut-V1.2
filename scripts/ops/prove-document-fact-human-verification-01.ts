@@ -24,6 +24,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { resolveDurableMimersRoot } from '../../packages/mps-runtime/src/mimers/DurableMimersRoot';
 import {
   FileCASRepository,
   DiskQuarantineStorage,
@@ -71,7 +72,7 @@ function loadOrGenerateKey(name: string, keyId: string) {
 
 async function rebuildRealCandidate() {
   const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve('.quarantine');
-  const mimersRoot = process.env.MIMERS_ROOT || path.resolve('.data/mimers');
+  const mimersRoot = resolveDurableMimersRoot(process.env, 'prove-document-fact-human-verification-01');
   const durabilityMode = (process.env.MIMERS_DURABILITY_MODE || 'best-effort') as 'strict' | 'best-effort' | 'none';
 
   const cas = new FileCASRepository(path.join(mimersRoot, 'cas'), { durabilityMode });

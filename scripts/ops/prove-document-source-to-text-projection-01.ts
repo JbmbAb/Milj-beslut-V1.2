@@ -25,6 +25,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { resolveDurableMimersRoot } from '../../packages/mps-runtime/src/mimers/DurableMimersRoot';
 import {
   FileCASRepository,
   DiskQuarantineStorage,
@@ -79,7 +80,7 @@ async function main() {
   }
 
   const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve('.quarantine');
-  const mimersRoot = process.env.MIMERS_ROOT || path.resolve('.data/mimers');
+  const mimersRoot = resolveDurableMimersRoot(process.env, 'prove-document-source-to-text-projection-01');
   const results: Record<string, unknown> = {};
 
   const key = loadOrGenerateGovernanceSigningKey();

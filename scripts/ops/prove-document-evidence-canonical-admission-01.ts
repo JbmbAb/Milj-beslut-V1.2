@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { resolveDurableMimersRoot } from '../../packages/mps-runtime/src/mimers/DurableMimersRoot';
 import {
   FileCASRepository,
   DiskQuarantineStorage,
@@ -90,7 +91,7 @@ async function main() {
   if (!process.argv.includes('--execute')) throw new Error('Refusing to run without --execute.');
 
   const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve('.quarantine');
-  const mimersRoot = process.env.MIMERS_ROOT || path.resolve('.data/mimers');
+  const mimersRoot = resolveDurableMimersRoot(process.env, 'prove-document-evidence-canonical-admission-01');
   const durabilityMode = (process.env.MIMERS_DURABILITY_MODE || 'best-effort') as 'strict' | 'best-effort' | 'none';
 
   console.log('=== STEP 1: rebuild the real chain through to VerifiedDocumentFactArtifact ===\n');
