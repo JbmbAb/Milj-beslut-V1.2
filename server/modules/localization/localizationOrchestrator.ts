@@ -26,7 +26,14 @@ import {
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
 import { resolveCurrentAssessmentProjection } from './assessmentProjection';
-import { resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
+import type { CurrentLocalizationGeometry } from './localizationGeometryProjection';
+import {
+  LocalizationGeometryCurrentnessError,
+  currentnessFailureResponse,
+  localizationGeometryProvenanceLabelSv,
+  resolveLocalizationGeometryCurrentness,
+  type LocalizationGeometryCurrentnessFailureResponse,
+} from './localizationGeometryCurrentness';
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
@@ -40,6 +47,38 @@ export class LocalizationDataUnavailableError extends Error {
     super(message);
     this.name = 'LocalizationDataUnavailableError';
   }
+}
+
+/**
+ * DEMO M1a / D9(a). Read-side currentness branch shared by the viewer-evidence, current-assessment,
+ * PDF and verify paths: CURRENT -> filter by that geometry; NOT_FOUND -> `current: null` (legacy
+ * binding-only eligibility, unchanged); anything else -> a fail-closed response that keeps the
+ * failure class. Never swallows.
+ */
+async function resolveReadBackGeometryCurrentness(
+  projectId: string,
+  artifactRepository: ArtifactRepositoryPort,
+  index: LocalizationGeometryProjectionIndex | undefined,
+): Promise<
+  | { readonly ok: true; readonly current: CurrentLocalizationGeometry | null }
+  | { readonly ok: false; readonly failure: LocalizationGeometryCurrentnessFailureResponse }
+> {
+  try {
+    const resolution = await resolveLocalizationGeometryCurrentness({ projectId, artifactRepository, index });
+    return { ok: true, current: resolution.status === 'CURRENT' ? resolution.current : null };
+  } catch (error) {
+    if (error instanceof LocalizationGeometryCurrentnessError) {
+      return { ok: false, failure: currentnessFailureResponse(error) };
+    }
+    throw error;
+  }
+}
+
+/** DEMO M1a: geometry provenance as returned by the read-back and printed in the PDF. */
+export interface LuAssessmentGeometryProvenance {
+  readonly artifact_id: string | null;
+  readonly provenance: 'user_defined' | 'derived_from_property_boundary' | null;
+  readonly provenance_label_sv: string;
 }
 
 export function localizationAuditRef(projectId: string): string {
@@ -231,17 +270,12 @@ export async function resolveLuViewerPresentation(input: {
   // point-A assessment could resolve as current after the user moves to point B. A project with
   // no localization geometry projection yet (pre-Phase-B / legacy) is unaffected: this is
   // additive, not a new failure mode for existing projects.
-  let currentLocalizationGeometryArtifactId: string | undefined;
-  try {
-    const geometry = await resolveCurrentLocalizationGeometry({
-      projectId,
-      artifactRepository,
-      index: input.localizationGeometryIndex,
-    });
-    currentLocalizationGeometryArtifactId = geometry.geometryArtifactId;
-  } catch {
-    currentLocalizationGeometryArtifactId = undefined;
-  }
+  // DEMO M1a / D9(a): ONLY currentness NOT_FOUND keeps the legacy binding-only eligibility. Any
+  // other currentness failure fails closed here -- silently dropping the geometry filter would let
+  // a binding-only (possibly stale-point) assessment be presented as current.
+  const currentGeometry = await resolveReadBackGeometryCurrentness(projectId, artifactRepository, input.localizationGeometryIndex);
+  if (currentGeometry.ok === false) return currentGeometry.failure;
+  const currentLocalizationGeometryArtifactId = currentGeometry.current?.geometryArtifactId;
 
   let assessmentArtifactId: string;
   try {
@@ -333,8 +367,11 @@ export async function resolveCurrentLuAssessmentSummary(input: {
        *  anything client-supplied. Resolving these further is a CAS read, not a re-execution. */
       propertyContextRef: LocalizationAssessmentArtifact['payload']['property_ref'];
       projectContextRef: LocalizationAssessmentArtifact['payload']['project_context_ref'];
+      /** DEMO M1a / D9(a): which geometry this assessment was produced for, and how it came about. */
+      localizationGeometry: LuAssessmentGeometryProvenance;
     }
   | { ok: false; status: number; error: string }
+  | LocalizationGeometryCurrentnessFailureResponse
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
@@ -356,17 +393,12 @@ export async function resolveCurrentLuAssessmentSummary(input: {
       getProjectContextBindingIssuerVerifier(),
     );
 
-  let currentLocalizationGeometryArtifactId: string | undefined;
-  try {
-    const geometry = await resolveCurrentLocalizationGeometry({
-      projectId,
-      artifactRepository,
-      index: input.localizationGeometryIndex,
-    });
-    currentLocalizationGeometryArtifactId = geometry.geometryArtifactId;
-  } catch {
-    currentLocalizationGeometryArtifactId = undefined;
-  }
+  // DEMO M1a / D9(a): ONLY currentness NOT_FOUND keeps the legacy binding-only eligibility. Any
+  // other currentness failure fails closed here -- silently dropping the geometry filter would let
+  // a binding-only (possibly stale-point) assessment be presented as current.
+  const currentGeometry = await resolveReadBackGeometryCurrentness(projectId, artifactRepository, input.localizationGeometryIndex);
+  if (currentGeometry.ok === false) return currentGeometry.failure;
+  const currentLocalizationGeometryArtifactId = currentGeometry.current?.geometryArtifactId;
 
   let assessmentArtifactId: string;
   try {
@@ -433,6 +465,15 @@ export async function resolveCurrentLuAssessmentSummary(input: {
     systemSummary: assessment.payload.system_summary,
     propertyContextRef: assessment.payload.property_ref,
     projectContextRef: assessment.payload.project_context_ref,
+    // The assessment's own content-addressed localization_geometry_ref is the stored binding; when
+    // the project has a current geometry, resolveCurrentAssessmentProjection has already required
+    // that ref to equal it, so the provenance below is the provenance of the assessed point itself
+    // (read from the CAS-verified geometry artifact, never from a client or a projection row).
+    localizationGeometry: {
+      artifact_id: assessment.payload.localization_geometry_ref?.artifact_id ?? null,
+      provenance: currentGeometry.current?.geometry.payload.provenance ?? null,
+      provenance_label_sv: localizationGeometryProvenanceLabelSv(currentGeometry.current?.geometry.payload.provenance),
+    },
   };
 }
 
@@ -509,6 +550,12 @@ export async function exportCurrentLuAssessmentPdf(input: {
     property: property ?? { note: 'Fastighetskontext kunde inte läsas -- se teknisk verifiering nedan.' },
     project: project ?? { note: 'Projektkontext kunde inte läsas -- se teknisk verifiering nedan.' },
     systemSummary: summary.systemSummary,
+    // DEMO M1a / D9(a): geometry provenance survives into the exported report.
+    lokalisering: {
+      geometri_artifact_id: summary.localizationGeometry.artifact_id,
+      provenance: summary.localizationGeometry.provenance,
+      beskrivning: summary.localizationGeometry.provenance_label_sv,
+    },
     findings: summary.findings.map((f) => ({
       finding_id: f.finding_id,
       rule_id: f.rule_id,

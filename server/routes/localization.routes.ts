@@ -32,6 +32,20 @@ import { logger } from '../logger';
 
 const router = express.Router();
 
+/**
+ * DEMO M1a / D9(a): every `{ ok: false }` service result goes out through here, so a fail-closed
+ * localization-geometry currentness failure keeps its structured class (code / failureClass /
+ * reasonCode) on the wire instead of being reduced to a message string. Other failures are unchanged.
+ */
+function failureBody(result: { readonly error: string }): Record<string, unknown> {
+  const structured = result as { code?: string; failureClass?: string; reasonCode?: string };
+  return {
+    ok: false,
+    error: result.error,
+    ...(structured.code ? { code: structured.code, failureClass: structured.failureClass, reasonCode: structured.reasonCode } : {}),
+  };
+}
+
 function handleOrchestratorError(error: unknown, res: express.Response): boolean {
   if (error instanceof LocalizationDataUnavailableError) {
     res.status(503).json({
@@ -59,7 +73,7 @@ router.post(
         siteAlternatives: req.body?.siteAlternatives,
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(200).json({
@@ -89,7 +103,7 @@ router.post(
         siteAlternatives: req.body?.siteAlternatives,
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       const pdfData = buildLocalizationPdfData(result.report);
@@ -320,7 +334,7 @@ router.get(
         projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(200).json(result.geojson);
@@ -351,7 +365,7 @@ router.get(
         projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(200).json({
@@ -361,6 +375,7 @@ router.get(
         ruleRefs: result.ruleRefs,
         evidenceRefs: result.evidenceRefs,
         systemSummary: result.systemSummary,
+        localizationGeometry: result.localizationGeometry,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
@@ -389,7 +404,7 @@ router.get(
         projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.setHeader('Content-Type', 'application/pdf');
@@ -422,7 +437,7 @@ router.post(
         projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(200).json({
@@ -457,7 +472,7 @@ router.get(
         projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(200).json({ ok: true, geometry: result.data });
@@ -492,7 +507,7 @@ router.post(
         },
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(201).json({ ok: true, geometry: result.data });
@@ -521,7 +536,7 @@ router.post(
         projectId: String(req.params.projectId || ''),
       });
       if (result.ok === false) {
-        res.status(result.status).json({ ok: false, error: result.error });
+        res.status(result.status).json(failureBody(result));
         return;
       }
       res.status(201).json({ ok: true, geometry: result.data });

@@ -24,7 +24,20 @@ import type { AuthUser } from '../../security/types';
 import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
 import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from './localizationGeometryProjection';
-import { PrismaLocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
+import {
+  PrismaLocalizationGeometryProjectionIndex,
+  type LocalizationGeometryProjectionIndex,
+} from '../../repositories/localizationGeometryProjectionRepository';
+import type { LocalizationGeometrySupersessionIndex } from '../../repositories/localizationGeometrySupersessionRepository';
+import {
+  LOCALIZATION_GEOMETRY_NOT_FOUND_NO_PROJECTION_MESSAGE,
+  LocalizationGeometryCurrentnessError,
+  currentnessFailureResponse,
+  resolveLocalizationGeometryCurrentness,
+  resolvedGeometryProvenanceRecord,
+  type LocalizationGeometryCurrentnessFailureClass,
+  type LocalizationGeometryProvenanceRecord,
+} from './localizationGeometryCurrentness';
 import { createLocalizationSpatialRuntime, type LocalizationSpatialRuntime } from './createLocalizationSpatialRuntime';
 import {
   ensureLocalizationIdentityProvisioningRequested,
@@ -84,10 +97,17 @@ function toView(
 }
 
 /**
- * Resolves the project's current LocalizationGeometry, or -- for a project that has never had
- * one set -- derives one from the property's own centroid (`provenance:
- * derived_from_property_boundary`), persists it, and registers it as current. Pure function of
- * already-verified canonical state; never trusts a caller-supplied ref.
+ * Resolves the project's current LocalizationGeometry, or -- ONLY for a project that has never had
+ * one set (currentness NOT_FOUND, no projection rows) -- derives one from the property's own
+ * centroid (`provenance: derived_from_property_boundary`), persists it, and registers it as
+ * current. Pure function of already-verified canonical state; never trusts a caller-supplied ref.
+ *
+ * DEMO M1a / D9(a): every other currentness outcome (ambiguity, invalid graph, unverifiable
+ * candidates, verifier configuration, CAS/projection/DB errors) throws a
+ * LocalizationGeometryCurrentnessError -- no derived geometry, so no governed run can proceed on a
+ * silently substituted point. A failure to persist/register a derived geometry also fails closed
+ * (DERIVED_GEOMETRY_PERSISTENCE_FAILED): an unregistered derived point is not current, so a run on
+ * it would produce an assessment for a non-current geometry.
  */
 export async function resolveOrDeriveCurrentLocalizationGeometry(args: {
   readonly projectId: string;
@@ -96,52 +116,86 @@ export async function resolveOrDeriveCurrentLocalizationGeometry(args: {
   readonly propertyCentroidSweref: readonly [number, number];
   readonly sweref99ToWgs84: (northing: number, easting: number) => Promise<readonly [number, number]>;
   readonly createdBy: string;
-}): Promise<{ readonly geometry: LocalizationGeometryArtifact; readonly wasDerived: boolean }> {
+  /** Overridable for tests; default to the real Postgres-backed projection indexes. */
+  readonly geometryIndex?: LocalizationGeometryProjectionIndex;
+  readonly supersessionIndex?: LocalizationGeometrySupersessionIndex;
+}): Promise<{
+  readonly geometry: LocalizationGeometryArtifact;
+  readonly wasDerived: boolean;
+  readonly provenanceRecord: LocalizationGeometryProvenanceRecord;
+}> {
+  const resolution = await resolveLocalizationGeometryCurrentness({
+    projectId: args.projectId,
+    artifactRepository: args.artifactRepository,
+    index: args.geometryIndex,
+    supersessionIndex: args.supersessionIndex,
+  });
+  if (resolution.status === 'CURRENT') {
+    const geometry = resolution.current.geometry;
+    return {
+      geometry,
+      wasDerived: false,
+      provenanceRecord: resolvedGeometryProvenanceRecord({
+        artifactId: geometry.artifact_id,
+        provenance: geometry.payload?.provenance,
+        derivedInThisRequest: false,
+      }),
+    };
+  }
+
+  // resolution.status === 'NOT_FOUND': the only state in which derivation is permitted.
+  // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: quantize the property centroid to the
+  // canonical 0.1m grid FIRST, then derive WGS84 from that already-quantized point -- exactly
+  // one canonicalization step, never two independently-quantized representations.
+  const canonicalSweref: readonly [number, number] = [
+    quantizeToLocalizationGeometryGrid(args.propertyCentroidSweref[0]),
+    quantizeToLocalizationGeometryGrid(args.propertyCentroidSweref[1]),
+  ];
+  const [derivedLat, derivedLng] = await args.sweref99ToWgs84(canonicalSweref[0], canonicalSweref[1]);
+  const derivedGeometry = createLocalizationGeometryArtifactV2({
+    project_id: args.projectId,
+    property_context_ref: args.propertyContextRef,
+    wgs84LngLat: [derivedLng, derivedLat],
+    sweref99NorthingEasting: canonicalSweref,
+    provenance: 'derived_from_property_boundary',
+    label: DERIVED_LABEL,
+    created_by: args.createdBy,
+  });
   try {
-    const current = await resolveCurrentLocalizationGeometry({
-      projectId: args.projectId,
-      artifactRepository: args.artifactRepository,
-    });
-    return { geometry: current.geometry, wasDerived: false };
-  } catch {
-    // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: quantize the property centroid to the
-    // canonical 0.1m grid FIRST, then derive WGS84 from that already-quantized point -- exactly
-    // one canonicalization step, never two independently-quantized representations.
-    const canonicalSweref: readonly [number, number] = [
-      quantizeToLocalizationGeometryGrid(args.propertyCentroidSweref[0]),
-      quantizeToLocalizationGeometryGrid(args.propertyCentroidSweref[1]),
-    ];
-    const [derivedLat, derivedLng] = await args.sweref99ToWgs84(canonicalSweref[0], canonicalSweref[1]);
-    const derivedGeometry = createLocalizationGeometryArtifactV2({
-      project_id: args.projectId,
-      property_context_ref: args.propertyContextRef,
-      wgs84LngLat: [derivedLng, derivedLat],
-      sweref99NorthingEasting: canonicalSweref,
-      provenance: 'derived_from_property_boundary',
-      label: DERIVED_LABEL,
-      created_by: args.createdBy,
-    });
     await args.artifactRepository.put({
       artifact_id: derivedGeometry.artifact_id,
       content_hash: derivedGeometry.content_hash,
       body: derivedGeometry,
     });
-    // Non-authoritative discovery projection; a write failure here must never abort an otherwise
-    // valid derivation -- CAS already has the real artifact, and resolution will simply retry the
-    // derivation next time until the projection write succeeds. Same reasoning as
-    // generate-localization-report.usecase.ts's identical derive step.
-    try {
-      await registerLocalizationGeometry({ projectId: args.projectId, geometry: derivedGeometry });
-    } catch {
-      // swallowed deliberately -- see comment above.
-    }
-    return { geometry: derivedGeometry, wasDerived: true };
+    await registerLocalizationGeometry({ projectId: args.projectId, geometry: derivedGeometry, index: args.geometryIndex });
+  } catch (error) {
+    throw new LocalizationGeometryCurrentnessError(
+      'DERIVED_GEOMETRY_PERSISTENCE_FAILED',
+      error instanceof Error ? error.message : String(error),
+    );
   }
+  return {
+    geometry: derivedGeometry,
+    wasDerived: true,
+    provenanceRecord: resolvedGeometryProvenanceRecord({
+      artifactId: derivedGeometry.artifact_id,
+      provenance: 'derived_from_property_boundary',
+      derivedInThisRequest: true,
+    }),
+  };
 }
 
 export type LocalizationGeometryServiceResult<T> =
   | { readonly ok: true; readonly data: T }
-  | { readonly ok: false; readonly status: number; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly status: number;
+      readonly error: string;
+      /** DEMO M1a: present only for a fail-closed currentness failure. */
+      readonly code?: 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED';
+      readonly failureClass?: LocalizationGeometryCurrentnessFailureClass;
+      readonly reasonCode?: string;
+    };
 
 /**
  * GET-side: what the UI shows before/after any explicit save, including the initial
@@ -175,14 +229,22 @@ export async function getCurrentLocalizationGeometryForProject(args: {
   const spatialRuntime = args.spatialRuntime ?? (await createLocalizationSpatialRuntime());
   const ownsSpatialRuntime = !args.spatialRuntime;
   try {
-    const { geometry } = await resolveOrDeriveCurrentLocalizationGeometry({
-      projectId,
-      artifactRepository: repo,
-      propertyContextRef: canonicalContext.propertyContextRef,
-      propertyCentroidSweref: canonicalContext.coordinates,
-      sweref99ToWgs84: spatialRuntime.sweref99ToWgs84,
-      createdBy: args.authUser.id,
-    });
+    let geometry: LocalizationGeometryArtifact;
+    try {
+      ({ geometry } = await resolveOrDeriveCurrentLocalizationGeometry({
+        projectId,
+        artifactRepository: repo,
+        propertyContextRef: canonicalContext.propertyContextRef,
+        propertyCentroidSweref: canonicalContext.coordinates,
+        sweref99ToWgs84: spatialRuntime.sweref99ToWgs84,
+        createdBy: args.authUser.id,
+      }));
+    } catch (error) {
+      // DEMO M1a / D9(a): fail closed -- no derived point, no provisioning request, a Swedish
+      // reason and the structured failure class to the caller.
+      if (error instanceof LocalizationGeometryCurrentnessError) return currentnessFailureResponse(error);
+      throw error;
+    }
     // A project's very first read (or a legacy project that only ever had the transitional
     // derived point) must also become execution-ready without a manual ops step -- ensure is
     // idempotent, so polling this endpoint repeatedly never floods the queue.
@@ -301,10 +363,15 @@ export async function saveUserLocalizationGeometry(args: {
     } else {
       let predecessor: LocalizationGeometryArtifact | null = null;
       try {
-        const current = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
-        predecessor = current.geometry;
-      } catch {
-        predecessor = null; // first-ever geometry for this project -- no transition needed.
+        const resolution = await resolveLocalizationGeometryCurrentness({ projectId, artifactRepository: repo });
+        // NOT_FOUND only: first-ever geometry for this project -- no transition needed.
+        predecessor = resolution.status === 'CURRENT' ? resolution.current.geometry : null;
+      } catch (error) {
+        // DEMO M1a / D9(a): an ambiguous/invalid/unresolvable current state is NOT "no predecessor"
+        // -- registering this point as a new root would add yet another head. Fail closed. The
+        // point itself is already safe in CAS (content-addressed), so nothing is lost.
+        if (error instanceof LocalizationGeometryCurrentnessError) return currentnessFailureResponse(error);
+        throw error;
       }
 
       if (!predecessor) {
@@ -362,9 +429,15 @@ export async function retryLocalizationIdentityProvisioning(args: {
   const repo = (await MimersIntegration.create()).artifactRepository;
   let current: Awaited<ReturnType<typeof resolveCurrentLocalizationGeometry>>;
   try {
-    current = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
+    const resolution = await resolveLocalizationGeometryCurrentness({ projectId, artifactRepository: repo });
+    if (resolution.status === 'NOT_FOUND') {
+      return { ok: false, status: 404, error: `No current localization geometry to retry: ${LOCALIZATION_GEOMETRY_NOT_FOUND_NO_PROJECTION_MESSAGE}` };
+    }
+    current = resolution.current;
   } catch (error) {
-    return { ok: false, status: 404, error: `No current localization geometry to retry: ${error instanceof Error ? error.message : String(error)}` };
+    // DEMO M1a: keep the failure class instead of collapsing every currentness error into 404.
+    if (error instanceof LocalizationGeometryCurrentnessError) return currentnessFailureResponse(error);
+    throw error;
   }
 
   const provisioning = await enqueueLocalizationIdentityProvisioningRequest({
