@@ -305,6 +305,9 @@ describe('U20CDF4 (U20CDF3 verification L3): a semicolon inside an unquoted secr
     ['the secret last in the string', 'connect failed Pwd=Semi;Colon34', ['Semi', 'Colon34'], ['connect failed']],
     ['an ADO.NET connection string with keys containing spaces', 'Server=db;User ID=mimer;Password=Semi;Colon34;Initial Catalog=lu', ['Semi', 'Colon34'], ['Server=db', 'User ID=mimer', 'Catalog=lu']],
     ['an ODBC braced value with semicolons in it', 'Driver={PostgreSQL};Pwd={Semi;Colon;34};Server=db', ['Semi', 'Colon;34'], ['Driver={PostgreSQL}', 'Server=db']],
+    // Mutation N06 (braces no longer masked whole) survived the case above -- the semicolon rule alone
+    // covers it. A space inside the braces is only masked by the braced-value rule.
+    ['an ODBC braced value with a space in it', 'Pwd={Semi Colon34};Server=db', ['Semi', 'Colon34'], ['Server=db']],
     ['an env form followed by ordinary words', 'env PGPASSWORD=Semi;Colon34 psql -h x', ['Semi', 'Colon34'], ['psql -h x']],
     ['two semicolons in a row of the value', 'api_key=ab;cd;ef;Host=db', ['ab;cd', 'cd;ef'], ['Host=db']],
     ['a key=value secret followed by ordinary error text', 'token=abc123x; connection refused', ['abc123x'], ['connection refused']],
