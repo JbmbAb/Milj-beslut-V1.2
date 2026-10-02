@@ -29,6 +29,12 @@ import { verifyProjectContextBindingArtifactAuthority, verifyProjectContextBindi
  * `noBindingRegistered` is true only when the index lists no binding at all for the project, and
  * `cause` is the original failure (an unreadable index, a storage fault on a binding/issuer/relation,
  * or a verification refusal). It never selects a binding.
+ *
+ * W-BOOT (APR verifier F2): `noBindingRegistered` is true only when the index lists NEITHER a binding
+ * NOR a supersession relation for the project. Supersession rows without any binding row prove lost
+ * binding rows (the index is append-only and every relation names two bindings): the cause is then
+ * ProjectContextBindingIndexInconsistentError, a lasting integrity fault -- never absence. Rows in
+ * other indexes (assessment projection, geometry, bootstrap queue) are their owners' to check.
  */
 export class ProjectContextBindingCurrentUnavailableError extends Error {
   readonly noBindingRegistered: boolean;
@@ -37,6 +43,18 @@ export class ProjectContextBindingCurrentUnavailableError extends Error {
     super("REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE", { cause });
     this.name = "ProjectContextBindingCurrentUnavailableError";
     this.noBindingRegistered = noBindingRegistered;
+  }
+}
+
+export const PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT = "PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT" as const;
+
+/** W-BOOT (APR verifier F2): the binding index contradicts itself -- binding rows are lost. Lasting. */
+export class ProjectContextBindingIndexInconsistentError extends Error {
+  readonly code = PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT;
+
+  constructor(detail: string) {
+    super(`${PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT}: ${detail}`);
+    this.name = "ProjectContextBindingIndexInconsistentError";
   }
 }
 
@@ -97,7 +115,12 @@ export class ProjectContextBindingProvider {
         this.index.listBindingRefs(projectId),
         this.index.listSupersessionRefs(projectId),
       ]);
-      noBindingRegistered = bindingRefs.length === 0;
+      noBindingRegistered = bindingRefs.length === 0 && supersessionRefs.length === 0;
+      if (bindingRefs.length === 0 && supersessionRefs.length > 0) {
+        throw new ProjectContextBindingIndexInconsistentError(
+          `${supersessionRefs.length} supersession relation(s) registered for the project but no binding`,
+        );
+      }
       const bindings = await Promise.all(bindingRefs.map(async (reference) => {
         const binding = validateProjectContextBindingAnyVersion(
           await this.artifactRepository.resolve<AnyProjectContextBindingArtifact>(reference),

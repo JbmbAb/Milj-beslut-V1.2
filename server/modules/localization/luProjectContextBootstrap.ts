@@ -52,6 +52,9 @@ import {
   type BootstrapBindingFaultReason,
 } from './projectContextBootstrapBindingGate';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
+import { PrismaProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
+import { PrismaLocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
+import { countCompletedBootstrapBindingsForProject } from './projectContextBootstrapRequestQueue';
 import {
   getProjectContextBindingIssuerSigner,
   getProjectContextBindingIssuerVerifier,
@@ -210,7 +213,17 @@ export async function executeProjectContextBootstrap(input: {
       // W-BOOT (OD-R1/OD-R2): proceed to issue a binding ONLY when the project provably has none.
       // A binding that exists but cannot be read or verified is a typed fail-closed error, never
       // "no binding yet" -- minting then could give the project a second property root.
-      await assertNoProjectContextBindingRegistered({ resolveCurrentError, projectId: project!.id, index: bindingIndex });
+      await assertNoProjectContextBindingRegistered({
+        resolveCurrentError,
+        projectId: project!.id,
+        index: bindingIndex,
+        // APR verifier F2: rows that exist only once the project had a binding (lost binding rows).
+        traces: [
+          { name: 'assessment projection', count: async (id) => (await new PrismaProjectAssessmentProjectionIndex().listForProject(id)).length },
+          { name: 'localization geometry', count: async (id) => (await new PrismaLocalizationGeometryProjectionIndex().listForProject(id)).length },
+          { name: 'completed bootstrap request', count: countCompletedBootstrapBindingsForProject },
+        ],
+      });
     }
 
     const lookup = (await lookupPropertyByDesignationFromPostgis(

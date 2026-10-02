@@ -51,6 +51,17 @@ export async function enqueueProjectContextBootstrapRequest(input: {
   });
 }
 
+/**
+ * W-BOOT (APR verifier F2): how many bootstrap requests of this project COMPLETED with a binding. A
+ * completed request is a trace that the project had a binding -- the bootstrap never reads an empty
+ * binding index as "no binding" while one remains (lost binding rows, not absence). Read-only.
+ */
+export async function countCompletedBootstrapBindingsForProject(projectId: string): Promise<number> {
+  return prisma.projectContextBootstrapRequest.count({
+    where: { projectId, status: 'COMPLETED', contextBindingArtifactId: { not: null } },
+  });
+}
+
 export async function getBootstrapRequestStatusForProject(projectId: string): Promise<BootstrapRequestRecord | null> {
   return prisma.projectContextBootstrapRequest.findFirst({
     where: { projectId },

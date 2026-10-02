@@ -150,8 +150,17 @@ export const ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE = "ASSESSMENT_PROJECTION
  *    lists is not in the CAS -- not retryable;
  *  - REFUSED: a binding, issuer or supersession failed verification, or the binding graph has no
  *    single head (`refusalCode` is the REJECT_* token) -- not retryable.
+ *  - BINDING_INDEX_INCONSISTENT (W-BOOT, APR verifier F2): binding rows are lost -- the project has
+ *    projection rows (each names a binding) or supersession rows, but no binding is registered --
+ *    not retryable; never the REJECT_..._NOT_FOUND absence.
  */
-export type CurrentBindingFaultReason = "READ_ERROR" | "STORAGE_INTEGRITY_FAULT" | "MISSING_FROM_CAS" | "REFUSED";
+export type CurrentBindingFaultReason = "READ_ERROR" | "STORAGE_INTEGRITY_FAULT" | "MISSING_FROM_CAS" | "REFUSED" | "BINDING_INDEX_INCONSISTENT";
+
+/**
+ * projectContextBindingRuntime.ts PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT, matched by value (not
+ * imported: suites that replace that module with a stub keep working, as for every other code here).
+ */
+const BINDING_INDEX_INCONSISTENT_CODE = "PROJECT_CONTEXT_BINDING_INDEX_INCONSISTENT";
 
 /**
  * W-APR add-on 2: the current binding could not be resolved, so no assessment can be selected. Not a
@@ -179,6 +188,9 @@ export class AssessmentProjectionBindingUnresolvableError extends Error {
 /** W-APR add-on 2: the nature of a resolveCurrent failure, read from its cause (value-based). */
 function currentBindingFault(error: unknown): AssessmentProjectionBindingUnresolvableError {
   const inner = error instanceof Error && error.cause !== undefined ? error.cause : error;
+  if ((inner as { code?: unknown } | null)?.code === BINDING_INDEX_INCONSISTENT_CODE) {
+    return new AssessmentProjectionBindingUnresolvableError("BINDING_INDEX_INCONSISTENT", null, error);
+  }
   if (inner instanceof Error && inner.message.startsWith("Artifact not found: ")) {
     return new AssessmentProjectionBindingUnresolvableError("MISSING_FROM_CAS", null, error);
   }
@@ -280,10 +292,13 @@ export async function resolveCurrentAssessmentProjection(args: {
   try {
     currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
   } catch (error) {
-    // W-APR add-on 2 (OD-R2): only a project with no binding registered at all is absence; a binding
-    // that cannot be read, or that is refused, is a typed fault -- never "no current assessment".
+    // W-APR add-on 2 (OD-R2): a binding that cannot be read, or that is refused, is a typed fault --
+    // never "no current assessment".
+    // W-BOOT (APR verifier F2): nor is "no binding registered" absence HERE: this project has
+    // projection rows (candidates.length > 0 above), and a row is only ever written under a
+    // registered binding, so the binding rows are lost -- a lasting integrity fault, not a 404.
     if ((error as { noBindingRegistered?: unknown } | null)?.noBindingRegistered === true) {
-      throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable");
+      throw new AssessmentProjectionBindingUnresolvableError("BINDING_INDEX_INCONSISTENT", null, error);
     }
     throw currentBindingFault(error);
   }
