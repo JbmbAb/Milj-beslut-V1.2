@@ -46,7 +46,7 @@ import {
   type TransactionalSqlPort,
 } from '../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
 import {
-  RETENTION_TRANSACTION_TIMEOUT_MS,
+  retentionTransactionTimeoutMs,
   committedRetentionDigestPrecondition,
 } from '../../packages/spatial-provider-postgis/src/RetentionDigestPrecondition';
 // U30F F1: every destructive step of this script (promote TRUNCATE, import-staging overwrite,
@@ -83,7 +83,7 @@ function prismaTransactionalSqlPort(): TransactionalSqlPort {
     ...prismaSqlPort(prisma),
     // Same transaction timeout as the TRUNCATE + INSERT promote always had (600 s, unchanged); read from
     // retention-digest-preconditions.v1.json so the F4 lock-budget check and the real timeout cannot drift.
-    transaction: (work) => prisma.$transaction((tx) => work(prismaSqlPort(tx)), { timeout: RETENTION_TRANSACTION_TIMEOUT_MS }),
+    transaction: (work) => prisma.$transaction((tx) => work(prismaSqlPort(tx)), { timeout: retentionTransactionTimeoutMs() }),
   };
 }
 

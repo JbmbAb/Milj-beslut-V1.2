@@ -103,12 +103,22 @@ export function parseRetentionDigestPreconditions(raw: unknown): RetentionDigest
 
 export const RETENTION_DIGEST_PRECONDITIONS_FILE = join(dirname(fileURLToPath(import.meta.url)), "retention-digest-preconditions.v1.json");
 
-export const RETENTION_DIGEST_PRECONDITIONS: RetentionDigestPreconditions = parseRetentionDigestPreconditions(
-  JSON.parse(readFileSync(RETENTION_DIGEST_PRECONDITIONS_FILE, "utf8")),
-);
+let committed: RetentionDigestPreconditions | null = null;
+
+/**
+ * The committed preconditions, read on FIRST USE: a module that merely imports this package (the web
+ * server and the LU runtime do, through index.ts) does no I/O for it. A missing or malformed file
+ * throws, so the promote or backfill that needed it stops (fail-closed).
+ */
+export function committedRetentionDigestPreconditions(): RetentionDigestPreconditions {
+  committed ??= parseRetentionDigestPreconditions(JSON.parse(readFileSync(RETENTION_DIGEST_PRECONDITIONS_FILE, "utf8")));
+  return committed;
+}
 
 /** The replace promote's interactive transaction timeout (unchanged: 600 000 ms), one source with the check. */
-export const RETENTION_TRANSACTION_TIMEOUT_MS: number = RETENTION_DIGEST_PRECONDITIONS.transaction_timeout_ms;
+export function retentionTransactionTimeoutMs(): number {
+  return committedRetentionDigestPreconditions().transaction_timeout_ms;
+}
 
 export type RetentionDigestPreconditionResult =
   | { readonly kind: "NOT_REQUIRED" }
@@ -152,5 +162,5 @@ export function evaluateRetentionDigestPrecondition(
 
 /** The committed preconditions, for a qualified target; the refusing paths call this (no document parameter). */
 export function committedRetentionDigestPrecondition(target: { readonly schema: string; readonly table: string }): RetentionDigestPreconditionResult {
-  return evaluateRetentionDigestPrecondition(`${target.schema}.${target.table}`, RETENTION_DIGEST_PRECONDITIONS);
+  return evaluateRetentionDigestPrecondition(`${target.schema}.${target.table}`, committedRetentionDigestPreconditions());
 }

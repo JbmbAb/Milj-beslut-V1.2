@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   REJECT_RETENTION_DIGEST_EXCEEDS_LOCK_BUDGET,
   REJECT_RETENTION_DIGEST_TIME_UNMEASURED,
-  RETENTION_DIGEST_PRECONDITIONS,
-  RETENTION_TRANSACTION_TIMEOUT_MS,
+  committedRetentionDigestPreconditions,
+  retentionTransactionTimeoutMs,
   committedRetentionDigestPrecondition,
   evaluateRetentionDigestPrecondition,
   parseRetentionDigestPreconditions,
@@ -32,7 +32,7 @@ const MEASURED = {
 
 describe("committed preconditions", () => {
   it("the property layer is UNMEASURED: promote and backfill are refused until a measurement is committed", () => {
-    expect(RETENTION_DIGEST_PRECONDITIONS.targets["env.registerenhetsomradesytor"]).toMatchObject({ status: "UNMEASURED" });
+    expect(committedRetentionDigestPreconditions().targets["env.registerenhetsomradesytor"]).toMatchObject({ status: "UNMEASURED" });
     expect(committedRetentionDigestPrecondition({ schema: "env", table: "registerenhetsomradesytor" })).toMatchObject({
       kind: "UNMET",
       code: REJECT_RETENTION_DIGEST_TIME_UNMEASURED,
@@ -40,7 +40,7 @@ describe("committed preconditions", () => {
   });
 
   it("the promote transaction timeout is unchanged (600 s) and comes from the same file as the check", () => {
-    expect(RETENTION_TRANSACTION_TIMEOUT_MS).toBe(600000);
+    expect(retentionTransactionTimeoutMs()).toBe(600000);
   });
 
   it("layers not named are not affected", () => {
