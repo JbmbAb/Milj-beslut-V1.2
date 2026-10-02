@@ -1391,6 +1391,15 @@ function PrgAnalyzeTool([string]$tool, [string[]]$rest, $ctx, $readSqlFile, [int
             foreach ($a in $rest) { if (PrgIsPgDatasource $a) { $acc.Unres('COMMAND', 'a GDAL tool with a PostgreSQL datasource writes relations the arguments do not name'); break } }
             return $acc
         }
+        # U30F3 M-2: destructive database CLI entry points
+        'DROPDB' {
+            $acc.Unres('DROP_DATABASE', 'dropdb drops a whole database, every protected relation in it')
+            return $acc
+        }
+        'LOADER' {
+            $acc.Unres('COMMAND', 'a loader (pgloader, osm2pgsql, qgis_process) writes relations, or runs SQL, that its arguments do not name statically')
+            return $acc
+        }
         'PRISMA' {
             $words = @($rest | Where-Object { -not $_.StartsWith('-', [StringComparison]::Ordinal) } | ForEach-Object { PrgLower $_ })
             foreach ($sub in $spec.PrismaUnresolvable) {

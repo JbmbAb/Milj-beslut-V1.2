@@ -1613,6 +1613,13 @@ function analyzeTool(tool: string, rest: readonly string[], ctx: SegmentContext,
         out.unresolved.push({ operation: "COMMAND", reason: "a GDAL tool with a PostgreSQL datasource writes relations the arguments do not name" });
       }
       return out;
+    // U30F3 M-2: destructive database CLI entry points
+    case "DROPDB":
+      out.unresolved.push({ operation: "DROP_DATABASE", reason: "dropdb drops a whole database, every protected relation in it" });
+      return out;
+    case "LOADER":
+      out.unresolved.push({ operation: "COMMAND", reason: "a loader (pgloader, osm2pgsql, qgis_process) writes relations, or runs SQL, that its arguments do not name statically" });
+      return out;
     case "PRISMA": {
       const words = rest.filter((a) => !a.startsWith("-")).map(asciiLower);
       for (const sub of spec.prisma.unresolvable_subcommands) {

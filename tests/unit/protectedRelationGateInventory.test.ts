@@ -71,7 +71,7 @@ const LOCKS = {
   gateImplementationSha256: 'e80cfdb8d646983e6dc0b04cd6b370d775969a5c0e5e3cae6abf2576d119063d',
   pathExclusionsSha256: '4becd2b0307d48979f6cd9428aa35b4fff76df21c9bcd571effefaf2a67583f7',
   unscannedSha256: 'aed544c662b858165e67e296b7c2fad17250d2dc1dc766b9409058498c2eb438',
-  testSourcesSha256: '0caaf043853efef0e3185bfc91cc7cae86c9f0621f4f07e7cafeb3caa753ebac',
+  testSourcesSha256: 'b3924ebbf6bd8a6ea250420c30faa11f4be09877f1e89a94b4dac080f521ac68',
   retiredCount: 18,
   // U30F2 LOW (verifier L3): the retired list is pinned by content too -- an entry swapped for another
   // with the same count, or an entry's relations, justification or replacement changed, fails here.

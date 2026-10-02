@@ -81,7 +81,13 @@
       "gdal_polygonize.py": "GDAL",
       "gdal_merge.py": "GDAL",
       "gdal": "GDAL",
-      "prisma": "PRISMA"
+      "prisma": "PRISMA",
+      "ogrmerge.py": "OGR2OGR",
+      "ogrmerge": "OGR2OGR",
+      "dropdb": "DROPDB",
+      "pgloader": "LOADER",
+      "osm2pgsql": "LOADER",
+      "qgis_process": "LOADER"
     },
     "shell_wrappers": {
       "bash": ["-c"],

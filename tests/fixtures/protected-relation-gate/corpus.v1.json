@@ -221,7 +221,7 @@
   {"id": "u30f3-m2-pgloader-load-file", "kind": "command", "text": "pgloader wipe.load", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
   {"id": "u30f3-m2-osm2pgsql", "kind": "command", "text": "osm2pgsql --drop --slim -d gis planet.osm.pbf", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
   {"id": "u30f3-m2-qgis-process", "kind": "command", "text": "qgis_process run native:postgisexecutesql --DATABASE=lm --SQL=x", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
-  {"id": "u30f3-m2-ogrmerge-pg", "kind": "command", "text": "ogrmerge.py -f PostgreSQL -o PG:dbname=x a.shp -nln sgu_well -overwrite_ds", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
+  {"id": "u30f3-m2-ogrmerge-pg", "kind": "command", "text": "ogrmerge.py -f PostgreSQL -o PG:dbname=x a.shp -nln sgu_well -overwrite_ds", "expect": {"verdict": "PROTECTED", "protected": ["OGR2OGR_WRITE sgu_well"]}},
   {"id": "u30f3-m2-control-ogrmerge-file", "kind": "command", "text": "ogrmerge.py -f GPKG -o out.gpkg a.shp b.shp", "expect": {"verdict": "ALLOWED"}},
   {"id": "u30f3-m2-control-createdb", "kind": "command", "text": "createdb -U postgres scratch_db", "expect": {"verdict": "ALLOWED"}}
 ]

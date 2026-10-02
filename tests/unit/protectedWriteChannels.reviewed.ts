@@ -49,11 +49,17 @@ export const GATE_IMPLEMENTATION: readonly { readonly file: string; readonly jus
  * Test sources: executed only by the test runner, whose database access is held to the disposable test
  * database by TEST-DB-GUARD (W-TDG). One rule, never per file. A script in a directory that merely has a
  * test-like name (scripts/test/) is NOT a test source.
+ *
+ * U30F3 M-2 (U30F2-VERIFICATION V72, V73): a name an author can choose anywhere no longer exempts a file. *.spec.*
+ * outside the test trees (no vitest project runs them; playwright runs tests/e2e) and directories named __tests__/
+ * are scanned. KNOWN LIMIT (owner decision): the test trees and *.test.* files stay exempt -- an operator script
+ * named *.test.ts or put under tests/ and run with tsx is not scanned (V74); the database-level protection is the
+ * layer that holds there.
  */
 export const TEST_SOURCES = {
-  pattern: String.raw`^(tests|packages/[^/]+/tests)/|(^|/)__tests__/|\.(test|spec)\.[cm]?[jt]sx?$`,
+  pattern: String.raw`^(tests|packages/[^/]+/tests)/|\.test\.[cm]?[jt]sx?$`,
   justification:
-    "The repository test trees and *.test / *.spec files run only under vitest/playwright with TEST-DB-GUARD; their protected writes (fixtures, setup) hit the disposable test database.",
+    "The repository test trees and *.test files run under vitest/playwright with TEST-DB-GUARD; their protected writes (fixtures, setup) hit the disposable test database. *.spec.* outside tests/ and __tests__/ directories are scanned (U30F3 M-2).",
 } as const;
 
 /** Paths the walk does not enter. Generated, vendored, or other checkouts of this repository. */

@@ -1698,6 +1698,13 @@ def _analyze_tool(tool, rest, ctx, read_sql_file, depth, spec):
         if any(_is_pg_datasource(a, spec) for a in rest):
             unresolved.append(('COMMAND', 'a GDAL tool with a PostgreSQL datasource writes relations the arguments do not name'))
         return targets, unresolved
+    # U30F3 M-2: destructive database CLI entry points
+    if tool == 'DROPDB':
+        unresolved.append(('DROP_DATABASE', 'dropdb drops a whole database, every protected relation in it'))
+        return targets, unresolved
+    if tool == 'LOADER':
+        unresolved.append(('COMMAND', 'a loader (pgloader, osm2pgsql, qgis_process) writes relations, or runs SQL, that its arguments do not name statically'))
+        return targets, unresolved
     if tool == 'PRISMA':
         words = [_ascii_lower(a) for a in rest if not a.startswith('-')]
         for sub in c['prisma']['unresolvable_subcommands']:
