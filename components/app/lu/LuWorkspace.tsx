@@ -796,10 +796,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     }
   };
 
-  // LU-REPORT-EXPORT-UI-V1 / DEMO M2b item 2: the export endpoint takes only the project and returns
-  // no assessment id, so right before exporting the project's current assessment is checked to
-  // still be the displayed one. (A residual window between the check and the export remains until
-  // the endpoint accepts or returns the assessment id -- a server change.)
+  // LU-REPORT-EXPORT-UI-V1 / DEMO M2b item 2: right before exporting, the project's current assessment
+  // is checked to still be the displayed one (a plain-Swedish answer without a request). W-M2d item 9:
+  // the export itself also names the displayed assessment (U20-D `?assessmentArtifactId=`), so the
+  // former window between that check and the export is closed by the server (409 on a mismatch).
   const exportPdf = async () => {
     if (exportingPdf) return; // duplicate-click guard
     const projectId = getActiveProjectId();
@@ -828,8 +828,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         );
         return;
       }
+      // W-M2d item 9 (U20-D): the export is bound to the DISPLAYED assessment id; the server refuses
+      // (409 ASSESSMENT_ID_MISMATCH) instead of exporting any other assessment.
       const blob = await callApi<Blob>(
-        `/api/localization/${encodeURIComponent(projectId)}/export-assessment-pdf`,
+        `/api/localization/${encodeURIComponent(projectId)}/export-assessment-pdf?assessmentArtifactId=${encodeURIComponent(shownId)}`,
         { method: 'GET' },
       );
       const url = URL.createObjectURL(blob);
@@ -868,7 +870,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         mismatches?: readonly { code: string; detail: string }[];
         notices?: unknown;
         outcome_sv?: unknown;
-      }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, { method: 'POST' });
+      }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, {
+        method: 'POST',
+        // W-M2d item 9 (U20-D): bound to the DISPLAYED assessment; any other current one is refused (409).
+        body: { assessmentArtifactId: shownId },
+      });
       const verifiedId = typeof result?.assessmentArtifactId === 'string' ? result.assessmentArtifactId : null;
       const mismatches = Array.isArray(result?.mismatches) ? result.mismatches : [];
       const notices = parseVerifyNotices(result?.notices);

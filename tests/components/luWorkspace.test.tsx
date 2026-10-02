@@ -391,8 +391,9 @@ describe('LuWorkspace', () => {
     await renderWithAssessedResult(user);
     await user.click(screen.getByTestId('lu-export-pdf'));
 
+    // W-M2d item 9: the export names the displayed assessment.
     expect(callApi).toHaveBeenCalledWith(
-      '/api/localization/proj-1/export-assessment-pdf',
+      '/api/localization/proj-1/export-assessment-pdf?assessmentArtifactId=assess-export-abc',
       expect.objectContaining({ method: 'GET' }),
     );
     expect(createObjectURL).toHaveBeenCalled();
@@ -2163,6 +2164,41 @@ describe('LuWorkspace W-M2d', () => {
     }
     // An unqualified checked no-hit keeps its own (green) state colour.
     expect(screen.getByTestId('lu-check-state-water')).toHaveStyle({ color: '#6EE7B7' });
+  });
+
+  it('item 9: export and the reproducibility check name the DISPLAYED assessment; a server "not current" answer is said plainly', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake-url'), revokeObjectURL: vi.fn() });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    mockM2b({
+      currentAssessment: () => persisted('assessment-shown'),
+      verify: () => ({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-shown', mismatches: [], notices: [] }),
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-verify-assessment'));
+    await screen.findByTestId('lu-verify-result-pass');
+    expect(callApi).toHaveBeenCalledWith('/api/localization/proj-1/verify-assessment', {
+      method: 'POST',
+      body: { assessmentArtifactId: 'assessment-shown' },
+    });
+    await user.click(screen.getByTestId('lu-export-pdf'));
+    await waitFor(() =>
+      expect(callApi).toHaveBeenCalledWith(
+        '/api/localization/proj-1/export-assessment-pdf?assessmentArtifactId=assessment-shown',
+        expect.objectContaining({ method: 'GET' }),
+      ),
+    );
+    // The server refuses an export of an assessment that is no longer current (409 ASSESSMENT_ID_MISMATCH).
+    const base = callApi.getMockImplementation()!;
+    callApi.mockImplementation((url: string, o: unknown) =>
+      url.includes('/export-assessment-pdf')
+        ? Promise.reject(apiError(409, 'Den begärda bedömningen är inte projektets aktuella styrda bedömning.', { code: 'ASSESSMENT_ID_MISMATCH', failureClass: 'ASSESSMENT_NOT_CURRENT' }))
+        : base(url, o),
+    );
+    await user.click(screen.getByTestId('lu-export-pdf'));
+    expect(await screen.findByTestId('lu-export-pdf-error-message')).toHaveTextContent('inte längre projektets aktuella bedömning');
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
