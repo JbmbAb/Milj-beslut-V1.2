@@ -22,6 +22,24 @@ type AnyProjectContextBindingSupersessionArtifact = ProjectContextBindingSuperse
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
 import { verifyProjectContextBindingArtifactAuthority, verifyProjectContextBindingSupersessionAuthority } from "./projectContextBindingAuthority";
 
+/**
+ * W-APR (OD-R2; U20CDF2 verifier H1, add-on 2): resolveCurrent's one refusal. The message is exactly
+ * the REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE it always was, so every existing caller
+ * behaves as before; what it now also carries lets a caller tell genuine absence from a fault:
+ * `noBindingRegistered` is true only when the index lists no binding at all for the project, and
+ * `cause` is the original failure (an unreadable index, a storage fault on a binding/issuer/relation,
+ * or a verification refusal). It never selects a binding.
+ */
+export class ProjectContextBindingCurrentUnavailableError extends Error {
+  readonly noBindingRegistered: boolean;
+
+  constructor(noBindingRegistered: boolean, cause: unknown) {
+    super("REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE", { cause });
+    this.name = "ProjectContextBindingCurrentUnavailableError";
+    this.noBindingRegistered = noBindingRegistered;
+  }
+}
+
 export class ProjectContextBindingProvider {
   constructor(
     private readonly artifactRepository: ArtifactRepositoryPort,
@@ -70,6 +88,7 @@ export class ProjectContextBindingProvider {
 
   /** Resolves the verified graph head; lookup projection only supplies candidate refs. */
   async resolveCurrent(projectId: string): Promise<AnyProjectContextBindingArtifact> {
+    let noBindingRegistered = false;
     try {
       if (!this.index.listBindingRefs || !this.index.listSupersessionRefs) {
         throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE");
@@ -78,6 +97,7 @@ export class ProjectContextBindingProvider {
         this.index.listBindingRefs(projectId),
         this.index.listSupersessionRefs(projectId),
       ]);
+      noBindingRegistered = bindingRefs.length === 0;
       const bindings = await Promise.all(bindingRefs.map(async (reference) => {
         const binding = validateProjectContextBindingAnyVersion(
           await this.artifactRepository.resolve<AnyProjectContextBindingArtifact>(reference),
@@ -102,8 +122,8 @@ export class ProjectContextBindingProvider {
         return relation;
       }));
       return resolveCurrentProjectContextBindingHead({ projectId, bindings, supersessions });
-    } catch {
-      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE");
+    } catch (error) {
+      throw new ProjectContextBindingCurrentUnavailableError(noBindingRegistered, error);
     }
   }
 }

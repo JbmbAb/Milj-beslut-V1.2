@@ -139,6 +139,59 @@ export class AssessmentProjectionCandidateUnverifiableError extends Error {
   }
 }
 
+export const ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE = "ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE" as const;
+
+/**
+ * W-APR add-on 2 (U20CDF2 verifier H1): why the current ProjectContextBinding could not be resolved,
+ * when the project DOES have bindings (no binding at all stays REJECT_..._NOT_FOUND, genuine absence):
+ *  - READ_ERROR: the binding index, a binding, its issuer or a relation could not be read for a reason
+ *    of unknown persistence (EIO, a lock, the index database down) -- retryable;
+ *  - STORAGE_INTEGRITY_FAULT / MISSING_FROM_CAS: a lasting storage fault, or an artifact the index
+ *    lists is not in the CAS -- not retryable;
+ *  - REFUSED: a binding, issuer or supersession failed verification, or the binding graph has no
+ *    single head (`refusalCode` is the REJECT_* token) -- not retryable.
+ */
+export type CurrentBindingFaultReason = "READ_ERROR" | "STORAGE_INTEGRITY_FAULT" | "MISSING_FROM_CAS" | "REFUSED";
+
+/**
+ * W-APR add-on 2: the current binding could not be resolved, so no assessment can be selected. Not a
+ * REJECT_* error (callers map REJECT_* absence to 404). The message is server-side detail.
+ */
+export class AssessmentProjectionBindingUnresolvableError extends Error {
+  readonly code = ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE;
+  readonly reason: CurrentBindingFaultReason;
+  readonly retryable: boolean;
+  readonly refusalCode: string | null;
+
+  constructor(reason: CurrentBindingFaultReason, refusalCode: string | null, cause: unknown) {
+    super(
+      `${ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE}: the current ProjectContextBinding could not be resolved ` +
+        `(${reason}${refusalCode ? `: ${refusalCode}` : ""}); no assessment is selected`,
+      { cause },
+    );
+    this.name = "AssessmentProjectionBindingUnresolvableError";
+    this.reason = reason;
+    this.retryable = reason === "READ_ERROR";
+    this.refusalCode = refusalCode;
+  }
+}
+
+/** W-APR add-on 2: the nature of a resolveCurrent failure, read from its cause (value-based). */
+function currentBindingFault(error: unknown): AssessmentProjectionBindingUnresolvableError {
+  const inner = error instanceof Error && error.cause !== undefined ? error.cause : error;
+  if (inner instanceof Error && inner.message.startsWith("Artifact not found: ")) {
+    return new AssessmentProjectionBindingUnresolvableError("MISSING_FROM_CAS", null, error);
+  }
+  if (isPersistentStorageFault(inner)) {
+    return new AssessmentProjectionBindingUnresolvableError("STORAGE_INTEGRITY_FAULT", null, error);
+  }
+  const refusal = inner instanceof Error ? /^(REJECT_[A-Z0-9_]+)/.exec(inner.message)?.[1] : undefined;
+  if (refusal) {
+    return new AssessmentProjectionBindingUnresolvableError("REFUSED", refusal, error);
+  }
+  return new AssessmentProjectionBindingUnresolvableError("READ_ERROR", null, error);
+}
+
 /** Classifies a failed CAS read of a candidate (OD-R2: only a read of unknown persistence is retryable). */
 function candidateReadFault(error: unknown, assessmentArtifactId: string): AssessmentCandidateFault {
   if (error instanceof Error && error.message === `Artifact not found: ${assessmentArtifactId}`) {
@@ -226,8 +279,13 @@ export async function resolveCurrentAssessmentProjection(args: {
   let currentBinding: { readonly artifact_id: string; readonly payload?: { readonly project_context_ref?: ArtifactReference } };
   try {
     currentBinding = await args.currentBindingProvider.resolveCurrent(args.projectId);
-  } catch {
-    throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable");
+  } catch (error) {
+    // W-APR add-on 2 (OD-R2): only a project with no binding registered at all is absence; a binding
+    // that cannot be read, or that is refused, is a typed fault -- never "no current assessment".
+    if ((error as { noBindingRegistered?: unknown } | null)?.noBindingRegistered === true) {
+      throw new Error("REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: current binding unavailable");
+    }
+    throw currentBindingFault(error);
   }
   // The verified current binding's own context (W-APR criterion (2)); undefined only for a provider
   // stand-in that does not return the binding artifact, in which case nothing is proven by context.

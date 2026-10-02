@@ -28,7 +28,11 @@ import {
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
-import { ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE, resolveCurrentAssessmentProjection } from './assessmentProjection';
+import {
+  ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE,
+  ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE,
+  resolveCurrentAssessmentProjection,
+} from './assessmentProjection';
 import type { CurrentLocalizationGeometry } from './localizationGeometryProjection';
 import {
   LocalizationGeometryCurrentnessError,
@@ -521,7 +525,8 @@ type CurrentAssessmentFailure =
   | { ok: false; status: number; error: string }
   | LocalizationGeometryCurrentnessFailureResponse
   | AssessmentIdMismatchFailure
-  | AssessmentReadFailure;
+  | AssessmentReadFailure
+  | AssessmentSelectionRefusal;
 
 /**
  * U20CDF2 (coordinator add-on 2; OD-R2: a CAS/read error is a technical error, never "missing").
@@ -544,6 +549,12 @@ type CurrentAssessmentFailure =
  *    lost object, missing index entry, torn entry, corrupt bytes, tampered content, another artifact
  *    under the id, an inconsistent projection row -- not retryable.
  * The text says that an older assessment is never shown in its place.
+ *
+ * W-APR add-on 2 (U20CDF2 verifier H1): the current binding could not be resolved
+ * (AssessmentProjectionBindingUnresolvableError) -- CURRENT_BINDING_READ_ERROR (failureClass
+ * ASSESSMENT_RESOLUTION_ERROR, retryable) or CURRENT_BINDING_INTEGRITY_FAULT (failureClass
+ * ASSESSMENT_STORAGE_INTEGRITY_FAULT, not retryable); a binding that fails verification is a
+ * refusal, see AssessmentSelectionRefusal.
  */
 export interface AssessmentReadFailure {
   ok: false;
@@ -556,9 +567,41 @@ export interface AssessmentReadFailure {
     | 'ASSESSMENT_STORAGE_INTEGRITY_FAULT'
     | 'ASSESSMENT_RESOLUTION_ERROR'
     | 'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR'
-    | 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT';
+    | 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT'
+    | 'CURRENT_BINDING_READ_ERROR'
+    | 'CURRENT_BINDING_INTEGRITY_FAULT';
   retryable: boolean;
 }
+
+/**
+ * W-APR add-on 3 (U20CDF2 verifier H1): a REJECT_* of the selection is classified as what it is --
+ * 404 "no current assessment" is kept ONLY for genuine absence (REJECT_ASSESSMENT_PROJECTION_NOT_FOUND
+ * and _NOT_CURRENT: no row, no row for the current binding/point, no binding registered, or every row
+ * proven not current by its own verified content). Every other refusal is not absence:
+ *  - REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT -> 409 ASSESSMENT_CURRENT_AMBIGUOUS (several valid
+ *    assessments, none designated current);
+ *  - REJECT_LOCALIZATION_ASSESSMENT* (validateLocalizationAssessmentContractVersion) -> 424
+ *    ASSESSMENT_CONTRACT_INVALID (the stored assessment follows no accepted contract);
+ *  - a binding that fails verification (AssessmentProjectionBindingUnresolvableError, REFUSED) -> 409
+ *    CURRENT_BINDING_REFUSED;
+ *  - any other REJECT_* -> 409 ASSESSMENT_SELECTION_REFUSED.
+ * `reasonCode` is the stable REJECT_* token (never the message text); none is retryable.
+ */
+export interface AssessmentSelectionRefusal {
+  ok: false;
+  status: 409 | 424;
+  error: string;
+  code: 'ASSESSMENT_CURRENT_UNRESOLVED' | 'ASSESSMENT_CONTRACT_REFUSED';
+  failureClass: 'ASSESSMENT_CURRENT_AMBIGUOUS' | 'ASSESSMENT_CONTRACT_INVALID' | 'CURRENT_BINDING_REFUSED' | 'ASSESSMENT_SELECTION_REFUSED';
+  reasonCode: string;
+  retryable: false;
+}
+
+/** The REJECT_* tokens of the selection that mean genuine absence -- the only ones answered with 404. */
+const ASSESSMENT_ABSENCE_REFUSALS: ReadonlySet<string> = new Set([
+  'REJECT_ASSESSMENT_PROJECTION_NOT_FOUND',
+  'REJECT_ASSESSMENT_PROJECTION_NOT_CURRENT',
+]);
 
 const NO_CURRENT_ASSESSMENT_ERROR = 'No current governed LU assessment is available for this project.';
 
@@ -581,8 +624,62 @@ function isCurrentAssessmentCandidateUnverifiable(error: unknown): error is { co
   );
 }
 
-/** A failure of resolveCurrentAssessmentProjection: its own REJECT_* refusals are absence (404). */
-function assessmentResolutionFailure(error: unknown): { ok: false; status: number; error: string } | AssessmentReadFailure {
+/** W-APR add-on 2: the binding-resolution fault, by its stable code (value-based). */
+function isCurrentBindingUnresolvable(error: unknown): error is { reason: string; retryable: boolean; refusalCode: string | null } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === ASSESSMENT_PROJECTION_BINDING_UNRESOLVABLE &&
+    typeof (error as { reason?: unknown }).reason === 'string'
+  );
+}
+
+function selectionRefusal(
+  status: 409 | 424,
+  code: AssessmentSelectionRefusal['code'],
+  failureClass: AssessmentSelectionRefusal['failureClass'],
+  reasonCode: string,
+  error: string,
+): AssessmentSelectionRefusal {
+  return { ok: false, status, error, code, failureClass, reasonCode, retryable: false };
+}
+
+/**
+ * A failure of resolveCurrentAssessmentProjection. 404 only for genuine absence (the projection's
+ * NOT_FOUND / NOT_CURRENT); a technical or integrity fault is 503, any other REJECT_* is a refusal
+ * (409/424) -- see AssessmentReadFailure and AssessmentSelectionRefusal.
+ */
+function assessmentResolutionFailure(error: unknown): { ok: false; status: number; error: string } | AssessmentReadFailure | AssessmentSelectionRefusal {
+  if (isCurrentBindingUnresolvable(error)) {
+    if (error.reason === 'REFUSED') {
+      return selectionRefusal(
+        409,
+        'ASSESSMENT_CURRENT_UNRESOLVED',
+        'CURRENT_BINDING_REFUSED',
+        error.refusalCode ?? 'REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE',
+        'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning underkändes vid verifieringen ' +
+          '(utfärdare, signatur, innehåll eller ersättningskedja). Ingen bedömning visas, och en äldre bedömning visas aldrig ' +
+          'i stället. Felet löses inte av ett nytt försök. Kontakta systemets administratör.',
+      );
+    }
+    return error.retryable
+      ? assessmentReadFailure(
+          'ASSESSMENT_RESOLUTION_ERROR',
+          true,
+          'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas (tekniskt fel). ' +
+            'Den saknas inte, men ingen bedömning kan visas nu. En äldre bedömning visas aldrig i stället. ' +
+            retrySentenceSv(true),
+          'CURRENT_BINDING_READ_ERROR',
+        )
+      : assessmentReadFailure(
+          'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
+          false,
+          'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas ur CAS ' +
+            '(bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+            `${retrySentenceSv(false)} Kontakta systemets administratör.`,
+          'CURRENT_BINDING_INTEGRITY_FAULT',
+        );
+  }
   if (isCurrentAssessmentCandidateUnverifiable(error)) {
     return error.retryable
       ? assessmentReadFailure(
@@ -602,8 +699,41 @@ function assessmentResolutionFailure(error: unknown): { ok: false; status: numbe
           'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
         );
   }
-  if (error instanceof Error && /^REJECT_[A-Z0-9_]+/.test(error.message)) {
-    return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
+  const refusal = error instanceof Error ? /^(REJECT_[A-Z0-9_]+)/.exec(error.message)?.[1] : undefined;
+  if (refusal !== undefined) {
+    if (ASSESSMENT_ABSENCE_REFUSALS.has(refusal)) {
+      return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
+    }
+    if (refusal === 'REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT') {
+      return selectionRefusal(
+        409,
+        'ASSESSMENT_CURRENT_UNRESOLVED',
+        'ASSESSMENT_CURRENT_AMBIGUOUS',
+        refusal,
+        'Projektets aktuella bedömning kan inte fastställas: det finns flera giltiga bedömningar för den aktuella bindningen ' +
+          'och platsen, och ingen av dem är utpekad som den aktuella. Ingen av dem visas som aktuell. Ett nytt försök ändrar ' +
+          'inte detta.',
+      );
+    }
+    if (refusal.startsWith('REJECT_LOCALIZATION_ASSESSMENT')) {
+      return selectionRefusal(
+        424,
+        'ASSESSMENT_CONTRACT_REFUSED',
+        'ASSESSMENT_CONTRACT_INVALID',
+        refusal,
+        'Projektets aktuella bedömning kan inte visas: den följer inget godkänt bedömningskontrakt (okänd eller ogiltig ' +
+          'kontraktsversion). En äldre bedömning visas aldrig i stället. ' +
+          `${retrySentenceSv(false)} Kontakta systemets administratör.`,
+      );
+    }
+    return selectionRefusal(
+      409,
+      'ASSESSMENT_CURRENT_UNRESOLVED',
+      'ASSESSMENT_SELECTION_REFUSED',
+      refusal,
+      'Projektets aktuella bedömning kan inte fastställas: urvalet av den aktuella bedömningen underkändes. Ingen bedömning ' +
+        'visas, och en äldre bedömning visas aldrig i stället. Felet löses inte av ett nytt försök.',
+    );
   }
   return assessmentReadFailure(
     'ASSESSMENT_RESOLUTION_ERROR',

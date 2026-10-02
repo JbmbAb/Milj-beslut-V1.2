@@ -628,7 +628,8 @@ describe('W-APR add-on 2: the current binding damaged on disk -> a typed technic
     ['index entry unreadable (EISDIR)', BINDING_TRANSIENT],
     ['index entry torn (half-written)', BINDING_LASTING],
     ['bytes corrupted', BINDING_LASTING],
-    ['content tampered (valid CAS object)', bindingRefused('REJECT_PROJECT_CONTEXT_BINDING_V2')],
+    // The binding fixture carries no binding_contract_version, so the V1 validator refuses it.
+    ['content tampered (valid CAS object)', bindingRefused('REJECT_PROJECT_CONTEXT_BINDING')],
   ])('the binding: %s -> %j on read-back, PDF and verify; no assessment presented', async (sabotage, expected) => {
     const f = await buildFixture();
     await f.persistAssessment(f.a, 'A');
