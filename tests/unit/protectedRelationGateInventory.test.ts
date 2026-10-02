@@ -627,6 +627,42 @@ describe('canaries: the fold cap fails closed (U30F3 H-1)', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// U30F3 M-2 (U30F2-VERIFICATION M-2): destructive CLI entry points and test-named scripts
+// ---------------------------------------------------------------------------------------------
+
+describe('canaries: destructive CLI entry points and attacker-chosen test names (U30F3 M-2)', () => {
+  it.each([
+    ['V53: a .cmd running dropdb of the whole database', 'scripts/rogue/u30f3-dropdb.cmd', '@echo off\r\ndropdb -h localhost -U postgres miljobeslut\r\n'],
+    ['dropdb through execSync (TS)', 'scripts/rogue/u30f3-dropdb.ts', "import { execSync } from 'node:child_process';\nexecSync('dropdb --if-exists miljobeslut');\n"],
+    ['V54: pgloader --with truncate into env.sgu_well (sh)', 'scripts/rogue/u30f3-pgloader.sh', '#!/bin/sh\npgloader --with truncate a.csv "postgresql:///db?tablename=env.sgu_well"\n'],
+    ['pgloader with a load file (PowerShell)', 'scripts/rogue/u30f3-pgloader.ps1', '& pgloader wipe.load\n'],
+    ['osm2pgsql --drop (Python subprocess)', 'scripts/rogue/u30f3-osm.py', "import subprocess\nsubprocess.run(['osm2pgsql', '--drop', '-d', 'gis', 'planet.osm.pbf'], check=True)\n"],
+    ['qgis_process running SQL against PostGIS (sh)', 'scripts/rogue/u30f3-qgis.sh', '#!/bin/sh\nqgis_process run native:postgisexecutesql --DATABASE=lm --SQL="TRUNCATE x"\n'],
+    ['ogrmerge.py into PostgreSQL (sh)', 'scripts/rogue/u30f3-ogrmerge.sh', '#!/bin/sh\nogrmerge.py -f PostgreSQL -o PG:dbname=x a.shp -nln sgu_well -overwrite_ds\n'],
+  ])('%s -> caught', (_label, file, content) => {
+    expect(isScannedPath(file), file).toBe(true);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
+  });
+
+  it('control: ogrmerge.py into a GeoPackage file and createdb pass', () => {
+    expect(problemsOf('scripts/rogue/u30f3-ogrmerge-ok.sh', '#!/bin/sh\nogrmerge.py -f GPKG -o out.gpkg a.shp b.shp\ncreatedb scratch_db\n')).toEqual([]);
+  });
+
+  it.each([
+    ['V72: an operator script named *.spec.ts (run with tsx, outside every test runner)', 'scripts/db/purge-layer.spec.ts'],
+    ['V73: an operator script under a directory named __tests__/', 'scripts/__tests__/purge.ts'],
+    ['a *.spec.mjs next to server code', 'server/services/purge.spec.mjs'],
+  ])('%s is scanned and caught', (_label, file) => {
+    expect(isScannedPath(file), `${file} must be scanned: the scanner never exempts a file by a name an author can choose`).toBe(true);
+    expect(problemsOf(file, `${PG_POOL}await pool.query('TRUNCATE env.sgu_well');\n`).length).toBeGreaterThan(0);
+  });
+
+  it('KNOWN LIMIT (pinned, owner decision): the test trees and *.test.* files stay test sources -- an operator script named *.test.ts or placed under tests/ is not scanned (V74); TEST-DB-GUARD holds them only when vitest runs them', () => {
+    for (const file of ['tests/ops/purge.ts', 'packages/spatial-provider-postgis/tests/helper.ts', 'scripts/db/purge.test.ts']) expect(isScannedPath(file), file).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Generated violations: languages x channels x relations x obfuscations x paths
 // ---------------------------------------------------------------------------------------------
 

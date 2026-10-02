@@ -212,5 +212,16 @@
   {"id": "u30f3-m1-control-view-unprotected", "kind": "sql", "text": "CREATE VIEW public.v AS SELECT j.id, st_area(j.geom) AS sgu_well FROM public.jobs j WHERE j.id > 1", "expect": {"verdict": "ALLOWED"}},
   {"id": "u30f3-m1-control-view-qualified-column", "kind": "sql", "text": "CREATE VIEW public.v AS SELECT e.sgu_well, e.geom::text FROM public.e e", "expect": {"verdict": "ALLOWED"}},
   {"id": "u30f3-m1-control-attach-unprotected", "kind": "sql", "text": "ALTER TABLE public.p ATTACH PARTITION public.p_2026 FOR VALUES FROM (1) TO (2)", "expect": {"verdict": "ALLOWED"}},
-  {"id": "u30f3-m1-control-rule-on-insert-unchanged", "kind": "sql", "text": "CREATE RULE r AS ON INSERT TO public.x DO ALSO INSERT INTO public.log SELECT * FROM env.sgu_well", "expect": {"verdict": "ALLOWED"}}
+  {"id": "u30f3-m1-control-rule-on-insert-unchanged", "kind": "sql", "text": "CREATE RULE r AS ON INSERT TO public.x DO ALSO INSERT INTO public.log SELECT * FROM env.sgu_well", "expect": {"verdict": "ALLOWED"}},
+  {"id": "u30f3-m2-dropdb", "kind": "command", "text": "dropdb -h localhost -U postgres miljobeslut", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP_DATABASE"]}},
+  {"id": "u30f3-m2-dropdb-exe-path", "kind": "command", "text": "\"C:\\Program Files\\PostgreSQL\\16\\bin\\dropdb.exe\" --if-exists miljobeslut", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP_DATABASE"]}},
+  {"id": "u30f3-m2-dropdb-argv", "kind": "argv", "args": ["dropdb", "--if-exists", "miljobeslut"], "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP_DATABASE"]}},
+  {"id": "u30f3-m2-dropdb-docker-exec", "kind": "command", "text": "docker exec -i miljobeslut-postgres dropdb -U miljobeslut miljobeslut", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP_DATABASE"]}},
+  {"id": "u30f3-m2-pgloader-truncate", "kind": "command", "text": "pgloader --with truncate a.csv \"postgresql:///db?tablename=env.sgu_well\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
+  {"id": "u30f3-m2-pgloader-load-file", "kind": "command", "text": "pgloader wipe.load", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
+  {"id": "u30f3-m2-osm2pgsql", "kind": "command", "text": "osm2pgsql --drop --slim -d gis planet.osm.pbf", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
+  {"id": "u30f3-m2-qgis-process", "kind": "command", "text": "qgis_process run native:postgisexecutesql --DATABASE=lm --SQL=x", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
+  {"id": "u30f3-m2-ogrmerge-pg", "kind": "command", "text": "ogrmerge.py -f PostgreSQL -o PG:dbname=x a.shp -nln sgu_well -overwrite_ds", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["COMMAND"]}},
+  {"id": "u30f3-m2-control-ogrmerge-file", "kind": "command", "text": "ogrmerge.py -f GPKG -o out.gpkg a.shp b.shp", "expect": {"verdict": "ALLOWED"}},
+  {"id": "u30f3-m2-control-createdb", "kind": "command", "text": "createdb -U postgres scratch_db", "expect": {"verdict": "ALLOWED"}}
 ]
