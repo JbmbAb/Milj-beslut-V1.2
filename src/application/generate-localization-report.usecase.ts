@@ -873,15 +873,38 @@ export function sanitizeGovernedErrorMessage(message: string): string {
  * layer whose governed query failed (SpatialLayerUnavailable.diagnostic) may name a connection
  * string, a credential or a token; those are masked before the text reaches the server log, and it
  * is truncated. It is never put in a response, an artifact, a PDF or the kernel input.
+ *
+ * U20CDF2 (U20CDF verification G4; owner: internal logging may be rich but never leaks a secret).
+ * Masked, in this order:
+ *  - PEM private key blocks;
+ *  - URI userinfo up to the LAST "@" of the token (a password may contain "@", "/" or %-escapes; a
+ *    token may stand in the user part);
+ *  - Authorization / Proxy-Authorization values, whatever their scheme (Basic, Bearer, ...);
+ *  - bare "Bearer <token>" / "Basic <credentials>" and bare JWTs;
+ *  - CLI flags "--password <value>" (and passwd / pwd / token / secret / api-key);
+ *  - any key that CONTAINS password / passwd / pwd / secret / token / api key / credential /
+ *    private key / access key -- env forms (PGPASSWORD=, DB_PASSWORD:, MIMERS_API_TOKEN=,
+ *    AWS_SECRET_ACCESS_KEY=), JSON and single-quoted fields ("password":"...", 'secret': '...'),
+ *    libpq (password='...') and query strings (?api_key=...) -- with a quoted or bare value.
+ * Over-masking is accepted; codes, hosts and relation names stay for diagnosis.
  */
 const DIAGNOSTIC_MAX_LENGTH = 1000;
+const SECRET_KEY =
+  /[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|credential|private[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*/
+    .source;
+const SECRET_VALUE = /(?:"[^"]*"|'[^']*'|[^\s,;}"']+)/.source;
+const SECRET_KEY_VALUE = new RegExp(`(${SECRET_KEY})(["']?)(\\s*[=:]\\s*)${SECRET_VALUE}`, 'gi');
 
 export function redactInternalDiagnostic(text: unknown): string | null {
   if (typeof text !== 'string' || text.length === 0) return null;
   return text
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+(?::[^\s/@]*)?@/gi, '$1***@')
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/g, 'Bearer ***')
-    .replace(/\b(password|passwd|pwd|secret|token|api[_-]?key|authorization)(\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1$2***')
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '-----BEGIN PRIVATE KEY----- *** -----END PRIVATE KEY-----')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s'"<>]*@/gi, '$1***@')
+    .replace(/\b((?:proxy-)?authorization)(["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|(?:basic|bearer|digest|token|negotiate|ntlm)\s+\S+|\S+)/gi, '$1$2***')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, '$1 ***')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, '***')
+    .replace(/(--?(?:password|passwd|pwd|token|secret|api[_-]?key)\b)(\s+)(?!-)\S+/gi, '$1$2***')
+    .replace(SECRET_KEY_VALUE, '$1$2$3***')
     .slice(0, DIAGNOSTIC_MAX_LENGTH);
 }
 

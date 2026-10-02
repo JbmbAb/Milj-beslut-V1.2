@@ -359,6 +359,33 @@ describe('U20CDF (U30-R2 follow-up): the raw diagnostic of a failed layer query 
     expect(redactInternalDiagnostic(undefined)).toBeNull();
     expect(redactInternalDiagnostic('')).toBeNull();
   });
+
+  // U20CDF2 (U20CDF verification G4 / owner: rich internal logging, never a leaked secret). The
+  // verifier's probe R1 found four forms that leaked; these and their relatives. All values invented.
+  it.each<[string, string, readonly string[], readonly string[]]>([
+    ['URI password containing @ (probe R1)', 'connect ECONNREFUSED postgresql://mimer:ke@ke@10.0.0.5:5432/lu', ['ke@ke', 'mimer:'], ['ECONNREFUSED', '10.0.0.5:5432/lu']],
+    ['URI password containing / (probe R1)', 'postgres://mimer:pa/ss/word@db.local/lu failed', ['pa/ss', 'ss/word'], ['db.local/lu failed']],
+    ['URI password %-encoded', 'postgresql://mimer:p%40ss%2Fw0rd@host:5432/db', ['p%40ss', '%2Fw0rd'], ['host:5432/db']],
+    ['URI with a token as user', 'fetch https://ghp_FAKE0TOKEN0VALUE@github.com/org/repo failed', ['ghp_FAKE0TOKEN0VALUE'], ['github.com/org/repo failed']],
+    ['PGPASSWORD (probe R1)', 'env PGPASSWORD=hemligt1 psql -h x', ['hemligt1'], ['PGPASSWORD=', 'psql -h x']],
+    ['other env forms', 'DB_PASSWORD: hemligt2 MIMERS_API_TOKEN=tok-abc AWS_SECRET_ACCESS_KEY=Zsecretvalue', ['hemligt2', 'tok-abc', 'Zsecretvalue'], ['DB_PASSWORD', 'MIMERS_API_TOKEN']],
+    ['JSON "password" (probe R1)', '{"user":"mimer","password":"hemligt3","host":"h"}', ['hemligt3'], ['"user":"mimer"', '"host":"h"']],
+    ['JSON passwd/pwd/secret/token/apikey/client_secret', '{"passwd":"a1x","pwd":"a2x","secret":"a3x","token":"a4x","apiKey":"a5x","api_key":"a6x","client_secret":"a7x"}', ['a1x', 'a2x', 'a3x', 'a4x', 'a5x', 'a6x', 'a7x'], []],
+    ['JSON with spaces and a space in the value', '{ "password" : "hem ligt4" }', ['hem ligt4', 'ligt4'], []],
+    ['single-quoted fields', "{'password': 'hemligt5', 'secret':'s5x'}", ['hemligt5', 's5x'], []],
+    ['libpq connection string', "host=10.0.0.5 user=mimer password='hem ligt7' dbname=lu", ['hem ligt7', 'ligt7'], ['host=10.0.0.5', 'dbname=lu']],
+    ['Authorization: Basic', 'Authorization: Basic dXNlcjpwYXNzd29yZA== next', ['dXNlcjpwYXNzd29yZA'], ['next']],
+    ['authorization=Bearer', 'authorization=Bearer abc.def.ghi rest', ['abc.def.ghi'], ['rest']],
+    ['a bare JWT', 'got eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl back', ['eyJzdWIiOiIxIn0', 'c2lnbmF0dXJl'], ['got', 'back']],
+    ['CLI flags', 'psql --password hemligt6 --token=t6x -h x', ['hemligt6', 't6x'], ['-h x']],
+    ['query string key', 'GET https://api.example/x?api_key=k123&x=1', ['k123'], ['https://api.example/x?']],
+    ['PEM private key', 'key -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY----- end', ['MIIEvQIBADANBg'], ['end']],
+  ])('redactInternalDiagnostic: %s', (_label, text, secrets, kept) => {
+    const redacted = redactInternalDiagnostic(text)!;
+    for (const secret of secrets) expect(redacted, redacted).not.toContain(secret);
+    for (const fragment of kept) expect(redacted, redacted).toContain(fragment);
+    expect(redacted).toContain('***');
+  });
 });
 
 describe('U20CDF (U20CD verification F2): no check completed -> no risk level in any text', () => {
