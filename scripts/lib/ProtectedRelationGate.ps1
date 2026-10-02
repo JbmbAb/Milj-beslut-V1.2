@@ -824,6 +824,16 @@ function PrgAnAlter($an, $toks, [int]$p) {
             return
         }
         PrgAnTarget $an 'ALTER' $r[0]
+        # U30F3 M-1: ATTACH/DETACH PARTITION <child> and [NO] INHERIT <parent> change that relation too
+        for ($n = 0; $n -lt $rest.Count; $n++) {
+            if ($rest[$n].t -cne 'WORD') { continue }
+            $at = -1
+            if (($rest[$n].v -ceq 'attach' -or $rest[$n].v -ceq 'detach') -and (PrgWordAt $rest ($n + 1) 'partition')) { $at = $n + 2 }
+            elseif ($rest[$n].v -ceq 'inherit') { $at = $n + 1 }
+            if ($at -lt 0) { continue }
+            $other = (PrgParseNameAt $rest $at)[0]
+            if ($null -ne $other) { PrgAnTarget $an 'ALTER' $other } else { $an.Acc.Unres('ALTER', "$($rest[$n].v.ToUpperInvariant()) of a relation that is not static") }
+        }
         $setAt = -1
         for ($n = 0; $n -lt $rest.Count; $n++) { if ($rest[$n].t -ceq 'WORD' -and $rest[$n].v -ceq 'set' -and (PrgWordAt $rest ($n + 1) 'schema')) { $setAt = $n; break } }
         if ($setAt -ge 0) {
@@ -857,6 +867,8 @@ function PrgAnCreate($an, $toks, [int]$p) {
         if ($null -eq $r[0]) { if (PrgAtStatementStart $toks $p) { $an.Acc.Unres('CREATE', "CREATE target is not a static relation name: $(PrgDescribeAt $toks $p)") }; return }
         PrgAnTarget $an $(if ($orReplace) { 'CREATE_OR_REPLACE' } else { 'CREATE' }) $r[0]
         $rest = PrgSlice2 $toks $r[1] $toks.Count
+        # U30F3 M-1: a (non-materialized) view is a write path to every relation its query reads
+        if ((@($kind) -join ' ') -ceq 'view') { PrgAnWritePath $an $rest (PrgAfterDefiningAs $rest) }
         $partitionOf = -1
         for ($n = 0; $n -lt $rest.Count; $n++) { if ($rest[$n].t -ceq 'WORD' -and $rest[$n].v -ceq 'partition' -and (PrgWordAt $rest ($n + 1) 'of')) { $partitionOf = $n; break } }
         if ($partitionOf -ge 0) {
@@ -885,7 +897,42 @@ function PrgAnCreate($an, $toks, [int]$p) {
         $name = if ($at -lt 0) { $null } else { (PrgParseNameAt $toks ($at + 1) $true)[0] }
         if ($null -ne $name) { PrgAnTarget $an 'ALTER' $name }
         elseif (PrgAtStatementStart $toks $p) { $an.Acc.Unres('ALTER', "CREATE $($obj.ToUpperInvariant()) on a relation that is not static") }
+        # U30F3 M-1: an ON SELECT ... DO INSTEAD SELECT rule makes its relation a view of what the action reads
+        if ($obj -ceq 'rule') {
+            $on = PrgFindWord $toks ($k + 2) 'on'
+            $doAt = if ($on -ge 0 -and (PrgWordAt $toks ($on + 1) 'select')) { PrgFindWord $toks ($on + 2) 'do' } else { -1 }
+            if ($doAt -ge 0) { PrgAnWritePath $an $toks ($doAt + 1) }
+        }
     }
+}
+
+# U30F3 M-1: the index after the first AS outside parentheses (a view's defining query), or the end
+function PrgAfterDefiningAs($toks) {
+    $depth = 0
+    for ($k = 0; $k -lt $toks.Count; $k++) {
+        if ($toks[$k].t -ceq 'LPAREN') { $depth += 1 }
+        elseif ($toks[$k].t -ceq 'RPAREN') { $depth -= 1 }
+        elseif ($depth -eq 0 -and $toks[$k].t -ceq 'WORD' -and $toks[$k].v -ceq 'as') { return $k + 1 }
+    }
+    return $toks.Count
+}
+
+# U30F3 M-1: every static relation name of a view's query / ON SELECT rule action is a WRITE_PATH target
+function PrgAnWritePath($an, $def, [int]$start) {
+    $dynamic = $false
+    $k = $start
+    while ($k -lt $def.Count) {
+        $x = $def[$k]
+        if ($x.t -ceq 'DYN') { $dynamic = $true }
+        if ($x.t -cne 'WORD' -and $x.t -cne 'QIDENT') { $k += 1; continue }
+        $prev = if ($k -gt 0) { $def[$k - 1] } else { $null }
+        if ($null -ne $prev -and ($prev.t -ceq 'DOT' -or ($prev.t -ceq 'WORD' -and $prev.v -ceq 'as') -or ($prev.t -ceq 'OP' -and $prev.v -ceq '::'))) { $k += 1; continue }
+        $r = PrgParseNameAt $def $k
+        if ($null -eq $r[0]) { $k += 1; continue }
+        if (-not (PrgIsT $def $r[1] 'LPAREN')) { PrgAnTarget $an 'WRITE_PATH' $r[0] }
+        $k = [Math]::Max([int]$r[1], $k + 1)
+    }
+    if ($dynamic) { $an.Acc.Unres('WRITE_PATH', 'a view or rule over a relation that is not static') }
 }
 
 function PrgAnExecute($an, $toks, [int]$p, $prev) {

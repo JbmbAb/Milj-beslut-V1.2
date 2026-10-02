@@ -710,6 +710,19 @@ def _describe_at(toks, p):
     return ' '.join(out)
 
 
+def _after_defining_as(toks):
+    # U30F3 M-1: the index after the first AS outside parentheses (a view's defining query), or the end
+    depth = 0
+    for k, t in enumerate(toks):
+        if _t(t) == 'LPAREN':
+            depth += 1
+        elif _t(t) == 'RPAREN':
+            depth -= 1
+        elif depth == 0 and _t(t) == 'WORD' and _v(t) == 'as':
+            return k + 1
+    return len(toks)
+
+
 def _split_args(toks):
     args = []
     cur = []
@@ -933,6 +946,22 @@ class _SqlAnalyzer:
                     self.unres('RENAME', 'RENAME TO a name that is not static')
                 return
             self.target('ALTER', name)
+            # U30F3 M-1: ATTACH/DETACH PARTITION <child> and [NO] INHERIT <parent> change that relation too
+            for n, x in enumerate(rest):
+                if _t(x) != 'WORD':
+                    continue
+                at = -1
+                if _v(x) in ('attach', 'detach') and _word_at(rest, n + 1, 'partition'):
+                    at = n + 2
+                elif _v(x) == 'inherit':
+                    at = n + 1
+                if at < 0:
+                    continue
+                other = _parse_name_at(rest, at, self.spec)[0]
+                if other is not None:
+                    self.target('ALTER', other)
+                else:
+                    self.unres('ALTER', f'{_v(x).upper()} of a relation that is not static')
             set_schema_at = next((n for n, x in enumerate(rest) if _t(x) == 'WORD' and _v(x) == 'set' and _word_at(rest, n + 1, 'schema')), -1)
             if set_schema_at >= 0:
                 dest = _parse_name_at(rest, set_schema_at + 2, self.spec)[0]
@@ -978,6 +1007,9 @@ class _SqlAnalyzer:
                 return
             self.target('CREATE_OR_REPLACE' if or_replace else 'CREATE', name)
             rest = toks[end:]
+            # U30F3 M-1: a (non-materialized) view is a write path to every relation its query reads
+            if list(kind) == ['view']:
+                self.write_path(rest, _after_defining_as(rest))
             partition_of = next((n for n, x in enumerate(rest) if _t(x) == 'WORD' and _v(x) == 'partition' and _word_at(rest, n + 1, 'of')), -1)
             if partition_of >= 0:
                 parent = _parse_name_at(rest, partition_of + 2, self.spec)[0]
@@ -1009,6 +1041,38 @@ class _SqlAnalyzer:
                 self.target('ALTER', name)
             elif _at_statement_start(toks, p, self.spec):
                 self.unres('ALTER', f'CREATE {obj.upper()} on a relation that is not static')
+            # U30F3 M-1: an ON SELECT ... DO INSTEAD SELECT rule makes its relation a view of what the action reads
+            if obj == 'rule':
+                on = next((n for n in range(k + 2, len(toks)) if _t(toks[n]) == 'WORD' and _v(toks[n]) == 'on'), -1)
+                do_at = next((n for n in range(on + 2, len(toks)) if _t(toks[n]) == 'WORD' and _v(toks[n]) == 'do'), -1) if on >= 0 and _word_at(toks, on + 1, 'select') else -1
+                if do_at >= 0:
+                    self.write_path(toks, do_at + 1)
+
+    def write_path(self, defn, start):
+        # U30F3 M-1: every static relation name of a view's query / ON SELECT rule action is a WRITE_PATH target
+        dynamic = False
+        k = start
+        while k < len(defn):
+            x = defn[k]
+            if _t(x) == 'DYN':
+                dynamic = True
+            if _t(x) not in ('WORD', 'QIDENT'):
+                k += 1
+                continue
+            prev = defn[k - 1] if k > 0 else None
+            if prev is not None and (_t(prev) == 'DOT' or (_t(prev) == 'WORD' and _v(prev) == 'as') or (_t(prev) == 'OP' and _v(prev) == '::')):
+                k += 1
+                continue
+            name, end = _parse_name_at(defn, k, self.spec)
+            if name is None:
+                k += 1
+                continue
+            nx = _get(defn, end)
+            if nx is None or _t(nx) != 'LPAREN':
+                self.target('WRITE_PATH', name)
+            k = max(end, k + 1)
+        if dynamic:
+            self.unres('WRITE_PATH', 'a view or rule over a relation that is not static')
 
     def execute(self, toks, p, prev):
         sql = self.spec['sql']

@@ -53,6 +53,8 @@ export type WriteOperation =
   | "DROP_DATABASE"
   | "DROP_EXTENSION"
   | "REASSIGN_OWNED"
+  /** U30F3 M-1: a view (or an ON SELECT rule) over the relation -- INSERT/UPDATE/DELETE through it write the relation. */
+  | "WRITE_PATH"
   | "DYNAMIC_SQL"
   | "PSQL_STDIN"
   | "PSQL_FILE"
@@ -792,6 +794,19 @@ class SqlAnalyzer {
         return;
       }
       this.target("ALTER", r.name);
+      // U30F3 M-1: ATTACH/DETACH PARTITION <child> and [NO] INHERIT <parent> change that relation too -- a
+      // protected table attached under an unprotected parent is emptied by TRUNCATE (dropped by DROP) of the parent
+      for (let n = 0; n < rest.length; n += 1) {
+        const x = rest[n]!;
+        if (x.t !== "WORD") continue;
+        let at = -1;
+        if ((x.v === "attach" || x.v === "detach") && wordAt(rest, n + 1, "partition")) at = n + 2;
+        else if (x.v === "inherit") at = n + 1;
+        if (at < 0) continue;
+        const other = parseNameAt(rest, at);
+        if (other.name) this.target("ALTER", other.name);
+        else this.unresolved("ALTER", `${x.v.toUpperCase()} of a relation that is not static`);
+      }
       const setSchemaAt = rest.findIndex((x, n) => x.t === "WORD" && x.v === "set" && wordAt(rest, n + 1, "schema"));
       if (setSchemaAt >= 0) {
         const dest = parseNameAt(rest, setSchemaAt + 2);
@@ -835,6 +850,8 @@ class SqlAnalyzer {
       }
       this.target(orReplace ? "CREATE_OR_REPLACE" : "CREATE", r.name);
       const rest = toks.slice(r.end);
+      // U30F3 M-1: a (non-materialized) view is a write path to every relation its query reads
+      if (kind.length === 1 && kind[0] === "view") this.writePath(rest, afterDefiningAs(rest));
       const partitionOf = rest.findIndex((x, n) => x.t === "WORD" && x.v === "partition" && wordAt(rest, n + 1, "of"));
       if (partitionOf >= 0) {
         const parent = parseNameAt(rest, partitionOf + 2);
@@ -865,7 +882,44 @@ class SqlAnalyzer {
       const r = at < 0 ? null : parseNameAt(toks, at + 1, { only: true });
       if (r?.name) this.target("ALTER", r.name);
       else if (atStatementStart(toks, p)) this.unresolved("ALTER", `CREATE ${objectWord.toUpperCase()} on a relation that is not static`);
+      // U30F3 M-1: an ON SELECT ... DO INSTEAD SELECT rule makes its relation a view of what the action reads
+      if (objectWord === "rule") {
+        const on = toks.findIndex((x, n) => n > k + 1 && x.t === "WORD" && x.v === "on");
+        const doAt = on >= 0 && wordAt(toks, on + 1, "select") ? toks.findIndex((x, n) => n > on + 1 && x.t === "WORD" && x.v === "do") : -1;
+        if (doAt >= 0) this.writePath(toks, doAt + 1);
+      }
     }
+  }
+
+  /**
+   * U30F3 M-1: every static relation name in a view's query (or an ON SELECT rule's action) from `start` on is a
+   * WRITE_PATH target -- an auto-updatable view writes through to it; a dynamic value there is unresolved. Not
+   * a name: a token after `.` (a qualified part), after `AS` (an alias), after `::` (a type), or a function call.
+   */
+  private writePath(def: readonly Tok[], start: number): void {
+    let dynamic = false;
+    let k = start;
+    while (k < def.length) {
+      const x = def[k]!;
+      if (x.t === "DYN") dynamic = true;
+      if (x.t !== "WORD" && x.t !== "QIDENT") {
+        k += 1;
+        continue;
+      }
+      const prev = def[k - 1];
+      if (prev && (prev.t === "DOT" || (prev.t === "WORD" && prev.v === "as") || (prev.t === "OP" && prev.v === "::"))) {
+        k += 1;
+        continue;
+      }
+      const r = parseNameAt(def, k);
+      if (!r.name) {
+        k += 1;
+        continue;
+      }
+      if (def[r.end]?.t !== "LPAREN") this.target("WRITE_PATH", r.name);
+      k = Math.max(r.end, k + 1);
+    }
+    if (dynamic) this.unresolved("WRITE_PATH", "a view or rule over a relation that is not static");
   }
 
   private execute(toks: readonly Tok[], p: number, prev: string | null): void {
@@ -956,6 +1010,18 @@ class SqlAnalyzer {
     }
     for (let n = 0; n + 1 < strings.length; n += 1) this.target(op, { schema: strings[n]!, table: strings[n + 1]! });
   }
+}
+
+/** U30F3 M-1: the index after the first `AS` outside parentheses (a view's defining query), or the end. */
+function afterDefiningAs(toks: readonly Tok[]): number {
+  let depth = 0;
+  for (let k = 0; k < toks.length; k += 1) {
+    const t = toks[k]!;
+    if (t.t === "LPAREN") depth += 1;
+    else if (t.t === "RPAREN") depth -= 1;
+    else if (depth === 0 && t.t === "WORD" && t.v === "as") return k + 1;
+  }
+  return toks.length;
 }
 
 function splitArgs(toks: readonly Tok[]): Tok[][] {
