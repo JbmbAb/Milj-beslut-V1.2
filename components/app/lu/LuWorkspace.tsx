@@ -8,15 +8,16 @@ import {
   checkDefinitionForLayer,
   checkDefinitionForRule,
   checkEvidenceBinding,
-  deriveLuControlChecks,
   knowledgeStateForError,
-  parseServerLayerChecks,
+  limitedCoverageLayersOf,
+  parseServerArray,
   parseViewerEvidence,
+  presentLuControlChecks,
   LU_KNOWLEDGE_STATE_LABEL,
   LU_V1_LAYER_COUNT,
   type LuAssessmentPresence,
   type LuCheckRowKey,
-  type LuEvidenceLoad,
+  type LuViewerEvidenceProps,
 } from './luControlChecks';
 import {
   LuClientError,
@@ -53,11 +54,20 @@ const ASSESSMENT_STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * DEMO M2b item 5: shown only when neither the read-back (`documentCheck`, K0b) nor the run
- * (`governed_layer_checks`) carries the server's document check -- e.g. an older server. The UI never
- * derives the document status itself.
+ * W-M2d item 1: shown only when the read-back carries no `governedLayerChecks` (e.g. an older
+ * server). The UI never derives a check's status itself.
  */
-const MISSING_DOCUMENT_CHECK_NOTE = 'Uppgift om dokumentkontrollen saknas i svaret för den här bedömningen.';
+const MISSING_LAYER_CHECKS_NOTE = 'Uppgift om lagerkontrollerna saknas i svaret för den här bedömningen.';
+
+/**
+ * The governed /viewer/evidence for the MAP only (W-M2d item 1: the control panel no longer reads it).
+ * Accepted only when its evidence ids are exactly the displayed assessment's spatial evidence refs.
+ */
+type MapEvidenceLoad =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'loaded'; readonly features: readonly LuViewerEvidenceProps[] }
+  | { readonly status: 'error'; readonly error: LuErrorPresentation };
 
 type SiteInput = {
   id: string;
@@ -110,8 +120,16 @@ type CurrentAssessmentResponse = {
   findings?: LuFindingView[];
   evidenceRefs?: unknown;
   systemSummary?: string;
-  /** K0b: the server's governed document check, derived from the assessment's pinned refs. */
-  documentCheck?: unknown;
+  /**
+   * U20-D, W-M2d item 1: the server's per-check states for THIS assessment (five map layers + the
+   * document check; coverage_state, message_sv, coverage_limitation_sv, known_coverage_gaps) -- the
+   * single source of the control panel. (K0's `documentCheck` equals its document row.)
+   */
+  governedLayerChecks?: unknown;
+  /** U20-D, W-M2d item 1: per pinned evidence, resolved from CAS (dataset version, radius, result, ...). */
+  evidenceDetails?: unknown;
+  /** U20-D, W-M2d item 1: the property root's provenance and assurance. */
+  propertyRoot?: unknown;
   /**
    * DEMO M1a / D9(a): the point THIS assessment was made for ({ artifact_id, provenance,
    * provenance_label_sv }; artifact_id is the assessment's own localization_geometry_ref).
@@ -139,11 +157,12 @@ type GovernedResult = {
   findings: LuFindingView[];
   /** The displayed assessment's own SPATIAL_EVIDENCE ids -- the viewer evidence must equal these. */
   spatialEvidenceRefs: readonly string[] | null;
-  /**
-   * Server-stated checks outside the five map layers, for THIS assessment: the read-back's
-   * documentCheck (fresh run and reopen alike), plus any other extra layer only a run reports.
-   */
-  serverLayerChecks: readonly unknown[] | null;
+  /** W-M2d item 1: the read-back's governedLayerChecks (null when the answer lacks them). */
+  layerChecks: readonly unknown[] | null;
+  /** W-M2d item 1: the read-back's evidenceDetails (null when absent). */
+  evidenceDetails: readonly unknown[] | null;
+  /** W-M2d item 1: the read-back's propertyRoot, unparsed. */
+  propertyRoot: unknown;
   /**
    * DEMO M2c item 2: the LocalizationGeometry artifact id this assessment was made for, from the
    * read-back; null when the answer does not state it.
@@ -188,23 +207,14 @@ function assessedGeometryIdOf(result: CurrentAssessmentResponse): string | null 
  */
 type PointBinding = 'none' | 'bound' | 'changed' | 'unknown';
 
-function layerOf(entry: unknown): string | null {
-  const layer = entry && typeof entry === 'object' ? (entry as { layer?: unknown }).layer : null;
-  return typeof layer === 'string' && layer ? layer : null;
-}
-
-/** Read-back first (the same source for fresh and reopen); a run adds only layers the read-back lacks. */
-function mergeServerChecks(readBackDocumentCheck: unknown, runChecks: readonly unknown[] | null): unknown[] {
-  const readBack = readBackDocumentCheck && typeof readBackDocumentCheck === 'object' ? [readBackDocumentCheck] : [];
-  const readBackLayers = new Set(readBack.map(layerOf));
-  return [...readBack, ...(runChecks ?? []).filter((e) => !readBackLayers.has(layerOf(e)))];
-}
-
-/** What a fresh run produced, kept until its read-back is confirmed or found to disagree. */
+/**
+ * What a fresh run produced, kept until its read-back is confirmed or found to disagree. W-M2d item 1:
+ * the run's own governed_layer_checks are not used -- the read-back carries the same checks, so a fresh
+ * run and a reopen render from one source.
+ */
 type RunExpectation = {
   assessmentId: string;
   projectionRegistered: boolean | null;
-  serverLayerChecks: readonly unknown[] | null;
 };
 
 /** DEMO M2b item 2: the run's assessment and the project's current assessment disagree. */
@@ -232,13 +242,15 @@ function spatialRefsOf(evidenceRefs: unknown): string[] | null {
     .map((r) => r.artifact_id);
 }
 
-function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assessmentId: string, serverLayerChecks: readonly unknown[] | null): GovernedResult {
+function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assessmentId: string): GovernedResult {
   return {
     assessmentStatus: 'ASSESSED',
     assessmentArtifactId: assessmentId,
     findings: sortFindings(Array.isArray(result.findings) ? result.findings : []),
     spatialEvidenceRefs: spatialRefsOf(result.evidenceRefs),
-    serverLayerChecks: mergeServerChecks(result.documentCheck, serverLayerChecks),
+    layerChecks: parseServerArray(result.governedLayerChecks),
+    evidenceDetails: parseServerArray(result.evidenceDetails),
+    propertyRoot: result.propertyRoot,
     assessedGeometryId: assessedGeometryIdOf(result),
     overallStatement: result.overallStatement,
   };
@@ -303,7 +315,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [persistedAssessmentError, setPersistedAssessmentError] = useState<LuErrorPresentation | null>(null);
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
   const [selectedCheck, setSelectedCheck] = useState<LuCheckRowKey | null>(null);
-  const [evidence, setEvidence] = useState<{ load: LuEvidenceLoad; geojson: unknown }>({ load: { status: 'idle' }, geojson: null });
+  const [evidence, setEvidence] = useState<{ load: MapEvidenceLoad; geojson: unknown }>({ load: { status: 'idle' }, geojson: null });
   const [evidenceNonce, setEvidenceNonce] = useState(0);
   const evidenceRequestRef = useRef(0);
   const assessmentRequestRef = useRef(0);
@@ -435,7 +447,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         setIncoherence({ expectedId: expected.assessmentId, currentId, projectionRegistered: expected.projectionRegistered });
         return;
       }
-      setGoverned(governedFromCurrentAssessment(result, currentId, expected ? expected.serverLayerChecks : null));
+      setGoverned(governedFromCurrentAssessment(result, currentId));
     } catch (err) {
       if (assessmentRequestRef.current !== requestId) return;
       const expected = expectedRunRef.current;
@@ -609,7 +621,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         expectedRunRef.current = {
           assessmentId,
           projectionRegistered: typeof motor.assessment_projection_registered === 'boolean' ? motor.assessment_projection_registered : null,
-          serverLayerChecks: parseServerLayerChecks(motor.governed_layer_checks),
         };
         await loadCurrentAssessment();
       } else {
@@ -760,9 +771,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     if (next && next.artifact_id === before) void loadCurrentAssessment();
   };
 
+  // W-M2d item 2 (§11, owner decision OD-K0-1 and the 2026-10-02 night specifications): the
+  // assessment line is the SERVER's overallStatement, word for word -- the UI composes, counts and
+  // names no risk level of its own. Notices under it come from the server's own machine fields.
+  const overall = useMemo(() => (governed ? presentLuOverallStatement(governed.overallStatement) : null), [governed]);
+
+  // W-M2d item 1: every check row as the server states it in the read-back -- no client derivation.
   const checks = useMemo(
     () =>
-      deriveLuControlChecks({
+      presentLuControlChecks({
         property: {
           lookedUp: Boolean(site),
           lookupError,
@@ -771,37 +788,47 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           geometry: localizationGeometry,
           assessedPoint: pointBinding,
           assessedGeometryId: governed?.assessedGeometryId ?? null,
+          propertyRoot: assessmentPresence.status === 'present' ? governed?.propertyRoot : undefined,
         },
         assessment: assessmentPresence,
-        evidence: evidence.load,
-        findings: governed?.findings ?? [],
-        serverLayerChecks: governed?.serverLayerChecks ?? null,
+        server: governed
+          ? {
+              layerChecks: governed.layerChecks,
+              evidenceDetails: governed.evidenceDetails,
+              limitedCoverageLayers: limitedCoverageLayersOf(governed.overallStatement),
+            }
+          : null,
       }),
-    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, evidence.load, governed, pointBinding],
+    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, governed, pointBinding],
   );
 
-  // DEMO M2b item 1: one "Försök igen" for whatever failed technically.
+  // DEMO M2b item 1 / W-M2d item 1: one "Försök igen" for whatever failed technically in the PANEL.
+  // The panel no longer reads the map's viewer evidence, so a map failure is retried on the map.
   const retryChecks = () => {
-    if (incoherence || persistedAssessmentError) {
-      void loadCurrentAssessment();
-    } else if (evidence.load.status === 'error' && evidence.load.error.kind === 'INCOHERENT') {
-      // DEMO M2c item 3: the control results contradict the shown assessment (a 404 for it, or ids
-      // that are not its own): read the assessment again; the evidence is then fetched for it.
-      void loadCurrentAssessment();
-    } else if (evidence.load.status === 'error') {
-      setEvidenceNonce((n) => n + 1);
-    }
+    if (incoherence || persistedAssessmentError || overall?.retryable) void loadCurrentAssessment();
     if (geometryError) void loadCurrentGeometry();
     if (lookupError) void lookupProperty();
   };
   const retryAvailable =
     Boolean(incoherence) ||
     Boolean(persistedAssessmentError?.retryable) ||
-    (evidence.load.status === 'error' && evidence.load.error.retryable) ||
+    Boolean(overall?.retryable) ||
     Boolean(geometryError?.retryable) ||
     Boolean(lookupError?.retryable);
 
-  // DEMO M2b item 2: the map shows exactly what the panel shows -- same fetch, same binding check.
+  // The map's own retry: its viewer evidence contradicts the shown assessment (a 404 for it, ids that
+  // are not its own) -> read the assessment again; otherwise fetch the map evidence again.
+  const retryMapEvidence = () => {
+    if (incoherence || persistedAssessmentError) {
+      void loadCurrentAssessment();
+    } else if (evidence.load.status === 'error' && evidence.load.error.kind === 'INCOHERENT') {
+      void loadCurrentAssessment();
+    } else {
+      setEvidenceNonce((n) => n + 1);
+    }
+  };
+
+  // DEMO M2b item 2: the map shows the evidence of the displayed assessment only (binding-checked).
   const productEvidence: CesiumProductEvidence = useMemo(() => {
     switch (assessmentPresence.status) {
       case 'loading':
@@ -898,14 +925,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     },
     {
       key: 'evidence',
+      // W-M2d item 1: this step is the MAP's viewer evidence; the control panel reads the assessment.
       label:
         evidence.load.status === 'error'
-          ? 'Kontrollresultaten kunde inte hämtas'
+          ? 'Kontrollresultaten kunde inte hämtas till kartan'
           : evidence.load.status === 'loaded'
-            ? 'Kontrollresultat hämtade'
+            ? 'Kontrollresultat hämtade till kartan'
             : evidence.load.status === 'loading'
-              ? 'Kontrollresultat hämtas'
-              : 'Kontrollresultat',
+              ? 'Kontrollresultat hämtas till kartan'
+              : 'Kontrollresultat till kartan',
       state:
         evidence.load.status === 'loaded'
           ? 'done'
@@ -918,11 +946,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   ];
   const showProgress =
     Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidence.load.status === 'loading');
-
-  // W-M2d item 2 (§11, owner decision OD-K0-1 and the 2026-10-02 night specifications): the
-  // assessment line is the SERVER's overallStatement, word for word -- the UI composes, counts and
-  // names no risk level of its own. Notices under it come from the server's own machine fields.
-  const overall = useMemo(() => (governed ? presentLuOverallStatement(governed.overallStatement) : null), [governed]);
 
   // Item 4: one ring only when every checked layer used the same governed search radius.
   // DEMO M2c item 2: and only around the point the displayed assessment was made for -- the ring
@@ -1153,12 +1176,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           selectedKey={selectedCheck}
           onSelect={setSelectedCheck}
           onRetry={retryAvailable ? retryChecks : null}
-          retrying={persistedAssessmentLoading || evidence.load.status === 'loading'}
-          note={
-            assessmentPresence.status === 'present' && governed && !(governed.serverLayerChecks ?? []).some((e) => layerOf(e) === 'document')
-              ? MISSING_DOCUMENT_CHECK_NOTE
-              : null
-          }
+          retrying={persistedAssessmentLoading || geometryLoading || lookingUp}
+          note={assessmentPresence.status === 'present' && governed && !governed.layerChecks ? MISSING_LAYER_CHECKS_NOTE : null}
         />
       ) : null}
 
@@ -1492,7 +1511,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               currentLocationPoint={currentLocationPoint}
               productMode
               productEvidence={productEvidence}
-              onProductEvidenceRetry={retryChecks}
+              onProductEvidenceRetry={retryMapEvidence}
               searchRadiusMeters={searchRadiusMeters}
               searchRadiusWithheldNote={searchRadiusWithheldNote}
               currentLocationLabel={

@@ -73,14 +73,15 @@ describe('DEMO M2b presentLuError', () => {
       expect(p.messageSv).not.toContain(err.message);
     }
     expect(presentLuError(httpError(404, 'No current governed LU assessment is available for this project.'), 'viewer-evidence').messageSv).toBe(
-      'Kontrollresultaten kunde inte hämtas: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.',
+      // W-M2d item 1: the viewer evidence feeds only the map.
+      'Kontrollresultaten kunde inte hämtas till kartan: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.',
     );
   });
 
   it('M2c item 3: a status the mapping does not know (e.g. 422) says the server answered -- never "kunde inte nås"', () => {
     const p = presentLuError(httpError(422, 'Unprocessable'), 'viewer-evidence');
     expect(p.kind).toBe('TECHNICAL');
-    expect(p.messageSv).toBe('Kontrollresultaten kunde inte hämtas. Servern svarade med ett oväntat fel.');
+    expect(p.messageSv).toBe('Kontrollresultaten kunde inte hämtas till kartan. Servern svarade med ett oväntat fel.');
     expect(p.messageSv).not.toMatch(/kunde inte nås/);
     expect(p.technical).toContainEqual({ label: 'HTTP-status', value: '422' });
   });

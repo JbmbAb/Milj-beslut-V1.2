@@ -3,9 +3,9 @@ import type { LuCheckRowKey, LuCheckView, LuFindingLike, LuKnowledgeState } from
 import { presentLuFinding, presentLuFindingSummary } from './luFindingPresentation';
 
 /**
- * DEMO M2a items 3 + 5, M2b item 1: the LU v1 checks with a visible knowledge state, and an evidence
- * panel for the selected check. Pure presentation of `deriveLuControlChecks` output -- it fetches
- * nothing; "Försök igen" only calls back to the workspace.
+ * DEMO M2a items 3 + 5, M2b item 1, W-M2d item 1: the LU v1 checks with a visible knowledge state,
+ * and an evidence panel for the selected check. Pure presentation of `presentLuControlChecks` output
+ * (the server's own checks) -- it fetches nothing; "Försök igen" only calls back to the workspace.
  */
 
 const STATE_STYLE: Readonly<Record<LuKnowledgeState, { color: string; border: string; background: string }>> = {
@@ -84,9 +84,9 @@ export const LuCheckDetails: React.FC<{
           {check.coverageNote}
         </p>
       ) : null}
-      {check.registerNote || check.serverNote ? (
+      {check.registerNote ? (
         <p data-testid="lu-check-details-register-note" className="text-xs opacity-80">
-          {check.registerNote ?? check.serverNote}
+          {check.registerNote}
         </p>
       ) : null}
       {check.details.length > 0 ? (
@@ -182,11 +182,6 @@ export const LuControlPanel: React.FC<{
               {check.registerNote ? (
                 <span data-testid={`lu-check-register-note-${check.key}`} className="basis-full text-xs opacity-60">
                   {check.registerNote}
-                </span>
-              ) : null}
-              {check.serverNote ? (
-                <span data-testid={`lu-check-server-note-${check.key}`} className="basis-full text-xs opacity-60">
-                  {check.serverNote}
                 </span>
               ) : null}
             </button>

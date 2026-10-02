@@ -614,7 +614,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
         >
           <p className="text-[11px] font-black uppercase tracking-wider text-rose-200">
             {productMode
-              ? `${(productEvidence?.status === 'error' && productEvidence.stateLabel) || 'Tekniskt fel'} – kontrollresultat kan inte visas`
+              ? `${(productEvidence?.status === 'error' && productEvidence.stateLabel) || 'Tekniskt fel'} – kontrollresultat kan inte visas på kartan`
               : 'Evidensfel'}
           </p>
           {/* productMode: always the workspace's plain-Swedish text, never a raw server message. */}

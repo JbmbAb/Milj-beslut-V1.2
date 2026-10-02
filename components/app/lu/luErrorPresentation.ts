@@ -78,7 +78,8 @@ export const LU_SERVER_MESSAGE = {
 
 const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
   'current-assessment': 'Den sparade bedömningen kunde inte läsas.',
-  'viewer-evidence': 'Kontrollresultaten kunde inte hämtas.',
+  // W-M2d item 1: the viewer evidence feeds only the MAP; the control panel reads the assessment.
+  'viewer-evidence': 'Kontrollresultaten kunde inte hämtas till kartan.',
   run: 'Bedömningen kunde inte köras.',
   'geometry-load': 'Kontrollpunkten kunde inte hämtas.',
   'geometry-save': 'Kontrollpunkten kunde inte sparas.',
@@ -103,9 +104,9 @@ const NOT_FOUND_TEXT: Readonly<Partial<Record<LuErrorContext, string>>> = {
  * It is an incoherence between two answers and is retried by reading the assessment again.
  */
 const VIEWER_EVIDENCE_NO_CURRENT =
-  'Kontrollresultaten kunde inte hämtas: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.';
+  'Kontrollresultaten kunde inte hämtas till kartan: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.';
 const VIEWER_EVIDENCE_NOT_FOUND =
-  'Kontrollresultaten kunde inte hämtas: servern hittade inga kontrollresultat för den visade bedömningen. Försök igen eller läs in bedömningen på nytt.';
+  'Kontrollresultaten kunde inte hämtas till kartan: servern hittade inga kontrollresultat för den visade bedömningen. Försök igen eller läs in bedömningen på nytt.';
 
 interface ErrorFields {
   readonly status: number | null;
@@ -168,7 +169,7 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.message === LU_SERVER_MESSAGE.VIEWER_CAPABILITY_NOT_CONFIGURED) {
     return make(
       'TECHNICAL',
-      'Kartvisningen för projektet är inte förberedd ännu, så kontrollresultaten kan inte hämtas. Försök igen om en stund.',
+      'Kartvisningen för projektet är inte förberedd ännu, så kontrollresultaten kan inte visas på kartan. Försök igen om en stund.',
       true,
     );
   }

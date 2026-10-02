@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LuWorkspace } from '../../components/app/lu/LuWorkspace';
@@ -90,6 +90,12 @@ vi.mock('../../components/CesiumMapView', () => ({
   },
 }));
 
+/** W-M2d item 1: wells hit, EBH checked without a hit, the other three not recorded (server's checks). */
+const ORIGINAL_READ_BACK = governedReadBack({
+  id: 'assess-site-1-abc',
+  layers: { water: { kind: 'hit' }, ebh: { kind: 'no_hit' }, protected_area: { kind: 'absent' }, natura2000: { kind: 'absent' }, water_protection_area: { kind: 'absent' } },
+});
+
 describe('LuWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -115,16 +121,12 @@ describe('LuWorkspace', () => {
     let ran = false;
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
+        // W-M2d item 1: the read-back carries the server's own checks (built by its presentation
+        // functions); only the finding is this test's own.
         return ran
           ? Promise.resolve({
-              ok: true,
-              assessmentArtifactId: 'assess-site-1-abc',
+              ...ORIGINAL_READ_BACK,
               findings: [{ finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', risk_level: 'MEDIUM', explanation: 'Närhet till vatten kräver analys' }],
-              evidenceRefs: [
-                { artifact_id: 'evidence-water-test', artifact_type: 'SPATIAL_EVIDENCE' },
-                { artifact_id: 'evidence-ebh-test', artifact_type: 'SPATIAL_EVIDENCE' },
-              ],
-              systemSummary: 's',
             })
           : Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
       }
@@ -234,23 +236,24 @@ describe('LuWorkspace', () => {
     expect(finding).not.toHaveTextContent('LU-WATER-001');
     expect(screen.getByTestId('lu-finding-technical-LU-WATER-001')).toHaveTextContent('Närhet till vatten kräver analys');
 
-    // Item 3: the control panel is fed by the governed viewer evidence, re-fetched after the run.
-    expect(await screen.findByText('1 objekt inom sökradien 500 m.')).toBeInTheDocument();
-    expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT');
+    // Item 3 / W-M2d item 1: the control panel shows the server's checks from the read-back.
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('Registrerad träff i Brunnar (PostGIS) inom 500 m: 1 objekt (registerkontroll).');
     expect(screen.getByTestId('lu-check-state-water')).toHaveTextContent('Kontrollerat – träff');
     expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'NO_HIT');
     expect(screen.getByTestId('lu-check-state-ebh')).toHaveTextContent('Kontrollerat – ingen registrerad träff');
     // Preservation requirement: a negative register result is explained under the row.
     expect(screen.getByTestId('lu-check-register-note-ebh')).toHaveTextContent(
-      'Register: inget registrerat objekt inom 500 m i lagret Potentiellt förorenade områden (EBH). Det är en registerkontroll, inte en markundersökning',
+      'Det är en registerkontroll, inte en markundersökning, och visar inte markens skick eller att föroreningar eller påverkan saknas.',
     );
     // DEMO M2c item 3: the internal dataset id is not in the main text.
     expect(screen.getByTestId('lu-check-register-note-ebh')).not.toHaveTextContent('(dataset');
     expect(screen.queryByTestId('lu-check-register-note-water')).not.toBeInTheDocument();
     expect(screen.getByTestId('lu-control-out-of-scope')).toHaveTextContent('Inte bedömt: hydrologisk koppling (spridningsväg).');
-    // A layer with no evidence in the governed payload reads "Inte kontrollerat", never "ingen träff".
+    // A layer the record says nothing about reads "Inte kontrollerat", never "ingen träff".
     expect(screen.getByTestId('lu-check-protected_area')).toHaveAttribute('data-state', 'NOT_CHECKED');
     expect(screen.getByTestId('lu-check-state-protected_area')).toHaveTextContent('Inte kontrollerat');
+    // The map still gets the governed viewer evidence (for the map only).
     expect(callApi).toHaveBeenCalledWith('/api/localization/proj-1/viewer/evidence', expect.objectContaining({ method: 'GET' }));
 
     expect(callApi).toHaveBeenCalledWith(
@@ -738,10 +741,20 @@ describe('LuWorkspace', () => {
     artifact_type: 'SPATIAL_EVIDENCE',
   }));
 
-  function mockGovernedApi(opts: { persisted: boolean; evidence?: unknown; evidenceRefs?: unknown[] }) {
+  function mockGovernedApi(opts: {
+    persisted: boolean;
+    evidence?: unknown;
+    evidenceRefs?: unknown[];
+    /** W-M2d item 1: the server's checks for this record (default: wells 50+ hits, EBH 1 hit, the rest checked without a hit). */
+    layers?: Parameters<typeof governedReadBack>[0]['layers'];
+  }) {
     fetchPropertyInfo.mockResolvedValue({
       id: 'p1', designation: 'UPPSALA SVIA 1:111', municipality: 'Uppsala',
       geometry: { type: 'Point', coordinates: [17.74, 59.87] }, centroid: { lat: 59.87, lng: 17.74 },
+    });
+    const serverReadBack = governedReadBack({
+      id: 'assessment-governed-1',
+      layers: opts.layers ?? { water: { kind: 'hit', count: 50 }, ebh: { kind: 'hit', risk: 'HIGH' } },
     });
     // DEMO M2b item 2: the server's current assessment is the persisted one, or -- once a run has
     // happened -- the run's own (a fresh run is rendered through this same read-back).
@@ -750,11 +763,9 @@ describe('LuWorkspace', () => {
       if (url.includes('/current-assessment')) {
         return opts.persisted || ran
           ? Promise.resolve({
-              ok: true,
-              assessmentArtifactId: 'assessment-governed-1',
+              ...serverReadBack,
               findings: GOVERNED_FINDINGS,
               evidenceRefs: opts.evidenceRefs ?? FIVE_LAYER_REFS,
-              systemSummary: 's',
               // DEMO M2c item 2: the point this assessment was made for (= the displayed one here).
               localizationGeometry: { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', provenance_label_sv: 'x' },
             })
@@ -810,7 +821,8 @@ describe('LuWorkspace', () => {
 
   /** What a viewer sees of the governed result and the six checks (ids excluded on purpose). */
   async function governedSnapshot() {
-    await screen.findByText('1 objekt inom sökradien 500 m.');
+    await waitFor(() => expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'HIT'));
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded'));
     const results = screen.getByTestId('lu-results').textContent ?? '';
     const panel = screen.getByTestId('lu-control-panel').textContent ?? '';
     return { results, panel };
@@ -828,7 +840,7 @@ describe('LuWorkspace', () => {
     const freshView = await governedSnapshot();
     // (the governed finding level may appear inside the collapsed technical section; the legacy
     // 'Risk: HIGH' overallRisk line must not appear anywhere)
-    for (const legacy of [/Risk/, /nvr_id/, /VISS_API_KEY/, /kunde inte verifieras/, /Human in the loop/, /attempt-x/, /manifest-x/, /lu_property_context-x/]) {
+    for (const legacy of [/Risk: /, /nvr_id/, /VISS_API_KEY/, /kunde inte verifieras/, /Human in the loop/, /attempt-x/, /manifest-x/, /lu_property_context-x/]) {
       expect(freshView.results).not.toMatch(legacy);
       expect(freshView.panel).not.toMatch(legacy);
     }
@@ -845,7 +857,7 @@ describe('LuWorkspace', () => {
     // DEMO M2b item 2: the fresh run is rendered through the same read-back, so the two are identical.
     expect(reopenView).toEqual(freshView);
     expect(reopenView.results).toContain('Bedömd');
-    expect(reopenView.panel).toContain('minst 50 objekt (räkningen stannar vid 50) inom sökradien 500 m.');
+    expect(reopenView.panel).toContain('minst 50 objekt (taket på 50 träffar nåddes; fler kan finnas)');
   });
 
   it('DEMO M2a item 3: before any assessment exists all five layers read "Inte kontrollerat" and no evidence is fetched', async () => {
@@ -865,20 +877,24 @@ describe('LuWorkspace', () => {
     const user = userEvent.setup();
     mockGovernedApi({ persisted: true });
     await openWorkspace(user);
-    await screen.findByText('1 objekt inom sökradien 500 m.');
+    await waitFor(() => expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'HIT'));
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded'));
     const callsBefore = callApi.mock.calls.length;
 
     await user.click(screen.getByTestId('lu-finding-show-evidence-finding-ebh-1'));
     const details = screen.getByTestId('lu-check-details');
     expect(details).toHaveTextContent('Potentiellt förorenade områden (EBH)');
+    // W-M2d item 1: the rows come from the read-back's evidenceDetails (server), not the viewer projection.
     expect(screen.getByTestId('lu-check-detail-Resultat')).toHaveTextContent('Träff');
     expect(screen.getByTestId('lu-check-detail-Antal')).toHaveTextContent('1 objekt');
     expect(screen.getByTestId('lu-check-detail-Sökradie')).toHaveTextContent('500 m (sökradie – inte ett uppmätt avstånd)');
-    expect(screen.getByTestId('lu-check-detail-Metod')).toHaveTextContent('Förekomst inom sökradie (PostGIS)');
-    expect(screen.getByTestId('lu-check-detail-Datasetversion')).toHaveTextContent('02fccffc…');
-    expect(screen.getByTestId('lu-check-detail-Status')).toHaveTextContent('Verifierad observation');
-    // DEMO M2b: retrieved_at exists in the CAS evidence but the viewer projection does not carry it.
-    expect(screen.getByTestId('lu-check-detail-Hämtad')).toHaveTextContent('Skickas inte med i kontrollresultatet');
+    expect(screen.getByTestId('lu-check-detail-Metod')).toHaveTextContent('Förekomst inom sökradie');
+    expect(screen.getByTestId('lu-check-detail-Källa')).toHaveTextContent('Länsstyrelsen – Potentiellt förorenade områden (EBH)');
+    expect(screen.getByTestId('lu-check-detail-Källversion')).toHaveTextContent('2026-07-23');
+    expect(screen.getByTestId('lu-check-detail-Integritet')).toHaveTextContent('Innehållet stämmer med evidensens innehållshash');
+    // retrieved_at is now in the read-back (U20-D): it is shown, never "not sent".
+    expect(screen.getByTestId('lu-check-detail-Hämtad')).not.toHaveTextContent(/Skickas inte med|Saknas i underlaget/);
+    expect(screen.getByTestId('lu-check-technical')).toHaveTextContent('02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186');
     expect(details).toHaveTextContent('Kräver uppmärksamhet: Potentiellt förorenat område finns inom sökradien.');
     expect(screen.getByTestId('lu-check-technical')).not.toHaveAttribute('open');
     expect(callApi.mock.calls.length).toBe(callsBefore);
@@ -893,9 +909,16 @@ describe('LuWorkspace', () => {
         { artifact_id: 'evidence-ebh-test', artifact_type: 'SPATIAL_EVIDENCE' },
         { artifact_id: 'evidence-natura2000-test', artifact_type: 'SPATIAL_EVIDENCE' },
       ],
+      layers: {
+        water: { kind: 'absent' },
+        ebh: { kind: 'hit', risk: 'HIGH' },
+        protected_area: { kind: 'absent' },
+        natura2000: { kind: 'no_hit' },
+        water_protection_area: { kind: 'absent' },
+      },
     });
     await openWorkspace(user);
-    await screen.findByText('1 objekt inom sökradien 500 m.');
+    await waitFor(() => expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'HIT'));
 
     await user.click(screen.getByTestId('lu-check-select-natura2000'));
     expect(screen.getByTestId('lu-check-details')).toHaveTextContent('Kontrollerat – ingen registrerad träff');
@@ -910,7 +933,8 @@ describe('LuWorkspace', () => {
     const user = userEvent.setup();
     mockGovernedApi({ persisted: true });
     await openWorkspace(user);
-    await screen.findByText('1 objekt inom sökradien 500 m.');
+    await waitFor(() => expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'HIT'));
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded'));
 
     await user.click(screen.getByTestId('lu-verify-assessment'));
     expect(await screen.findByTestId('lu-verify-result-pass')).toBeInTheDocument();
@@ -1044,6 +1068,7 @@ const FIVE_FINDINGS = LAYERS.map((layer) => ({
 }));
 const FIVE_SPATIAL_REFS = LAYERS.map((layer) => ({ artifact_id: `evidence-${layer}-test`, artifact_type: 'SPATIAL_EVIDENCE' }));
 const FIVE_HIT = viewerEvidence(LAYERS.map((layer) => ({ layer, exists: true, count: 1 })));
+const FIVE_NO_HIT = viewerEvidence(LAYERS.map((layer) => ({ layer, exists: false, count: 0 })));
 
 function apiError(status: number, message: string, extra: Record<string, unknown> = {}) {
   return Object.assign(new Error(message), { status, ...extra });
@@ -1100,7 +1125,8 @@ const assessedPoint = (artifactId: string) => ({
   provenance_label_sv: 'Härledd från fastighetens centrumpunkt (ingen lokaliseringspunkt har angetts för projektet)',
 });
 
-const persisted = (id: string, findings: unknown[] = FIVE_FINDINGS, evidenceRefs: unknown[] = FIVE_SPATIAL_REFS) => ({
+/** An older read-back shape: no server checks, no evidence details, no overall statement. */
+const persistedWithoutServerChecks = (id: string, findings: unknown[] = FIVE_FINDINGS, evidenceRefs: unknown[] = FIVE_SPATIAL_REFS) => ({
   ok: true,
   assessmentArtifactId: id,
   findings,
@@ -1108,6 +1134,22 @@ const persisted = (id: string, findings: unknown[] = FIVE_FINDINGS, evidenceRefs
   systemSummary: 's',
   localizationGeometry: assessedPoint('loc-geom-1'),
 });
+
+/**
+ * W-M2d item 1: the read-back as the server sends it now -- the server's own checks, evidence details
+ * and overall statement (built by the server's presentation functions), for a record whose layers hit
+ * exactly where `findings` has a risk finding and are checked without a hit elsewhere.
+ */
+const persisted = (id: string, findings: unknown[] = FIVE_FINDINGS, evidenceRefs: unknown[] = FIVE_SPATIAL_REFS) => {
+  const ruleLevels = new Map((findings as Array<{ rule_id: string; risk_level: string }>).map((f) => [f.rule_id, f.risk_level]));
+  const layers = Object.fromEntries(
+    LAYERS.map((layer) => {
+      const level = ruleLevels.get(RULE_BY_LAYER[layer]);
+      return [layer, level === 'HIGH' || level === 'MEDIUM' || level === 'LOW' ? { kind: 'hit', risk: level } : { kind: 'no_hit' }];
+    }),
+  );
+  return { ...governedReadBack({ id, layers }), findings, evidenceRefs, localizationGeometry: assessedPoint('loc-geom-1') };
+};
 
 const runReport = (motor: Record<string, unknown>) => ({
   ok: true,
@@ -1127,32 +1169,26 @@ describe('LuWorkspace DEMO M2b', () => {
     lastCesiumMapViewProps = null;
   });
 
-  it('item 1: a viewer-capability failure is "Tekniskt fel" on all five layers -- never "Osäkert/Ofullständigt underlag" -- and can be retried', async () => {
+  it('item 1 (W-M2d item 1): a viewer-capability failure is "Tekniskt fel" on the MAP, in Swedish, retried there -- the panel keeps the server\'s checks', async () => {
     const user = userEvent.setup();
     mockM2b({
       currentAssessment: () => persisted('assessment-m2b-1'),
       evidence: (call) => (call === 0 ? apiError(404, 'Governed viewer capability is not configured for this project.') : FIVE_HIT),
     });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
-    for (const layer of LAYERS) {
-      const row = screen.getByTestId(`lu-check-${layer}`);
-      expect(row).toHaveAttribute('data-state', 'TECHNICAL_ERROR');
-      expect(screen.getByTestId(`lu-check-state-${layer}`)).toHaveTextContent('Tekniskt fel');
-      expect(row).not.toHaveTextContent(/Osäkert underlag|Ofullständigt underlag|ingen (registrerad )?träff/i);
-      expect(row).toHaveTextContent('Kartvisningen för projektet är inte förberedd ännu');
-      expect(row).toHaveTextContent('Bedömningen har ett fynd för detta lager');
-      expect(row).not.toHaveTextContent(/Governed|capability/);
-    }
-    // The map is told the same thing, in Swedish -- it does not fetch on its own.
-    expect(lastCesiumMapViewProps.productEvidence.status).toBe('error');
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('error'));
+    // The map is told in Swedish -- it does not fetch on its own.
     expect(lastCesiumMapViewProps.productEvidence.messageSv).toContain('Kartvisningen för projektet är inte förberedd ännu');
+    expect(lastCesiumMapViewProps.productEvidence.messageSv).not.toMatch(/Governed|capability/);
+    expect(lastCesiumMapViewProps.productEvidence.stateLabel).toBe('Tekniskt fel');
     expect(lastCesiumMapViewProps.projectId).toBeUndefined();
-
-    await user.click(screen.getByTestId('lu-control-retry'));
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
-    expect(screen.getByTestId('lu-check-state-water')).toHaveTextContent('Kontrollerat – träff');
-    expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded');
+    // The panel rows are the server's checks of the read-back, untouched by the map's failure.
+    for (const layer of LAYERS) {
+      expect(screen.getByTestId(`lu-check-${layer}`)).toHaveAttribute('data-state', 'HIT');
+      expect(screen.getByTestId(`lu-check-${layer}`)).not.toHaveTextContent(/Kartvisningen/);
+    }
+    act(() => lastCesiumMapViewProps.onProductEvidenceRetry());
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded'));
     expect(lastCesiumMapViewProps.productEvidence.geojson.features).toHaveLength(5);
   });
 
@@ -1251,10 +1287,10 @@ describe('LuWorkspace DEMO M2b', () => {
     for (const f of foreign.features) f.properties.cas_artifact_id = `${f.properties.cas_artifact_id}-OTHER`;
     mockM2b({ currentAssessment: () => persisted('assessment-shown'), evidence: () => foreign });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
-    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('hör inte till den visade bedömningen');
-    expect(screen.getByTestId('lu-check-natura2000')).not.toHaveAttribute('data-state', 'NO_HIT');
-    expect(lastCesiumMapViewProps.productEvidence.status).toBe('error');
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('error'));
+    expect(lastCesiumMapViewProps.productEvidence.messageSv).toContain('hör inte till den visade bedömningen');
+    // W-M2d item 1: the panel never reads the foreign "no hit" evidence -- it shows the server's checks.
+    expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'HIT');
   });
 
   it('item 3: a failed run is plain Swedish with the raw text collapsed, and the saved assessment is read again -- never claimed absent', async () => {
@@ -1292,98 +1328,51 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(technical).toHaveTextContent('FINDINGS_MISMATCH');
   });
 
-  it('item 5: an extra "document" layer in governed_layer_checks reads "Dokumentbevis – ej analyserat" (NOT_CHECKED); unknown layers/statuses never go green or crash', async () => {
+  it('item 5 (W-M2d item 1): the server\'s document row reads as the server states it; unknown layers/states and garbage never go green or crash', async () => {
     const user = userEvent.setup();
+    const base = persisted('assessment-run-X');
+    const withExtras = {
+      ...base,
+      governedLayerChecks: [
+        ...base.governedLayerChecks,
+        { layer: 'sgu_skred', rule_id: null, status: 'SOMETHING_NEW', coverage_state: 'SOMETHING_NEW', evidence_artifact_id: null, reason: null },
+        'garbage',
+      ],
+    };
     mockM2b({
-      currentAssessment: (_call, ran) => (ran ? persisted('assessment-run-X') : 'missing'),
-      run: () =>
-        runReport({
-          assessment_artifact_id: 'assessment-run-X',
-          assessment_projection_registered: true,
-          findings: FIVE_FINDINGS,
-          governed_layer_checks: [
-            { layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT', evidence_artifact_id: 'evidence-water-test', reason: null },
-            { layer: 'document', rule_id: null, status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED' },
-            { layer: 'sgu_skred', rule_id: null, status: 'SOMETHING_NEW', evidence_artifact_id: null, reason: null },
-            'garbage',
-          ],
-        }),
+      currentAssessment: (_call, ran) => (ran ? withExtras : 'missing'),
+      run: () => runReport({ assessment_artifact_id: 'assessment-run-X', assessment_projection_registered: true, findings: FIVE_FINDINGS }),
     });
     await openM2b(user);
     await user.click(await screen.findByTestId('lu-run'));
-    const doc = await screen.findByTestId('lu-check-extra-document');
+    const doc = await screen.findByTestId('lu-check-document');
     expect(doc).toHaveAttribute('data-state', 'NOT_CHECKED');
-    expect(doc).toHaveTextContent('Dokumentbevis');
-    expect(doc).toHaveTextContent('Ej analyserat');
+    expect(doc).toHaveTextContent('Dokument och tidigare beslut');
+    expect(doc).toHaveTextContent('Att inga dokumentfynd visas betyder inte att det saknas tidigare beslut.');
     expect(screen.getByTestId('lu-check-extra-sgu_skred')).toHaveAttribute('data-state', 'UNCERTAIN');
-    expect(screen.getByTestId('lu-check-extra-okand-3')).toHaveAttribute('data-state', 'UNCERTAIN');
+    expect(screen.getByTestId('lu-check-extra-sgu_skred')).not.toHaveTextContent('sgu_skred');
+    expect(screen.getByTestId('lu-check-extra-okand-7')).toHaveAttribute('data-state', 'UNCERTAIN');
     for (const row of screen.getAllByTestId(/^lu-check-extra-/)) {
       expect(row).not.toHaveAttribute('data-state', 'NO_HIT');
     }
-    // The known layers still come from the governed viewer evidence (no second derivation).
     await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
     expect(screen.queryByTestId('lu-control-note')).not.toBeInTheDocument();
     // The machine reason stays machine-readable in the technical section.
-    await user.click(screen.getByTestId('lu-check-select-extra-document'));
+    await user.click(screen.getByTestId('lu-check-select-document'));
     expect(screen.getByTestId('lu-check-technical')).toHaveTextContent('NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED');
   });
 
-  it('item 5: a malformed governed_layer_checks value never crashes the result', async () => {
+  it('item 5 (W-M2d item 1): a malformed governedLayerChecks value never crashes the result -- it reads "Saknas i underlaget"', async () => {
     const user = userEvent.setup();
     mockM2b({
-      currentAssessment: (_call, ran) => (ran ? persisted('assessment-run-X') : 'missing'),
-      run: () => runReport({ assessment_artifact_id: 'assessment-run-X', assessment_projection_registered: true, governed_layer_checks: { not: 'an array' } }),
+      currentAssessment: (_call, ran) => (ran ? { ...persisted('assessment-run-X'), governedLayerChecks: { not: 'an array' } } : 'missing'),
+      run: () => runReport({ assessment_artifact_id: 'assessment-run-X', assessment_projection_registered: true }),
     });
     await openM2b(user);
     await user.click(await screen.findByTestId('lu-run'));
     expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
     expect(screen.queryAllByTestId(/^lu-check-extra-/)).toHaveLength(0);
-  });
-
-  /** K0b's server document check, exactly as server/modules/localization/governedLayerChecks.ts emits it. */
-  const DOCUMENT_CHECK = {
-    layer: 'document',
-    rule_id: 'LU-DOC-BESLUT-001',
-    status: 'NOT_CHECKED',
-    evidence_artifact_id: null,
-    reason: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED',
-    message_sv:
-      'Dokument och tidigare beslut: inte kontrollerat. Bedömningen innehåller inget verifierat dokumentbevis för fastigheten. ' +
-      'Att inga dokumentfynd visas betyder inte att det saknas tidigare beslut.',
-  };
-
-  it('item 5: a reopened assessment shows the server\'s documentCheck (K0b) -- the same row a fresh run shows', async () => {
-    const user1 = userEvent.setup();
-    mockM2b({
-      currentAssessment: (_call, ran) => (ran ? { ...persisted('assessment-run-X'), documentCheck: DOCUMENT_CHECK } : 'missing'),
-      run: () =>
-        runReport({
-          assessment_artifact_id: 'assessment-run-X',
-          assessment_projection_registered: true,
-          governed_layer_checks: [{ layer: 'water', rule_id: 'LU-WATER-001', status: 'CHECKED_HIT' }, DOCUMENT_CHECK],
-        }),
-    });
-    const fresh = render(<LuWorkspace />);
-    await user1.type(screen.getByTestId('lu-designation'), 'UPPSALA SVIA 1:111');
-    await user1.click(screen.getByTestId('lu-lookup'));
-    await user1.click(await screen.findByTestId('lu-run'));
-    const freshRow = (await screen.findByTestId('lu-check-extra-document')).textContent;
-    fresh.unmount();
-
-    callApi.mockReset();
-    const user2 = userEvent.setup();
-    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-run-X'), documentCheck: DOCUMENT_CHECK }) });
-    await openM2b(user2);
-    const row = await screen.findByTestId('lu-check-extra-document');
-    expect(row).toHaveAttribute('data-state', 'NOT_CHECKED');
-    expect(row).toHaveTextContent('Dokumentbevis');
-    expect(row).toHaveTextContent('Ej analyserat.');
-    // The server's own Swedish explanation is shown as written -- the UI derives nothing.
-    expect(screen.getByTestId('lu-check-server-note-extra-document')).toHaveTextContent(
-      'Att inga dokumentfynd visas betyder inte att det saknas tidigare beslut.',
-    );
-    expect(row.textContent).toBe(freshRow);
-    expect(screen.queryByTestId('lu-control-note')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('Saknas i underlaget');
   });
 
   it('§11 (coordinator, W-M2d item 2): with LOW findings and the document check not analysed, the server\'s qualified line stands in the same box -- never green alone', async () => {
@@ -1432,33 +1421,21 @@ describe('LuWorkspace DEMO M2b', () => {
   // shown as an unqualified green "ingen registrerad träff", and the assessment line never says
   // "Alla 6 kontroller gav ett kontrollresultat" while a layer has limited coverage.
   // -----------------------------------------------------------------------------------------------
-  const FIVE_NO_HIT = viewerEvidence(LAYERS.map((layer) => ({ layer, exists: false, count: 0 })));
-  const DOCUMENT_CHECK_HIT = {
-    layer: 'document',
-    rule_id: 'LU-DOC-BESLUT-001',
-    status: 'CHECKED_HIT',
-    evidence_artifact_id: 'doc-evidence-1',
-    reason: null,
-    message_sv:
-      'Dokument och tidigare beslut: kontrollerat – träff. Bedömningen innehåller verifierat dokumentbevis (se fynd). ' +
-      'Övriga dokument för fastigheten är inte kontrollerade.',
-  };
-
-  it('M2c item 1: Natura 2000 and Skyddad natur rows state their limited coverage in the same box, never plain green', async () => {
+  it('M2c item 1 (W-M2d item 1): registers the server marks as limited state it in the same box, in the server\'s words -- never plain green', async () => {
     const user = userEvent.setup();
-    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-x', []), documentCheck: DOCUMENT_CHECK }), evidence: () => FIVE_NO_HIT });
+    const readBack = persisted('assessment-x', []);
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_NO_HIT });
     await openM2b(user);
     await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
-    for (const layer of ['natura2000', 'protected_area']) {
+    for (const layer of ['natura2000', 'protected_area', 'water_protection_area']) {
       expect(screen.getByTestId(`lu-check-${layer}`)).toHaveAttribute('data-coverage', 'limited');
       expect(screen.getByTestId(`lu-check-state-${layer}`)).toHaveTextContent('Kontrollerat – ingen registrerad träff · begränsad täckning');
+      const serverCheck = readBack.governedLayerChecks.find((c) => c.layer === layer)!;
+      expect(screen.getByTestId(`lu-check-coverage-note-${layer}`)).toHaveTextContent(serverCheck.coverage_limitation_sv);
     }
-    expect(screen.getByTestId('lu-check-coverage-note-natura2000')).toHaveTextContent(
-      'Täckning: endast fågeldirektivets områden (SPA). Habitatdirektivets områden (SCI/SAC) ingår inte i underlaget och är inte kontrollerade.',
-    );
-    expect(screen.getByTestId('lu-check-coverage-note-protected_area')).toHaveTextContent('Täckning: endast naturreservat.');
+    expect(screen.getByTestId('lu-check-coverage-note-natura2000')).toHaveTextContent('kontrollen avser endast inläst SPA-underlag');
     expect(screen.getByTestId('lu-check-ebh')).not.toHaveAttribute('data-coverage', 'limited');
-    expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/utpekade|beslutade/);
+    expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/utpekade|beslutade|rikstäckande/);
   });
 
   it('M2c item 1 (W-M2d item 2): with every check carried out, the server\'s line still names the limited coverage -- never "Alla 6 kontroller"', async () => {
@@ -1487,19 +1464,22 @@ describe('LuWorkspace DEMO M2b', () => {
     mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_HIT });
     await openM2b(user);
     await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
-    expect(screen.getByTestId('lu-check-extra-document')).toHaveAttribute('data-coverage', 'limited');
-    expect(screen.getByTestId('lu-check-state-extra-document')).toHaveTextContent('Kontrollerat – träff · begränsad täckning');
+    // W-M2d item 1: "limited" because the SERVER lists the document check among limited_coverage_layers.
+    expect(readBack.overallStatement.coverage?.limited_coverage_layers).toContain('document');
+    expect(screen.getByTestId('lu-check-document')).toHaveAttribute('data-coverage', 'limited');
+    expect(screen.getByTestId('lu-check-state-document')).toHaveTextContent('Kontrollerat – träff · begränsad täckning');
     expect(screen.getByTestId('lu-assessment-overall-statement')).toHaveTextContent('6 av 6 kontroller genomförda, varav 4 med begränsad täckning.');
     expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-tone', 'qualified');
     expect(screen.getByTestId('lu-assessment-overall-notices')).toHaveTextContent('Dokument och tidigare beslut');
   });
 
-  it('item 5: when neither the read-back nor a run carries the document check, the panel says the answer lacks it', async () => {
+  it('item 5 (W-M2d item 1): a read-back whose checks lack the document row says so on that row -- nothing is filled in', async () => {
     const user = userEvent.setup();
-    mockM2b({ currentAssessment: () => persisted('assessment-shown') });
+    const base = persisted('assessment-shown');
+    mockM2b({ currentAssessment: () => ({ ...base, governedLayerChecks: base.governedLayerChecks.filter((c) => c.layer !== 'document') }) });
     await openM2b(user);
-    expect(await screen.findByTestId('lu-control-note')).toHaveTextContent('Uppgift om dokumentkontrollen saknas i svaret för den här bedömningen.');
-    expect(screen.queryByTestId('lu-check-extra-document')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('lu-check-document')).toHaveAttribute('data-state', 'UNCERTAIN'));
+    expect(screen.getByTestId('lu-check-document')).toHaveTextContent('Saknas i underlaget: svaret innehåller ingen kontroll för dokument.');
   });
 
   // -----------------------------------------------------------------------------------------------
@@ -1577,22 +1557,24 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(lastCesiumMapViewProps.searchRadiusMeters).toBeNull();
   });
 
-  it('M2c item 3: a 404 from the control results while an assessment is shown is "Tekniskt fel" with "Försök igen" -- never "ingen sparad bedömning"', async () => {
+  it('M2c item 3 (W-M2d item 1): a 404 from the map\'s control results while an assessment is shown is a retryable incoherence on the map -- never "ingen sparad bedömning"', async () => {
     const user = userEvent.setup();
     mockM2b({
       currentAssessment: () => persisted('assessment-shown'),
       evidence: (call) => (call === 0 ? apiError(404, NO_CURRENT_ASSESSMENT_MESSAGE) : FIVE_HIT),
     });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('error'));
     expect(screen.getByTestId('lu-results')).toBeInTheDocument();
-    expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/ingen sparad bedömning/i);
-    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('servern anger att projektet inte längre har någon aktuell bedömning');
+    expect(lastCesiumMapViewProps.productEvidence.messageSv).not.toMatch(/ingen sparad bedömning/i);
+    expect(lastCesiumMapViewProps.productEvidence.messageSv).toContain('servern anger att projektet inte längre har någon aktuell bedömning');
+    expect(lastCesiumMapViewProps.productEvidence.retryable).toBe(true);
+    expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT');
     const assessmentReads = () => callApi.mock.calls.filter(([url]) => String(url).includes('/current-assessment')).length;
     const readsBefore = assessmentReads();
-    await user.click(screen.getByTestId('lu-control-retry'));
+    act(() => lastCesiumMapViewProps.onProductEvidenceRetry());
     // An incoherence is retried by reading the assessment again (the evidence follows it).
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded'));
     expect(assessmentReads()).toBeGreaterThan(readsBefore);
   });
 
@@ -1612,12 +1594,13 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(lastCesiumMapViewProps.productEvidence.stateLabel).toBe('Ofullständigt underlag');
   });
 
-  it('M2c item 3: a technical failure reads "Tekniskt fel" in the panel and on the map', async () => {
+  it('M2c item 3 (W-M2d item 1): a technical failure of the map evidence reads "Tekniskt fel" on the map; the panel keeps the server\'s checks', async () => {
     const user = userEvent.setup();
     mockM2b({ currentAssessment: () => persisted('assessment-shown'), evidence: () => apiError(503, 'upstream down') });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('error'));
     expect(lastCesiumMapViewProps.productEvidence.stateLabel).toBe('Tekniskt fel');
+    expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT');
   });
 
   // -----------------------------------------------------------------------------------------------
@@ -1794,9 +1777,118 @@ describe('LuWorkspace W-M2d', () => {
     await waitFor(() => expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-coverage-state', 'DETERMINED'));
   });
 
+  const checkOf = (readBack: ReturnType<typeof governedReadBack>, layer: string) =>
+    readBack.governedLayerChecks.find((c) => c.layer === layer)!;
+
+  it('item 1: each row is the server\'s own check -- map evidence that says otherwise changes nothing in the panel', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({ id: 'assessment-m2d-1', layers: { natura2000: { kind: 'hit', risk: 'HIGH' } } });
+    // The viewer evidence (same ids, so it passes the map's binding check) says "no hit" for Natura 2000.
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_NO_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'HIT'));
+    // The server's own Swedish text, not a client composition.
+    expect(screen.getByTestId('lu-check-natura2000')).toHaveTextContent(checkOf(readBack, 'natura2000').message_sv);
+    expect(screen.getByTestId('lu-check-ebh')).toHaveTextContent(checkOf(readBack, 'ebh').message_sv);
+    expect(screen.getByTestId('lu-check-natura2000')).not.toHaveTextContent('Inga registrerade objekt inom sökradien');
+  });
+
+  it('item 1: the server\'s technical, unavailable and uninterpretable states map one to one -- whatever the map evidence says', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({
+      id: 'assessment-m2d-2',
+      layers: { water: { kind: 'unreadable', readError: true }, ebh: { kind: 'unavailable' } },
+    });
+    const ebh = checkOf(readBack, 'ebh');
+    expect(ebh.coverage_state).toBe('SOURCE_UNAVAILABLE');
+    expect(checkOf(readBack, 'water').coverage_state).toBe('TECHNICAL_ERROR');
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
+    expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'SOURCE_UNAVAILABLE');
+    expect(screen.getByTestId('lu-check-ebh')).toHaveTextContent(ebh.message_sv);
+    // The server marks the transient read error retryable: the panel offers a re-read.
+    expect(screen.getByTestId('lu-control-retry')).toBeInTheDocument();
+  });
+
+  it('item 1: a map-evidence failure is shown on the map only; the panel keeps the server\'s checks', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({ id: 'assessment-m2d-3', layers: { water: { kind: 'hit' } } });
+    mockM2b({
+      currentAssessment: () => readBack,
+      evidence: (call) => (call === 0 ? apiError(404, 'Governed viewer capability is not configured for this project.') : FIVE_NO_HIT),
+    });
+    await openM2b(user);
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('error'));
+    expect(lastCesiumMapViewProps.productEvidence.messageSv).toContain('kan inte visas på kartan');
+    expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT');
+    expect(screen.getByTestId('lu-check-ebh')).toHaveAttribute('data-state', 'NO_HIT');
+    expect(screen.queryByTestId('lu-control-retry')).not.toBeInTheDocument();
+    // The map retries on its own.
+    act(() => lastCesiumMapViewProps.onProductEvidenceRetry());
+    await waitFor(() => expect(lastCesiumMapViewProps.productEvidence.status).toBe('loaded'));
+  });
+
+  it('item 1: an answer without governedLayerChecks reads "Saknas i underlaget" on every check -- nothing is derived from the map evidence', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => persistedWithoutServerChecks('assessment-old'), evidence: () => FIVE_HIT });
+    await openM2b(user);
+    await screen.findByTestId('lu-results');
+    for (const key of [...LAYERS, 'document']) {
+      expect(screen.getByTestId(`lu-check-${key}`)).toHaveAttribute('data-state', 'UNCERTAIN');
+      expect(screen.getByTestId(`lu-check-${key}`)).toHaveTextContent('Saknas i underlaget');
+    }
+    expect(screen.getByTestId('lu-control-note')).toHaveTextContent('Uppgift om lagerkontrollerna saknas i svaret för den här bedömningen.');
+  });
+
+  it('item 1: the evidence panel reads the server\'s evidenceDetails -- retrieved time, source, coverage; no client contract table, no "rikstäckande"', async () => {
+    const user = userEvent.setup();
+    const readBack = governedReadBack({ id: 'assessment-m2d-5' });
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_NO_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
+    await user.click(screen.getByTestId('lu-check-select-natura2000'));
+    const natura = readBack.evidenceDetails.find((d) => d.layer === 'natura2000')!;
+    expect(screen.getByTestId('lu-check-detail-Täckning')).toHaveTextContent(natura.coverage_limitation_sv);
+    expect(screen.getByTestId('lu-check-detail-Hämtad')).not.toHaveTextContent('Skickas inte med');
+    expect(screen.getByTestId('lu-check-detail-Hämtad')).not.toHaveTextContent('Saknas i underlaget');
+    expect(screen.getByTestId('lu-check-detail-Källa')).toHaveTextContent('Naturvårdsverket – Natura 2000');
+    expect(screen.getByTestId('lu-check-detail-Källversion')).toHaveTextContent('2026-05-08');
+    expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/rikstäckande/i);
+    // The dataset version hash is a technical identity: only in "Teknisk information".
+    expect(screen.queryByTestId('lu-check-detail-Datasetversion')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lu-check-technical')).toHaveTextContent(natura.dataset_version_hash!);
+  });
+
+  it('item 1: the document check is the server\'s row, named as the server names it, the same on a fresh run and a reopen', async () => {
+    const user1 = userEvent.setup();
+    const readBack = governedReadBack({ id: 'assessment-run-X' });
+    mockM2b({
+      currentAssessment: (_call, ran) => (ran ? readBack : 'missing'),
+      run: () => runReport({ assessment_artifact_id: 'assessment-run-X', assessment_projection_registered: true, governed_layer_checks: [] }),
+      evidence: () => FIVE_NO_HIT,
+    });
+    const fresh = render(<LuWorkspace />);
+    await user1.type(screen.getByTestId('lu-designation'), 'UPPSALA SVIA 1:111');
+    await user1.click(screen.getByTestId('lu-lookup'));
+    await user1.click(await screen.findByTestId('lu-run'));
+    await waitFor(() => expect(screen.getByTestId('lu-check-document')).toHaveAttribute('data-state', 'NOT_CHECKED'));
+    const freshRow = screen.getByTestId('lu-check-document').textContent;
+    fresh.unmount();
+
+    callApi.mockReset();
+    mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_NO_HIT });
+    await openM2b(userEvent.setup());
+    await waitFor(() => expect(screen.getByTestId('lu-check-document')).toHaveAttribute('data-state', 'NOT_CHECKED'));
+    const row = screen.getByTestId('lu-check-document');
+    expect(row).toHaveTextContent('Dokument och tidigare beslut');
+    expect(row).toHaveTextContent(checkOf(readBack, 'document').message_sv);
+    expect(row.textContent).toBe(freshRow);
+  });
+
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
     const user = userEvent.setup();
-    mockM2b({ currentAssessment: () => persisted('assessment-old-server') });
+    mockM2b({ currentAssessment: () => persistedWithoutServerChecks('assessment-old-server') });
     await openM2b(user);
     const statement = await screen.findByTestId('lu-assessment-overall-statement');
     expect(statement).toHaveTextContent('Saknas i underlaget: svaret innehåller ingen samlad bedömning för den här bedömningen.');
