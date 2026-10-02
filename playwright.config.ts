@@ -2,6 +2,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { loadEnv } from 'vite';
+import {
+  assertTestDatabaseTargetAllowed,
+  parseDatabaseUrlTarget,
+} from './server/modules/test-db-guard/testDatabaseTargetPolicy';
 
 function trim(value: string | undefined): string {
   return String(value || '').trim();
@@ -71,6 +75,14 @@ function applyLocalTestProcessEnv(): void {
 }
 
 if (!isExternalTarget) {
+  // TEST-DB-GUARD (OD-K0-5): local E2E writes to the database it is given, so it needs the same
+  // explicit opt-in as every other test run: MIMER_TEST_DB_ALLOW=<db> naming a *_test database
+  // that is not on a live host/port. A live URL from .env.local or the shell is refused here,
+  // before any server is started or reused.
+  assertTestDatabaseTargetAllowed(
+    parseDatabaseUrlTarget(serverEnv.DATABASE_URL) ?? { host: '', port: 0, database: '' },
+    'playwright.config.ts (local E2E DATABASE_URL)',
+  );
   applyLocalTestProcessEnv();
 }
 
