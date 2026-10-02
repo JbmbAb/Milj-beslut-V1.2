@@ -177,5 +177,8 @@
   { "id": "cmd-ps-continuation", "kind": "command", "text": "psql `\n  -c \"DELETE FROM env.sgu_well\"", "expect": { "verdict": "PROTECTED" } },
   { "id": "argv-dynamic-unknown", "kind": "argv", "args": ["\u27e6DYN:cmd\u27e7", "\u27e6DYN:args\u27e7"], "expect": { "verdict": "ALLOWED" } },
   { "id": "argv-node-script", "kind": "argv", "args": ["node", "scripts/x.js"], "expect": { "verdict": "ALLOWED" } },
-  { "id": "argv-windows-ogr2ogr", "kind": "argv", "args": ["C:\\Program Files\\GDAL\\ogr2ogr.exe", "-f", "PostgreSQL", "PG:x", "a.gpkg", "-nln", "lm_staging.x_12345678"], "expect": { "verdict": "PROTECTED" } }
+  { "id": "argv-windows-ogr2ogr", "kind": "argv", "args": ["C:\\Program Files\\GDAL\\ogr2ogr.exe", "-f", "PostgreSQL", "PG:x", "a.gpkg", "-nln", "lm_staging.x_12345678"], "expect": { "verdict": "PROTECTED" } },
+  { "id": "proto-key-constructor-before-psql", "kind": "command", "text": "constructor psql -c \"DROP TABLE env.sgu_well\"", "expect": { "verdict": "PROTECTED", "protected": ["DROP env.sgu_well"] } },
+  { "id": "proto-key-dunder-proto-before-psql", "kind": "argv", "args": ["__proto__", "psql", "-c", "TRUNCATE env.sgu_well"], "expect": { "verdict": "PROTECTED", "protected": ["TRUNCATE env.sgu_well"] } },
+  { "id": "proto-key-words-as-arguments", "kind": "command", "text": "echo constructor __proto__ hasOwnProperty", "expect": { "verdict": "ALLOWED" } }
 ]

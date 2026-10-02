@@ -1354,6 +1354,15 @@ function toolBaseName(arg: string): string {
   return asciiLower(parts[parts.length - 1] ?? "");
 }
 
+/**
+ * A value of a specification table by OWN key only: a program named `constructor` or `__proto__` must
+ * not resolve to Object.prototype members (U30F2 H1; the Python dict and PowerShell Dictionary bindings
+ * never did).
+ */
+function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
 /** The DB/GIS tool an argument names, by file name or by a dynamic value's variable name. */
 export function toolOf(arg: string): string | null {
   const spec = classificationSpec().commands;
@@ -1368,9 +1377,11 @@ export function toolOf(arg: string): string | null {
     return null;
   }
   const base = toolBaseName(arg);
-  if (spec.tools[base]) return spec.tools[base]!;
+  const direct = ownEntry(spec.tools, base);
+  if (direct) return direct;
   for (const suffix of spec.tool_suffixes) {
-    if (base.endsWith(suffix) && spec.tools[base.slice(0, -suffix.length)]) return spec.tools[base.slice(0, -suffix.length)]!;
+    const stripped = base.endsWith(suffix) ? ownEntry(spec.tools, base.slice(0, -suffix.length)) : undefined;
+    if (stripped) return stripped;
   }
   return null;
 }
@@ -1379,7 +1390,7 @@ function shellWrapper(arg: string): { flags: readonly string[]; restOfLine: bool
   const spec = classificationSpec().commands;
   let base = toolBaseName(arg);
   for (const suffix of spec.tool_suffixes) if (base.endsWith(suffix)) base = base.slice(0, -suffix.length);
-  const flags = spec.shell_wrappers[base];
+  const flags = ownEntry(spec.shell_wrappers, base);
   return flags ? { flags, restOfLine: spec.shell_wrappers_rest_of_line.includes(base) } : null;
 }
 
