@@ -204,6 +204,7 @@
     "attestLuSourceAuthorityTemporalStatus",
     "buildSpatialEvidenceContentHash",
     "buildSpatialEvidenceIdentityPayload",
+    "classifyVerifyPresentation",
     "computeLuSourceAuthorityTemporalStatusArtifactId",
     "computeSpatialEvidenceHash",
     "createCanonicalPropertyGeometryArtifact",
