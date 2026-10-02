@@ -186,7 +186,16 @@ beforeEach(() => {
   state.geometryRows.length = 0;
   state.supersessionRows.length = 0;
   state.registerCalls = 0;
-  queryMock.mockResolvedValue({ evidence: [], unavailable_layers: [] });
+  // U20CDF3 (low 5): the provider answers every requested layer, as the real one does (silence is an
+  // invalid outcome form in a fresh run and fails closed before the kernel; tested in the U20C/normal-form suites).
+  queryMock.mockResolvedValue({
+    evidence: ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((layer) => ({
+      artifact_id: `evidence-${layer}-tf`,
+      artifact_type: 'SPATIAL_EVIDENCE',
+      payload: { source_metadata: { dataset: layer }, result_semantics: { kind: 'EXISTENCE_WITHIN_DISTANCE', result: { exists: false, match_count_observed: 0 } } },
+    })),
+    unavailable_layers: [],
+  });
   kernelMock.mockResolvedValue({
     admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
     findings: [], finding_ids: [], assessment: { artifact_id: 'assessment-1' },

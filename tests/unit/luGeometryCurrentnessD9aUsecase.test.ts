@@ -105,8 +105,10 @@ const PROTECTED_NOT_CHECKED = { finding_id: 'finding-notchecked-protected_area',
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // U20CDF3 (low 5): the provider answers every requested layer, as the real one does (silence is an
+  // invalid outcome form in a fresh run and fails closed before the kernel; tested in the U20C/normal-form suites).
   queryMock.mockResolvedValue({
-    evidence: [evidence('water', true), evidence('ebh', false), evidence('natura2000', false)],
+    evidence: [evidence('water', true), evidence('ebh', false), evidence('natura2000', false), evidence('water_protection_area', false)],
     unavailable_layers: [{ dataset: 'protected_area', reason: 'TABLE_MISSING' }],
   });
   kernelMock.mockResolvedValue({
@@ -205,10 +207,12 @@ describe('D9(a) + U12 through generate-report: successful run keeps provenance a
         message_sv: 'Ingen registrerad träff i Natura 2000 inom sökradien (radien saknas i underlaget) (registerkontroll, inte markundersökning).',
         coverage_limitation_sv: MISSING, known_coverage_gaps: [],
       },
+      // U20CDF3 (low 5): the provider now answers this layer too (negative), as the real one does; the
+      // silent-layer row is pinned by the pure U12 test below and silence in a fresh run fails closed.
       {
-        layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'NOT_CHECKED', evidence_artifact_id: null, reason: 'NO_EVIDENCE',
-        coverage_state: 'NOT_CHECKED',
-        message_sv: 'Inte kontrollerat: bedömningen innehåller ingen evidens för Vattenskyddsområde. Ingen slutsats om lagret.',
+        layer: 'water_protection_area', rule_id: 'LU-WATERPROTECTION-001', status: 'CHECKED_NO_HIT', evidence_artifact_id: 'evidence-water_protection_area-x', reason: null,
+        coverage_state: 'CHECKED_NO_HIT',
+        message_sv: 'Ingen registrerad träff i Vattenskyddsområde inom sökradien (radien saknas i underlaget) (registerkontroll, inte markundersökning).',
         coverage_limitation_sv: MISSING, known_coverage_gaps: [],
       },
       // K0: the document check is appended. This file's kernel mock returns an assessment without a

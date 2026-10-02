@@ -565,22 +565,32 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
     expect(site.overallRisk).toBe('LOW');
   });
 
-  it('U20CDF2 (G1): a provider that says nothing about any layer leaves a record whose coverage cannot be established -- never "0 av 6", never a risk level', async () => {
-    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: [] });
-    kernelMock.mockResolvedValue({
-      admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1', findings: [], finding_ids: [],
-      assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: [], findings: [] } },
-    });
+  // U20CDF3 (U20CDF2 verification H5.2 / low 5): this case used to let a silent provider through,
+  // which gave a FRESH record the text "... för denna historiska bedömning". Silence is now an invalid
+  // outcome form in the fresh run: fail-closed before the kernel, no assessment, no coverage text at
+  // all (so neither "historisk" nor "0 av 6" nor a risk level). The historical classification itself
+  // stays for stored records (read-back), where an older producer can have left a layer unrecorded.
+  it.each<[string, { evidence: unknown[]; unavailable_layers: unknown[] }, string]>([
+    ['says nothing about any layer', { evidence: [], unavailable_layers: [] }, 'Brunnar'],
+    ['is silent about one layer', { evidence: LAYERS.filter((l) => l !== 'natura2000').map(spatialEvidence), unavailable_layers: [] }, 'Natura 2000'],
+  ])('U20CDF3 (low 5): a fresh run whose provider %s fails closed -- never the "historiska bedömning" text', async (_label, outcome, layerSv) => {
+    queryMock.mockResolvedValue(outcome);
     const res = await post('/api/localization/generate-report');
+    expect(res.status).toBe(200);
     const site = res.body.siteAnalyses[0];
-    expect(site.executionMotor.governed_coverage_state).toBe('HISTORICAL_COVERAGE_UNKNOWN');
-    const details = (vi.mocked(auditTrail.logAction).mock.calls[0]![6] as { details: Record<string, unknown> }).details;
-    expect(details.bestCoverageState).toBe('HISTORICAL_COVERAGE_UNKNOWN');
-    expect(details.bestCheckCoverage).toBeNull();
+    expect(site.executionMotor).toMatchObject({
+      admitted: false, assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null,
+      reason_codes: ['REJECT_SPATIAL_EVIDENCE_FORM', 'LAYER_NOT_ANSWERED'],
+    });
+    expect(kernelMock).not.toHaveBeenCalled();
+    expect(site.warnings).toEqual([
+      'Spatialt underlag avvisat: ett efterfrågat lager redovisas varken med evidens eller som otillgängligt ' +
+        `för lagret ${layerSv} (REJECT_SPATIAL_EVIDENCE_FORM: LAYER_NOT_ANSWERED). Ingen bedömning gjordes; regelmotorn nåddes aldrig.`,
+    ]);
+    expect(site.executionMotor.governed_coverage_state).toBeUndefined();
     const description = String(vi.mocked(auditTrail.logAction).mock.calls[0]![5]);
-    for (const text of [site.complianceAnalysis.summary, res.body.summary.reasoning, description]) {
-      expect(text).toContain('Täckningsgrad kan inte fastställas');
-      expect(text).not.toMatch(/\b0 av \d|låg risk|måttlig risk|hög risk|i de kontroller som utfördes/i);
+    for (const text of [JSON.stringify(res.body), description]) {
+      expect(text).not.toMatch(/historisk|Täckningsgrad|\b0 av \d|låg risk|måttlig risk|hög risk|i de kontroller som utfördes/i);
     }
   });
 });

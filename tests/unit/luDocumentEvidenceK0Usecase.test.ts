@@ -166,8 +166,10 @@ beforeEach(() => {
       artifactId: 'localization-geometry-derived', provenance: 'derived_from_property_boundary', derivedInThisRequest: true,
     }),
   });
+  // U20CDF3 (low 5): the provider answers every requested layer, as the real one does (silence is an
+  // invalid outcome form in a fresh run and fails closed before the kernel; tested in the U20C/normal-form suites).
   queryMock.mockResolvedValue({
-    evidence: [spatialEvidence('water', false), spatialEvidence('ebh', false)],
+    evidence: ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((layer) => spatialEvidence(layer, false)),
     unavailable_layers: [],
   });
   kernelMock.mockImplementation(async (input: { assessment_draft: { evidence_refs: unknown[] } }) => ({
@@ -216,7 +218,8 @@ describe('K0a: no ungoverned document evidence without explicit governed refs', 
     };
     expect(kernelInput.document_evidence).toEqual([]);
     expect(kernelInput.verified_document_facts).toEqual([]);
-    expect(kernelInput.assessment_draft.evidence_refs.map((r) => r.artifact_type)).toEqual(['SPATIAL_EVIDENCE', 'SPATIAL_EVIDENCE']);
+    // U20CDF3 (low 5): one spatial ref per requested layer (the provider now answers all five); still only spatial.
+    expect(kernelInput.assessment_draft.evidence_refs.map((r) => r.artifact_type)).toEqual(Array(5).fill('SPATIAL_EVIDENCE'));
     expect(kernelInput.assessment_draft.system_summary).toContain('0 document evidence');
   });
 });

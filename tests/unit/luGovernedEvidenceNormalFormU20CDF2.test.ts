@@ -74,8 +74,28 @@ describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine',
 
   it('a provider outcome in the normal form passes', () => {
     expect(() => assertGovernedSpatialQueryOutcome(valid, REQUESTED)).not.toThrow();
-    // Silence about a layer is not a form violation here (see the coverage classification).
-    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [] }, ALL_LAYERS)).not.toThrow();
+  });
+
+  // U20CDF3 (U20CDF2 verification H5.2 / low 5): silence about a requested layer -- neither evidence
+  // nor an unavailable entry -- is not what any real provider returns (it answers every requested
+  // layer). In a fresh run it is an invalid outcome form and fails closed, instead of producing a
+  // record whose text says "denna historiska bedömning".
+  it.each<[string, { evidence: unknown[]; unavailable_layers: unknown[] }, string]>([
+    ['a provider that says nothing at all', { evidence: [], unavailable_layers: [] }, 'water'],
+    ['a provider silent about one layer', { ...valid, evidence: [...valid.evidence, ev('water_protection_area', { exists: false, match_count_observed: 0 })] }, 'protected_area'],
+    ['a provider silent about the last layer', {
+      evidence: ['water', 'ebh', 'protected_area', 'natura2000'].map((layer) => ev(layer, { exists: false, match_count_observed: 0 })),
+      unavailable_layers: [],
+    }, 'water_protection_area'],
+  ])('U20CDF3 (low 5): %s -> LAYER_NOT_ANSWERED for the first silent requested layer', (_label, outcome, layer) => {
+    let thrown: unknown;
+    try {
+      assertGovernedSpatialQueryOutcome(outcome, ALL_LAYERS);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(GovernedSpatialEvidenceFormError);
+    expect(thrown).toMatchObject({ violation: 'LAYER_NOT_ANSWERED', layer });
   });
 
   it.each<[string, Record<string, unknown> | undefined, unknown]>([

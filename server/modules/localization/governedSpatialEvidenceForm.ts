@@ -25,9 +25,10 @@
  *    non-negative integer and `count > 0` equals `exists`.
  * Query outcome level (fresh run only): every unavailable entry names a dataset, and no dataset is
  * both evidenced and reported unavailable. U20CDF3 (low 2): every entry names exactly one of the
- * requested layers, and each requested layer is answered at most once. Silence about a requested
- * layer is not a form violation here; the coverage classification (governedLayerChecks.ts) treats
- * such a record honestly.
+ * requested layers, and each requested layer is answered at most once. U20CDF3 (low 5): and each
+ * requested layer is answered at least once -- silence is a form violation in the fresh run. (A
+ * STORED record that says nothing about a layer -- an older producer -- is classified honestly by
+ * governedCoverageStatement.ts as HISTORICAL_COVERAGE_UNKNOWN.)
  */
 
 export const ADMITTED_SPATIAL_RESULT_KIND = 'EXISTENCE_WITHIN_DISTANCE';
@@ -83,7 +84,9 @@ export type SpatialQueryOutcomeViolation =
   /** U20CDF3 (low 2): an entry names a dataset that is not exactly one of the requested layers. */
   | 'DATASET_NOT_REQUESTED'
   /** U20CDF3 (low 2): a requested layer is answered more than once. */
-  | 'DUPLICATE_LAYER_OUTCOME';
+  | 'DUPLICATE_LAYER_OUTCOME'
+  /** U20CDF3 (low 5): a requested layer is answered neither with evidence nor as unavailable. */
+  | 'LAYER_NOT_ANSWERED';
 
 /** Swedish description of each violation (the machine code stays the truth, in parentheses). */
 export const SPATIAL_QUERY_OUTCOME_VIOLATION_SV: Readonly<Record<SpatialQueryOutcomeViolation, string>> = {
@@ -97,6 +100,7 @@ export const SPATIAL_QUERY_OUTCOME_VIOLATION_SV: Readonly<Record<SpatialQueryOut
   EVIDENCE_AND_UNAVAILABLE: 'samma lager redovisas både med evidens och som otillgängligt',
   DATASET_NOT_REQUESTED: 'svaret gäller ett lager som inte efterfrågades',
   DUPLICATE_LAYER_OUTCOME: 'samma lager redovisas mer än en gång',
+  LAYER_NOT_ANSWERED: 'ett efterfrågat lager redovisas varken med evidens eller som otillgängligt',
 };
 
 /**
@@ -160,5 +164,11 @@ export function assertGovernedSpatialQueryOutcome(
     if (evidenced.has(dataset)) throw new GovernedSpatialEvidenceFormError('EVIDENCE_AND_UNAVAILABLE', dataset);
     if (unavailableSeen.has(dataset)) throw new GovernedSpatialEvidenceFormError('DUPLICATE_LAYER_OUTCOME', dataset);
     unavailableSeen.add(dataset);
+  }
+  // U20CDF3 (U20CDF2 verification H5.2 / low 5): the real provider answers every requested layer
+  // (evidence, or an unavailable entry for a failed query). Silence is an invalid outcome form in the
+  // fresh run -- never a record a fresh text would call "historisk".
+  for (const layer of requestedLayers) {
+    if (!evidenced.has(layer) && !unavailableSeen.has(layer)) throw new GovernedSpatialEvidenceFormError('LAYER_NOT_ANSWERED', layer);
   }
 }

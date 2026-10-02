@@ -167,7 +167,14 @@ const DERIVED_WGS84_LAT_LNG: readonly [number, number] = [59.33, 18.07];
 
 function runtime(repository: InMemoryArtifactRepository): LocalizationSpatialRuntime {
   // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
-  const provider: ISpatialProvider = { query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }) };
+  // U20CDF3 (low 5): every requested layer answered (here: the governed query failed for each), as the
+  // real provider does -- silence fails a fresh run closed before the kernel.
+  const provider: ISpatialProvider = {
+    query: vi.fn(async (request: { layers: readonly { name: string }[] }) => ({
+      evidence: [],
+      unavailable_layers: request.layers.map((layer) => ({ dataset: layer.name, reason: 'SOURCE_UNAVAILABLE' })),
+    })) as unknown as ISpatialProvider['query'],
+  };
   return {
     artifactRepository: repository,
     resolveSpatialProvider: () => provider,

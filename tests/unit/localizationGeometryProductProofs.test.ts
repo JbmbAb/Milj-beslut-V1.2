@@ -286,7 +286,9 @@ function makeRuntime(
     // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
     query: vi.fn(async (request: SpatialQueryRequest) => {
       queryRecorder.push(request);
-      return { evidence: [], unavailable_layers: [] };
+      // U20CDF3 (low 5): every requested layer answered (here: the governed query failed for each), as
+      // the real provider does -- silence fails a fresh run closed before the kernel.
+      return { evidence: [], unavailable_layers: request.layers.map((layer) => ({ dataset: layer.name, reason: 'SOURCE_UNAVAILABLE' })) };
     }),
   };
   return {
