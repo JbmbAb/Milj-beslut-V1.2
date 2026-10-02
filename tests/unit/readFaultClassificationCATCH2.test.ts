@@ -26,6 +26,7 @@ import {
   PROJECT_ACCESS_DENIED,
   causeChain,
   classifyReadFault,
+  isExactlyTheDeterministicArtifact,
   isProjectAccessDenied,
   isProvenArtifactAbsence,
   isProvenBindingAbsence,
@@ -311,6 +312,21 @@ describe('W-CATCH2 (A): no second copy -- the bootstrap gate (W-BOOT) and the se
       });
     }
     expect(hermeticPrismaTouches).toEqual([]);
+  });
+});
+
+describe('W-CATCH2 #10/#11: an existing artifact under a deterministic id must be exactly that artifact', () => {
+  const bare = { artifact_id: 'issuer-x', artifact_type: 't', content_hash: { algorithm: 'sha256', value: 'h' }, payload: { issuer_key_id: 'k', owner_authority_ref: { artifact_id: 'o', artifact_type: 'a' } } };
+  it('the same content with an attestation, in another key order -> exactly it', () => {
+    const stored = { attestation: { signer: 'k' }, payload: { owner_authority_ref: { artifact_type: 'a', artifact_id: 'o' }, issuer_key_id: 'k' }, content_hash: { value: 'h', algorithm: 'sha256' }, artifact_type: 't', artifact_id: 'issuer-x' };
+    expect(isExactlyTheDeterministicArtifact(stored, bare)).toBe(true);
+  });
+  it('any edited field, an extra field or a non-object -> not it', () => {
+    expect(isExactlyTheDeterministicArtifact({ ...bare, payload: { ...bare.payload, owner_authority_ref: { artifact_id: 'edited', artifact_type: 'a' } } }, bare)).toBe(false);
+    expect(isExactlyTheDeterministicArtifact({ ...bare, extra: 1 }, bare)).toBe(false);
+    expect(isExactlyTheDeterministicArtifact({ ...bare, payload: { ...bare.payload, issuer_key_id: 'other' } }, bare)).toBe(false);
+    expect(isExactlyTheDeterministicArtifact(null, bare)).toBe(false);
+    expect(isExactlyTheDeterministicArtifact('issuer-x', bare)).toBe(false);
   });
 });
 

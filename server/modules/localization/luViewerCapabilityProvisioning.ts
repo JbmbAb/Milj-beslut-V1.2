@@ -43,6 +43,7 @@ import { assertProjectAccess } from '../../security/projectAccess';
 import {
   isProjectAccessDenied,
   isProvenBindingAbsence,
+  isExactlyTheDeterministicArtifact,
   LuReadFaultError,
   readExistingOrProvenAbsent,
   toReadFaultError,
@@ -117,10 +118,9 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<ViewerCapa
   );
   if (read.found) {
     const existing = read.value;
-    // Same deterministic identity, so it must be exactly this issuer (before: anything else fell through to a re-mint).
-    if (existing?.artifact_id === bareIssuer.artifact_id && existing.content_hash?.value === bareIssuer.content_hash.value && existing.payload?.issuer_key_id === signing.keyId) {
-      return existing;
-    }
+    // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
+    // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
+    if (isExactlyTheDeterministicArtifact(existing, bareIssuer)) return existing;
     throw new LuReadFaultError('viewer-capability-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
   }
   const attestation = await attestViewerCapabilityIssuerArtifact({ issuer: bareIssuer, signing });

@@ -260,6 +260,31 @@ export async function readExistingOrProvenAbsent<T>(
 }
 
 /**
+ * W-CATCH2 #10/#11: an existing artifact under a DETERMINISTIC id must be exactly the artifact that id
+ * names. Its content without the attestation must equal the freshly built bare artifact field for field
+ * (compared with keys sorted, so storage key order never matters); a valid CAS object whose content was
+ * edited under the same id -- even with the content_hash field left untouched -- is not it.
+ */
+export function isExactlyTheDeterministicArtifact(existing: unknown, bare: object): boolean {
+  if (typeof existing !== 'object' || existing === null) return false;
+  const { attestation: _attestation, ...content } = existing as Record<string, unknown>;
+  return sortedJson(content) === sortedJson(bare);
+}
+
+/** JSON with object keys sorted at every level, so storage key order never matters. */
+function sortedJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(sortedJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    return `{${Object.keys(value)
+      .sort()
+      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+      .map((key) => `${JSON.stringify(key)}:${sortedJson((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/**
  * Swedish, neutral: what the fault means for `subjectSv` (a capitalised noun phrase such as
  * "Projektets koppling till fastigheten") and whether a retry can help. No id, path or code.
  */
