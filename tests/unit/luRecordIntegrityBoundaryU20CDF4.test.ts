@@ -201,3 +201,82 @@ describe('U20CDF4 (owner decision 2): stored evidence that DECLARES the result c
     expect(details.evidenceDetails[0]!.message_sv).toMatch(/^Ingen registrerad träff i Brunnar \(Provider\) inom 500 m/);
   });
 });
+
+describe('U20CDF4 (coordinator clarification 3): evidence from BEFORE the result contract in a legacy (V1) assessment is historical, never "tampered"', () => {
+  // SPATIAL_EVIDENCE existed from 2026-08-04 without result_semantics; b2f7ea9b (2026-08-13) introduced
+  // the field, and today's identity function requires it, so such evidence cannot get an identity at all.
+  // Only a legacy V1 assessment (no assessment_contract_version; V2 arrived 2026-08-23) can pin it.
+  const PRE_CONTRACT_SV =
+    'Äldre evidens från före resultatkontraktet: den saknar resultatsemantik, så dess innehåll kan inte verifieras mot dagens ' +
+    'identitetskontrakt och tolkas inte som ett kontrollresultat.';
+  function preContract(dataset: string, provider = 'SGU', id = `evidence-${dataset}-pre-contract`) {
+    return {
+      artifact_id: id,
+      artifact_type: 'SPATIAL_EVIDENCE' as const,
+      content_hash: { algorithm: 'sha256', value: 'f'.repeat(64) },
+      payload: {
+        property_ref: PROPERTY_REF,
+        layer_ref: { layer_id: dataset, version_hash: HASH, layer_version: 'v1' },
+        source_metadata: { provider, dataset, dataset_version: HASH, retrieved_at: '2026-08-05T10:00:00.000Z' },
+        query_context: { query_id: 'q', query_type: 'SPATIAL_DWITHIN', parameters: {} },
+      },
+    };
+  }
+
+  it('a V1 record with pre-contract evidence -> HISTORICAL_COVERAGE_UNKNOWN; the row is "Ofullständigt underlag", the detail says why; never EVIDENCE_TAMPERED', async () => {
+    const older = preContract('water');
+    const { details, statement } = await readBack({ stored: [older, ...without('water')], findings: [] });
+    expect(details.integrity).toEqual({ ok: true });
+    expect(statement.coverage_state).toBe('HISTORICAL_COVERAGE_UNKNOWN');
+    expect(statement.coverage_basis).toEqual(['EVIDENCE_NOT_IN_NORMAL_FORM:water']);
+    expect(statement.statement_sv).toBe(HISTORICAL_SV);
+    const row = details.governedLayerChecks[0]!;
+    expect(row).toMatchObject({ layer: 'water', status: 'NOT_CHECKED', reason: 'UNRECOGNIZED_RESULT', coverage_state: 'INCOMPLETE_EVIDENCE', evidence_artifact_id: older.artifact_id });
+    expect(row.message_sv).toBe('Ofullständigt underlag: resultatet i evidensen för Brunnar kunde inte tolkas. Ingen slutsats om lagret.');
+    const detail = details.evidenceDetails.find((d) => d.evidence_artifact_id === older.artifact_id)!;
+    expect(detail).toMatchObject({ resolution: 'RESOLVED', integrity: 'NOT_INTERPRETED', technical_error_class: null, binding_assurance: 'NONE', layer: 'water' });
+    expect(detail.message_sv).toBe(PRE_CONTRACT_SV);
+    expect(JSON.stringify(details)).not.toMatch(/TAMPERED|Integritetsfel/);
+  });
+
+  it('with a stored risk finding citing it: still historical, the layer a hit and the risk named', async () => {
+    const older = preContract('water');
+    const { details, statement } = await readBack({ stored: [older, ...without('water')], findings: [finding('water', 'HIGH', [older as never])] });
+    expect(details.integrity).toEqual({ ok: true });
+    expect(statement.coverage_state).toBe('HISTORICAL_COVERAGE_UNKNOWN');
+    expect(statement.statement_sv).toBe(`${HISTORICAL_SV} Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Brunnar.`);
+    expect(details.governedLayerChecks[0]).toMatchObject({ status: 'CHECKED_HIT', reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE' });
+  });
+
+  it('the unverifiable content of pre-contract evidence is never echoed (no provider string, no other field)', async () => {
+    const older = preContract('water', '<script>Provider-from-unverified-bytes</script>');
+    const { details, statement } = await readBack({ stored: [older, ...without('water')], findings: [] });
+    const text = JSON.stringify({ details, statement });
+    expect(text).not.toContain('Provider-from-unverified-bytes');
+    expect(text).not.toContain('<script>');
+  });
+
+  it('the same evidence pinned by a V3 assessment is still EVIDENCE_TAMPERED (V2+ postdates the contract: missing result_semantics is no older format there)', async () => {
+    const older = preContract('water');
+    const { details } = await readBack({ stored: [older, ...without('water')], findings: [], contractVersion: 'localization-assessment-v3' });
+    expect(details.integrity).toEqual({ ok: false, failureClass: 'EVIDENCE_TAMPERED', artifactId: older.artifact_id });
+  });
+
+  it('pre-contract evidence stored under another id is EVIDENCE_TAMPERED even in a V1 assessment (its id/type ARE verifiable)', async () => {
+    const older = preContract('water');
+    // Stored under the asked id but naming another id: tampered.
+    const mismatched = new Map([[older.artifact_id, { ...older, artifact_id: 'evidence-other-id' }]]);
+    const repository = {
+      async resolve<T>(r: { artifact_id: string }): Promise<T> {
+        const value = mismatched.get(r.artifact_id);
+        if (!value) throw new Error(`Artifact not found: ${r.artifact_id}`);
+        return structuredClone(value) as T;
+      },
+    };
+    const tampered = await resolveGovernedAssessmentDetails({
+      assessment: { payload: { findings: [], evidence_refs: [ref(older)] } } as never,
+      artifactRepository: repository as never,
+    });
+    expect(tampered.integrity).toEqual({ ok: false, failureClass: 'EVIDENCE_TAMPERED', artifactId: older.artifact_id });
+  });
+});

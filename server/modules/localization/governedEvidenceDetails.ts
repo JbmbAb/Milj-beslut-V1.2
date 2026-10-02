@@ -676,6 +676,50 @@ function isSpatialEvidenceIntact(ref: { artifact_id: string }, artifact: unknown
   }
 }
 
+/**
+ * U20CDF4 (coordinator clarification 3 of the owner decisions 2026-10-03 (4): historical pre-contract
+ * data is HISTORICAL_COVERAGE_UNKNOWN, never corruption). SPATIAL_EVIDENCE existed from 2026-08-04
+ * WITHOUT result_semantics; b2f7ea9b (2026-08-13) introduced the field, and today's identity function
+ * requires it, so such evidence cannot get an identity -- it used to be called EVIDENCE_TAMPERED (424).
+ * It is pre-contract only in a legacy V1 assessment (no assessment_contract_version: V2 arrived
+ * 2026-08-23, after the contract); its own id and type must still match the ref.
+ */
+function isPreContractSpatialEvidence(ref: { artifact_id: string }, artifact: unknown, legacyAssessment: boolean): boolean {
+  if (!legacyAssessment) return false;
+  const candidate = artifact as { artifact_id?: unknown; artifact_type?: unknown; payload?: unknown } | null;
+  if (!candidate || candidate.artifact_type !== 'SPATIAL_EVIDENCE' || candidate.artifact_id !== ref.artifact_id) return false;
+  const payload = candidate.payload;
+  return Boolean(payload) && typeof payload === 'object' && !Array.isArray(payload) && (payload as { result_semantics?: unknown }).result_semantics === undefined;
+}
+
+/**
+ * U20CDF4: the read model of pre-contract evidence -- ONLY its dataset (to place it on its layer, where
+ * it reads "Ofullständigt underlag", never checked). Its other content cannot be verified, so nothing
+ * else of it (provider, result, query) is taken over or echoed.
+ */
+function preContractLayerView(ref: { artifact_id: string; artifact_type: string }, dataset: string | null): SpatialEvidenceArtifact {
+  return { artifact_id: ref.artifact_id, artifact_type: ref.artifact_type, payload: { source_metadata: { dataset } } } as unknown as SpatialEvidenceArtifact;
+}
+
+function preContractDetail(
+  ref: { artifact_id: string; artifact_type: string },
+  dataset: string | null,
+  citedBy: readonly string[],
+): GovernedEvidenceDetail {
+  return {
+    ...emptyDetail(ref, citedBy),
+    resolution: 'RESOLVED',
+    integrity: 'NOT_INTERPRETED',
+    technical_error_class: null,
+    layer: dataset !== null && isGovernedSpatialLayer(dataset) ? dataset : null,
+    binding_assurance: 'NONE',
+    message_sv:
+      'Äldre evidens från före resultatkontraktet: den saknar resultatsemantik, så dess innehåll kan inte verifieras mot dagens ' +
+      'identitetskontrakt och tolkas inte som ett kontrollresultat.',
+    binding_note_sv: 'Ingen bindning kan redovisas: evidensen är äldre än det kontrakt som dess identitet i dag beräknas efter.',
+  };
+}
+
 function documentDetail(
   ref: { artifact_id: string; artifact_type: string },
   artifact: unknown,
@@ -956,6 +1000,8 @@ export async function resolveGovernedAssessmentDetails(input: {
   const payload = input.assessment.payload as Partial<LocalizationAssessmentArtifact['payload']> | undefined;
   const findings: readonly AssessmentFinding[] = Array.isArray(payload?.findings) ? payload!.findings : [];
   const rawRefs: unknown = payload?.evidence_refs;
+  // U20CDF4: only a legacy (V1) assessment can pin evidence from before the result contract.
+  const legacyAssessment = (payload as { assessment_contract_version?: unknown } | undefined)?.assessment_contract_version === undefined;
   const refs = Array.isArray(rawRefs) ? rawRefs.map(asRef).filter((r): r is NonNullable<typeof r> => r !== null) : [];
 
   const citedBy = (artifactId: string) =>
@@ -996,6 +1042,13 @@ export async function resolveGovernedAssessmentDetails(input: {
         detail = spatialDetail(ref, read.artifact, cited);
         const dataset = read.artifact.payload?.source_metadata?.dataset;
         if (typeof dataset !== 'string' || !isGovernedSpatialLayer(dataset)) outsideGovernedLayerIds.push(ref.artifact_id);
+      } else if (isPreContractSpatialEvidence(ref, read.artifact, legacyAssessment)) {
+        // U20CDF4 (coordinator clarification 3): historical, never "tampered" -- see preContractDetail.
+        const rawDataset = (read.artifact as { payload: { source_metadata?: { dataset?: unknown } } }).payload.source_metadata?.dataset;
+        const dataset = typeof rawDataset === 'string' && rawDataset.length > 0 ? rawDataset : null;
+        spatialEvidence.push(preContractLayerView(ref, dataset));
+        detail = preContractDetail(ref, dataset, cited);
+        if (dataset === null || !isGovernedSpatialLayer(dataset)) outsideGovernedLayerIds.push(ref.artifact_id);
       } else {
         detail = tamperedDetail(ref, cited);
       }
