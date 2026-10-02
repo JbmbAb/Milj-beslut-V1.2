@@ -96,6 +96,19 @@ describe('assertDisposableGisTestDatabase — rejection matrix', () => {
       'TEST-DB-GUARD: the prod compose port 5434, even fully admitted and opted in',
       { ...ADMITTED, databaseUrl: 'postgresql://user:pw@127.0.0.1:5434/riskguard_test' },
     ],
+    // TEST-DB-GUARD (OD-K0-5, TDG-2 F3): overrides in the query reach other targets than the authority.
+    [
+      'TEST-DB-GUARD: ?port= overriding the checked port onto the live 5432',
+      { ...ADMITTED, databaseUrl: `${ADMITTED_URL}?port=5432` },
+    ],
+    [
+      'TEST-DB-GUARD: ?host= overriding the host onto the live container',
+      { ...ADMITTED, databaseUrl: `${ADMITTED_URL}?host=MILJOBESLUT-POSTGRES.` },
+    ],
+    [
+      'TEST-DB-GUARD: ?dbname= naming the live database (libpq)',
+      { ...ADMITTED, databaseUrl: `${ADMITTED_URL}?dbname=miljobeslut` },
+    ],
   ];
 
   it.each(rejected)('rejects: %s', (_label, config) => {

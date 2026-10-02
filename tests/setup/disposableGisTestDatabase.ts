@@ -3,7 +3,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 
 import {
-  evaluateTestDatabaseTarget,
+  evaluateDatabaseUrl,
   KNOWN_LIVE_DATABASE_NAMES,
   TEST_DATABASE_OPT_IN_ENV,
 } from '../../server/modules/test-db-guard/testDatabaseTargetPolicy';
@@ -160,11 +160,10 @@ export function assertDisposableGisTestDatabase(
 
   // Clause 7 (TEST-DB-GUARD, OD-K0-5): the general test database policy -- live denylist (names,
   // hosts, this workstation's live ports) and the explicit MIMER_TEST_DB_ALLOW opt-in naming
-  // exactly this database. Same policy the connection guard enforces on every pg connection.
-  const verdict = evaluateTestDatabaseTarget(
-    { host, port: parsed.port ? Number(parsed.port) : 5432, database: databaseName },
-    { [TEST_DATABASE_OPT_IN_ENV]: config.optInDatabaseName },
-  );
+  // exactly this database. Same policy the connection guard enforces on every pg connection,
+  // applied to EVERY target the URL can reach: ?host/?hostaddr/?port/?dbname/?service overrides
+  // included, every host in every canonical spelling.
+  const verdict = evaluateDatabaseUrl(rawUrl, { [TEST_DATABASE_OPT_IN_ENV]: config.optInDatabaseName });
   if (!verdict.allowed) {
     throw new DisposableGisTestDatabaseError(`TEST-DB-GUARD: ${verdict.reason}`);
   }

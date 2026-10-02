@@ -178,6 +178,15 @@ describe('TEST-DB-GUARD: playwright.config.ts refuses every local run without an
     expect(r.error).toMatch(/TEST-DB-GUARD.*not set in the process environment/);
   });
 
+  it('refuses a ?port= override onto the live port 5432 (pg connects there), even opted in', () => {
+    const r = loadConfigInChild({
+      PLAYWRIGHT_DATABASE_URL: 'postgresql://u:p@127.0.0.1:5433/wtdg2_e2e_test?port=5432',
+      MIMER_TEST_DB_ALLOW: 'wtdg2_e2e_test',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/TEST-DB-GUARD.*live database port/);
+  });
+
   it('refuses the live port 5432 even when opted in', () => {
     const r = loadConfigInChild({
       PLAYWRIGHT_DATABASE_URL: 'postgresql://u:p@localhost:5432/wtdg2_e2e_test',

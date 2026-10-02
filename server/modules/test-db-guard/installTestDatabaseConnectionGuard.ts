@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
@@ -5,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  deniedWorkstationDatabasePorts,
   describeDatabaseTarget,
   evaluateLiveEndpoint,
   evaluateTestDatabaseTarget,
@@ -25,8 +27,10 @@ import {
  *   - pg.Client.prototype.connect: refuses every target that is not explicitly dead or opted in
  *     (policy in testDatabaseTargetPolicy.ts) BEFORE pg creates its connection; pg.Pool and
  *     Prisma's adapter-pg connect through it, so they are covered too.
- *   - net.Socket.prototype.connect: refuses any socket to a denylisted live endpoint, for any
- *     other client (postgres.js, a raw socket, ...). It throws before the socket connects.
+ *   - net.Socket.prototype.connect (also tls.connect, whose TLSSocket inherits it): refuses any
+ *     socket to a denylisted live endpoint, in any canonical spelling of the host, for any other
+ *     client (postgres.js, a raw socket, ...), whatever the opt-in. It throws before the socket
+ *     connects; a host NAME on a denied port is also judged by what it resolves to.
  *   - dotenv's configDotenv: in a test runtime never reads a `*.local` env file and drops database
  *     connection keys from every other env file (so `dotenv.config()`, `import 'dotenv/config'`
  *     and `config({ path: '.env.test' })` in the test chain follow the same rule as loadEnvFile);
@@ -105,23 +109,65 @@ function guardPgClientConnect(): void {
   Object.defineProperty(proto, GUARD_MARK, { value: true });
 }
 
-/** Node's connect accepts (options), (path), (port, host) or its own normalized [options, cb]. */
-function socketEndpointOf(args: unknown[]): { host?: string; port: number | null; path?: string } {
-  const first = Array.isArray(args[0]) ? args[0][0] : args[0];
-  if (first && typeof first === 'object') {
-    const options = first as { host?: unknown; port?: unknown; path?: unknown };
-    if (typeof options.path === 'string' && options.path) return { path: options.path, port: null };
-    const port = Number(options.port);
-    return {
-      host: typeof options.host === 'string' ? options.host : undefined,
-      port: Number.isFinite(port) && port > 0 ? port : null,
-    };
-  }
-  if (typeof first === 'string' && !/^\d+$/.test(first)) return { path: first, port: null };
-  const port = Number(first);
+type SocketOptions = { host?: unknown; port?: unknown; path?: unknown; lookup?: unknown };
+type LookupCallback = (err: Error | null, address?: unknown, family?: unknown) => void;
+type LookupFunction = (hostname: string, options: unknown, callback: LookupCallback) => void;
+
+/**
+ * Node's connect accepts (options[, cb]), (path[, cb]), (port[, host][, cb]) or its own normalized
+ * [options, cb]; tls.connect calls it with an options object. Returns the options and the callback.
+ */
+function socketCallOf(args: unknown[]): { options: SocketOptions; callback: unknown } {
+  const normalized = Array.isArray(args[0]) ? (args[0] as unknown[]) : null;
+  const first = normalized ? normalized[0] : args[0];
+  const callback = normalized ? normalized[1] : args.find((arg) => typeof arg === 'function');
+  if (first && typeof first === 'object') return { options: first as SocketOptions, callback };
+  if (typeof first === 'string' && !/^\d+$/.test(first)) return { options: { path: first }, callback };
+  return { options: { port: first, host: typeof args[1] === 'string' ? args[1] : undefined }, callback };
+}
+
+function socketEndpointOf(options: SocketOptions): { host?: string; port: number | null; path?: string } {
+  if (typeof options.path === 'string' && options.path) return { path: options.path, port: null };
+  const port = Number(options.port);
   return {
-    host: typeof args[1] === 'string' ? args[1] : undefined,
+    host: typeof options.host === 'string' ? options.host : undefined,
     port: Number.isFinite(port) && port > 0 ? port : null,
+  };
+}
+
+/**
+ * Wraps the lookup a socket will use (the caller's own, or dns.lookup) so that a host NAME which
+ * resolves to this workstation on a denied port -- a hosts-file alias such as
+ * kubernetes.docker.internal, `<hostname>.mshome.net`, any caller-supplied lookup -- is refused
+ * with the resolved address, before the socket connects to it.
+ */
+function lookupRefusingLiveEndpoints(base: LookupFunction, host: string, port: number): LookupFunction {
+  return function guardedLookup(hostname: string, options: unknown, callback: LookupCallback): void {
+    const done = typeof options === 'function' ? (options as LookupCallback) : callback;
+    const lookupOptions = typeof options === 'function' ? {} : options;
+    base(hostname, lookupOptions, (err, address, family) => {
+      if (err) {
+        done(err, address, family);
+        return;
+      }
+      const resolved = Array.isArray(address)
+        ? address.map((entry) => String((entry as { address?: unknown }).address ?? entry))
+        : [String(address)];
+      for (const candidate of resolved) {
+        const live = evaluateLiveEndpoint(candidate, port);
+        if (live) {
+          done(
+            new TestDatabaseTargetRefusedError(
+              'net.Socket.connect',
+              `${host} -> ${candidate}:${port}`,
+              live.reason,
+            ),
+          );
+          return;
+        }
+      }
+      done(err, address, family);
+    });
   };
 }
 
@@ -130,13 +176,30 @@ function guardSocketConnect(): void {
   if (proto[GUARD_MARK]) return;
   const original = proto.connect;
   proto.connect = function guardedSocketConnect(this: net.Socket, ...args: unknown[]): unknown {
-    const endpoint = socketEndpointOf(args);
+    const { options, callback } = socketCallOf(args);
+    const endpoint = socketEndpointOf(options);
     const live = endpoint.path
       ? evaluateLiveEndpoint(endpoint.path, null)
       : evaluateLiveEndpoint(endpoint.host, endpoint.port);
     if (live) {
       const where = endpoint.path ?? `${endpoint.host ?? 'localhost'}:${endpoint.port ?? '?'}`;
       throw new TestDatabaseTargetRefusedError('net.Socket.connect', where, live.reason);
+    }
+    // A host name (not an IP literal, which is never looked up) on a denied port: judge what it
+    // resolves to as well. Every other connect is passed on untouched.
+    const host = endpoint.host;
+    if (
+      !endpoint.path &&
+      host &&
+      endpoint.port !== null &&
+      deniedWorkstationDatabasePorts().includes(endpoint.port) &&
+      net.isIP(host.replace(/^\[(.*)\]$/, '$1')) === 0
+    ) {
+      const base = (typeof options.lookup === 'function' ? options.lookup : dns.lookup) as LookupFunction;
+      const guarded = { ...options, lookup: lookupRefusingLiveEndpoints(base, host, endpoint.port) };
+      return typeof callback === 'function'
+        ? original.call(this, guarded, callback)
+        : original.call(this, guarded);
     }
     return original.apply(this, args);
   };

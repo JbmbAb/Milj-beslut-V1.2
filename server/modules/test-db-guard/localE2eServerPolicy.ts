@@ -1,9 +1,7 @@
 import {
-  describeDatabaseTarget,
-  evaluateTestDatabaseTarget,
+  evaluateDatabaseUrl,
   isRemoteManagedDatabaseUrl,
   isWorkstationHost,
-  parseDatabaseUrlTarget,
   TEST_DATABASE_OPT_IN_ENV,
   TEST_DB_GUARD_LABEL,
   TestDatabaseTargetRefusedError,
@@ -114,18 +112,15 @@ export function resolveLocalE2eServerPlan(env: NodeJS.ProcessEnv): LocalE2eServe
       'a local E2E run never uses a remote managed database',
     );
   }
-  const target = parseDatabaseUrlTarget(databaseUrl);
-  if (!target) {
-    throw new TestDatabaseTargetRefusedError(VIA, 'an unparseable URL', 'the database URL cannot be parsed');
-  }
-  const verdict = evaluateTestDatabaseTarget(target, env);
+  // Every target the URL can reach (pg, libpq, PG* fallbacks; every spelling of every host).
+  const verdict = evaluateDatabaseUrl(databaseUrl, env);
   if (!verdict.allowed) {
-    throw new TestDatabaseTargetRefusedError(VIA, describeDatabaseTarget(target), verdict.reason);
+    throw new TestDatabaseTargetRefusedError(VIA, verdict.target, verdict.reason);
   }
   if (verdict.basis !== 'explicit-opt-in') {
     throw new TestDatabaseTargetRefusedError(
       VIA,
-      describeDatabaseTarget(target),
+      verdict.target,
       `${verdict.reason}, but a local E2E run writes through its own API server and needs an opted-in ` +
         `disposable database: set ${TEST_DATABASE_OPT_IN_ENV}=<database> naming a *_test database`,
     );
