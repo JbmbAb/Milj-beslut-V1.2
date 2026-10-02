@@ -72,7 +72,7 @@
     "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts"
   },
   "dependencies": {
-    "@google-cloud/billing-budgets": "^6.1.2",
+    "@google-cloud/billing-budgets": "^7.0.0",
     "@google-cloud/storage": "^7.21.0",
     "@google-cloud/vertexai": "^1.12.0",
     "@google/genai": "^1.52.0",
