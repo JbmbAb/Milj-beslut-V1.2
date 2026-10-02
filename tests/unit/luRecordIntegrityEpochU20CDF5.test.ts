@@ -403,18 +403,30 @@ describe('W-U20CDF5 L3 (verifier probes C4/C4a): a record WITHOUT a findings fie
 });
 
 /**
- * L2 -- the classification table (version x content -> class), locked here. The VERIFIER'S PROPOSAL
- * (U20CDF4 verification L2 / open question 4); the owner has not decided it.
+ * L2 -- the classification table (version x content -> class). The VERIFIER'S PROPOSAL (U20CDF4 verification
+ * L2 / open question 4); the owner has not decided it.
  *
- *  version          | content                                         | class
+ *  version          | content                                         | class (proposed)
  *  V1 (no version)  | a governed layer silent (LAYER_NOT_RECORDED)    | HISTORICAL_COVERAGE_UNKNOWN (200)
- *  V2 / V3 / V4     | a governed layer silent (LAYER_NOT_RECORDED)    | RECORD_INTEGRITY_ERROR (424)
+ *  V2 / V3 / V4     | a governed layer silent (LAYER_NOT_RECORDED)    | RECORD_INTEGRITY_ERROR (424)   <- NOT IMPLEMENTED
  *  V1..V4           | all five layers answered, nothing else           | DETERMINED (200)
  *  V1..V4           | a hit without its finding (HIT_WITHOUT_FINDING)  | HISTORICAL_COVERAGE_UNKNOWN (200) -- NOT
  *                   |                                                   | promoted: the natura2000/water_protection_area
  *                   |                                                   | rules (b673a5e8, 2026-08-24) postdate V2 (29f83705)
+ *
+ * STOPPED, PENDING AN OWNER DECISION (W-U20CDF5 report, owner question 1): the proposal's premise -- every V2+
+ * record comes from a producer that always queried all five layers -- holds for the PRODUCT producer
+ * (generate-localization-report), but not for the general LU engine (runLuAssessmentViaKernel), which writes a
+ * V3 record over whatever evidence it is given: H15's own suite, verifyCurrentLuAssessment's proofs, and the
+ * operator proofs scripts/ops/prove-lu-deterministic-reexecution-01.ts / prove-lu-replay-cold-verify-01.ts
+ * (one evidence, four silent layers). The V3 ARTIFACT contract promises canonical collections, not five
+ * layers; owner decision (4) point 2 allows RECORD_INTEGRITY_ERROR only for a break of an ACTUAL contract.
+ * Implemented in a scratch iteration the rule also turns 23 tests in 8 other suites (M1a, W-APR, W-BOOT,
+ * U20D, verify, PDF) from 200 to 424, because their fixtures are such V3 records.
+ * The proposed V2+ cases are `it.fails`: they document the proposal and fail today; if the proposal is
+ * implemented they turn red until `.fails` is removed.
  */
-describe('W-U20CDF5 L2 (verifier proposal): assessment_contract_version is the epoch marker -- a silent layer breaks the contract of a V2+ record, never of a V1 record', () => {
+describe('W-U20CDF5 L2 (verifier proposal, PENDING OWNER DECISION): assessment_contract_version as the epoch marker for a silent layer', () => {
   const FOUR = ALL.filter((layer) => layer !== 'natura2000');
 
   it('V1 with a silent layer -> 200 HISTORICAL_COVERAGE_UNKNOWN (LAYER_NOT_RECORDED:natura2000), "denna historiska bedömning"', async () => {
@@ -425,21 +437,23 @@ describe('W-U20CDF5 L2 (verifier proposal): assessment_contract_version is the e
     expect(res.body.overallStatement.statement_sv).toBe('Täckningsgrad kan inte fastställas för denna historiska bedömning.');
   });
 
-  it.each<Version>(['V2', 'V3', 'V4'])('%s with a silent layer -> 424 RECORD_INTEGRITY_ERROR (LAYER_NOT_RECORDED): its own contract promised the layer -- never "historisk"', async (version) => {
-    await provisionRecord({ version, negatives: FOUR, findings: [] });
-    const res = await PATHS.readBack();
-    expectIntegrity424(res, 'LAYER_NOT_RECORDED');
-    expect(res.body.record_integrity.basis_codes).toEqual(['LAYER_NOT_RECORDED']);
-  });
+  for (const version of ['V2', 'V3', 'V4'] as const) {
+    it.fails(`PROPOSAL, not implemented: ${version} with a silent layer -> 424 RECORD_INTEGRITY_ERROR (LAYER_NOT_RECORDED)`, async () => {
+      await provisionRecord({ version, negatives: FOUR, findings: [] });
+      const res = await PATHS.readBack();
+      expectIntegrity424(res, 'LAYER_NOT_RECORDED');
+      expect(res.body.record_integrity.basis_codes).toEqual(['LAYER_NOT_RECORDED']);
+    });
+  }
 
-  it('verifier probe C6 (a V3 record with only three layers): read-back, verify, the map and the PDF all 424; never replayed', async () => {
+  it.fails('PROPOSAL, not implemented: verifier probe C6 (a V3 record with only three layers): read-back, verify, the map and the PDF all 424; never replayed', async () => {
     await provisionRecord({ version: 'V3', negatives: ['water', 'ebh', 'protected_area'], findings: [] });
     for (const path of ['readBack', 'verify', 'map', 'pdf'] as const) expectIntegrity424(await PATHS[path](), 'LAYER_NOT_RECORDED');
     expect(spies.reExecute).not.toHaveBeenCalled();
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 
-  it('a stored risk finding on a V3 record with a silent layer is still named (unverified) in the 424 -- a known risk never disappears', async () => {
+  it.fails('PROPOSAL, not implemented: a stored risk finding on a V3 record with a silent layer is still named (unverified) in the 424', async () => {
     await provisionRecord({ version: 'V3', negatives: ALL.filter((l) => l !== 'natura2000' && l !== 'ebh'), hits: ['ebh'], findings: [{ finding_id: 'finding-ebh-high', rule_id: RULE.ebh, rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: [] }] });
     const res = await PATHS.readBack();
     expectIntegrity424(res, 'LAYER_NOT_RECORDED');
