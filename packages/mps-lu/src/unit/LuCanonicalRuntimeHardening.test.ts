@@ -141,6 +141,84 @@ describe("LU-CANONICAL-RUNTIME-HARDENING-R1 -- bootstrap admission", () => {
   });
 });
 
+/**
+ * U30-R5 (owner principle, the K0 model; U30R4-VERIFICATION V2): the same flag gate as re-execution, at the
+ * product's assessment-creation gate. MPS_LU_BOOTSTRAP_ADMIT PRESENT (any value) in a process that is not an
+ * explicit test process (NODE_ENV exactly "test" AND APP_ENV exactly "test" or "ci") refuses the canonical call
+ * before the general engine runs, with the typed BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST. The pre-existing refusal of
+ * the flag "1" keeps its own code and comes FIRST (the LU-CANONICAL-RUNTIME-HARDENING-R1 proof pins
+ * LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN for "1" in a process with NODE_ENV unset).
+ */
+describe("U30-R5 -- the canonical product gate refuses MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process", () => {
+  const KEYS = ["MPS_LU_BOOTSTRAP_ADMIT", "NODE_ENV", "APP_ENV"] as const;
+  const saved = new Map<string, string | undefined>();
+  const setEnv = (name: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[name]; else process.env[name] = value;
+  };
+  beforeEach(() => { for (const key of KEYS) saved.set(key, process.env[key]); });
+  afterEach(() => { for (const key of KEYS) setEnv(key, saved.get(key)); });
+
+  for (const [flag, nodeEnv, appEnv] of [
+    ["0", "development", undefined],
+    ["0", "production", "production"],
+    ["", "production", undefined],
+    ["true", undefined, undefined],
+    ["0", "test", undefined],
+    ["0", "test", "development"],
+    ["0", "test", "TEST"],
+  ] as const) {
+    it(`MPS_LU_BOOTSTRAP_ADMIT=${JSON.stringify(flag)} NODE_ENV=${JSON.stringify(nodeEnv)} APP_ENV=${JSON.stringify(appEnv)} -> BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST before the general engine runs`, async () => {
+      setEnv("MPS_LU_BOOTSTRAP_ADMIT", flag);
+      setEnv("NODE_ENV", nodeEnv);
+      setEnv("APP_ENV", appEnv);
+      const touched: string[] = [];
+
+      await expect(
+        runCanonicalLuProductAssessment({ ...baseInput(touched), identity_subject_v3: validSubject() }),
+      ).rejects.toMatchObject({ name: "LuBootstrapAdmitFlagOutsideTestError", code: "BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST" });
+      expect(touched, "the general engine must not have been entered").toEqual([]);
+    });
+  }
+
+  for (const [nodeEnv, appEnv] of [
+    [undefined, undefined],
+    ["development", undefined],
+    ["test", "test"],
+  ] as const) {
+    it(`MPS_LU_BOOTSTRAP_ADMIT="1" NODE_ENV=${JSON.stringify(nodeEnv)} APP_ENV=${JSON.stringify(appEnv)} -> still LU_CANONICAL_BOOTSTRAP_ADMIT_FORBIDDEN (checked first, unchanged)`, async () => {
+      setEnv("MPS_LU_BOOTSTRAP_ADMIT", "1");
+      setEnv("NODE_ENV", nodeEnv);
+      setEnv("APP_ENV", appEnv);
+      const touched: string[] = [];
+      await expect(
+        runCanonicalLuProductAssessment({ ...baseInput(touched), identity_subject_v3: validSubject() }),
+      ).rejects.toMatchObject({ code: REJECT_BOOTSTRAP });
+      expect(touched).toEqual([]);
+    });
+  }
+
+  for (const [flag, nodeEnv, appEnv] of [
+    [undefined, "production", "production"],
+    [undefined, "development", undefined],
+    ["0", "test", "test"],
+    ["0", "test", "ci"],
+  ] as const) {
+    it(`MPS_LU_BOOTSTRAP_ADMIT=${JSON.stringify(flag)} NODE_ENV=${JSON.stringify(nodeEnv)} APP_ENV=${JSON.stringify(appEnv)} -> the gate does not refuse; the call reaches the engine (denied there: no provisioned identity)`, async () => {
+      setEnv("MPS_LU_BOOTSTRAP_ADMIT", flag);
+      setEnv("NODE_ENV", nodeEnv);
+      setEnv("APP_ENV", appEnv);
+      const result = await runCanonicalLuProductAssessment({
+        site_id: "site-canonical-hardening",
+        deterministic_seed: "seed:canonical-hardening",
+        evidence: evidence(),
+        artifact_repository: new InMemoryArtifactRepository(),
+        identity_subject_v3: validSubject(),
+      });
+      expect(result.admitted).toBe(false);
+    });
+  }
+});
+
 describe("LU-CANONICAL-RUNTIME-HARDENING-R1 -- runtime V3 execution subject", () => {
   beforeEach(() => {
     delete process.env.MPS_LU_BOOTSTRAP_ADMIT;

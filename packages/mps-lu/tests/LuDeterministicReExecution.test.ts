@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { runCanonicalLuProductAssessment, runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import { reExecuteLocalizationAssessment, resolveEvidence } from "../src/execution/LuDeterministicReExecution";
+import * as reExecutionModule from "../src/execution/LuDeterministicReExecution";
 import type { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 import { buildSpatialEvidenceContentHash } from "../src/artifacts/SpatialEvidenceIdentity";
@@ -25,6 +26,32 @@ import {
   provisionLuCanonicalSubject,
   runLuCanonicalSubject,
 } from "./fixtures/luCanonicalAuthorityChain";
+
+/**
+ * U30-R5 (owner principle, the K0 model; U30R4-VERIFICATION point 3): re-execution accepts a bootstrap/legacy
+ * execution only in an EXPLICIT test process -- MPS_LU_BOOTSTRAP_ADMIT exactly "1" AND NODE_ENV exactly "test"
+ * AND APP_ENV exactly "test" or "ci". An unset/empty APP_ENV or "development" is not a test environment, so
+ * every test that verifies such an execution sets the whole test environment HERE, in the test file (never
+ * as a global default in the configuration), and restores it afterwards.
+ */
+const EXPLICIT_TEST_BOOTSTRAP_KEYS = ["MPS_LU_BOOTSTRAP_ADMIT", "NODE_ENV", "APP_ENV"] as const;
+function explicitTestBootstrapEnv() {
+  const saved = new Map<string, string | undefined>();
+  return {
+    enter() {
+      for (const key of EXPLICIT_TEST_BOOTSTRAP_KEYS) saved.set(key, process.env[key]);
+      process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+      process.env.NODE_ENV = "test";
+      process.env.APP_ENV = "test";
+    },
+    restore() {
+      for (const key of EXPLICIT_TEST_BOOTSTRAP_KEYS) {
+        const value = saved.get(key);
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    },
+  };
+}
 
 /** Rebuilds artifact_id/content_hash for a hand-tampered payload using the exact same formula
  *  createGovernedLocalizationAssessment uses -- makes the tampered artifact internally
@@ -318,6 +345,17 @@ function expectStorageFault(settled: { ok: boolean; value?: unknown; error?: unk
   expect(error.cause).toBe(fault);
 }
 
+/**
+ * U30-R5: MPS_LU_BOOTSTRAP_ADMIT present outside an explicit test process -- verify refuses to run with the typed
+ * configuration error BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST: never a PASS/DENY verdict and never excusable.
+ */
+function expectFlagOutsideTestRefusal(settled: { ok: boolean; value?: unknown; error?: unknown }) {
+  expect(settled.ok, `expected the flag refusal, got a verdict ${JSON.stringify((settled as { value?: { outcome?: unknown } }).value?.outcome ?? null)}`).toBe(false);
+  const error = (settled as { error: Error & { code?: unknown } }).error;
+  expect(error.name).toBe("LuBootstrapAdmitFlagOutsideTestError");
+  expect(error.code).toBe("BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST");
+}
+
 /** A rewritten assessment stored under its own NEW content-addressed id, as a forger without WORM bypass must. */
 async function storeUnderNewId(repo: ArtifactRepositoryPort, base: LocalizationAssessmentArtifact, payload: LocalizationAssessmentArtifact["payload"]) {
   const references = Array.from(
@@ -358,8 +396,9 @@ function historicalProviderCause(error: unknown): string {
 }
 
 describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
-  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
-  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+  const bootstrapEnv = explicitTestBootstrapEnv();
+  beforeEach(() => { bootstrapEnv.enter(); });
+  afterEach(() => { bootstrapEnv.restore(); });
 
   it("15: historical supported contract version (V2, live default) -> PASS, findings/rule_refs reproduced exactly", async () => {
     const repo = new InMemoryArtifactRepository();
@@ -769,8 +808,9 @@ describe("U30-R2: canonical product boundary keeps the existing NOT_CHECKED cont
 // =================================================================================================
 
 describe("U30-R3 K1: a CAS storage fault on any read of the replay chain is a typed technical error, never a DENY (OD-R2)", () => {
-  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
-  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+  const bootstrapEnv = explicitTestBootstrapEnv();
+  beforeEach(() => { bootstrapEnv.enter(); });
+  afterEach(() => { bootstrapEnv.restore(); });
 
   const STAGES = [
     ["assessment", "LOCALIZATION_ASSESSMENT"],
@@ -891,8 +931,9 @@ describe("U30-R3 K1: a CAS storage fault on any read of the replay chain is a ty
 });
 
 describe("U30-R3 K2: the attested execution's output_refs bind EXACTLY to the findings re-executed from the assessment's pinned evidence", () => {
-  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
-  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+  const bootstrapEnv = explicitTestBootstrapEnv();
+  beforeEach(() => { bootstrapEnv.enter(); });
+  afterEach(() => { bootstrapEnv.restore(); });
 
   it("25a (verifier X3, the K2 attack): HIGH suppressed by pointing the assessment at ANOTHER assessment's outcome where the layer was unavailable -> DENY MANIFEST_ATTEMPT_MISMATCH", async () => {
     const repo = new InMemoryArtifactRepository();
@@ -1207,8 +1248,9 @@ describe("U30-R3 K2 on the canonical V4 chain: the assessment's authority subjec
 });
 
 describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in the exact form the provider produced", () => {
-  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
-  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+  const bootstrapEnv = explicitTestBootstrapEnv();
+  beforeEach(() => { bootstrapEnv.enter(); });
+  afterEach(() => { bootstrapEnv.restore(); });
 
   const GENUINE: ReadonlyArray<readonly [string, unknown]> = [
     ["pg DatabaseError (name 'error')", Object.assign(new Error('relation "env.ebh_potentiellt_fororenade_omraden" does not exist'), { name: "error" })],
@@ -1300,8 +1342,9 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
 });
 
 describe("U30-R3 (owner 2026-10-02): a provider diagnostic never reaches an artifact, the kernel result or the replay identity", () => {
-  beforeEach(() => { process.env.MPS_LU_BOOTSTRAP_ADMIT = "1"; });
-  afterEach(() => { delete process.env.MPS_LU_BOOTSTRAP_ADMIT; });
+  const bootstrapEnv = explicitTestBootstrapEnv();
+  beforeEach(() => { bootstrapEnv.enter(); });
+  afterEach(() => { bootstrapEnv.restore(); });
 
   const DIAGNOSTIC =
     'error: relation "env.ebh_diag_u30r3" does not exist (SELECT 1 AS hit FROM env.ebh_diag_u30r3 WHERE ST_DWithin(geom, $1, $2) LIMIT $4) at 10.9.8.7:5432';
@@ -1363,11 +1406,14 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
   function productConfig() {
     delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
   }
-  /** Explicit dev/test bootstrap: the flag AND a test-classified process. */
+  /**
+   * Explicit test bootstrap (U30-R5, the K0 model): the flag AND NODE_ENV exactly "test" AND APP_ENV exactly
+   * "test" -- set here in the test file, never as a global default. An unset APP_ENV is not a test process.
+   */
   function devTestBootstrap() {
     process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
     process.env.NODE_ENV = "test";
-    delete process.env.APP_ENV;
+    process.env.APP_ENV = "test";
   }
   function setEnv(name: string, value: string | undefined) {
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
@@ -1559,6 +1605,8 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
   for (const [label, point] of [
     ["another localization point", { artifact_id: "geometry-u30r4-elsewhere", artifact_type: "localization_geometry" }],
     ["no localization point", undefined],
+    // U30-R5 (U30R4-VERIFICATION V6, mutant V-N3): the point is compared by id AND artifact_type.
+    ["the subject's point id under another artifact_type", { artifact_id: "geometry-u30r4-h", artifact_type: "localization_geometry_wu30r5" }],
   ] as const) {
     it(`27g: that historical V3 rewritten (new id) to carry ${label} -> DENY EXECUTION_SUBJECT_MISMATCH`, async () => {
       const { repo, H } = await historicalCanonicalV3("u30r4-h");
@@ -1653,34 +1701,66 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expect((await verify(repo, result.assessment!)).mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
   });
 
-  // MPS_LU_BOOTSTRAP_ADMIT / NODE_ENV / APP_ENV at verify time -> PASS (bootstrap execution allowed) or UNBOUND.
-  for (const [flag, nodeEnv, appEnv, allowed] of [
-    ["1", "test", undefined, true],
-    ["1", "development", undefined, true],
-    ["1", "test", "ci", true],
-    ["1", "test", "test", true],
-    ["1", "development", "development", true],
-    [undefined, "test", undefined, false],
-    ["0", "test", undefined, false],
-    ["true", "test", undefined, false],
-    ["1", undefined, undefined, false],
-    ["1", "production", undefined, false],
-    ["1", "test", "demo", false],
-    ["1", "test", "production", false],
-    ["1", "test", "staging", false],
-    ["1", "test", "stage", false],
-    ["1", "test", "preprod", false],
-    ["1", "development", "prod", false],
-    ["1", "test", "TEST", false],
+  // MPS_LU_BOOTSTRAP_ADMIT / NODE_ENV / APP_ENV at verify time (U30-R5: the K0 model + the flag gate):
+  //  - PASS only with the flag exactly "1" in an EXPLICIT test process (NODE_ENV exactly "test" AND APP_ENV exactly
+  //    "test" or "ci"; exact matches, nothing trimmed or case-folded);
+  //  - the flag absent, or present with another value inside an explicit test process -> UNBOUND (fail closed);
+  //  - the flag PRESENT (any value, also "" or "0") outside an explicit test process -> verify refuses to run at all
+  //    (BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST, a typed configuration error -- never a verdict, never excusable).
+  // Rows marked R4 were PASS or UNBOUND under U30-R4's looser allowance (NODE_ENV development, APP_ENV unset/""/
+  // development were allowed): the integrated runtime runs exactly NODE_ENV=development with APP_ENV unset (V2).
+  for (const [flag, nodeEnv, appEnv, expected] of [
+    ["1", "test", "test", "PASS"],
+    ["1", "test", "ci", "PASS"],
+    [undefined, "test", "test", "UNBOUND"],
+    [undefined, undefined, undefined, "UNBOUND"],
+    [undefined, "development", undefined, "UNBOUND"],
+    [undefined, "production", "production", "UNBOUND"],
+    ["0", "test", "test", "UNBOUND"],
+    ["true", "test", "ci", "UNBOUND"],
+    ["", "test", "test", "UNBOUND"],
+    ["1", "test", undefined, "REFUSED"], // R4: PASS
+    ["1", "test", "", "REFUSED"], // R4: PASS
+    ["1", "development", undefined, "REFUSED"], // R4: PASS -- the integrated runtime's configuration
+    ["1", "development", "development", "REFUSED"], // R4: PASS
+    ["1", "test", "development", "REFUSED"], // R4: PASS
+    ["1", "development", "test", "REFUSED"], // R4: PASS
+    ["1", undefined, undefined, "REFUSED"], // R4: UNBOUND
+    ["1", "production", undefined, "REFUSED"], // R4: UNBOUND
+    ["1", "production", "production", "REFUSED"],
+    ["1", "test", "demo", "REFUSED"],
+    ["1", "test", "production", "REFUSED"],
+    ["1", "test", "staging", "REFUSED"],
+    ["1", "test", "stage", "REFUSED"],
+    ["1", "test", "preprod", "REFUSED"],
+    ["1", "development", "prod", "REFUSED"],
+    ["1", "test", "local", "REFUSED"],
+    ["1", "test", "dev", "REFUSED"],
+    ["1", "test", "TEST", "REFUSED"],
+    ["1", "test", "CI", "REFUSED"],
+    ["1", "test", " test", "REFUSED"],
+    ["1", "test", "ci ", "REFUSED"],
+    ["1", "TEST", "test", "REFUSED"],
+    ["1", " test", "ci", "REFUSED"],
+    ["0", "development", undefined, "REFUSED"], // R4: UNBOUND
+    ["0", "production", "production", "REFUSED"], // R4: UNBOUND
+    ["", "production", undefined, "REFUSED"], // R4: UNBOUND
+    ["true", "test", undefined, "REFUSED"], // R4: UNBOUND
   ] as const) {
-    it(`27l: bootstrap V3-subject execution (no issued identity), MPS_LU_BOOTSTRAP_ADMIT=${flag} NODE_ENV=${nodeEnv} APP_ENV=${appEnv} -> ${allowed ? "PASS" : "DENY EXECUTION_SUBJECT_UNBOUND"}`, async () => {
+    it(`27l: bootstrap V3-subject execution (no issued identity), MPS_LU_BOOTSTRAP_ADMIT=${JSON.stringify(flag)} NODE_ENV=${JSON.stringify(nodeEnv)} APP_ENV=${JSON.stringify(appEnv)} -> ${expected === "PASS" ? "PASS" : expected === "UNBOUND" ? "DENY EXECUTION_SUBJECT_UNBOUND" : "refused BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST"}`, async () => {
       const { repo, assessment } = await bootstrapV3SubjectRun("u30r4-boot");
       setEnv("MPS_LU_BOOTSTRAP_ADMIT", flag);
       setEnv("NODE_ENV", nodeEnv);
       setEnv("APP_ENV", appEnv);
 
-      const r = await verify(repo, assessment);
-      if (allowed) {
+      const settled = await settle(verify(repo, assessment));
+      if (expected === "REFUSED") {
+        expectFlagOutsideTestRefusal(settled);
+        return;
+      }
+      expect(settled.ok, `expected a verdict, got ${String((settled as { error?: unknown }).error)}`).toBe(true);
+      const r = (settled as { value: Awaited<ReturnType<typeof verify>> }).value;
+      if (expected === "PASS") {
         expect(r.mismatches).toEqual([]);
         expect(r.outcome).toBe("PASS");
       } else {
@@ -1735,9 +1815,8 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
    * v2 outcome, and the assessment (no contract version) pinned it. Built from a bootstrap run whose v2
    * outcome is removed and replaced by the V1 outcome the old kernel would have written.
    */
-  async function historicalV1Execution(name: string) {
+  async function historicalV1Execution(name: string, repo: InMemoryArtifactRepository = new InMemoryArtifactRepository()) {
     process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
-    const repo = new InMemoryArtifactRepository();
     const run = (await runAssessment(repo, name, [spatialEvidence(name, "water")])).assessment!;
     const attempt = await attemptOf(repo, run);
     (repo as unknown as { store: Map<string, unknown> }).store.delete(run.payload.execution_outcome_ref.artifact_id);
@@ -1785,5 +1864,273 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     const r = await verify(repo, forged);
     expect(r.outcome).toBe("PASS");
     expect(forged.payload.project_context_ref).toEqual(A.payload.project_context_ref);
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // U30-R5 (U30R4-VERIFICATION V1-V6; owner decisions 2026-10-03 (4) p.7 and (5)).
+  // (2) The flag gate: MPS_LU_BOOTSTRAP_ADMIT present outside an explicit test process makes verify refuse to run
+  //     at all -- before any CAS read -- with a typed configuration error; never a verdict, never excusable.
+  // (3) KNOWN_LIMITATION: verify is consistency, not authenticity. The forms below PASS and are pinned so that
+  //     closing them is a deliberate change -- NOT approved behaviour.
+  // ---------------------------------------------------------------------------------------------
+
+  /** Wraps a repository so every resolve/put is counted (the flag gate must refuse before the first one). */
+  function countingRepository(inner: ArtifactRepositoryPort) {
+    const calls: string[] = [];
+    const repository: ArtifactRepositoryPort = {
+      put: async (artifact) => {
+        calls.push(`put:${artifact.artifact_id}`);
+        return inner.put(artifact);
+      },
+      resolve: async <T,>(ref: Ref): Promise<T> => {
+        calls.push(`resolve:${ref.artifact_id}`);
+        return inner.resolve<T>(ref as never);
+      },
+    };
+    return { repository, calls };
+  }
+
+  for (const [flag, nodeEnv, appEnv, label] of [
+    ["1", "development", undefined, "the integrated runtime's configuration (V2)"],
+    ["1", "production", "production", "a production process"],
+    ["1", undefined, undefined, "nothing classified"],
+    ["0", "development", undefined, "the flag present with another value"],
+    ["", "production", undefined, "the flag present but empty"],
+  ] as const) {
+    it(`27u (flag gate): MPS_LU_BOOTSTRAP_ADMIT=${JSON.stringify(flag)} with NODE_ENV=${JSON.stringify(nodeEnv)} APP_ENV=${JSON.stringify(appEnv)} (${label}) -> verify refuses EVERY assessment before reading anything, even a genuine V4 and a downgrade it would DENY`, async () => {
+      const { repo, A } = await twoCanonical();
+      const downgraded = await storeUnderNewId(repo, A, relabelled(A.payload, "v2"));
+      setEnv("MPS_LU_BOOTSTRAP_ADMIT", flag);
+      setEnv("NODE_ENV", nodeEnv);
+      setEnv("APP_ENV", appEnv);
+
+      for (const assessment of [A, downgraded]) {
+        const counting = countingRepository(repo);
+        expectFlagOutsideTestRefusal(await settle(verify(counting.repository, assessment)));
+        expect(counting.calls, "the gate must refuse before the first CAS read or write").toEqual([]);
+      }
+    });
+  }
+
+  it("27v (flag gate): the refusal names the conditions, never an environment value", async () => {
+    const { repo, A } = await twoCanonical();
+    setEnv("MPS_LU_BOOTSTRAP_ADMIT", "1");
+    setEnv("NODE_ENV", "development");
+    setEnv("APP_ENV", "prod-wu30r5-sentinel");
+    const settled = await settle(verify(repo, A));
+    expectFlagOutsideTestRefusal(settled);
+    const message = String((settled as { error: Error }).error.message);
+    expect(message.startsWith("BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST:")).toBe(true);
+    expect(message).not.toContain("prod-wu30r5-sentinel");
+    expect(message).not.toContain("development");
+  });
+
+  /** Runs `flip` on the repository's FIRST call, i.e. after verify's first await. */
+  function envFlippingRepository(inner: ArtifactRepositoryPort, flip: () => void): ArtifactRepositoryPort {
+    let flipped = false;
+    const once = () => {
+      if (!flipped) {
+        flipped = true;
+        flip();
+      }
+    };
+    return {
+      put: async (artifact) => {
+        once();
+        return inner.put(artifact);
+      },
+      resolve: async <T,>(ref: Ref): Promise<T> => {
+        once();
+        return inner.resolve<T>(ref as never);
+      },
+    };
+  }
+
+  it("27t (U30R4-VERIFICATION V6, mutant V-N4): the allowance and the flag gate are decided ONCE, before verify's first await -- a later change of the environment does not change the call", async () => {
+    const { repo, assessment } = await bootstrapV3SubjectRun("wu30r5-snapshot");
+    // (a) explicit test bootstrap at call time; the process turns into a production one during the first CAS read.
+    devTestBootstrap();
+    const toProduction = envFlippingRepository(repo, () => {
+      process.env.NODE_ENV = "production";
+      process.env.APP_ENV = "production";
+    });
+    const a = await settle(verify(toProduction, assessment));
+    expect(a.ok, "neither the gate nor the allowance may be read after the first await").toBe(true);
+    expect((a as { value: Awaited<ReturnType<typeof verify>> }).value.outcome).toBe("PASS");
+
+    // (b) the product configuration at call time; the flag and a test process appear during the first CAS read.
+    productConfig();
+    process.env.NODE_ENV = "production";
+    process.env.APP_ENV = "production";
+    const toTest = envFlippingRepository(repo, () => {
+      process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+      process.env.NODE_ENV = "test";
+      process.env.APP_ENV = "test";
+    });
+    const b = await verify(toTest, assessment);
+    expect(b.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+  });
+
+  it("KNOWN_LIMITATION marker (LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY): the machine-readable record carries exactly the meaning and names every residual form -- NOT approved behaviour", () => {
+    const marker = (reExecutionModule as Record<string, unknown>).LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION as
+      | {
+          code: string;
+          id: string;
+          meaning_sv: string;
+          residuals: readonly { id: string; form_sv: string; requires_sv: string }[];
+          owner_decision: string;
+        }
+      | undefined;
+    expect(marker, "LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION is exported by the re-execution module").toBeDefined();
+    expect(marker!.code).toBe("KNOWN_LIMITATION");
+    expect(marker!.id).toBe("LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY");
+    expect(marker!.meaning_sv).toBe(
+      "verify är konsistens, inte äkthet; kräver skrivåtkomst till CAS + DB; kan inte stängas i grunden utan framåtriktad markör i körningskedjan eller attestationsverifiering",
+    );
+    expect(marker!.residuals.map((residual) => residual.id)).toEqual([
+      "v1-format-outcome-redirect",
+      "v3-relabel-own-execution",
+      "subject-axes-not-compared",
+      "fabricated-chain-never-run",
+      "historical-v1-v2-unbound",
+      "identity-minted-after-the-fact",
+      "deleted-v2-outcome-minted-v1",
+      "in-place-overwrite",
+      "historical-cause-text",
+      "outcome-attestation-not-checked",
+    ]);
+    for (const residual of marker!.residuals) {
+      expect(residual.form_sv.length, residual.id).toBeGreaterThan(40);
+      expect(residual.requires_sv.length, residual.id).toBeGreaterThan(10);
+      expect(Object.isFrozen(residual), residual.id).toBe(true);
+    }
+    const v1Form = marker!.residuals[0]!;
+    for (const fragment of ["V1, V2 eller V3", "tre nya CAS-objekt", "före 2026-08-24", "valfri punkt", "HIGH", "NODE_ENV=production"]) {
+      expect(v1Form.form_sv, fragment).toContain(fragment);
+    }
+    expect(marker!.residuals[5]!.form_sv).toContain("EXECUTION_SUBJECT_UNBOUND");
+    expect(marker!.residuals[6]!.requires_sv).toContain("WORM-förbikoppling eller dataförlust");
+    expect(marker!.owner_decision).toContain("NOT approved behaviour");
+    expect(Object.isFrozen(marker)).toBe(true);
+    expect(Object.isFrozen(marker!.residuals)).toBe(true);
+    // Nothing in it may claim authenticity: every "äkthet" is negated or a "must not be claimed as proof".
+    const text = JSON.stringify(marker);
+    expect(text.match(/äkthet/g)?.length).toBe((text.match(/inte äkthet|äkthetsbevis/g) ?? []).length);
+  });
+
+  /** A brand-new V1-format chain: manifest + attempt (attempt-<manifest>-1) + V1 outcome at the legacy locator. */
+  async function mintV1FormatChain(repo: ArtifactRepositoryPort, manifestId: string) {
+    const manifestBody = {
+      manifest_id: manifestId,
+      artifact_type: "execution_manifest",
+      execution_identity_ref: { artifact_id: `lu-identity-wu30r5-${manifestId}`, artifact_type: "execution_identity" },
+      parameters: { deterministic_seed: "wu30r5-minted", site_id: "wu30r5-minted" },
+    };
+    const manifestHash = sha256ContentHash(manifestBody);
+    await repo.put({ artifact_id: manifestId, content_hash: manifestHash, body: { ...manifestBody, content_hash: manifestHash } });
+    const attemptBody = {
+      attempt_id: `attempt-${manifestId}-1`,
+      artifact_type: "execution_attempt" as const,
+      manifest_ref: { artifact_id: manifestId, artifact_type: "execution_manifest" },
+      attempt_number: 1,
+    };
+    const attemptHash = sha256ContentHash(attemptBody);
+    await repo.put({ artifact_id: attemptBody.attempt_id, content_hash: attemptHash, body: { ...attemptBody, content_hash: attemptHash } });
+    return mintV1Outcome(repo, { artifact_id: attemptBody.attempt_id, artifact_type: "execution_attempt" });
+  }
+  const storeSize = (repo: InMemoryArtifactRepository) => (repo as unknown as { store: Map<string, unknown> }).store.size;
+  const ELSEWHERE = { artifact_id: "geometry-wu30r5-elsewhere", artifact_type: "localization_geometry" };
+  /** The product configuration as strictly as it gets: no flag, NODE_ENV and APP_ENV both "production". */
+  function strictProduction() {
+    productConfig();
+    process.env.NODE_ENV = "production";
+    process.env.APP_ENV = "production";
+  }
+
+  for (const to of ["v1", "v2", "v3"] as const) {
+    for (const [shape, manifestId] of [
+      ["legacy site-scoped manifest id", "lu-manifest-wu30r5-forged-site"],
+      ["a fake lu-manifest-v3- id", `lu-manifest-v3-${"f".repeat(64)}`],
+    ] as const) {
+      it(`KNOWN_LIMITATION (V1-form, U30R4-VERIFICATION V1) -- NOT approved behaviour: a canonical V4 rewritten to ${to.toUpperCase()} and pinned to a MINTED V1-format chain (${shape}: three new CAS objects), another point, its HIGH removed -> PASS, even with NODE_ENV=production and APP_ENV=production`, async () => {
+        const { repo, A } = await twoCanonical();
+        expect(A.payload.findings.some((f) => f.risk_level === "HIGH")).toBe(true); // precondition: A has a HIGH
+        const before = storeSize(repo);
+        const minted = await mintV1FormatChain(repo, manifestId);
+        expect(storeSize(repo) - before, "manifest + attempt + V1 outcome").toBe(3);
+        const forged = await storeUnderNewId(
+          repo,
+          A,
+          relabelled(withFindings({ ...A.payload, execution_outcome_ref: minted, evidence_refs: [], localization_geometry_ref: ELSEWHERE }, []), to),
+        );
+        expect(forged.payload.findings).toEqual([]);
+        strictProduction();
+
+        const r = await verify(repo, forged);
+        // KNOWN_LIMITATION, pinned -- NOT approved behaviour: verify is consistency, not authenticity. When a forward
+        // marker in the execution chain or attestation verification exists, this must become a DENY.
+        expect(r.mismatches).toEqual([]);
+        expect(r.outcome).toBe("PASS");
+      });
+    }
+  }
+
+  it("KNOWN_LIMITATION (V1-form (b), U30R4-VERIFICATION V1) -- NOT approved behaviour: a canonical V4 rewritten to V1 and pinned to a GENUINE pre-2026-08-24 execution of ANOTHER site (V1 outcome at the legacy locator), another point, its HIGH removed -> PASS in the strict production configuration", async () => {
+    const { repo, A } = await twoCanonical();
+    const other = await historicalV1Execution("wu30r5-v1-era-other-site", repo);
+    const forged = await storeUnderNewId(
+      repo,
+      A,
+      relabelled(
+        withFindings({ ...A.payload, execution_outcome_ref: other.assessment.payload.execution_outcome_ref, evidence_refs: [], localization_geometry_ref: ELSEWHERE }, []),
+        "v1",
+      ),
+    );
+    strictProduction();
+    const r = await verify(repo, forged);
+    // KNOWN_LIMITATION, pinned -- NOT approved behaviour (see above).
+    expect(r.mismatches).toEqual([]);
+    expect(r.outcome).toBe("PASS");
+  });
+
+  it("KNOWN_LIMITATION (identity minted after the fact, U30R4-VERIFICATION V4) -- NOT approved behaviour: a bootstrap V3-subject execution is UNBOUND in the product configuration until someone mints the never-issued identity at the id its manifest names (one new CAS object, no WORM bypass) -> then PASS", async () => {
+    const name = "wu30r5-minted-identity";
+    const { repo, assessment } = await bootstrapV3SubjectRun(name);
+    strictProduction();
+    expect((await verify(repo, assessment)).mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
+
+    const outcome = await repo.resolve<{ attempt_ref: Ref }>(assessment.payload.execution_outcome_ref);
+    const attempt = await repo.resolve<{ manifest_ref: Ref }>(outcome.attempt_ref);
+    const manifest = await repo.resolve<{ execution_identity_ref: Ref }>(attempt.manifest_ref);
+    const subject_v3 = {
+      site_id: `property-${name}`,
+      project_context_binding_ref: { artifact_id: `binding-${name}`, artifact_type: "project_context_binding" },
+      product_release_ref: { artifact_id: "release-u30r4", artifact_type: "product_release_manifest" },
+      execution_contract_version: "lu-execution-identity-v1",
+      localization_geometry_ref: assessment.payload.localization_geometry_ref!,
+    };
+    const minted = { artifact_id: manifest.execution_identity_ref.artifact_id, artifact_type: "execution_identity", subject_v3 };
+    await repo.put({ artifact_id: minted.artifact_id, content_hash: sha256ContentHash(minted), body: minted });
+
+    const r = await verify(repo, assessment);
+    // KNOWN_LIMITATION, pinned -- NOT approved behaviour: UNBOUND is not a hard gate against a writer of CAS.
+    expect(r.mismatches).toEqual([]);
+    expect(r.outcome).toBe("PASS");
+  });
+
+  it("KNOWN_LIMITATION (deleted v2 outcome + minted V1 outcome, U30R4-VERIFICATION V5, R-3/R-4 class) -- NOT approved behaviour: a genuine V4 whose v2 outcome is removed in place and replaced by a minted V1 outcome at the legacy locator, its HIGH dropped -> PASS, still labelled V4", async () => {
+    const { repo, A } = await twoCanonical();
+    const attempt = await attemptOf(repo, A);
+    // The removal is the WORM bypass (or data loss) this residual requires: nothing a forger can do through put().
+    expect((repo as unknown as { store: Map<string, unknown> }).store.delete(A.payload.execution_outcome_ref.artifact_id)).toBe(true);
+    const minted = await mintV1Outcome(repo, attempt);
+    const forged = await storeUnderNewId(repo, A, withFindings({ ...A.payload, execution_outcome_ref: minted, evidence_refs: [] }, []));
+    expect(forged.payload.assessment_contract_version).toBe("localization-assessment-v4");
+    strictProduction();
+
+    const r = await verify(repo, forged);
+    // KNOWN_LIMITATION, pinned -- NOT approved behaviour.
+    expect(r.mismatches).toEqual([]);
+    expect(r.outcome).toBe("PASS");
   });
 });
