@@ -40,6 +40,14 @@ import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime
 import { resolveCurrentViewerIdentity } from '../../../src/application/resolveCurrentViewerIdentity';
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
+import {
+  isProjectAccessDenied,
+  isProvenBindingAbsence,
+  LuReadFaultError,
+  readExistingOrProvenAbsent,
+  toReadFaultError,
+} from './readFaultClassification';
+import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
 
 const PRIVATE_KEY_ENV = 'VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM';
 /** Deterministic, automated-issuance owner authority ref -- distinct from the manual-install one
@@ -52,7 +60,14 @@ const OWNER_AUTHORITY_REF = {
 export type ViewerCapabilityProvisioningOutcome =
   | { readonly ok: true; readonly capabilityArtifactId: string; readonly reused: boolean }
   | { readonly ok: false; readonly superseded: true; readonly detail: string }
-  | { readonly ok: false; readonly superseded: false; readonly failureCode: string; readonly failureDetail: string };
+  | {
+      readonly ok: false;
+      readonly superseded: false;
+      readonly failureCode: string;
+      readonly failureDetail: string;
+      /** W-CATCH2: raw fault text for the worker's log only -- never stored, never sent. */
+      readonly diagnostic?: string;
+    };
 
 function fail(code: string, detail: string): never {
   const error = new Error(detail) as Error & { failureCode: string };
@@ -92,14 +107,20 @@ async function runFreshVerifier(args: {
 async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<ViewerCapabilityIssuerArtifact> {
   const signing = getViewerCapabilitySigningProvider();
   const bareIssuer = createViewerCapabilityIssuerArtifact({ issuer_key_id: signing.keyId, owner_authority_ref: OWNER_AUTHORITY_REF });
-  try {
-    const existing = await repo.resolve<ViewerCapabilityIssuerArtifact>({
-      artifact_id: bareIssuer.artifact_id,
-      artifact_type: bareIssuer.artifact_type,
-    });
-    if (existing.payload.issuer_key_id === signing.keyId) return existing;
-  } catch {
-    // not minted yet -- fall through to mint.
+  // W-CATCH2 #10 (OD-R2): mint ONLY on the proven absence of exactly this deterministic id. A read error
+  // or a damaged existing issuer is a typed fault -- never "not minted yet", never minted over.
+  const read = await readExistingOrProvenAbsent<ViewerCapabilityIssuerArtifact>(
+    repo,
+    { artifact_id: bareIssuer.artifact_id, artifact_type: bareIssuer.artifact_type },
+    'viewer-capability-issuer',
+  );
+  if (read.found) {
+    const existing = read.value;
+    // Same deterministic identity, so it must be exactly this issuer (before: anything else fell through to a re-mint).
+    if (existing?.artifact_id === bareIssuer.artifact_id && existing.content_hash?.value === bareIssuer.content_hash.value && existing.payload?.issuer_key_id === signing.keyId) {
+      return existing;
+    }
+    throw new LuReadFaultError('viewer-capability-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
   }
   const attestation = await attestViewerCapabilityIssuerArtifact({ issuer: bareIssuer, signing });
   const issuer: ViewerCapabilityIssuerArtifact = { ...bareIssuer, attestation };
@@ -141,7 +162,10 @@ export async function executeViewerCapabilityProvisioning(input: {
         input.projectId,
         requester.organisationId,
       );
-    } catch {
+    } catch (error) {
+      // W-CATCH2 (#14 class): only the access check's own denial is "not authorized"; a failed read of
+      // the access facts is a technical failure (classified by the outer catch).
+      if (!isProjectAccessDenied(error)) throw toReadFaultError('project-access', error);
       fail('REQUESTER_NOT_AUTHORIZED', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
     }
 
@@ -160,7 +184,9 @@ export async function executeViewerCapabilityProvisioning(input: {
     try {
       currentBinding = await currentBindingProvider.resolveCurrent(input.projectId);
     } catch (error) {
-      fail('CURRENT_BINDING_UNAVAILABLE', error instanceof Error ? error.message : String(error));
+      // W-CATCH2 #10 (:162): absence only when proven; any other failure keeps its class (CURRENT_BINDING_*).
+      if (isProvenBindingAbsence(error)) fail('CURRENT_BINDING_UNAVAILABLE', 'Projektet har ingen registrerad koppling till fastigheten. Inget utfärdades.');
+      throw toReadFaultError('current-binding', error);
     }
     if (currentBinding!.artifact_id !== input.contextBindingArtifactId) {
       return { ok: false, superseded: true, detail: `pinned binding ${input.contextBindingArtifactId} superseded by ${currentBinding!.artifact_id}` };
@@ -184,7 +210,8 @@ export async function executeViewerCapabilityProvisioning(input: {
         releaseHash: currentRelease.releaseHash,
       });
     } catch (error) {
-      fail('VIEWER_IDENTITY_UNAVAILABLE_OR_UNVERIFIABLE', error instanceof Error ? error.message : String(error));
+      // W-CATCH2: same code, but a neutral text with the fault's class instead of the raw message.
+      fail('VIEWER_IDENTITY_UNAVAILABLE_OR_UNVERIFIABLE', provisioningReadFaultDetailSv(error, 'Visningskomponentens identitet'));
     }
     if (viewerIdentity!.viewerIdentityRef.artifact_id !== input.viewerIdentityArtifactId) {
       fail(
@@ -261,9 +288,8 @@ export async function executeViewerCapabilityProvisioning(input: {
 
     return { ok: true, capabilityArtifactId: capability.artifact_id, reused: false };
   } catch (error) {
-    const failureCode = (error as { failureCode?: string })?.failureCode ?? 'PROVISIONING_EXECUTION_ERROR';
-    const failureDetail = error instanceof Error ? error.message : String(error);
-    return { ok: false, superseded: false, failureCode, failureDetail };
+    // W-CATCH2: a stable code by class and a neutral text (provisioningFailure.ts); never the raw message.
+    return { ok: false, superseded: false, ...provisioningFailure(error) };
   }
 }
 
@@ -277,15 +303,15 @@ async function tryReuseExistingCapability(args: {
   readonly releaseHash: string;
   readonly currentBindingProvider: ProjectContextBindingProvider;
 }): Promise<string | null> {
-  let existing: ProductViewerCapabilityArtifact;
-  try {
-    existing = await args.repo.resolve<ProductViewerCapabilityArtifact>({
-      artifact_id: args.expectedCapabilityId,
-      artifact_type: 'viewer_capability',
-    });
-  } catch {
-    return null; // not minted yet -- proceed to issue.
-  }
+  // W-CATCH2 #10 (OD-R2): "not minted yet" ONLY on the proven absence of exactly this id; a read error
+  // or a damaged existing capability is a typed fault, never re-issued over.
+  const read = await readExistingOrProvenAbsent<ProductViewerCapabilityArtifact>(
+    args.repo,
+    { artifact_id: args.expectedCapabilityId, artifact_type: 'viewer_capability' },
+    'viewer-capability',
+  );
+  if (!read.found) return null; // proven absence: proceed to issue.
+  const existing = read.value;
   try {
     await verifyProductViewerCapability({
       capability: existing,
@@ -300,7 +326,10 @@ async function tryReuseExistingCapability(args: {
       currentBindingProvider: args.currentBindingProvider,
     });
     return existing.artifact_id;
-  } catch {
-    return null; // orphaned/partial/tampered CAS state from a crashed prior attempt -- re-issue rather than trust it.
+  } catch (error) {
+    // W-CATCH2 #10: an existing capability for this exact subject that does not verify is never
+    // re-issued over (a re-issue yields the same id: either the same bytes, or a WORM/collision error).
+    // A read inside the verification stays a READ_ERROR; anything else is a refusal of that object.
+    throw toReadFaultError('viewer-capability', error, 'verify');
   }
 }

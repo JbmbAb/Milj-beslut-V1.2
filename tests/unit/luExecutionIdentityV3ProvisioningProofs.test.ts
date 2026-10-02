@@ -194,7 +194,9 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V3-PROVISIONING-01 — executor proof ma
   });
 
   it('proof 10: requester with no real project access -> fail closed, never touches CAS', async () => {
-    assertProjectAccessMock.mockRejectedValue(new Error('not a member'));
+    // W-CATCH2 (#14 class): the access check's REAL denial shape (a stable code) -- only that is
+    // "not authorized"; a plain error (e.g. a database that cannot answer) is a technical failure now.
+    assertProjectAccessMock.mockRejectedValue(Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED' }));
     const geometry = makeGeometry();
     await repo.put({ artifact_id: geometry.artifact_id, content_hash: geometry.content_hash, body: geometry });
 

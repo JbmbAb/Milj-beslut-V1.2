@@ -55,6 +55,14 @@ import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
 import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
+import {
+  isProjectAccessDenied,
+  isProvenBindingAbsence,
+  LuReadFaultError,
+  readExistingOrProvenAbsent,
+  toReadFaultError,
+} from './readFaultClassification';
+import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
 
 const PRIVATE_KEY_ENV = 'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM';
 const ISSUER_ARTIFACT_ID_ENV = 'LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID';
@@ -62,7 +70,13 @@ const EXECUTION_CONTRACT_VERSION = 'lu-execution-identity-v1';
 
 export type ProvisioningOutcome =
   | { readonly ok: true; readonly executionIdentityArtifactId: string; readonly reused: boolean }
-  | { readonly ok: false; readonly failureCode: string; readonly failureDetail: string };
+  | {
+      readonly ok: false;
+      readonly failureCode: string;
+      readonly failureDetail: string;
+      /** W-CATCH2: raw fault text for the worker's log only -- never stored, never sent. */
+      readonly diagnostic?: string;
+    };
 
 function fail(code: string, detail: string): never {
   const error = new Error(detail) as Error & { failureCode: string };
@@ -141,22 +155,24 @@ async function ensureTemporalAuthorization(args: {
     artifact_type: LU_SOURCE_AUTHORITY_TEMPORAL_STATUS_TYPE,
   } as const;
 
-  let existing: LuSourceAuthorityTemporalStatusArtifact | null = null;
-  try {
-    existing = await args.repo.resolve<LuSourceAuthorityTemporalStatusArtifact>(expectedRef);
-  } catch {
-    existing = null;
-  }
-  if (existing) {
-    await verifyLuSourceAuthorityTemporalStatus({
-      status: existing,
-      issuer: verifiedIssuer,
-      subject: args.identity,
-      lifecycle,
-      expected_attempt_ref: attemptRef,
-      expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
-      issuer_verification: issuerVerification,
-    });
+  // W-CATCH2 #12 (:147, OD-R2): mint ONLY on the proven absence of exactly this deterministic id. A read
+  // error or a damaged existing status is a typed fault -- never "not there", never minted over.
+  const read = await readExistingOrProvenAbsent<LuSourceAuthorityTemporalStatusArtifact>(args.repo, expectedRef, 'temporal-authorization');
+  if (read.found) {
+    const existing = read.value;
+    try {
+      await verifyLuSourceAuthorityTemporalStatus({
+        status: existing,
+        issuer: verifiedIssuer,
+        subject: args.identity,
+        lifecycle,
+        expected_attempt_ref: attemptRef,
+        expected_action: LU_LOCALIZATION_ASSESSMENT_PERSIST_ACTION,
+        issuer_verification: issuerVerification,
+      });
+    } catch (error) {
+      throw toReadFaultError('temporal-authorization', error, 'verify');
+    }
     return existing;
   }
 
@@ -220,7 +236,9 @@ export async function executeLocalizationIdentityProvisioning(input: {
         input.projectId,
         requester.organisationId,
       );
-    } catch {
+    } catch (error) {
+      // W-CATCH2 (#14 class): only the access check's own denial is "not authorized".
+      if (!isProjectAccessDenied(error)) throw toReadFaultError('project-access', error);
       fail('REQUESTER_NOT_AUTHORIZED', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
     }
 
@@ -235,13 +253,21 @@ export async function executeLocalizationIdentityProvisioning(input: {
       });
       validateLocalizationGeometryArtifact(geometry);
     } catch (error) {
-      fail('GEOMETRY_UNAVAILABLE_OR_TAMPERED', error instanceof Error ? error.message : String(error));
+      // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
+      fail('GEOMETRY_UNAVAILABLE_OR_TAMPERED', provisioningReadFaultDetailSv(error, 'Den begärda kontrollpunkten'));
     }
     if (geometry!.payload.project_id !== input.projectId) {
       fail('GEOMETRY_PROJECT_MISMATCH', `geometry ${input.geometryArtifactId} belongs to project ${geometry!.payload.project_id}, not ${input.projectId}`);
     }
 
-    const canonicalContext = await resolveCanonicalProjectContext(input.projectId, repo);
+    let canonicalContext: Awaited<ReturnType<typeof resolveCanonicalProjectContext>>;
+    try {
+      canonicalContext = await resolveCanonicalProjectContext(input.projectId, repo);
+    } catch (error) {
+      // W-CATCH2 (#8 class): absence only when proven; any other failure keeps its class (CURRENT_BINDING_*).
+      if (isProvenBindingAbsence(error)) fail('CURRENT_BINDING_UNAVAILABLE', 'Projektet har ingen registrerad koppling till fastigheten. Inget utfärdades.');
+      throw toReadFaultError('current-binding', error);
+    }
     if (
       geometry!.payload.property_context_ref.artifact_id !== canonicalContext.propertyContextRef.artifact_id ||
       geometry!.payload.property_context_ref.artifact_type !== canonicalContext.propertyContextRef.artifact_type
@@ -327,9 +353,8 @@ export async function executeLocalizationIdentityProvisioning(input: {
 
     return { ok: true, executionIdentityArtifactId: identity.artifact_id, reused: false };
   } catch (error) {
-    const failureCode = (error as { failureCode?: string })?.failureCode ?? 'PROVISIONING_EXECUTION_ERROR';
-    const failureDetail = error instanceof Error ? error.message : String(error);
-    return { ok: false, failureCode, failureDetail };
+    // W-CATCH2: a stable code by class and a neutral text (provisioningFailure.ts); never the raw message.
+    return { ok: false, ...provisioningFailure(error) };
   }
 }
 
@@ -339,27 +364,39 @@ async function tryReuseExistingIdentity(args: {
   readonly subject: ExecutionIdentitySubjectV3;
   readonly expectedPredicate: ReturnType<typeof buildExecutionIdentityAttestationPredicate>;
 }): Promise<string | null> {
-  let existing: ExecutionIdentityArtifact;
+  // W-CATCH2 #12 (:348/:354, OD-R2): "not there" ONLY on the proven absence of exactly the deterministic
+  // id. A read error or a damaged existing identity/attestation is a typed fault, never re-issued over.
+  const identityRead = await readExistingOrProvenAbsent<ExecutionIdentityArtifact>(
+    args.repo,
+    { artifact_id: args.expectedIdentityId, artifact_type: 'execution_identity' },
+    'execution-identity',
+  );
+  if (!identityRead.found) return null; // proven absence: proceed to issue.
+  const existing = identityRead.value;
+  const envelopeRef = existing?.signature_envelope_ref;
+  if (!envelopeRef?.artifact_id || !envelopeRef.artifact_type) {
+    throw new LuReadFaultError('execution-identity', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored identity names no attestation'));
+  }
+  const attestationRead = await readExistingOrProvenAbsent(args.repo, envelopeRef, 'execution-identity-attestation');
+  // The attestation is written right after the identity: its proven absence is a crash between the two
+  // writes, and re-issuing writes the identical identity bytes again plus the missing attestation.
+  if (!attestationRead.found) return null;
+  let result: Awaited<ReturnType<typeof verifyExecutionIdentityAttestation>>;
   try {
-    existing = await args.repo.resolve<ExecutionIdentityArtifact>({
-      artifact_id: args.expectedIdentityId,
-      artifact_type: 'execution_identity',
+    result = await verifyExecutionIdentityAttestation({
+      identity: existing,
+      attestation: attestationRead.value as Parameters<typeof verifyExecutionIdentityAttestation>[0]['attestation'],
+      expectedPredicate: args.expectedPredicate,
+      authorityVerifier: getLuExecutionAuthorityVerifier(),
+      expectedSubjectV3: args.subject,
     });
-  } catch {
-    return null;
+  } catch (error) {
+    throw toReadFaultError('execution-identity', error, 'verify');
   }
-  let attestation;
-  try {
-    attestation = await args.repo.resolve(existing.signature_envelope_ref);
-  } catch {
-    return null;
+  if (!result.verified) {
+    // W-CATCH2 #12: an existing identity under this exact id that does not verify is never re-issued over
+    // (the same id: either the same bytes, or a WORM/collision error) -- a typed refusal instead.
+    throw new LuReadFaultError('execution-identity', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error(`identity attestation did not verify (${String((result as { reason?: unknown }).reason ?? 'UNVERIFIED')})`));
   }
-  const result = await verifyExecutionIdentityAttestation({
-    identity: existing,
-    attestation: attestation as Parameters<typeof verifyExecutionIdentityAttestation>[0]['attestation'],
-    expectedPredicate: args.expectedPredicate,
-    authorityVerifier: getLuExecutionAuthorityVerifier(),
-    expectedSubjectV3: args.subject,
-  });
-  return result.verified ? existing.artifact_id : null;
+  return existing.artifact_id;
 }

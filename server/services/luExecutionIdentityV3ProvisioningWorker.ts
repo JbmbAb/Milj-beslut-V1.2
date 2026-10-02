@@ -40,7 +40,11 @@ export async function processLocalizationIdentityProvisioningRequestsOnce(): Pro
       );
     } else {
       await markLocalizationIdentityProvisioningFailed(request.id, outcome.failureCode, outcome.failureDetail);
-      logger.warn(`lu-identity-v3-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}`);
+      // W-CATCH2: the stored detail is neutral; the raw fault text (`diagnostic`) goes to this log only.
+      logger.warn(
+        `lu-identity-v3-worker: request ${request.id} FAILED (${outcome.failureCode}): ${outcome.failureDetail}` +
+          (outcome.diagnostic ? ` [diagnostic: ${outcome.diagnostic}]` : ''),
+      );
     }
     return 1;
   } finally {

@@ -39,6 +39,9 @@ import { registerLocalizationGeometry } from './localizationGeometryProjection';
 import { PrismaLocalizationGeometrySupersessionIndex } from '../../repositories/localizationGeometrySupersessionRepository';
 import { prisma } from '../../db/prisma';
 import { assertProjectAccess } from '../../security/projectAccess';
+import { isProjectAccessDenied, LuReadFaultError, readExistingOrProvenAbsent, toReadFaultError } from './readFaultClassification';
+import { provisioningFailure, provisioningReadFaultDetailSv } from './provisioningFailure';
+import { classifyLocalizationGeometryCurrentnessError, LocalizationGeometryCurrentnessError } from './localizationGeometryCurrentness';
 
 /** Real user-action reason code -- distinct from LEGACY_CURRENTNESS_MIGRATION_REASON_CODE, which
  *  is reserved for the one-time historical backfill and must never be used by this live worker. */
@@ -51,7 +54,14 @@ const OWNER_AUTHORITY_REF = {
 export type GeometrySupersessionProvisioningOutcome =
   | { readonly ok: true; readonly supersessionArtifactId: string; readonly reused: boolean }
   | { readonly ok: false; readonly superseded: true; readonly detail: string }
-  | { readonly ok: false; readonly superseded: false; readonly failureCode: string; readonly failureDetail: string };
+  | {
+      readonly ok: false;
+      readonly superseded: false;
+      readonly failureCode: string;
+      readonly failureDetail: string;
+      /** W-CATCH2: raw fault text for the worker's log only -- never stored, never sent. */
+      readonly diagnostic?: string;
+    };
 
 function fail(code: string, detail: string): never {
   const error = new Error(detail) as Error & { failureCode: string };
@@ -65,14 +75,20 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<Localizati
     issuer_key_id: signing.keyId,
     owner_authority_ref: OWNER_AUTHORITY_REF,
   });
-  try {
-    const existing = await repo.resolve<LocalizationGeometrySupersessionIssuerArtifact>({
-      artifact_id: bareIssuer.artifact_id,
-      artifact_type: bareIssuer.artifact_type,
-    });
-    if (existing.payload.issuer_key_id === signing.keyId) return existing;
-  } catch {
-    // not minted yet -- fall through to mint.
+  // W-CATCH2 #11 (OD-R2): mint ONLY on the proven absence of exactly this deterministic id. A read error
+  // or a damaged existing issuer is a typed fault -- never "not minted yet", never minted over.
+  const read = await readExistingOrProvenAbsent<LocalizationGeometrySupersessionIssuerArtifact>(
+    repo,
+    { artifact_id: bareIssuer.artifact_id, artifact_type: bareIssuer.artifact_type },
+    'geometry-supersession-issuer',
+  );
+  if (read.found) {
+    const existing = read.value;
+    // Same deterministic identity, so it must be exactly this issuer (before: anything else fell through to a re-mint).
+    if (existing?.artifact_id === bareIssuer.artifact_id && existing.content_hash?.value === bareIssuer.content_hash.value && existing.payload?.issuer_key_id === signing.keyId) {
+      return existing;
+    }
+    throw new LuReadFaultError('geometry-supersession-issuer', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored issuer is not the issuer its id names'));
   }
   const attestation = await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bareIssuer, signing });
   const issuer: LocalizationGeometrySupersessionIssuerArtifact = { ...bareIssuer, attestation };
@@ -108,7 +124,9 @@ export async function executeGeometrySupersessionProvisioning(input: {
         input.projectId,
         requester.organisationId,
       );
-    } catch {
+    } catch (error) {
+      // W-CATCH2 (#14 class): only the access check's own denial is "not authorized".
+      if (!isProjectAccessDenied(error)) throw toReadFaultError('project-access', error);
       fail('REQUESTER_NOT_AUTHORIZED', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
     }
 
@@ -131,7 +149,8 @@ export async function executeGeometrySupersessionProvisioning(input: {
         }),
       );
     } catch (error) {
-      fail('PREDECESSOR_GEOMETRY_UNAVAILABLE', error instanceof Error ? error.message : String(error));
+      // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
+      fail('PREDECESSOR_GEOMETRY_UNAVAILABLE', provisioningReadFaultDetailSv(error, 'Den tidigare kontrollpunkten'));
     }
     if (predecessor!.payload.project_id !== input.projectId) fail('PREDECESSOR_GEOMETRY_PROJECT_MISMATCH', 'predecessor geometry does not belong to this project');
 
@@ -144,7 +163,8 @@ export async function executeGeometrySupersessionProvisioning(input: {
         }),
       );
     } catch (error) {
-      fail('SUCCESSOR_GEOMETRY_UNAVAILABLE', error instanceof Error ? error.message : String(error));
+      // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
+      fail('SUCCESSOR_GEOMETRY_UNAVAILABLE', provisioningReadFaultDetailSv(error, 'Den nya kontrollpunkten'));
     }
     if (successor!.payload.project_id !== input.projectId) fail('SUCCESSOR_GEOMETRY_PROJECT_MISMATCH', 'successor geometry does not belong to this project');
 
@@ -183,7 +203,13 @@ export async function executeGeometrySupersessionProvisioning(input: {
     try {
       current = await currentProvider.resolveCurrent(input.projectId);
     } catch (error) {
-      fail('CURRENT_GEOMETRY_UNAVAILABLE', error instanceof Error ? error.message : String(error));
+      // W-CATCH2 #11 (:185): typed by M1a's own classification (never re-derived): no current point yet
+      // keeps CURRENT_GEOMETRY_UNAVAILABLE; every other class is LOCALIZATION_GEOMETRY_<class> with M1a's
+      // Swedish text and its retryable -- never the raw message.
+      const failureClass = classifyLocalizationGeometryCurrentnessError(error);
+      if (failureClass === 'NOT_FOUND') fail('CURRENT_GEOMETRY_UNAVAILABLE', 'Projektet har ingen aktuell kontrollpunkt. Inget utfärdades.');
+      const typed = new LocalizationGeometryCurrentnessError(failureClass, '');
+      fail(typed.reasonCode, `${typed.userMessage} ${typed.retryable ? 'Ett nytt försök kan lyckas.' : 'Felet är bestående och löses inte av ett nytt försök.'}`);
     }
     if (current!.artifact_id !== input.predecessorGeometryArtifactId) {
       return {
@@ -208,9 +234,8 @@ export async function executeGeometrySupersessionProvisioning(input: {
     await registerEdge(input.projectId, artifact.artifact_id, input.predecessorGeometryArtifactId, input.successorGeometryArtifactId);
     return { ok: true, supersessionArtifactId: artifact.artifact_id, reused: false };
   } catch (error) {
-    const failureCode = (error as { failureCode?: string })?.failureCode ?? 'PROVISIONING_EXECUTION_ERROR';
-    const failureDetail = error instanceof Error ? error.message : String(error);
-    return { ok: false, superseded: false, failureCode, failureDetail };
+    // W-CATCH2: a stable code by class and a neutral text (provisioningFailure.ts); never the raw message.
+    return { ok: false, superseded: false, ...provisioningFailure(error) };
   }
 }
 
@@ -230,20 +255,22 @@ async function tryReuseExistingSupersession(args: {
   readonly issuer: LocalizationGeometrySupersessionIssuerArtifact;
   readonly verification: Parameters<typeof verifyLocalizationGeometrySupersessionArtifact>[0]['verification'];
 }): Promise<string | null> {
-  let existing: LocalizationGeometrySupersessionArtifact;
-  try {
-    existing = await args.repo.resolve<LocalizationGeometrySupersessionArtifact>({
-      artifact_id: args.expectedId,
-      artifact_type: 'localization_geometry_supersession',
-    });
-  } catch {
-    return null; // not minted yet -- proceed to issue.
-  }
+  // W-CATCH2 #11 (OD-R2): "not minted yet" ONLY on the proven absence of exactly this id; a read error
+  // or a damaged existing relation is a typed fault, never re-issued over.
+  const read = await readExistingOrProvenAbsent<LocalizationGeometrySupersessionArtifact>(
+    args.repo,
+    { artifact_id: args.expectedId, artifact_type: 'localization_geometry_supersession' },
+    'geometry-supersession',
+  );
+  if (!read.found) return null; // proven absence: proceed to issue.
+  const existing = read.value;
   try {
     await verifyLocalizationGeometrySupersessionArtifact({ artifact: existing, issuer: args.issuer, verification: args.verification });
     return existing.artifact_id;
-  } catch {
-    return null; // orphaned/partial/tampered CAS state from a crashed prior attempt -- re-issue rather than trust it.
+  } catch (error) {
+    // W-CATCH2 #11: an existing relation for this exact request that does not verify is never re-issued
+    // over (the same id: either the same bytes, or a WORM/collision error) -- a typed refusal instead.
+    throw toReadFaultError('geometry-supersession', error, 'verify');
   }
 }
 
