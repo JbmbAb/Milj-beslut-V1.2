@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -101,7 +102,7 @@ export function parseProtectedRelationsDefinition(raw: unknown): ProtectedRelati
   });
 }
 
-export const PROTECTED_RELATIONS_FILE = fileURLToPath(new URL("./protected-relations.v1.json", import.meta.url));
+export const PROTECTED_RELATIONS_FILE = join(dirname(fileURLToPath(import.meta.url)), "protected-relations.v1.json");
 
 export const PROTECTED_RELATIONS: ProtectedRelationsDefinition = parseProtectedRelationsDefinition(
   JSON.parse(readFileSync(PROTECTED_RELATIONS_FILE, "utf8")),
