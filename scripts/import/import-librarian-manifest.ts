@@ -48,6 +48,11 @@ import {
   type SqlPort,
   type TransactionalSqlPort,
 } from '../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
+import {
+  CLEANUP_SKIPPED_RETAINED_RELATION,
+  planStagingCleanup,
+  quoteStagingRelation,
+} from '../../packages/spatial-provider-postgis/src/StagingCleanupProtection';
 
 dotenv.config();
 
@@ -688,12 +693,49 @@ async function cleanupStaging() {
     return;
   }
 
-  for (const batch of badBatches) {
-    const shortHash = batch.content_bundle_sha256.substring(0, 8);
-    const stagingTable = `lm_staging.${batch.target_table}_${shortHash}`;
-    
+  // PRES-05 (U30-B2 cleanup-staging): lm_staging.<table>_<hash8> of a FAILED batch is also the
+  // retained relation of the SUCCESS version with the same hash. Every relation is checked BEFORE
+  // any DROP: kept when a SUCCESS batch maps to it or a retention record exists for its version,
+  // and kept (fail-closed) when that cannot be decided. A database error stops the whole cleanup.
+  let retentionRepo: ArtifactRepositoryPort | null = null;
+  try {
+    retentionRepo = await openRetentionCas();
+  } catch (casError: unknown) {
+    logger.warn(
+      `   ! Durable Mimers CAS unavailable (${casError instanceof Error ? casError.message : String(casError)}): ` +
+        `retention records cannot be checked, so relations without a SUCCESS batch are kept`,
+    );
+  }
+  const decisions = await planStagingCleanup({
+    db: prismaSqlPort(prisma),
+    repo: retentionRepo,
+    candidates: badBatches.map((b) => ({
+      id: b.id,
+      status: b.status,
+      target_schema: b.target_schema,
+      target_table: b.target_table,
+      content_bundle_sha256: b.content_bundle_sha256,
+    })),
+  });
+
+  for (const decision of decisions) {
+    const batches = decision.batch_ids.join(', ');
+    if (decision.action === 'SKIP') {
+      if (decision.code === CLEANUP_SKIPPED_RETAINED_RELATION) {
+        logger.warn(
+          `   - ${decision.code} [${decision.reason}]: keeping ${decision.relation_name} (batches ${batches})` +
+            (decision.record_id ? ` -- retention record ${decision.record_id}` : ' -- a SUCCESS batch is materialised in it'),
+        );
+      } else {
+        logger.warn(`   - ${decision.code}: keeping ${decision.relation_name} (batches ${batches}): ${decision.detail}`);
+        process.exitCode = 1;
+      }
+      continue;
+    }
+
+    const stagingTable = quoteStagingRelation(decision.relation);
     if (!execute) {
-      logger.dry(`[cleanup-staging] Would run DROP TABLE IF EXISTS ${stagingTable} (Batch ID: ${batch.id}, Status: ${batch.status})`);
+      logger.dry(`[cleanup-staging] Would run DROP TABLE IF EXISTS ${stagingTable} (batches ${batches})`);
     } else {
       logger.info(`   - Dropping ${stagingTable}...`);
       try {
@@ -753,4 +795,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   });
 }
 
-export { processManifest, findPrimaryFile };
+export { processManifest, findPrimaryFile, cleanupStaging };
