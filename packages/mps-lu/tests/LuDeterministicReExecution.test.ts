@@ -583,6 +583,27 @@ describe("LU-DETERMINISTIC-REEXECUTION-V1", () => {
     expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
   });
 
+  it("20c: a CAS storage fault while reading the attested execution is a technical error (rejects), never a DENY verdict (OD-R2)", async () => {
+    const repo = new InMemoryArtifactRepository();
+    const { run } = await runWithUnavailable(repo, "reexec-nc-lineage-fault");
+    const { execution } = await attestedLineage(repo, run.assessment!);
+    const faulty: ArtifactRepositoryPort = {
+      put: (artifact) => repo.put(artifact),
+      resolve: async <T,>(ref: { artifact_id: string; artifact_type: string }): Promise<T> => {
+        if (ref.artifact_id === execution.artifact_id) {
+          const fault = new Error(`MIMERS_ARTIFACT_OBJECT_MISSING: ${ref.artifact_id} is indexed but its CAS object is gone (get)`);
+          fault.name = "MimersArtifactObjectMissingError";
+          throw fault;
+        }
+        return repo.resolve<T>(ref);
+      },
+    };
+
+    await expect(
+      reExecuteLocalizationAssessment({ assessmentArtifactId: run.assessment!.artifact_id, artifactRepository: faulty }),
+    ).rejects.toThrow(/MIMERS_ARTIFACT_OBJECT_MISSING/);
+  });
+
   it("21: SPATIAL_LAYER_UNAVAILABLE (aba4305c, not adopted) is not an evidence family -> DENY, EVIDENCE_SET_MISMATCH", async () => {
     const repo = new InMemoryArtifactRepository();
     const { run } = await runWithUnavailable(repo, "reexec-nc-aba4305c");

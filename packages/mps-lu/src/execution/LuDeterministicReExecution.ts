@@ -483,8 +483,11 @@ async function attestedNotCheckedLayers(
   let execution: FrozenCapabilityExecutionArtifact;
   try {
     execution = await repository.resolve<FrozenCapabilityExecutionArtifact>(executionRef);
-  } catch {
-    return untrusted(`CAPABILITY_EXECUTION ${executionRef.artifact_id} pinned by the outcome could not be resolved from CAS`);
+  } catch (error) {
+    // OD-R2: only "never stored" is a verdict about the lineage; a storage/index fault is a
+    // technical error and propagates instead of becoming a DENY.
+    if (!isArtifactNotFound(error, executionRef.artifact_id)) throw error;
+    return untrusted(`CAPABILITY_EXECUTION ${executionRef.artifact_id} pinned by the outcome is not in CAS`);
   }
   if (
     !execution ||
@@ -499,8 +502,9 @@ async function attestedNotCheckedLayers(
   let capability: { readonly artifact_id?: unknown; readonly implementation_ref?: { readonly artifact_id?: unknown } };
   try {
     capability = await repository.resolve(execution.capability_ref);
-  } catch {
-    return untrusted(`capability definition ${execution.capability_ref.artifact_id} could not be resolved from CAS`);
+  } catch (error) {
+    if (!isArtifactNotFound(error, execution.capability_ref.artifact_id)) throw error;
+    return untrusted(`capability definition ${execution.capability_ref.artifact_id} is not in CAS`);
   }
   const implementationId = capability?.implementation_ref?.artifact_id;
   if (capability?.artifact_id !== execution.capability_ref.artifact_id || typeof implementationId !== "string" || implementationId.length === 0) {
@@ -528,6 +532,15 @@ async function attestedNotCheckedLayers(
       .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
       .map((id) => id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length)),
   };
+}
+
+/**
+ * The repositories' "never stored" signal (CasArtifactResolver, InMemoryArtifactRepository) -- the
+ * same exact-message classification the localization read model uses. Anything else, e.g.
+ * MimersArtifactObjectMissingError or MimersArtifactIndexReadError, is a storage fault (OD-R2).
+ */
+function isArtifactNotFound(error: unknown, artifactId: string): boolean {
+  return error instanceof Error && error.message === `Artifact not found: ${artifactId}`;
 }
 
 /**
