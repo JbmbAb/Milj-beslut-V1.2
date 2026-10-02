@@ -1775,6 +1775,8 @@ const JS_UNREAD_MODULES = new Set([
   "knex", "pg-promise", "postgres", "slonik", "sequelize", "typeorm", "kysely", "drizzle-orm", "objection", "massive", "pg-native",
   "pg-cursor", "pg-query-stream", "mysql", "mysql2", "postgrator", "node-pg-migrate", "db-migrate", "umzug", "@databases/pg",
   "shelljs", "cross-spawn", "node-pty", "tinyexec", "nano-spawn", "@npmcli/promise-spawn", "child-process-promise", "await-spawn", "spawn-sync",
+  // U30F4 (B1): node:vm runs code the scan does not read -- any import of it fails closed
+  "vm",
 ]);
 const JS_UNREAD_MODULE_SCOPES = ["@slonik/", "@mikro-orm/", "@databases/"];
 /** Modules whose process functions the scan reads -- but only in the forms it follows. */
@@ -1844,7 +1846,7 @@ function jsModuleSurface(lists: readonly Tok[][], src: string, sink: SiteSink, f
   const declared = new Set<number>(); // positions of the binding names themselves
   const site = (from: number, to: number, line: number, kind: SiteKind, channel: string, detail: string) =>
     sink.add({ line, kind, channel, excerpt: excerptOf(src, from, to), verdict: "DYNAMIC", detail });
-  const unread = (mod: string) => `${mod}: a database or process client whose calls the scan does not read (U30F3 M-2: fail-closed)`;
+  const unread = (mod: string) => `${mod}: a database, process or code-running module whose calls the scan does not read (U30F3 M-2 / U30F4: fail-closed)`;
   const staticLiteral = (arg: readonly Tok[] | undefined) => arg !== undefined && arg.length === 1 && arg[0]!.k === "str" && !arg[0]!.parts;
 
   for (const list of lists) {
@@ -1968,12 +1970,33 @@ function jsModuleSurface(lists: readonly Tok[][], src: string, sink: SiteSink, f
         if (!call) site(t.pos, t.end, t.line, "PROCESS", t.v, "a process function used as a value: where it is called is not followed");
         continue;
       }
-      // eval / Function / new Function / vm.* over code the source does not hold
+      // eval / Function / new Function / vm.* (U30F4: always -- even a literal is code the scan does not read)
       const evalLike = (!afterDot && (t.v === "eval" || t.v === "Function")) || (afterDot && list[k - 2]?.v === "vm" && /^(runInNewContext|runInThisContext|runInContext|compileFunction|Script)$/.test(t.v));
       if (evalLike && list[k + 1]?.v === "(") {
         const close = matchClose(list, k + 1);
-        const args = argsOf(list, k + 1);
-        if (!(args.length > 0 && args.every((a) => staticLiteral(a)))) site(t.pos, list[close]!.end, t.line, "PROCESS", t.v, "evaluates code the source does not hold");
+        site(t.pos, list[close]!.end, t.line, "PROCESS", t.v, "evaluates code the scan does not read");
+        continue;
+      }
+      // U30F4 (B1): eval used as a value -- (0, eval)(x), Reflect.apply(eval, ...), const e = eval (an object key eval: is not)
+      if (!afterDot && t.v === "eval" && list[k + 1]?.v !== ":") {
+        site(t.pos, t.end, t.line, "PROCESS", "eval", "eval used as a value: where it is called is not followed");
+        continue;
+      }
+      // U30F4 (B1): a function called through reflection, a global looked up by a computed name
+      if (afterDot && (t.v === "apply" || t.v === "construct") && list[k - 2]?.v === "Reflect" && list[k + 1]?.v === "(") {
+        site(list[k - 2]!.pos, list[matchClose(list, k + 1)]!.end, t.line, "PROCESS", `Reflect.${t.v}`, "a function called through reflection: what it runs is not followed");
+        continue;
+      }
+      if (!afterDot && /^(globalThis|global|window|self)$/.test(t.v) && list[k + 1]?.v === "[") {
+        site(t.pos, list[matchClose(list, k + 1)]!.end, t.line, "PROCESS", `${t.v}[]`, "a global looked up by a computed name: what it runs is not followed");
+        continue;
+      }
+      // U30F4 (B1): new Worker(code, { eval: true }) -- or options the source does not hold -- runs code, not a file
+      if (!afterDot && t.v === "Worker" && list[k + 1]?.v === "(") {
+        const close = matchClose(list, k + 1);
+        const opts = argsOf(list, k + 1)[1];
+        const evalOption = opts !== undefined && (opts[0]?.v !== "{" || opts.some((x, n) => x.k === "id" && x.v === "eval" && opts[n + 1]?.v === ":" && opts[n + 2]?.v !== "false"));
+        if (evalOption) site(t.pos, list[close]!.end, t.line, "PROCESS", "Worker", "a worker that evaluates code (eval option, or options the source does not hold)");
         continue;
       }
       // prisma.$executeRawUnsafe used as a value (bound, passed, assigned) is a channel the loop does not see
@@ -2447,7 +2470,17 @@ const PY_UNREAD_MODULES = new Set([
   "sh", "plumbum", "pexpect", "ptyprocess", "pty", "fabric", "invoke", "paramiko", "asyncssh", "commands", "popen2",
 ]);
 /** Modules whose channels the scan reads (by method or function name): followed through `as` renames; `*` is not followed. */
-const PY_READ_MODULES = new Set(["subprocess", "os", "psycopg2", "psycopg", "asyncpg", "sqlalchemy", "asyncio", "importlib"]);
+const PY_READ_MODULES = new Set(["subprocess", "os", "psycopg2", "psycopg", "asyncpg", "sqlalchemy", "asyncio", "importlib", "pandas"]);
+/**
+ * U30F4 (B2): methods that execute their first argument as SQL in a client the file imports (asyncpg fetch*, prepare,
+ * cursor, copy_from_query; SQLAlchemy scalar(s); psycopg 3 stream; pandas read_sql*). Judged like execute().
+ */
+const PY_MODULE_SQL_METHODS: Readonly<Record<string, readonly string[]>> = {
+  asyncpg: ["fetch", "fetchrow", "fetchval", "fetchmany", "prepare", "cursor", "copy_from_query"],
+  sqlalchemy: ["scalar", "scalars"],
+  psycopg: ["stream"],
+  pandas: ["read_sql", "read_sql_query"],
+};
 /** `.copy(x)` receivers that copy files or objects, not SQL. */
 const PY_COPY_NOT_SQL = /^(shutil|copy|np|numpy|torch|tf|pd|pandas|deepcopy)$/;
 
@@ -2456,6 +2489,8 @@ interface PyModuleSurface {
   readonly moduleAliases: ReadonlyMap<string, string>;
   /** `from subprocess import run as r`: r -> { module: subprocess, fn: run } (also unrenamed names). */
   readonly fnImports: ReadonlyMap<string, { readonly module: string; readonly fn: string }>;
+  /** U30F4: the top-level name of every module the file imports. */
+  readonly imported: ReadonlySet<string>;
 }
 
 /**
@@ -2465,6 +2500,7 @@ interface PyModuleSurface {
 function pyModuleSurface(toks: readonly Tok[], src: string, sink: SiteSink): PyModuleSurface {
   const moduleAliases = new Map<string, string>();
   const fnImports = new Map<string, { module: string; fn: string }>();
+  const imported = new Set<string>();
   /** `a.b.c` (or a relative `.a`) starting at `from`: identifiers joined by dots, never two identifiers in a row. */
   const dotted = (from: number): { name: string; end: number } => {
     let k = from;
@@ -2504,6 +2540,7 @@ function pyModuleSurface(toks: readonly Tok[], src: string, sink: SiteSink): PyM
       for (const part of splitTop(stmt.slice(1), (x) => x.k === "p" && x.v === ",")) {
         const d = dotted(k + 1 + stmt.slice(1).indexOf(part[0]!));
         const m = d.name;
+        imported.add(top(m));
         if (PY_UNREAD_MODULES.has(top(m))) flag(m, `${m}: a database or process client whose calls the scan does not read (U30F3 M-2: fail-closed)`);
         const asAt = part.findIndex((x) => x.k === "id" && x.v === "as");
         if (asAt >= 0 && part[asAt + 1]?.k === "id" && PY_READ_MODULES.has(top(m))) moduleAliases.set(part[asAt + 1]!.v, m);
@@ -2514,6 +2551,7 @@ function pyModuleSurface(toks: readonly Tok[], src: string, sink: SiteSink): PyM
     const d = dotted(k + 1);
     const m = d.name;
     if (toks[d.end]?.v !== "import") continue;
+    imported.add(top(m));
     if (PY_UNREAD_MODULES.has(top(m))) {
       flag(m, `${m}: a database or process client whose calls the scan does not read (U30F3 M-2: fail-closed)`);
       continue;
@@ -2530,7 +2568,7 @@ function pyModuleSurface(toks: readonly Tok[], src: string, sink: SiteSink): PyM
       else if (p.length === 3 && p[1]!.v === "as" && p[0]!.k === "id" && p[2]!.k === "id") fnImports.set(p[2]!.v, { module: m, fn: p[0]!.v });
     }
   }
-  return { moduleAliases, fnImports };
+  return { moduleAliases, fnImports, imported };
 }
 
 function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null, readRepo?: (p: string) => string | null): void {
@@ -2731,6 +2769,27 @@ function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       if (v.verdict === "ALLOWED") sink.counts.allowed += 1;
       else sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: v.verdict, detail: v.detail });
       continue;
+    }
+    // U30F4 (B2): SQL-executing methods of an imported client; pandas read_sql* (pd.read_sql or imported by name)
+    const viaModule = Object.entries(PY_MODULE_SQL_METHODS).find(([m, methods]) => methods.includes(fnName) && (pySurface.imported.has(m) || recvModule === m || imp?.module.split(".")[0] === m));
+    if (viaModule && (receiver !== null || imp !== null) && args.length >= 1 && args[0]![1]?.v !== "=" && (viaModule[0] !== "pandas" || recvModule === "pandas" || imp?.module.split(".")[0] === "pandas")) {
+      judgePySql(args[0]!, t.line, channel, excerpt, t.pos);
+      continue;
+    }
+    // U30F4 (B2): a stored procedure call (its body is not in the source); SQLAlchemy writes whose tables the scan does not resolve
+    if (t.v === "callproc" && receiver !== null) {
+      dynamicSite("calls a database function whose body the source does not hold");
+      continue;
+    }
+    if (pySurface.imported.has("sqlalchemy") && receiver !== null) {
+      const chain = toks.slice(Math.max(0, k - 60), k);
+      const lastNl = chain.map((x) => x.k).lastIndexOf("nl");
+      const onQuery = chain.slice(lastNl + 1).some((x, n, a) => x.k === "id" && x.v === "query" && a[n + 1]?.v === "(");
+      if (t.v === "drop_all" || t.v === "create_all" || (t.v === "drop" && args.length >= 1) || ((t.v === "delete" || t.v === "update") && onQuery)) {
+        sink.counts.channels += 1;
+        sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "a SQLAlchemy write whose tables the scan does not resolve" });
+        continue;
+      }
     }
     const copyLike = t.v !== "copy" || (receiver !== null && !PY_COPY_NOT_SQL.test(receiver) && args.length >= 1 && args[0]![1]?.v !== "=");
     if (PY_SQL_METHODS.has(t.v) && receiver !== null && copyLike) {
@@ -3806,21 +3865,29 @@ export interface WalkRules {
   readonly excludedDirNames: readonly string[];
   /** A path that is a test source (executed only by the test runner behind TEST-DB-GUARD). */
   readonly isTestSource: (rel: string) => boolean;
+  /** U30F4 (B5): every symbolic link the walk does not follow is reported here -- never skipped silently. */
+  readonly links?: string[];
+  /** The directory reader (tests inject a tree; default fs.readdirSync with file types). */
+  readonly readdir?: (dir: string) => readonly { name: string; isSymbolicLink(): boolean; isDirectory(): boolean; isFile(): boolean }[];
 }
 
 /** Every repository file (posix, sorted), walked from `root` under `rules`. */
 export function walkRepository(root: string, rules: WalkRules): string[] {
   const out: string[] = [];
   const walk = (dir: string, relDir: string) => {
-    let entries: fs.Dirent[];
+    let entries: readonly { name: string; isSymbolicLink(): boolean; isDirectory(): boolean; isFile(): boolean }[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = rules.readdir ? rules.readdir(dir) : fs.readdirSync(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const e of entries) {
       const rel = relDir ? `${relDir}/${e.name}` : e.name;
-      if (e.isSymbolicLink()) continue; // never follow a link out of the tree (junctions to node_modules)
+      // never follow a link out of the tree (junctions to node_modules) -- but report it (U30F4 B5)
+      if (e.isSymbolicLink()) {
+        rules.links?.push(rel);
+        continue;
+      }
       if (e.isDirectory()) {
         if (rules.excludedDirNames.includes(e.name)) continue;
         if (rules.excludedPrefixes.some((p) => `${rel}/`.startsWith(p))) continue;

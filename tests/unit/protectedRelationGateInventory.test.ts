@@ -45,8 +45,8 @@ import {
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { languageOf, scanFile, walkRepository, type ChannelSite, type FileScan } from './protectedWriteChannels';
 import * as channels from './protectedWriteChannels';
-import * as reviewedNs from './protectedWriteChannels.reviewed';
 import {
+  FILE_TYPE_DECISIONS,
   GATE_IMPLEMENTATION,
   HISTORICAL_SQL,
   PATH_EXCLUSIONS,
@@ -72,7 +72,7 @@ const LOCKS = {
   historicalSha256: '7fdf49331e9dac4955408d0eb3a830eaabcceaf9e0aba7d6ba306a50e8cb4918',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
   pathExclusionsSha256: '4becd2b0307d48979f6cd9428aa35b4fff76df21c9bcd571effefaf2a67583f7',
-  unscannedSha256: 'aed544c662b858165e67e296b7c2fad17250d2dc1dc766b9409058498c2eb438',
+  unscannedSha256: 'f860776a464e23399d4f996737d917154ef3cc12cd3a7f56b2e834d65d24fddd',
   testSourcesSha256: '42f868346e882e2a4a9cc20db07e20782b24e553633d550933d1aeff815a67d5',
   retiredCount: 18,
   // U30F2 LOW (verifier L3): the retired list is pinned by content too -- an entry swapped for another
@@ -80,6 +80,8 @@ const LOCKS = {
   retiredSha256: '95a7f253f4e39e1c8d3aed638ab5b71abda678a44d4a1f6bfe56c8793381b645',
   // U30F3 (verifier L-1): the closed list of gate doors a reviewed marker may name
   markerDoorsSha256: '806f99ebb2450096d501ba639356a17768d989e541c3a630c98d7ca04bab32a6',
+  // U30F4 (B5): the file types decided to be data
+  fileTypeDecisionsSha256: '490bbe38db7f2569773f3de5140e8135271c9bce57a5bbfd4e1578ed2819aa40',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -391,7 +393,14 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
     expect(sha256Of({ UNSCANNED_EXECUTABLE_TYPES, UNSCANNED_EXECUTABLES })).toBe(LOCKS.unscannedSha256);
     expect(sha256Of(TEST_SOURCES)).toBe(LOCKS.testSourcesSha256);
     expect(sha256Of(REVIEW_MARKER_DOORS)).toBe(LOCKS.markerDoorsSha256);
-    for (const x of [...HISTORICAL_SQL, ...PATH_EXCLUSIONS, ...UNSCANNED_EXECUTABLES]) expect(x.justification.length).toBeGreaterThanOrEqual(20);
+    expect(sha256Of(FILE_TYPE_DECISIONS)).toBe(LOCKS.fileTypeDecisionsSha256);
+    for (const x of [...HISTORICAL_SQL, ...PATH_EXCLUSIONS, ...UNSCANNED_EXECUTABLES, ...FILE_TYPE_DECISIONS]) expect(x.justification.length).toBeGreaterThanOrEqual(20);
+    // U30F4 (B5): a type decided to be data is neither scanned nor an unscanned executable type, and each is decided once
+    expect(new Set(FILE_TYPE_DECISIONS.map((d) => d.key)).size).toBe(FILE_TYPE_DECISIONS.length);
+    for (const d of FILE_TYPE_DECISIONS) {
+      expect(UNSCANNED_EXECUTABLE_TYPES.includes(d.key), d.key).toBe(false);
+      expect(languageOf(`x/probe${d.key.startsWith('.') ? d.key : `/${d.key}`}`), d.key).toBeNull();
+    }
   });
 
   it('every test-runner include glob (and exclusion) of TEST_SOURCES still stands in its runner configuration (U30F3 M-2)', () => {
@@ -861,7 +870,7 @@ function fileTypeKey(rel: string): string {
 
 /** File types without a decision: not scanned, not an unscanned executable type (listed per file), not decided data. */
 function fileTypeProblems(files: readonly string[]): string[] {
-  const decisions = ((reviewedNs as { FILE_TYPE_DECISIONS?: readonly { key: string }[] }).FILE_TYPE_DECISIONS ?? []).map((d) => d.key);
+  const decisions = FILE_TYPE_DECISIONS.map((d) => d.key);
   const listed = new Set(UNSCANNED_EXECUTABLES.map((u) => u.file));
   const out: string[] = [];
   for (const f of files) {

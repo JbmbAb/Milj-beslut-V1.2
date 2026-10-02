@@ -125,12 +125,65 @@ export const UNSCANNED_EXECUTABLE_TYPES: readonly string[] = [
   ".vbs", ".vba", ".bas", ".wsf", ".awk", ".tcl", ".ex", ".exs", ".clj", ".dart", ".fish", ".ksh", ".csh", ".nu",
   ".ipynb", ".ddl", ".dml", ".hql", ".gradle", ".mk", ".makefile",
   "Makefile", "Rakefile", "Justfile", "justfile", "Procfile", "Jenkinsfile", "Earthfile",
+  // U30F4 (B5): configuration that can run commands or name a datasource (systemd, Terraform/HCL, ini/conf/cfg,
+  // XML build/VRT files, Prisma schema, plist/desktop/registry, PowerShell data, MSBuild) and renamed retired code
+  ".service", ".timer", ".socket", ".tf", ".tfvars", ".hcl", ".conf", ".ini", ".cfg", ".xml", ".vrt", ".prisma",
+  ".plist", ".desktop", ".reg", ".psd1", ".csproj", ".vbproj", ".targets", ".props", ".sln", ".nix", ".historical",
 ];
 
 export const UNSCANNED_EXECUTABLES: readonly { readonly file: string; readonly justification: string }[] = [
   { file: "docs/ops/OutlookExportToIdempotent.vba", justification: "Outlook macro (runs inside Outlook): ADODB.Stream writes a CSV file; no database connection, no process." },
   { file: "docs/ops/OutlookMoveToSingleFolder.vba", justification: "Outlook macro (runs inside Outlook): moves mail items between folders; no database connection, no process." },
   { file: "docs/ops/OutlookTriageScan.vba", justification: "Outlook macro (runs inside Outlook): FileSystemObject / ADODB.Stream / RegExp over mail; no database connection, no process." },
+  // U30F4 (B5): the present files of the newly listed types, each read
+  { file: "tests/fixtures/domstol-rss-miljo-feed-sample.xml", justification: "RSS 2.0 feed sample read by the domstol RSS tests: data, no command, no SQL, no datasource." },
+  { file: "scripts/db/xyz_template.vrt", justification: "OGR VRT template for point CSV layers ({{FILE_PATH}} placeholder, no PG: datasource); GDAL reads a VRT as a source, it writes no database." },
+  { file: "prisma/schema.prisma", justification: "The Prisma schema of the public schema (no multiSchema): only the prisma CLI applies it, and every prisma subcommand that changes a database is a classified command (migrate reset/dev, db push: UNRESOLVABLE; db execute: its --file)." },
+  { file: "packages/mps-lu/tests/A1AuthorityBypass.red.test.ts.historical", justification: "A retired test kept as history (renamed from *.test.ts): no runner includes *.historical and no script runs it." },
+  { file: "packages/mps-lu/tests/LUMagicMoment.test.ts.historical", justification: "A retired test kept as history (renamed from *.test.ts): no runner includes *.historical and no script runs it." },
+  { file: "packages/mps-lu/tests/LuEnforcementReplay.test.ts.historical", justification: "A retired test kept as history (renamed from *.test.ts): no runner includes *.historical and no script runs it." },
+  { file: "tests/unit/import/SR1SourceRegistryParallelAuthority.red.test.ts.historical", justification: "A retired test kept as history (renamed from *.test.ts): no runner includes *.historical and no script runs it." },
+  { file: "tests/unit/legalDomstolRssAuthority.red.test.ts.historical", justification: "A retired test kept as history (renamed from *.test.ts): no runner includes *.historical and no script runs it." },
+];
+
+/**
+ * U30F4 (B5): every file type in the repository has a decision. A type is scanned (languageOf), an unscanned
+ * executable type above (each file listed), or decided DATA here -- a file of a type with none of the three fails
+ * the inventory, so a new type (and with it a new way to run something) never passes without a decision.
+ * The key is the extension, or the whole file name when it has none.
+ */
+export const FILE_TYPE_DECISIONS: readonly { readonly key: string; readonly decision: "DATA"; readonly justification: string }[] = [
+  { key: ".md", decision: "DATA", justification: "Markdown documents; read, never executed by a runner or script." },
+  { key: ".mdc", decision: "DATA", justification: "Cursor editor rules (Markdown); read by an editor, never executed." },
+  { key: ".txt", decision: "DATA", justification: "Plain text fixtures, requirement lists and notes." },
+  { key: ".csv", decision: "DATA", justification: "Tabular data (requirements, QA, fixtures)." },
+  { key: ".json", decision: "DATA", justification: "JSON data and configuration; the command-bearing JSON (package.json scripts, .vscode/.claude/.devcontainer) is scanned." },
+  { key: ".jsonl", decision: "DATA", justification: "JSON-lines evidence and benchmark data." },
+  { key: ".jsonc", decision: "DATA", justification: "Architecture maps with comments (docs/architecture); data." },
+  { key: ".geojson", decision: "DATA", justification: "GeoJSON fixture data." },
+  { key: ".html", decision: "DATA", justification: "Browser documents and snapshots; any script in them runs in a browser, without database or process access." },
+  { key: ".css", decision: "DATA", justification: "Stylesheets, applied by a browser; no code path to a database." },
+  { key: ".svg", decision: "DATA", justification: "Vector images, rendered by a browser or viewer." },
+  { key: ".png", decision: "DATA", justification: "Raster images (screenshots, assets)." },
+  { key: ".pdf", decision: "DATA", justification: "PDF documents and snapshots." },
+  { key: ".xlsx", decision: "DATA", justification: "Spreadsheets (requirements model)." },
+  { key: ".mp4", decision: "DATA", justification: "Video asset of the user interface." },
+  { key: ".stderr", decision: "DATA", justification: "Captured process output kept as audit evidence." },
+  { key: ".example", decision: "DATA", justification: "Environment templates (.env*.example): variable names and placeholders, never executed." },
+  { key: ".tsbuildinfo", decision: "DATA", justification: "TypeScript incremental build state." },
+  { key: ".hash", decision: "DATA", justification: "Reference hashes of golden vectors." },
+  { key: ".cbor", decision: "DATA", justification: "CBOR reference vectors." },
+  { key: ".bin", decision: "DATA", justification: "Binary golden fixture of the artifact store tests." },
+  { key: ".lock", decision: "DATA", justification: "Python dependency lock (uv.lock): versions and hashes." },
+  { key: ".gitignore", decision: "DATA", justification: "Git ignore patterns." },
+  { key: ".gitattributes", decision: "DATA", justification: "Git attributes (line endings, diff and merge settings)." },
+  { key: ".prettierignore", decision: "DATA", justification: "Formatter ignore patterns." },
+  { key: ".dockerignore", decision: "DATA", justification: "Docker build-context ignore patterns." },
+  { key: ".cursorignore", decision: "DATA", justification: "Editor ignore patterns." },
+  { key: ".agyignore", decision: "DATA", justification: "Agent ignore patterns." },
+  { key: ".flake8", decision: "DATA", justification: "flake8 linter settings (ini form): no command." },
+  { key: ".coveragerc", decision: "DATA", justification: "coverage.py settings (ini form): no command." },
+  { key: "CODEOWNERS", decision: "DATA", justification: "GitHub code owners (placeholder today; see L-1)." },
 ];
 
 /**
