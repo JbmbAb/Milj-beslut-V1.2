@@ -362,7 +362,8 @@ describe('W-CATCH2 #8: a context that cannot be read or verified is a typed faul
         const result = await call();
         expect(result.ok).toBe(false);
         if (result.ok) return;
-        const typed = result as typeof result & { code?: string; failureClass?: string; reasonCode?: string; retryable?: boolean };
+        // The repo tsconfig has no strictNullChecks, so `if (result.ok) return` does not narrow the union: name the failure shape.
+        const typed = result as unknown as { status: number; error: string; code?: string; failureClass?: string; reasonCode?: string; retryable?: boolean };
         expect({ status: typed.status, code: typed.code, failureClass: typed.failureClass, retryable: typed.retryable }).toEqual({
           status: expected.status,
           code: 'PROJECT_CONTEXT_UNRESOLVED',
