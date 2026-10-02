@@ -86,7 +86,6 @@ vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({ enqueueAdm
 import { LocalPemSigningKeyProvider, type SigningKeyProvider, type VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import {
-  orchestrator,
   createLuRegistryRuntime,
   deriveLuExecutionSeed,
   createCanonicalPropertyGeometryArtifact,
@@ -337,7 +336,6 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
     issuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: issuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
     // Only the verifier (public key) is read via env by resolveCanonicalProjectContext /

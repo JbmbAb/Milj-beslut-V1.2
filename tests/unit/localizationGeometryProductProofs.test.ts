@@ -181,7 +181,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalPemSigningKeyProvider, type SigningKeyProvider, type VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import {
-  orchestrator,
   createLuRegistryRuntime,
   deriveLuExecutionSeed,
   createCanonicalPropertyGeometryArtifact,
@@ -395,7 +394,6 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
     issuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: issuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
     registry = createLuRegistryRuntime();
