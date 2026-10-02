@@ -861,3 +861,52 @@ describe('P3-LU-ASSESSMENT-CURRENT-PROJECTION-01', () => {
     });
   });
 });
+
+/**
+ * The U20CDF2 verifier's probe H1 (v20cdf2ProjectionProbe.test.ts in its export of 283ae26b), with the
+ * same construction, inverted: there it pinned the defect (`expect(...).toBe(older)`), here the
+ * forward-only answer (W-APR, OD-R1/OD-R2). Two verified, distinct assessments for the same binding,
+ * the older registered first; healthy -> AMBIGUOUS; an EIO on the newer candidate's CAS read must
+ * never make the older one current.
+ */
+describe('V20CDF2-PROJECTION-PROBE (H1), inverted by W-APR', () => {
+  it('an EIO on the newer candidate never makes the older one "current": the resolution fails closed as a retryable read fault', async () => {
+    const s = await setup();
+    const index = new FakeAssessmentProjectionIndex();
+    const older = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: older, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    const newer = await s.buildAndPersistAssessment(contextNew);
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: newer, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index });
+    const repo = s.repository as unknown as { resolve: (ref: { artifact_id: string; artifact_type: string }) => Promise<unknown> };
+    const realResolve = repo.resolve.bind(repo);
+    const faulty = {
+      ...repo,
+      resolve: async (ref: { artifact_id: string; artifact_type: string }) => {
+        if (ref.artifact_id === newer.artifact_id) throw new Error('EIO: i/o error, read');
+        return realResolve(ref);
+      },
+    };
+    let healthy: string;
+    try {
+      await resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(), index });
+      healthy = 'RESOLVED';
+    } catch (error) {
+      healthy = String((error as Error).message).split(':')[0]!;
+    }
+    expect(healthy).toBe('REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT');
+
+    const withFault = await resolveCurrentAssessmentProjection({ projectId: PROJECT_ID, artifactRepository: faulty as never, currentBindingProvider: s.currentBindingProvider(), index }).then(
+      (result) => ({ resolved: result.assessmentArtifactId === older.artifact_id ? 'OLDER' : result.assessmentArtifactId === newer.artifact_id ? 'NEWER' : result.assessmentArtifactId }),
+      (error: unknown) => ({ error }),
+    );
+    expect(withFault, 'the probe\'s defect: the OLDER assessment became current').not.toEqual({ resolved: 'OLDER' });
+    expect(withFault).not.toHaveProperty('resolved');
+    const error = (withFault as { error: Error & Record<string, unknown> }).error;
+    expect(error.message).not.toMatch(/^REJECT_/);
+    expect(error).toMatchObject({
+      code: 'ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE',
+      retryable: true,
+      faults: [{ assessmentArtifactId: newer.artifact_id, reason: 'READ_ERROR', retryable: true }],
+    });
+  });
+});
