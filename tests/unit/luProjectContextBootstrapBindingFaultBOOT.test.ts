@@ -60,12 +60,16 @@ vi.mock('../../server/db/prisma', async () => {
     projectMember: { findFirst: async () => h.owner },
     // W-BOOT / APR F2: the bootstrap queue's own record of a completed bootstrap (with its binding).
     projectContextBootstrapRequest: {
-      count: async (args: { where: { projectId: string; status: string; contextBindingArtifactId: { not: null } } }) => {
+      count: async (args: { where: { projectId?: string; status?: string; contextBindingArtifactId?: { not: null } } }) => {
         h.calls.bootstrapRequests += 1;
         if (h.bootstrapRequestsError) throw h.bootstrapRequestsError;
-        const w = args.where;
+        // Prisma semantics for the keys the queue uses: an absent key does not filter.
+        const w = args.where ?? {};
         return h.bootstrapRequests.filter(
-          (r) => r.projectId === w.projectId && r.status === w.status && (w.contextBindingArtifactId?.not === null ? r.contextBindingArtifactId !== null : true),
+          (r) =>
+            (w.projectId === undefined || r.projectId === w.projectId) &&
+            (w.status === undefined || r.status === w.status) &&
+            (w.contextBindingArtifactId === undefined || r.contextBindingArtifactId !== null),
         ).length;
       },
     },

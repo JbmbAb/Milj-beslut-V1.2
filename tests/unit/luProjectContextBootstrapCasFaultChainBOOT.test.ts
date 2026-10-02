@@ -64,10 +64,16 @@ vi.mock('../../server/db/prisma', async () => {
     projectMember: { findFirst: async () => state.owner },
     // The bootstrap queue (same where-contract as projectContextBootstrapRequestQueue.ts).
     projectContextBootstrapRequest: {
-      count: async (args: { where: { projectId: string; status: string; contextBindingArtifactId: { not: null } } }) =>
-        state.bootstrapRequests.filter(
-          (r) => r.projectId === args.where.projectId && r.status === args.where.status && r.contextBindingArtifactId !== null,
-        ).length,
+      count: async (args: { where: { projectId?: string; status?: string; contextBindingArtifactId?: { not: null } } }) => {
+        // Prisma semantics for the keys the queue uses: an absent key does not filter.
+        const w = args.where ?? {};
+        return state.bootstrapRequests.filter(
+          (r) =>
+            (w.projectId === undefined || r.projectId === w.projectId) &&
+            (w.status === undefined || r.status === w.status) &&
+            (w.contextBindingArtifactId === undefined || r.contextBindingArtifactId !== null),
+        ).length;
+      },
     },
   };
   return {
