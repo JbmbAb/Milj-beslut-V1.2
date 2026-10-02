@@ -4,6 +4,7 @@ import { writePropertyAccessLog } from '../repositories/auditRepository';
 import { assertProjectMembership } from '../repositories/projectAccessRepository';
 import { assertPermission, validatePropertyLookupInput } from '../security/projectAccess';
 import { SecureError } from '../security/secureErrors';
+import { logger } from '../logger';
 import type { AuthUser, PropertyLookupInput } from '../security/types';
 import {
   createDerivedFeatureIdentity,
@@ -58,6 +59,24 @@ function mapRowToPayload(row: PropertyLookupRow, matchType: 'exact' | 'fuzzy'): 
 }
 
 export const PROPERTY_LOOKUP_AMBIGUOUS = 'PROPERTY_LOOKUP_AMBIGUOUS' as const;
+
+/** W-CATCH2 #15: no exact and no fuzzy row -- a determined absence in the local property data. */
+export const LOCAL_PROPERTY_NOT_FOUND = 'LOCAL_PROPERTY_NOT_FOUND' as const;
+
+/**
+ * W-CATCH2 #15: the lookup FOUND no row (the query answered, empty) -- a determined absence, not a
+ * fault. Same message as before (the generic error mapping keys on it); the stable `failureCode` lets
+ * the LU bootstrap record a lasting "not in the property data" instead of a technical error. A query
+ * that FAILS is never this: it propagates unchanged.
+ */
+export class LocalPropertyNotFoundError extends Error {
+  readonly failureCode = LOCAL_PROPERTY_NOT_FOUND;
+
+  constructor(propertyDesignation: string) {
+    super(`Fastighet hittades inte i PostGIS: ${propertyDesignation}`);
+    this.name = 'LocalPropertyNotFoundError';
+  }
+}
 
 /**
  * U20-A (LU 72h, Chain A root fail-closed): an exact designation that matches more than one
@@ -191,7 +210,7 @@ export async function lookupPropertyByDesignationFromPostgis(
   const exact = await runExactLookup(input.propertyDesignation, input.lanKod);
   const matched = exact ?? (await runFuzzyLookup(input.propertyDesignation));
   if (!matched) {
-    throw new Error(`Fastighet hittades inte i PostGIS: ${input.propertyDesignation}`);
+    throw new LocalPropertyNotFoundError(input.propertyDesignation);
   }
 
   const matchType = exact ? 'exact' : 'fuzzy';
@@ -231,9 +250,11 @@ export async function getPropertyLayer(bbox: {
           AND (${countyCode}::text IS NULL OR county_code = ${countyCode}::text)
         LIMIT 500
     `;
-  return {
-    type: 'FeatureCollection',
-    features: rows
+  // W-CATCH2 #15: a row that cannot be presented is left out as before -- but counted, typed in the
+  // meta and logged (count only, never row content), never dropped without a trace.
+  let dropped = 0;
+  const dropReasons = new Set<string>();
+  const features = rows
       .map((r) => {
         try {
           const identity = resolvePropertyFeatureIdentity(r);
@@ -250,20 +271,33 @@ export async function getPropertyLayer(bbox: {
                 ? { feature_ref: identity.feature_ref, feature_identity: identity }
                 : {
                     identity_unavailable: true,
-                    identity_unavailable_reason: 'merged_property_source_components_unavailable',
+                    // W-CATCH2 #15: unparsable raw_properties text is named as such, not "components unavailable".
+                    identity_unavailable_reason: rawPropertiesUnparsable(r.raw_properties)
+                      ? 'merged_property_raw_properties_unparsable'
+                      : 'merged_property_source_components_unavailable',
                   }),
             },
           };
-        } catch {
+        } catch (error) {
+          dropped += 1;
+          dropReasons.add(error instanceof SyntaxError ? 'geometry_unparsable' : 'row_unpresentable');
           return null;
         }
       })
-      .filter(Boolean),
+      .filter(Boolean);
+  const dropReason = [...dropReasons].sort().join(',');
+  if (dropped > 0) {
+    logger.warn(`property read model: ${dropped} row(s) left out of the bbox answer (${dropReason})`);
+  }
+  return {
+    type: 'FeatureCollection',
+    features,
     meta: {
       presentation_kind: 'read_model',
       read_model_contract_version: 'read-model-feature-collection-v1',
       layer_id: READ_MODEL_LAYER_ID.PROPERTY,
       provenance_status: 'PARTIAL',
+      ...(dropped > 0 ? { dropped_feature_count: dropped, dropped_feature_reason: dropReason } : {}),
     },
   };
 }
@@ -307,10 +341,17 @@ function extractMergedPropertySourceComponents(rawProperties: unknown): string[]
     .filter((value): value is string => value !== null);
 }
 
+function rawPropertiesUnparsable(rawProperties: unknown): boolean {
+  return typeof rawProperties === 'string' && safeJsonParse(rawProperties) === UNPARSABLE;
+}
+
+const UNPARSABLE = Symbol('unparsable');
+
 function safeJsonParse(value: string): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    return null;
+    // W-CATCH2 #15: a typed marker, not null -- callers can tell "could not parse" from a JSON null.
+    return UNPARSABLE;
   }
 }
