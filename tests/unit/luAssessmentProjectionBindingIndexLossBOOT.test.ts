@@ -340,13 +340,19 @@ describe('W-BOOT / APR F1: a projection row naming a binding outside the verifie
 });
 
 describe('W-BOOT / APR F1 (b): KNOWN_LIMITATION ASSESSMENT_PROJECTION_CURRENTNESS_CORRELATED_METADATA_LOSS -- NOT approved behaviour', () => {
-  it('the machine-readable marker carries exactly this meaning; the owner decision is OPEN', () => {
+  // W-CATCH2 (BOOT verifier findings 2 and 6, owner decision (4) p.6, 2026-10-03): the TYPE column is no
+  // longer part of the undetectable remainder (an unknown type value is detectable and fails closed, see
+  // the type-column block below), and the owner has accepted the remaining class as an explicit PRODUCT
+  // LIMITATION -- documented, not approved behaviour. Before: "... punkt- och typkolumner ..." and
+  // owner_decision "OPEN".
+  it('the machine-readable marker carries exactly this meaning; the owner accepted it as an explicit product limitation (not approved behaviour)', () => {
     expect((assessmentProjection as Record<string, unknown>).ASSESSMENT_PROJECTION_CURRENTNESS_KNOWN_LIMITATION).toEqual({
       code: 'KNOWN_LIMITATION',
       id: 'ASSESSMENT_PROJECTION_CURRENTNESS_CORRELATED_METADATA_LOSS',
       meaning_sv:
-        'valet av aktuell bedömning är fail-closed för detekterbara fel men inte bevisat mot korrelerad förlust eller förvanskning av all metadata som visar att en nyare bedömning eller bindning existerat (bedömningens projektionsrad med dess bindnings-, punkt- och typkolumner samt bindningsindexets bindnings- och ersättningsrader)',
-      owner_decision: 'OPEN (W-BOOT 2026-10-02, APR verifier F1/F9): not decided by the owner; analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS',
+        'valet av aktuell bedömning är fail-closed för detekterbara fel men inte bevisat mot korrelerad förlust eller förvanskning av all metadata som visar att en nyare bedömning eller bindning existerat (bedömningens projektionsrad med dess bindnings- och punktkolumner samt bindningsindexets bindnings- och ersättningsrader)',
+      owner_decision:
+        'ACCEPTED 2026-10-03 (owner decision (4) p.6) as an explicit PRODUCT LIMITATION, documented and NOT approved behaviour; analogous to LOCALIZATION_GEOMETRY_CURRENTNESS_CORRELATED_METADATA_LOSS; the structural fix (a signed current relation or a CAS-anchored head pointer) is not built',
     });
     expect(Object.isFrozen((assessmentProjection as Record<string, unknown>).ASSESSMENT_PROJECTION_CURRENTNESS_KNOWN_LIMITATION)).toBe(true);
   });
@@ -362,6 +368,82 @@ describe('W-BOOT / APR F1 (b): KNOWN_LIMITATION ASSESSMENT_PROJECTION_CURRENTNES
     s.index.loseRow(y.artifact_id);
     // Not a requirement: when a CAS-anchored current relation exists, invert this to fail closed.
     expect(await outcomeOf(s.resolve())).toEqual({ resolved: x.artifact_id });
+  });
+});
+
+describe('W-CATCH2 / BOOT verifier finding 2: a projection row with an unknown TYPE value is detectable corruption -- fail closed, never 404, never another assessment', () => {
+  // Every write path writes exactly LOCALIZATION_ASSESSMENT (registerAssessmentProjection takes a
+  // LocalizationAssessmentArtifact; reconcileAssessmentProjection refuses WRONG_TYPE): the column has a
+  // closed domain, so any other value is DETECTABLE damage of the row. Owner rule (4) p.6: detectable
+  // loss fails closed -- a typed integrity fault (503, not retryable), never "no assessment" (404) and
+  // never a silent switch to another candidate. The BOOT verifier's probes S10 and S11, same construction.
+  function corruptType(s: Awaited<ReturnType<typeof setup>>, id: string, value: string): void {
+    (s.index.rows.find((r) => r.assessmentArtifactId === id) as { assessmentArtifactType: string }).assessmentArtifactType = value;
+  }
+  function expectRowInconsistent(outcome: Outcome, ids: readonly string[]): void {
+    const error = errorOf(outcome);
+    expect(error.message, 'a damaged row is never "no assessment" (404)').not.toMatch(/^REJECT_/);
+    expect({ code: error.code, retryable: error.retryable, faults: error.faults }).toEqual({
+      code: 'ASSESSMENT_PROJECTION_CANDIDATE_UNVERIFIABLE',
+      retryable: false,
+      faults: [...ids].sort().map((assessmentArtifactId) => ({ assessmentArtifactId, reason: 'PROJECTION_ROW_INCONSISTENT', retryable: false })),
+    });
+  }
+
+  it('control: intact X under B1 and Y under B2 -> Y', async () => {
+    const s = await setup();
+    const x = await s.assessment('x-type', contextOld);
+    const y = await s.assessment('y-type', contextNew);
+    await s.register(x, s.b1);
+    await s.register(y, s.b2);
+    expect(await outcomeOf(s.resolve())).toEqual({ resolved: y.artifact_id });
+  });
+
+  it('S10: the current Y row's type value corrupted -> PROJECTION_ROW_INCONSISTENT (503, not retryable), never 404 "missing"', async () => {
+    const s = await setup();
+    const x = await s.assessment('x-s10', contextOld);
+    const y = await s.assessment('y-s10', contextNew);
+    await s.register(x, s.b1);
+    await s.register(y, s.b2);
+    corruptType(s, y.artifact_id, 'LOCALIZATION_ASSESSMENT_CORRUPT');
+    s.repository.reads.length = 0;
+    expectRowInconsistent(await outcomeOf(s.resolve()), [y.artifact_id]);
+    expect(s.repository.reads.filter((id) => id.startsWith('assessment-')), 'nothing is presented from a damaged index').toEqual([]);
+  });
+
+  it('S11: X2 and Y2 on the same binding and point (normally AMBIGUOUS); Y2's type value corrupted -> fail closed, X2 never served with 200', async () => {
+    const s = await setup();
+    const x2 = await s.assessment('x2-s11', contextNew, POINT_A);
+    const y2 = await s.assessment('y2-s11', contextNew, POINT_A);
+    await s.register(x2, s.b2, POINT_A);
+    await s.register(y2, s.b2, POINT_A);
+    const control = errorOf(await outcomeOf(s.resolve(POINT_A)));
+    expect(control.message).toMatch(/^REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT/);
+    corruptType(s, y2.artifact_id, 'X');
+    const outcome = await outcomeOf(s.resolve(POINT_A));
+    expect(outcome, 'another assessment was presented because one row's type column was damaged').not.toEqual({ resolved: x2.artifact_id });
+    expectRowInconsistent(outcome, [y2.artifact_id]);
+  });
+
+  it('a damaged type on a HISTORICAL row (another binding) also fails closed: the row is damaged, so its other columns are not evidence either', async () => {
+    const s = await setup();
+    const x = await s.assessment('x-hist', contextOld);
+    const y = await s.assessment('y-hist', contextNew);
+    await s.register(x, s.b1);
+    await s.register(y, s.b2);
+    corruptType(s, x.artifact_id, '');
+    expectRowInconsistent(await outcomeOf(s.resolve()), [x.artifact_id]);
+  });
+
+  it('several damaged rows are all named, sorted by id (independent of row order)', async () => {
+    const s = await setup();
+    const a = await s.assessment('a-many', contextNew);
+    const b = await s.assessment('b-many', contextNew);
+    await s.register(a, s.b2);
+    await s.register(b, s.b2);
+    corruptType(s, a.artifact_id, 'localization_assessment');
+    corruptType(s, b.artifact_id, 'SPATIAL_EVIDENCE');
+    expectRowInconsistent(await outcomeOf(s.resolve()), [a.artifact_id, b.artifact_id]);
   });
 });
 
