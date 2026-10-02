@@ -93,10 +93,19 @@ const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
 
 const NOT_FOUND_TEXT: Readonly<Partial<Record<LuErrorContext, string>>> = {
   'current-assessment': 'Det finns ingen sparad bedömning för kontrollpunkten ännu.',
-  'viewer-evidence': 'Det finns ingen sparad bedömning att hämta kontrollresultat för.',
   export: 'Det finns ingen sparad bedömning att exportera.',
   verify: 'Det finns ingen sparad bedömning att verifiera.',
 };
+
+/**
+ * DEMO M2c item 3 (M2b verifier finding 3): the control results are only fetched for an assessment
+ * that IS displayed, so a 404 there contradicts the view -- it is never "there is no assessment".
+ * It is an incoherence between two answers and is retried by reading the assessment again.
+ */
+const VIEWER_EVIDENCE_NO_CURRENT =
+  'Kontrollresultaten kunde inte hämtas: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.';
+const VIEWER_EVIDENCE_NOT_FOUND =
+  'Kontrollresultaten kunde inte hämtas: servern hittade inga kontrollresultat för den visade bedömningen. Försök igen eller läs in bedömningen på nytt.';
 
 interface ErrorFields {
   readonly status: number | null;
@@ -153,6 +162,7 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   }
 
   if (f.message === LU_SERVER_MESSAGE.NO_CURRENT_ASSESSMENT) {
+    if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NO_CURRENT, true);
     return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det finns ingen sparad bedömning.`, false);
   }
   if (f.message === LU_SERVER_MESSAGE.VIEWER_CAPABILITY_NOT_CONFIGURED) {
@@ -185,7 +195,10 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
     return make('UNAUTHORIZED', `${lead} Du saknar behörighet till det här projektet.`, false);
   }
   if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget kunde inte verifieras och visas därför inte.`, false);
-  if (f.status === 404) return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det som efterfrågades finns inte.`, false);
+  if (f.status === 404) {
+    if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NOT_FOUND, true);
+    return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det som efterfrågades finns inte.`, false);
+  }
   if (f.status === 409) return make('REFUSED', `${lead} Åtgärden nekades eftersom underlaget är motstridigt.`, false);
   if (f.status === 429) return make('TECHNICAL', `${lead} För många förfrågningar just nu – vänta en stund och försök igen.`, true);
   if (f.status === 400) {
@@ -195,6 +208,8 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
     return make('TECHNICAL', `${lead} Begäran kunde inte behandlas.`, false);
   }
   if (f.status !== null && f.status >= 500) return make('TECHNICAL', `${lead} Ett tekniskt fel uppstod på servern.`, true);
+  // DEMO M2c item 3: any other status (e.g. 422) -- the server DID answer; the status is technical.
+  if (f.status !== null) return make('TECHNICAL', `${lead} Servern svarade med ett oväntat fel.`, false);
 
   // No HTTP status: the request never got a normal answer (network, unexpected response shape).
   return make('TECHNICAL', `${lead} Servern kunde inte nås eller svarade oväntat.`, true);

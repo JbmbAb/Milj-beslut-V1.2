@@ -58,6 +58,33 @@ describe('DEMO M2b presentLuError', () => {
     );
   });
 
+  it('M2c item 3: a 404 from the control results while an assessment IS shown is never "ingen sparad bedömning", and can be retried', () => {
+    // viewer-evidence is only fetched for a displayed assessment, so any 404 there contradicts the view.
+    for (const err of [
+      httpError(404, 'No current governed LU assessment is available for this project.'), // probe D
+      httpError(404, 'Viewer capability not configured.'), // probe C: a reworded capability text
+      httpError(404, 'Cannot GET /api/localization/x/viewer/evidence'),
+    ]) {
+      const p = presentLuError(err, 'viewer-evidence');
+      expect(p.kind).toBe('INCOHERENT');
+      expect(p.retryable).toBe(true);
+      expect(p.messageSv).not.toMatch(/ingen sparad bedömning/i);
+      expect(p.messageSv).toContain('Kontrollresultaten kunde inte hämtas');
+      expect(p.messageSv).not.toContain(err.message);
+    }
+    expect(presentLuError(httpError(404, 'No current governed LU assessment is available for this project.'), 'viewer-evidence').messageSv).toBe(
+      'Kontrollresultaten kunde inte hämtas: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.',
+    );
+  });
+
+  it('M2c item 3: a status the mapping does not know (e.g. 422) says the server answered -- never "kunde inte nås"', () => {
+    const p = presentLuError(httpError(422, 'Unprocessable'), 'viewer-evidence');
+    expect(p.kind).toBe('TECHNICAL');
+    expect(p.messageSv).toBe('Kontrollresultaten kunde inte hämtas. Servern svarade med ett oväntat fel.');
+    expect(p.messageSv).not.toMatch(/kunde inte nås/);
+    expect(p.technical).toContainEqual({ label: 'HTTP-status', value: '422' });
+  });
+
   it('a client-side Swedish error is shown as written', () => {
     expect(presentLuError(new LuClientError('Slå upp en fastighet först.'), 'run').messageSv).toBe('Slå upp en fastighet först.');
   });

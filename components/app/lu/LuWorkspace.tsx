@@ -745,6 +745,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const retryChecks = () => {
     if (incoherence || persistedAssessmentError) {
       void loadCurrentAssessment();
+    } else if (evidence.load.status === 'error' && evidence.load.error.kind === 'INCOHERENT') {
+      // DEMO M2c item 3: the control results contradict the shown assessment (a 404 for it, or ids
+      // that are not its own): read the assessment again; the evidence is then fetched for it.
+      void loadCurrentAssessment();
     } else if (evidence.load.status === 'error') {
       setEvidenceNonce((n) => n + 1);
     }

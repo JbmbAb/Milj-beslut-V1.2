@@ -1556,6 +1556,25 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(lastCesiumMapViewProps.searchRadiusMeters).toBeNull();
   });
 
+  it('M2c item 3: a 404 from the control results while an assessment is shown is "Tekniskt fel" with "Försök igen" -- never "ingen sparad bedömning"', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => persisted('assessment-shown'),
+      evidence: (call) => (call === 0 ? apiError(404, NO_CURRENT_ASSESSMENT_MESSAGE) : FIVE_HIT),
+    });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'TECHNICAL_ERROR'));
+    expect(screen.getByTestId('lu-results')).toBeInTheDocument();
+    expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/ingen sparad bedömning/i);
+    expect(screen.getByTestId('lu-check-water')).toHaveTextContent('servern anger att projektet inte längre har någon aktuell bedömning');
+    const assessmentReads = () => callApi.mock.calls.filter(([url]) => String(url).includes('/current-assessment')).length;
+    const readsBefore = assessmentReads();
+    await user.click(screen.getByTestId('lu-control-retry'));
+    // An incoherence is retried by reading the assessment again (the evidence follows it).
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    expect(assessmentReads()).toBeGreaterThan(readsBefore);
+  });
+
   it('item 2: "Kör bedömning" is disabled while the saved assessment is still being read', async () => {
     const user = userEvent.setup();
     let release: (v: unknown) => void = () => {};
