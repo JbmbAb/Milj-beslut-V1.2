@@ -57,6 +57,10 @@ export { runCanonicalLuProductAssessment } from "./execution/LuExecutionKernelCl
 export type { CanonicalLuKernelRunInput, LuKernelRunResult } from "./execution/LuExecutionKernelClient";
 export { LU_EXECUTION_PRINCIPAL_ID } from "./execution/LuExecutionPrincipal";
 export * from "./execution/LuDeterministicReExecution";
+// U30-R6 (owner decision 2026-10-02/03, A-R5-2): ONLY the bootstrap-flag gate, so the server and the LU workers can
+// refuse to start with MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process (gate "process_startup") -- one rule,
+// no duplicate. The allowance, the error class and the re-execution KNOWN_LIMITATION marker stay internal.
+export { assertBootstrapAdmitFlagOnlyInExplicitTestProcess } from "./execution/LuReExecutionBootstrapAllowance";
 export * from "./registry/LuSiteAssessmentRegistry";
 export * from "./registry/createLuRegistryRuntime";
 

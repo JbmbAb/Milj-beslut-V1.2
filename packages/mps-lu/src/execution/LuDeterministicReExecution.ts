@@ -132,7 +132,7 @@ import {
  *  - for a V4 assessment additionally: its AuthorityEvidence (id re-derived from its content) names
  *    exactly one V3 ExecutionIdentity (content hash as pinned there); that identity's subject must
  *    derive the very manifest the outcome's attempt belongs to, and name the assessment's
- *    localization point (`authoritySubjectMismatch`). This closes the redirect that output binding
+ *    localization point (`authoritySubjectBinding`). This closes the redirect that output binding
  *    alone cannot see: an assessment with no evidence-derived finding pointed at another no-hit
  *    run's outcome.
  * What this proves is deterministic consistency of the replay against the pinned artifacts. It does
@@ -143,7 +143,7 @@ import {
  * evidence, relabel the assessment V1-V3 and point it at another assessment's outcome. Every v2 outcome
  * (FROZEN_EXECUTION_OUTCOME_CONTRACT_VERSION_V2, d8b18cd9, 2026-08-24) postdates the V1/V2 assessment
  * contracts and the canonical V3-subject product path (6fdd1186), so for an assessment over a v2 outcome
- * (`executionSubjectBindingMismatch`):
+ * (`executionSubjectBinding`):
  *  - a V1/V2 label is CONTRACT_DOWNGRADE_REFUSED: no code that wrote V1/V2 assessments ever wrote a v2
  *    outcome (33c19b58, which made every new assessment V3, is an ancestor of d8b18cd9);
  *  - a V3 assessment must be bound to the canonical V3 subject its execution was derived from: the
@@ -176,6 +176,23 @@ import {
  * U30-R5 flag gate: MPS_LU_BOOTSTRAP_ADMIT present (any value) in a process that is not an explicit test process
  * makes verify refuse to run at all, before any CAS read (LuBootstrapAdmitFlagOutsideTestError,
  * BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST): a configuration error, never a verdict and never excusable.
+ *
+ * U30-R6 (owner decision 2026-10-02/03, BINDING): the V1 form is accepted until U51 as an explicit PRODUCT LIMITATION,
+ * with a mandatory machine-readable notice on EVERY PASS that rests on a V1/legacy-unbound artifact form. Every result
+ * carries an explicit binding strength (`verification_binding`), derived ONLY from what the checks above actually
+ * established -- never from the assessment's label:
+ *  - "LEGACY_UNBOUND_FORM": the pinned outcome is a V1-format outcome (no execution lineage, so no output or subject
+ *    binding applies -- any label, V4 included), or a v2 outcome whose execution has no governed subject and was
+ *    accepted only because the verifying process is an explicit test bootstrap (in the product configuration that is
+ *    EXECUTION_SUBJECT_UNBOUND, a DENY). Such a PASS always carries the notice LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY
+ *    first in `notices` (authenticity_verified false, current_authority_verified false, the owner's Swedish text).
+ *  - "FULLY_BOUND": a v2 outcome (exact output binding) AND a positively established subject binding (V4: the
+ *    authority subject; V3: the execution subject). Consistency only -- NOT authenticity: forms the KNOWN_LIMITATION
+ *    lists as not detectable here (a V3 relabel of a V4, unbound subject axes, a fully fabricated or in-place rewritten
+ *    bound chain, an identity minted after the fact) are FULLY_BOUND as well. No attestation is checked.
+ *  - a DENY has no strength (`null`) and never the notice.
+ * The verdict (PASS/DENY) is unchanged by U30-R6; only the notice and the strength are added. EXECUTION_SUBJECT_UNBOUND
+ * carries its own Swedish text (`text_sv`), distinct from the deviation/tampering wording.
  */
 
 export type LuReExecutionMismatchCode =
@@ -193,31 +210,102 @@ export type LuReExecutionMismatchCode =
   /** U30-R4: a V3 assessment over an execution with no governed subject (bootstrap/legacy), product configuration. */
   | "EXECUTION_SUBJECT_UNBOUND";
 
-export interface LuReExecutionMismatch {
-  readonly code: LuReExecutionMismatchCode;
+/**
+ * U30-R6 (owner: UNBOUND gets its own text, distinct from manipulation). Neutral: an execution without a governed
+ * subject is not a finding that anything was changed -- and not a proof of the opposite either.
+ */
+export const LU_REEXECUTION_UNBOUND_TEXT_SV =
+  "Reproducerbarheten kan inte bekräftas: körningen bakom bedömningen saknar ett styrt exekveringssubjekt (äldre eller obunden körningsform) och kan inte bindas till bedömningen. Resultatet påstår inte att underlaget har ändrats." as const;
+
+export type LuReExecutionMismatch =
+  | {
+      readonly code: Exclude<LuReExecutionMismatchCode, "EXECUTION_SUBJECT_UNBOUND">;
+      readonly detail: string;
+    }
+  | {
+      readonly code: "EXECUTION_SUBJECT_UNBOUND";
+      readonly detail: string;
+      /** U30-R6: its own Swedish text (LU_REEXECUTION_UNBOUND_TEXT_SV), never the generic deviation/tampering text. */
+      readonly text_sv: typeof LU_REEXECUTION_UNBOUND_TEXT_SV;
+    };
+
+/**
+ * U30-R6 -- the explicit, machine-readable strength of a verify PASS (see the module header). A consumer must never
+ * show a "LEGACY_UNBOUND_FORM" PASS as the same green verification as a "FULLY_BOUND" one; neither means authenticity.
+ */
+export type LuReExecutionVerificationBinding = "FULLY_BOUND" | "LEGACY_UNBOUND_FORM";
+
+/** U30-R6 -- which detectable older/unbound form a LEGACY_UNBOUND_FORM PASS rests on. */
+export type LuReExecutionLegacyUnboundBasis =
+  /** The pinned outcome is a V1-format outcome without execution lineage (any assessment label, V4 included). */
+  | "V1_FORM"
+  /**
+   * A v2 outcome whose execution has no governed subject (a legacy site/V2-scoped manifest, or a V3-subject manifest
+   * whose identity is not in CAS), accepted only because the verifying process is an explicit test bootstrap.
+   */
+  | "LEGACY_UNBOUND";
+
+/** U30-R6 -- the owner's wording (2026-10-02/03), verbatim. */
+export const LU_REEXECUTION_LEGACY_UNBOUND_FORM_TEXT_SV =
+  "Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade." as const;
+
+/**
+ * U30-R2 -- the listed historical NOT_CHECKED findings were reproduced from the attested execution in layer, rule,
+ * version, risk level and evidence, but their stored explanation embeds the provider's free-text cause, which was
+ * never pinned and so can neither be reproduced nor contradicted ("kan inte återskapas: orsaken sparades inte").
+ * PRES-24 token, kept from the U30-R proposal.
+ */
+export interface LuReExecutionNotCheckedCauseNotPinnedNotice {
+  readonly code: "NOT_CHECKED_CAUSE_NOT_PINNED";
+  readonly finding_ids: readonly string[];
   readonly detail: string;
 }
 
-export interface LuReExecutionResult {
-  readonly outcome: "PASS" | "DENY";
+/**
+ * U30-R6 (owner decision 2026-10-02/03; the name awaits the owner's approval) -- mandatory on every PASS that rests on
+ * a V1/legacy-unbound artifact form, and on no other result: consistency with the pinned artifacts was verified,
+ * authenticity and current authority were not. Always the FIRST notice of such a PASS.
+ */
+export interface LuReExecutionLegacyUnboundFormNotice {
+  readonly code: "LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY";
+  readonly basis: LuReExecutionLegacyUnboundBasis;
+  readonly authenticity_verified: false;
+  readonly current_authority_verified: false;
+  readonly text_sv: typeof LU_REEXECUTION_LEGACY_UNBOUND_FORM_TEXT_SV;
+  /** Always empty: the notice is about the whole verification, not about individual findings. */
+  readonly finding_ids: readonly [];
+  /** Technical detail (ids only). */
+  readonly detail: string;
+}
+
+/** Machine-readable statuses that are NOT deviations and never turn a PASS into a DENY (or the reverse). */
+export type LuReExecutionNotice = LuReExecutionNotCheckedCauseNotPinnedNotice | LuReExecutionLegacyUnboundFormNotice;
+
+interface LuReExecutionResultFields {
   readonly assessment_artifact_id: string;
   readonly mismatches: readonly LuReExecutionMismatch[];
   readonly fresh_findings: readonly AssessmentFinding[];
   readonly fresh_rule_refs: readonly { readonly rule_id: RuleId; readonly rule_version: RuleVersion }[];
   /**
-   * U30-R2 -- machine-readable statuses that are NOT deviations and never turn PASS into DENY.
-   * `NOT_CHECKED_CAUSE_NOT_PINNED` (PRES-24 token, kept from the U30-R proposal): the listed
-   * historical NOT_CHECKED findings were reproduced from the attested execution in layer, rule,
-   * version, risk level and evidence, but their stored explanation embeds the provider's free-text
-   * cause, which was never pinned and so can neither be reproduced nor contradicted
-   * ("kan inte återskapas: orsaken sparades inte"). Always present; `[]` when there is none.
+   * U30-R2 -- machine-readable statuses that are NOT deviations and never turn PASS into DENY. Always present; `[]`
+   * when there is none. U30-R6: a LEGACY_UNBOUND_FORM PASS has exactly one LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY
+   * notice, first; a FULLY_BOUND PASS and a DENY have none.
    */
-  readonly notices: readonly {
-    readonly code: "NOT_CHECKED_CAUSE_NOT_PINNED";
-    readonly finding_ids: readonly string[];
-    readonly detail: string;
-  }[];
+  readonly notices: readonly LuReExecutionNotice[];
 }
+
+/**
+ * U30-R6: discriminated by `outcome` -- a PASS always states its binding strength, a DENY has none (`null`).
+ */
+export type LuReExecutionResult =
+  | (LuReExecutionResultFields & {
+      readonly outcome: "PASS";
+      readonly verification_binding: LuReExecutionVerificationBinding;
+    })
+  | (LuReExecutionResultFields & {
+      readonly outcome: "DENY";
+      readonly verification_binding: null;
+    });
 
 function canonicalFindingsKey(findings: readonly AssessmentFinding[]): readonly AssessmentFinding[] {
   return [...findings]
@@ -364,14 +452,17 @@ export async function reExecuteLocalizationAssessment(args: {
   );
   if (assessmentRead.found === false) throw assessmentRead.error;
   const assessment = assessmentRead.value;
-  const denied = (mismatch: LuReExecutionMismatch): LuReExecutionResult => ({
+  // Every DENY before the comparison: no findings, no notices, and no binding strength (U30-R6).
+  const deniedAll = (mismatches: readonly LuReExecutionMismatch[]): LuReExecutionResult => ({
     outcome: "DENY",
+    verification_binding: null,
     assessment_artifact_id: args.assessmentArtifactId,
-    mismatches: [mismatch],
+    mismatches,
     fresh_findings: [],
     fresh_rule_refs: [],
     notices: [],
   });
+  const denied = (mismatch: LuReExecutionMismatch): LuReExecutionResult => deniedAll([mismatch]);
 
   // Self-consistency first, before trusting ANY field on the resolved assessment (including
   // execution_outcome_ref) -- same recompute-and-compare GovernedAssessmentPersistence.persist()
@@ -383,17 +474,10 @@ export async function reExecuteLocalizationAssessment(args: {
   // assessment's claimed execution chain cannot be trusted, which is exactly what that code means.
   const recomputedAssessmentHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
   if (recomputedAssessmentHash.value !== assessment.content_hash.value) {
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches: [{
-        code: "MANIFEST_ATTEMPT_MISMATCH",
-        detail: `assessment ${args.assessmentArtifactId}'s content_hash does not match its own payload (recomputed ${recomputedAssessmentHash.value}, stored ${assessment.content_hash.value}) -- its claimed execution_outcome_ref cannot be trusted`,
-      }],
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return denied({
+      code: "MANIFEST_ATTEMPT_MISMATCH",
+      detail: `assessment ${args.assessmentArtifactId}'s content_hash does not match its own payload (recomputed ${recomputedAssessmentHash.value}, stored ${assessment.content_hash.value}) -- its claimed execution_outcome_ref cannot be trusted`,
+    });
   }
 
   // Contract-version dispatch (H12): frozen legacy rule for absent version, strict structural
@@ -401,17 +485,10 @@ export async function reExecuteLocalizationAssessment(args: {
   try {
     validateLocalizationAssessmentContractVersion(assessment.payload as LocalizationAssessmentPayload);
   } catch (error) {
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches: [{
-        code: "UNSUPPORTED_CONTRACT_VERSION",
-        detail: error instanceof Error ? error.message : String(error),
-      }],
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return denied({
+      code: "UNSUPPORTED_CONTRACT_VERSION",
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
 
   // Category A first: the outcome/attempt/manifest identity chain must independently check out
@@ -432,17 +509,10 @@ export async function reExecuteLocalizationAssessment(args: {
   try {
     validateFrozenExecutionOutcomeIdentity(outcome);
   } catch (error) {
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches: [{
-        code: "MANIFEST_ATTEMPT_MISMATCH",
-        detail: error instanceof Error ? error.message : String(error),
-      }],
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return denied({
+      code: "MANIFEST_ATTEMPT_MISMATCH",
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
   const manifestIdFromAttemptRef = deriveManifestIdFromAttemptId(outcome.attempt_ref.artifact_id);
   // OD-R2 inside category A: DefaultReplayEngine reads through a classifying view of the repository,
@@ -456,17 +526,10 @@ export async function reExecuteLocalizationAssessment(args: {
       .replayed_outcome_ref;
   } catch (error) {
     if (replayView.faults.length > 0) throw replayView.faults[0];
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches: [{
-        code: "MANIFEST_ATTEMPT_MISMATCH",
-        detail: error instanceof Error ? error.message : String(error),
-      }],
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return denied({
+      code: "MANIFEST_ATTEMPT_MISMATCH",
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
   if (replayView.faults.length > 0) throw replayView.faults[0];
   // U30-R4 (outcome-level downgrade): the pinned outcome must be the outcome this execution recorded, i.e.
@@ -496,62 +559,49 @@ export async function reExecuteLocalizationAssessment(args: {
   }
   const attempt = attemptRead.value;
   if (attempt.manifest_ref.artifact_id !== manifestIdFromAttemptRef) {
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches: [{
-        code: "MANIFEST_ATTEMPT_MISMATCH",
-        detail: `outcome.attempt_ref (${outcome.attempt_ref.artifact_id}) does not carry the manifest_id its own id implies`,
-      }],
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return denied({
+      code: "MANIFEST_ATTEMPT_MISMATCH",
+      detail: `outcome.attempt_ref (${outcome.attempt_ref.artifact_id}) does not carry the manifest_id its own id implies`,
+    });
   }
 
   // U30-R3 K2: a V4 assessment's authority subject must name the execution its outcome pins.
-  const authorityMismatch = await authoritySubjectMismatch(assessment, manifestIdFromAttemptRef, args.artifactRepository);
-  if (authorityMismatch) {
-    return denied(authorityMismatch);
+  const authorityBinding = await authoritySubjectBinding(assessment, manifestIdFromAttemptRef, args.artifactRepository);
+  if (authorityBinding.kind === "mismatch") {
+    return denied(authorityBinding.mismatch);
   }
   // U30-R4: a V1-V3 assessment over a v2 outcome is bound to its execution's subject, or refused.
-  const subjectMismatch = await executionSubjectBindingMismatch(
+  const subjectBinding = await executionSubjectBinding(
     assessment,
     outcome,
     attempt.manifest_ref,
     args.artifactRepository,
     bootstrapExecutionsAllowed,
   );
-  if (subjectMismatch) {
-    return denied(subjectMismatch);
+  if (subjectBinding.kind === "mismatch") {
+    return denied(subjectBinding.mismatch);
   }
+  // U30-R6: the strength of a PASS, from what the two checks above actually established (never from the label).
+  const legacyUnboundForm = legacyUnboundFormNotice(
+    outcome,
+    pinnedOutcomeRef.artifact_id,
+    attempt.manifest_ref.artifact_id,
+    authorityBinding,
+    subjectBinding,
+  );
 
   const { spatial_evidence, document_evidence, verified_document_facts, mismatches } = await resolveEvidence({
     evidenceRefs: assessment.payload.evidence_refs,
     artifactRepository: args.artifactRepository,
   });
   if (mismatches.length > 0) {
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches,
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return deniedAll(mismatches);
   }
 
   // U30-R2: which layers the original run could not check comes from the attested execution only.
   const attested = await attestedExecution(outcome, args.artifactRepository);
   if ("mismatch" in attested) {
-    return {
-      outcome: "DENY",
-      assessment_artifact_id: args.assessmentArtifactId,
-      mismatches: [attested.mismatch],
-      fresh_findings: [],
-      fresh_rule_refs: [],
-      notices: [],
-    };
+    return denied(attested.mismatch);
   }
 
   const freshFindings = evaluateLuRuleSet(
@@ -575,7 +625,7 @@ export async function reExecuteLocalizationAssessment(args: {
     }
     return stored;
   });
-  const notices: LuReExecutionResult["notices"] =
+  const notices: readonly LuReExecutionNotCheckedCauseNotPinnedNotice[] =
     causeNotPinned.length === 0
       ? []
       : [
@@ -620,15 +670,82 @@ export async function reExecuteLocalizationAssessment(args: {
     });
   }
 
-  return {
-    outcome: comparisonMismatches.length === 0 ? "PASS" : "DENY",
+  const compared = {
     assessment_artifact_id: args.assessmentArtifactId,
     mismatches: comparisonMismatches,
     fresh_findings: freshFindings,
     fresh_rule_refs: freshRuleRefs,
-    notices,
   };
+  if (comparisonMismatches.length > 0) {
+    return { outcome: "DENY", verification_binding: null, ...compared, notices };
+  }
+  // U30-R6 (owner, BINDING): a PASS over a V1/legacy-unbound form always says so, first; never the same green
+  // verification as a fully bound one. The verdict itself is the comparison above, unchanged.
+  if (legacyUnboundForm !== null) {
+    return { outcome: "PASS", verification_binding: "LEGACY_UNBOUND_FORM", ...compared, notices: [legacyUnboundForm, ...notices] };
+  }
+  return { outcome: "PASS", verification_binding: "FULLY_BOUND", ...compared, notices };
 }
+
+/**
+ * U30-R6 -- the LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY notice for a verification that rests on a V1/legacy-unbound form,
+ * or null when the verification is fully bound (see the module header). Decided ONLY from what verify established:
+ *  - a V1-format outcome (no capability execution lineage): no output or subject binding applied -> V1_FORM, whatever
+ *    the assessment's label says (a V4 label over a V1 outcome is still V1 form);
+ *  - a v2 outcome with a positively established subject binding (V4 authority subject, or V3 execution subject) ->
+ *    fully bound (null);
+ *  - otherwise LEGACY_UNBOUND: the execution had no governed subject and was accepted only in an explicit test
+ *    bootstrap -- or, fail-closed for the presentation, no subject binding was established at all (no reachable PASS
+ *    takes that branch today; it exists so that a PASS can never be FULLY_BOUND without a binding).
+ */
+function legacyUnboundFormNotice(
+  outcome: FrozenExecutionOutcomeIdentity,
+  pinnedOutcomeId: string,
+  manifestId: string,
+  authority: LuReExecutionBindingCheck,
+  subject: LuReExecutionBindingCheck,
+): LuReExecutionLegacyUnboundFormNotice | null {
+  const notice = (basis: LuReExecutionLegacyUnboundBasis, detail: string): LuReExecutionLegacyUnboundFormNotice => ({
+    code: "LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY",
+    basis,
+    authenticity_verified: false,
+    current_authority_verified: false,
+    text_sv: LU_REEXECUTION_LEGACY_UNBOUND_FORM_TEXT_SV,
+    finding_ids: [],
+    detail,
+  });
+  if (!("capability_execution_ref" in outcome)) {
+    return notice(
+      "V1_FORM",
+      `the pinned execution outcome ${pinnedOutcomeId} is a V1-format outcome without execution lineage: no output or ` +
+        `execution-subject binding applies to it; consistency with the pinned artifacts only`,
+    );
+  }
+  if (authority.kind === "bound" || subject.kind === "bound") return null;
+  return notice(
+    "LEGACY_UNBOUND",
+    subject.kind === "unbound_accepted_in_test_bootstrap"
+      ? `execution ${manifestId} has no governed subject and was accepted only because the verifying process is an explicit test bootstrap; consistency with the pinned artifacts only`
+      : `no binding of execution ${manifestId} to a governed subject was established; consistency with the pinned artifacts only`,
+  );
+}
+
+/**
+ * The result of one binding check of verify (U30-R3 K2 authority subject, U30-R4 execution subject); U30-R6 reads
+ * which bindings were positively established to decide the strength of a PASS.
+ */
+type LuReExecutionBindingCheck =
+  | { readonly kind: "mismatch"; readonly mismatch: LuReExecutionMismatch }
+  /** Every step of the binding was checked and holds. */
+  | { readonly kind: "bound" }
+  /** The binding does not apply to this assessment/outcome. */
+  | { readonly kind: "not_applicable" }
+  /** No governed subject to bind; accepted only because the verifying process is an explicit test bootstrap. */
+  | { readonly kind: "unbound_accepted_in_test_bootstrap" };
+
+const BOUND: LuReExecutionBindingCheck = { kind: "bound" };
+const NOT_APPLICABLE: LuReExecutionBindingCheck = { kind: "not_applicable" };
+const UNBOUND_ACCEPTED_IN_TEST_BOOTSTRAP: LuReExecutionBindingCheck = { kind: "unbound_accepted_in_test_bootstrap" };
 
 /**
  * U30-R3 K2 -- `output_ids` (what the attested execution produced) against `freshIds` (what this
@@ -671,19 +788,20 @@ function exactOutputBindingMismatch(
  * verified (that is authenticity, not consistency -- see the module header).
  *
  * Applies to V4 only: V1-V3 assessments pin no authority subject; over a v2 outcome they are bound to the
- * execution's subject by executionSubjectBindingMismatch (U30-R4) instead. Genuine absence of a pinned artifact is
- * MANIFEST_ATTEMPT_MISMATCH; a storage fault is LuReExecutionStorageError (OD-R2).
+ * execution's subject by executionSubjectBinding (U30-R4) instead. Genuine absence of a pinned artifact is
+ * MANIFEST_ATTEMPT_MISMATCH; a storage fault is LuReExecutionStorageError (OD-R2). U30-R6: "bound" only when every
+ * step held, "not_applicable" when the assessment pins no authority evidence.
  */
-async function authoritySubjectMismatch(
+async function authoritySubjectBinding(
   assessment: LocalizationAssessmentArtifact,
   manifestIdFromAttemptRef: string,
   repository: ArtifactRepositoryPort,
-): Promise<LuReExecutionMismatch | null> {
+): Promise<LuReExecutionBindingCheck> {
   const evidenceRef = assessment.payload.authority_evidence_ref;
-  if (evidenceRef === undefined) return null;
-  const unbound = (detail: string): LuReExecutionMismatch => ({
-    code: "MANIFEST_ATTEMPT_MISMATCH",
-    detail: `authority binding: ${detail}`,
+  if (evidenceRef === undefined) return NOT_APPLICABLE;
+  const unbound = (detail: string): LuReExecutionBindingCheck => ({
+    kind: "mismatch",
+    mismatch: { code: "MANIFEST_ATTEMPT_MISMATCH", detail: `authority binding: ${detail}` },
   });
 
   const evidenceRead = await readPinnedArtifact<Record<string, unknown>>(repository, evidenceRef, "authority_evidence");
@@ -750,7 +868,7 @@ async function authoritySubjectMismatch(
   ) {
     return unbound(`the assessment's localization point is not the one its authority subject ${subjectRef.artifact_id} was issued for`);
   }
-  return null;
+  return BOUND;
 }
 
 /** Every computeExecutionManifestIdV3 id has this prefix; legacy site-scoped and V2-scoped ids never derive from a V3 subject. */
@@ -758,7 +876,7 @@ const V3_SUBJECT_MANIFEST_PREFIX = "lu-manifest-v3-";
 
 /**
  * U30-R4 -- the anti-downgrade binding for an assessment WITHOUT authority evidence (V1-V3), see the module
- * header. Applies only to a v2 outcome; a V4 assessment is bound by authoritySubjectMismatch, and a V1
+ * header. Applies only to a v2 outcome; a V4 assessment is bound by authoritySubjectBinding, and a V1
  * outcome (no lineage, before 2026-08-24) is historical and unchanged.
  *
  *  - V1/V2 label over a v2 outcome -> CONTRACT_DOWNGRADE_REFUSED (never produced: the V1/V2 producer is gone
@@ -771,34 +889,48 @@ const V3_SUBJECT_MANIFEST_PREFIX = "lu-manifest-v3-";
  *    CAS: admitted under bootstrap, never issued) -> EXECUTION_SUBJECT_UNBOUND, unless the verifying
  *    process is an explicit dev/test bootstrap (isBootstrapExecutionReplayAllowed).
  * Genuine absence of the pinned manifest is MANIFEST_ATTEMPT_MISMATCH; a storage fault is
- * LuReExecutionStorageError (OD-R2). Details carry ids only.
+ * LuReExecutionStorageError (OD-R2). Details carry ids only. U30-R6: "bound" only when the subject binding held,
+ * "not_applicable" for V4 and for a V1 outcome, "unbound_accepted_in_test_bootstrap" when the explicit test bootstrap
+ * accepted an execution without a governed subject; EXECUTION_SUBJECT_UNBOUND carries its own Swedish text.
  */
-async function executionSubjectBindingMismatch(
+async function executionSubjectBinding(
   assessment: LocalizationAssessmentArtifact,
   outcome: FrozenExecutionOutcomeIdentity,
   manifestRef: ArtifactReference,
   repository: ArtifactRepositoryPort,
   bootstrapExecutionsAllowed: boolean,
-): Promise<LuReExecutionMismatch | null> {
+): Promise<LuReExecutionBindingCheck> {
   const declared = assessment.payload.assessment_contract_version;
-  if (declared === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4) return null;
-  if (!("capability_execution_ref" in outcome)) return null;
+  if (declared === LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V4) return NOT_APPLICABLE;
+  if (!("capability_execution_ref" in outcome)) return NOT_APPLICABLE;
 
   if (declared !== LOCALIZATION_ASSESSMENT_CONTRACT_VERSION_V3) {
     return {
-      code: "CONTRACT_DOWNGRADE_REFUSED",
-      detail:
-        `assessment declares ${declared ?? "no contract version (V1)"} but pins the v2 execution outcome ` +
-        `${assessment.payload.execution_outcome_ref.artifact_id}; every v2 outcome postdates the V1/V2 assessment contracts`,
+      kind: "mismatch",
+      mismatch: {
+        code: "CONTRACT_DOWNGRADE_REFUSED",
+        detail:
+          `assessment declares ${declared ?? "no contract version (V1)"} but pins the v2 execution outcome ` +
+          `${assessment.payload.execution_outcome_ref.artifact_id}; every v2 outcome postdates the V1/V2 assessment contracts`,
+      },
     };
   }
 
   const manifestId = manifestRef.artifact_id;
-  const unbound = (detail: string): LuReExecutionMismatch | null =>
-    bootstrapExecutionsAllowed ? null : { code: "EXECUTION_SUBJECT_UNBOUND", detail: `execution subject binding: ${detail}` };
-  const mismatch = (detail: string): LuReExecutionMismatch => ({
-    code: "EXECUTION_SUBJECT_MISMATCH",
-    detail: `execution subject binding: ${detail}`,
+  const unbound = (detail: string): LuReExecutionBindingCheck =>
+    bootstrapExecutionsAllowed
+      ? UNBOUND_ACCEPTED_IN_TEST_BOOTSTRAP
+      : {
+          kind: "mismatch",
+          mismatch: {
+            code: "EXECUTION_SUBJECT_UNBOUND",
+            detail: `execution subject binding: ${detail}`,
+            text_sv: LU_REEXECUTION_UNBOUND_TEXT_SV,
+          },
+        };
+  const mismatch = (detail: string): LuReExecutionBindingCheck => ({
+    kind: "mismatch",
+    mismatch: { code: "EXECUTION_SUBJECT_MISMATCH", detail: `execution subject binding: ${detail}` },
   });
 
   if (!manifestId.startsWith(V3_SUBJECT_MANIFEST_PREFIX)) {
@@ -806,7 +938,10 @@ async function executionSubjectBindingMismatch(
   }
   const manifestRead = await readPinnedArtifact<{ readonly execution_identity_ref?: unknown }>(repository, manifestRef, "execution_manifest");
   if (manifestRead.found === false) {
-    return { code: "MANIFEST_ATTEMPT_MISMATCH", detail: `execution manifest ${manifestId} pinned by the attempt is not in CAS` };
+    return {
+      kind: "mismatch",
+      mismatch: { code: "MANIFEST_ATTEMPT_MISMATCH", detail: `execution manifest ${manifestId} pinned by the attempt is not in CAS` },
+    };
   }
   const named = (typeof manifestRead.value === "object" && manifestRead.value !== null
     ? manifestRead.value.execution_identity_ref
@@ -837,7 +972,7 @@ async function executionSubjectBindingMismatch(
   ) {
     return mismatch(`the assessment's localization point is not the one execution ${manifestId} was run for`);
   }
-  return null;
+  return BOUND;
 }
 
 /**

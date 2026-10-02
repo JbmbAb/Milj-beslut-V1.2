@@ -19,7 +19,11 @@
  * and the canonical product gate) then refuse to run at all with LuBootstrapAdmitFlagOutsideTestError, before any
  * CAS read: never a verdict about an assessment, never excusable by anything.
  *
- * Deliberately not exported from the package root (the API boundary snapshot is unchanged).
+ * U30-R6 (owner decision 2026-10-02/03, A-R5-2): the flag gate `assertBootstrapAdmitFlagOnlyInExplicitTestProcess` IS a
+ * package-root export, so the server and the LU workers can refuse to START with the flag outside an explicit test
+ * process (gate "process_startup") -- one rule, never a duplicate that can drift. Everything else here (the allowance,
+ * isExplicitLuTestProcess, the error class) stays internal; a caller recognises the refusal by its stable `code`.
+ * "Set" means PRESENT in the environment: an empty value counts as set (owner, A-R5-5).
  */
 
 /** The ONLY APP_ENV values of an explicit test process -- an allowlist, matched exactly. */
@@ -47,8 +51,18 @@ export function isBootstrapExecutionReplayAllowed(env: Readonly<Record<string, s
   return env.MPS_LU_BOOTSTRAP_ADMIT === "1" && isExplicitLuTestProcess(env);
 }
 
-/** Which gate refused: re-execution (verify) or the canonical product assessment (assessment creation). */
-export type LuBootstrapAdmitFlagGate = "reexecution" | "canonical_product_assessment";
+/**
+ * Which gate refused: re-execution (verify), the canonical product assessment (assessment creation), or -- U30-R6 --
+ * the start-up check of a server/worker process (the package-root export's intended caller).
+ */
+export type LuBootstrapAdmitFlagGate = "reexecution" | "canonical_product_assessment" | "process_startup";
+
+/** The fixed name of each gate in the refusal message (never an environment value). */
+const GATE_LABEL: Readonly<Record<LuBootstrapAdmitFlagGate, string>> = Object.freeze({
+  reexecution: "re-execution (verify)",
+  canonical_product_assessment: "canonical product assessment",
+  process_startup: "process start-up",
+});
 
 /**
  * U30-R5 -- MPS_LU_BOOTSTRAP_ADMIT is set in a process that is not an explicit test process. A typed
@@ -63,7 +77,7 @@ export class LuBootstrapAdmitFlagOutsideTestError extends Error {
     super(
       `BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST: MPS_LU_BOOTSTRAP_ADMIT is set, but this process is not an explicit test ` +
         `process (${unmetCondition}; required: NODE_ENV exactly 'test' and APP_ENV exactly 'test' or 'ci'). ` +
-        `The ${gate === "reexecution" ? "re-execution (verify)" : "canonical product assessment"} refuses to run; ` +
+        `The ${GATE_LABEL[gate]} refuses to run; ` +
         `remove the flag from this process.`,
     );
     this.name = "LuBootstrapAdmitFlagOutsideTestError";
