@@ -241,8 +241,10 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-check-state-ebh')).toHaveTextContent('Kontrollerat – ingen registrerad träff');
     // Preservation requirement: a negative register result is explained under the row.
     expect(screen.getByTestId('lu-check-register-note-ebh')).toHaveTextContent(
-      'Register: inget registrerat objekt inom 500 m i lagret Potentiellt förorenade områden (EBH) (dataset ebh). Det är en registerkontroll, inte en markundersökning',
+      'Register: inget registrerat objekt inom 500 m i lagret Potentiellt förorenade områden (EBH). Det är en registerkontroll, inte en markundersökning',
     );
+    // DEMO M2c item 3: the internal dataset id is not in the main text.
+    expect(screen.getByTestId('lu-check-register-note-ebh')).not.toHaveTextContent('(dataset');
     expect(screen.queryByTestId('lu-check-register-note-water')).not.toBeInTheDocument();
     expect(screen.getByTestId('lu-control-out-of-scope')).toHaveTextContent('Inte bedömt: hydrologisk koppling (spridningsväg).');
     // A layer with no evidence in the governed payload reads "Inte kontrollerat", never "ingen träff".

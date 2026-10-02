@@ -318,11 +318,11 @@ function registerContractFor(key: Exclude<LuCheckKey, 'property'>, props: LuView
 /** Suffix on the HIT/NO_HIT chip of a register with known partial coverage (state itself unchanged). */
 export const LU_LIMITED_COVERAGE_SUFFIX = ' · begränsad täckning';
 
-function negativeRegisterNote(def: LuCheckDefinition, radius: number | null, dataset: string | null): string {
+/** DEMO M2c item 3: the dataset id is internal -- it stays in the technical section ("Dataset"). */
+function negativeRegisterNote(def: LuCheckDefinition, radius: number | null): string {
   const where = radius === null ? 'inom sökradien' : `inom ${radius} m`;
-  const source = `i lagret ${def.label}${dataset ? ` (dataset ${dataset})` : ''}`;
   const limit = def.key === 'property' ? '' : ` ${NEGATIVE_REGISTER_LIMIT[def.key]}`;
-  return `Register: inget registrerat objekt ${where} ${source}.${limit}`;
+  return `Register: inget registrerat objekt ${where} i lagret ${def.label}.${limit}`;
 }
 
 /** Today every governed layer is an existence-within-distance query over a register dataset. */
@@ -541,7 +541,7 @@ function layerCheck(
     technical,
     radius,
     artifactId,
-    negativeRegisterNote(def, radius, str(props.dataset)),
+    negativeRegisterNote(def, radius),
     contract,
   );
 }
@@ -651,7 +651,8 @@ function extraServerRows(checks: readonly unknown[]): LuCheckView[] {
       ...(e && str(e.rule_id) ? [{ label: 'Regel', value: str(e.rule_id)! }] : []),
       ...(e && str(e.evidence_artifact_id) ? [{ label: 'Underlags-id', value: str(e.evidence_artifact_id)! }] : []),
     ];
-    const label = !layer ? 'Okänd kontrollpost' : layer === 'document' ? 'Dokumentbevis' : `Annat underlag (${layer})`;
+    // DEMO M2c item 3: an unknown layer's raw id stays in the technical section ("Lager").
+    const label = !layer ? 'Okänd kontrollpost' : layer === 'document' ? 'Dokumentbevis' : 'Annat underlag från servern';
     const serverNote = e ? str(e.message_sv) : null;
     const reasonText = !serverNote && reason && SERVER_REASON_SV[reason] ? ` ${SERVER_REASON_SV[reason]}` : '';
     let state: LuKnowledgeState;
@@ -682,7 +683,12 @@ function extraServerRows(checks: readonly unknown[]): LuCheckView[] {
       state,
       stateLabel: `${LU_KNOWLEDGE_STATE_LABEL[state]}${documentLimited ? LU_LIMITED_COVERAGE_SUFFIX : ''}`,
       summary,
-      registerNote: null,
+      // DEMO M2c item 3 (probe S): a negative server result for a layer the UI does not know is
+      // still only "no registered object", never absence of objects or impact (SI-2).
+      registerNote:
+        state === 'NO_HIT' && layer !== 'document'
+          ? 'Servern redovisar inget registrerat objekt. Det visar inte att objekt eller påverkan saknas.'
+          : null,
       coverageNote: documentLimited
         ? 'Täckning: endast dokumentbevis som är knutet till bedömningen. Övriga dokument för fastigheten är inte kontrollerade.'
         : null,

@@ -181,12 +181,16 @@ describe('DEMO M2a/M2b luControlChecks', () => {
     const c = byKey(deriveLuControlChecks({ property, assessment: PRESENT, evidence: { status: 'loaded', features }, findings: [] }));
     for (const layer of LAYERS) {
       expect(c[layer].state).toBe('NO_HIT'); // machine-readable state unchanged
-      expect(c[layer].registerNote).toMatch(/^Register: inget registrerat objekt inom 500 m i lagret .+ \(dataset .+\)\. Det är en registerkontroll/);
+      expect(c[layer].registerNote).toMatch(/^Register: inget registrerat objekt inom 500 m i lagret .+\. Det är en registerkontroll/);
       expect(c[layer].registerNote).toMatch(/visar inte/);
       expect(`${c[layer].summary} ${c[layer].registerNote}`).not.toMatch(/inga risker|ingen risk|oförorenad|ren mark|inga avvikelser|LOW/i);
+      // M2c item 3 (verifier finding 6): no internal dataset id in the main text -- it is technical.
+      expect(c[layer].registerNote).not.toContain('(dataset');
+      expect(c[layer].registerNote).not.toContain(layer);
+      expect(c[layer].technical).toContainEqual({ label: 'Dataset', value: layer });
     }
     expect(c.ebh.registerNote).toBe(
-      'Register: inget registrerat objekt inom 500 m i lagret Potentiellt förorenade områden (EBH) (dataset ebh). Det är en registerkontroll, inte en markundersökning, och visar inte markens skick eller att föroreningar eller påverkan saknas.',
+      'Register: inget registrerat objekt inom 500 m i lagret Potentiellt förorenade områden (EBH). Det är en registerkontroll, inte en markundersökning, och visar inte markens skick eller att föroreningar eller påverkan saknas.',
     );
     expect(c.water.registerNote).toContain('inte en inventering i fält');
     // M2c item 1: no longer "registerkontroll av utpekade Natura 2000-områden" (the register is SPA only).
@@ -479,6 +483,24 @@ describe('DEMO M2a/M2b luControlChecks', () => {
     expect(c['extra-document'].technical).toContainEqual({ label: 'Orsakskod', value: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED' });
     expect(c['extra-sgu_skred'].state).toBe('UNCERTAIN');
     expect(c['extra-okand-3'].state).toBe('UNCERTAIN');
+  });
+
+  it('M2c item 3: a server row for an unknown layer shows no raw layer id in the main text; its negative result is qualified', () => {
+    const c = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: [] },
+        findings: [],
+        serverLayerChecks: [{ layer: 'sgu_skred', rule_id: 'LU-SKRED-001', status: 'CHECKED_NO_HIT', reason: null }],
+      }),
+    );
+    const row = c['extra-sgu_skred'];
+    expect(row.label).toBe('Annat underlag från servern');
+    expect(`${row.label} ${row.summary} ${row.registerNote}`).not.toContain('sgu_skred');
+    expect(row.technical).toContainEqual({ label: 'Lager', value: 'sgu_skred' });
+    expect(row.state).toBe('NO_HIT');
+    expect(row.registerNote).toBe('Servern redovisar inget registrerat objekt. Det visar inte att objekt eller påverkan saknas.');
   });
 
   it('M2c item 3: a document check with a hit covers only the pinned document evidence -- shown as limited, never as complete', () => {

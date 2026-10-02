@@ -89,5 +89,9 @@ export function presentLuFindingSummary(finding: {
     if (ATTENTION_LABEL_BY_RISK_LEVEL[finding.risk_level]) return definition.hitMeaning;
     return "Fyndets nivå kunde inte tolkas – se teknisk information.";
   }
+  // DEMO M2c item 3 (M2b verifier finding 6): an unchecked finding of a rule this UI does not know
+  // carries the engine's own text with reason codes (e.g. "(TIMEOUT)"); that text stays in the
+  // technical section.
+  if (finding.risk_level === "NOT_CHECKED") return "Kontrollen kunde inte göras – se teknisk information.";
   return finding.explanation ?? "Fyndet saknar beskrivning i underlaget.";
 }

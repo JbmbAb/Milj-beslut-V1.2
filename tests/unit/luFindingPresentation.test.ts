@@ -43,6 +43,16 @@ describe('LU-RESULT-PRESENTATION-MODEL-V1', () => {
     );
   });
 
+  it('DEMO M2c item 3: a NOT_CHECKED finding of an unknown rule never shows the engine text (with its reason code) as main text', () => {
+    const summary = presentLuFindingSummary({
+      rule_id: 'LU-SOME-FUTURE-RULE-001',
+      risk_level: 'NOT_CHECKED',
+      explanation: 'Layer sgu_skred unavailable (TIMEOUT) -- not checked',
+    });
+    expect(summary).toBe('Kontrollen kunde inte göras – se teknisk information.');
+    expect(summary).not.toMatch(/TIMEOUT|sgu_skred/);
+  });
+
   it('DEMO M2b: an unknown risk level for a known layer rule is never presented as a hit', () => {
     const summary = presentLuFindingSummary({ rule_id: 'LU-WATER-001', risk_level: 'SOMETHING_NEW', explanation: 'x' });
     expect(summary).toBe('Fyndets nivå kunde inte tolkas – se teknisk information.');
