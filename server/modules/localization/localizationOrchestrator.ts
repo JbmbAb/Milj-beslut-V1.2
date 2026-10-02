@@ -39,7 +39,7 @@ import {
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import { resolveGovernedLocalizationPresentation } from './resolveGovernedLocalizationPresentation';
 import { resolveLocalizationViewerRuntimeConfigForProject, type LocalizationViewerRuntimeConfig } from './createLocalizationViewerRuntime';
-import { computeGovernedDocumentCheck, type GovernedDocumentCheck } from './governedLayerChecks';
+import type { GovernedDocumentCheck } from './governedLayerChecks';
 import {
   governedOverallStatement,
   MISSING_IN_BASIS_SV,
@@ -721,7 +721,9 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
       ...boundGeometry.value,
     },
     // K0: from the tamper-verified assessment's pinned refs only (no live read, not from findings).
-    documentCheck: computeGovernedDocumentCheck(assessment.payload.evidence_refs),
+    // U20CDF (F3): a pinned document artifact this read-back could not resolve from CAS makes it a
+    // technical error (PINNED_EVIDENCE_UNREADABLE), never CHECKED_HIT -- the same row as below.
+    documentCheck: details.documentCheck,
     governedLayerChecks: details.governedLayerChecks,
     evidenceDetails: details.evidenceDetails,
     propertyRoot: details.propertyRoot,
@@ -811,6 +813,8 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
       kontroll: summary.documentCheck.layer,
       regel: summary.documentCheck.rule_id,
       status: summary.documentCheck.status,
+      // U20CDF (F3): the section 11 state of the same row (TECHNICAL_ERROR for unreadable pinned documents).
+      tillstand: summary.governedLayerChecks.find((check) => check.layer === summary.documentCheck.layer)?.coverage_state ?? null,
       orsak: summary.documentCheck.reason,
       underlag_artifact_id: summary.documentCheck.evidence_artifact_id,
       beskrivning: summary.documentCheck.message_sv,

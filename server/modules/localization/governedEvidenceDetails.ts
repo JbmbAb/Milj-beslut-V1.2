@@ -52,6 +52,7 @@ import { isVerifiedDocumentFactContentHashValid } from '../../../packages/mps-da
 import {
   computeGovernedDocumentCheck,
   computeGovernedLayerChecks,
+  type GovernedDocumentCheck,
   type GovernedLayerCheck,
 } from './governedLayerChecks';
 import {
@@ -277,6 +278,8 @@ export function presentedGovernedLayerChecks(input: {
   readonly findings: readonly Pick<AssessmentFinding, 'rule_id' | 'risk_level'>[];
   readonly pinnedEvidenceRefs: unknown;
   readonly spatialEvidenceUnreadable?: boolean;
+  /** U20CDF: pinned refs that could not be read from CAS (read-back); a pinned document among them is a technical error. */
+  readonly unreadableArtifactIds?: readonly string[];
 }): PresentedGovernedLayerCheck[] {
   const requestedLayers: string[] = [...LU_V1_GOVERNED_SPATIAL_LAYERS];
   for (const evidence of input.spatialEvidence) {
@@ -296,7 +299,10 @@ export function presentedGovernedLayerChecks(input: {
       : check,
   );
   const evidenceById = new Map(input.spatialEvidence.map((evidence) => [evidence.artifact_id, evidence] as const));
-  return [...spatial, computeGovernedDocumentCheck(input.pinnedEvidenceRefs)].map((check) => presentCheck(check, evidenceById));
+  const documentCheck = computeGovernedDocumentCheck(input.pinnedEvidenceRefs, {
+    unreadableArtifactIds: input.unreadableArtifactIds,
+  });
+  return [...spatial, documentCheck].map((check) => presentCheck(check, evidenceById));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -791,6 +797,12 @@ export interface GovernedOverallStatement {
 export interface GovernedAssessmentDetails {
   readonly evidenceDetails: readonly GovernedEvidenceDetail[];
   readonly governedLayerChecks: readonly PresentedGovernedLayerCheck[];
+  /**
+   * K0's machine-readable document check for the read-back -- the same pinned refs, plus (U20CDF F3)
+   * what this read could not resolve from CAS. Equal to the `document` row of governedLayerChecks
+   * without its presentation fields.
+   */
+  readonly documentCheck: GovernedDocumentCheck;
   readonly propertyRoot: PropertyRootDetails;
   /** Fail-closed signal for the read-back and the PDF: content that was read failed its own identity. */
   readonly integrity:
@@ -815,6 +827,7 @@ export async function resolveGovernedAssessmentDetails(input: {
 
   const evidenceDetails: GovernedEvidenceDetail[] = [];
   const spatialEvidence: SpatialEvidenceArtifact[] = [];
+  const unreadableArtifactIds: string[] = [];
   let spatialEvidenceUnreadable = false;
   let integrityFailure: GovernedAssessmentDetails['integrity'] = { ok: true };
 
@@ -823,6 +836,7 @@ export async function resolveGovernedAssessmentDetails(input: {
     const cited = citedBy(ref.artifact_id);
     if (read.kind !== 'read') {
       evidenceDetails.push(unreadableDetail(ref, cited, read.kind));
+      unreadableArtifactIds.push(ref.artifact_id);
       if (ref.artifact_type === 'SPATIAL_EVIDENCE') spatialEvidenceUnreadable = true;
       if (read.kind === 'corrupted' && integrityFailure.ok) {
         integrityFailure = { ok: false, failureClass: 'EVIDENCE_CORRUPTED', artifactId: ref.artifact_id };
@@ -860,7 +874,9 @@ export async function resolveGovernedAssessmentDetails(input: {
       findings,
       pinnedEvidenceRefs: rawRefs,
       spatialEvidenceUnreadable,
+      unreadableArtifactIds,
     }),
+    documentCheck: computeGovernedDocumentCheck(rawRefs, { unreadableArtifactIds }),
     propertyRoot,
     integrity: integrityFailure,
   };

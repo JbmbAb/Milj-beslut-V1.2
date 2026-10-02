@@ -71,7 +71,13 @@ export const GOVERNED_DOCUMENT_CHECK_RULE_ID = 'LU-DOC-BESLUT-001';
 export type GovernedDocumentCheckReason =
   | 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED'
   | 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED'
-  | 'PINNED_EVIDENCE_REFS_UNREADABLE';
+  | 'PINNED_EVIDENCE_REFS_UNREADABLE'
+  /**
+   * U20CDF (U20CD verification F3; OD-R2): a pinned DOCUMENT_EVIDENCE / VERIFIED_DOCUMENT_FACT could
+   * not be read from CAS at read-back. The same reason (and coverage_state TECHNICAL_ERROR) as an
+   * unreadable pinned spatial evidence; never CHECKED_HIT, never a plain "not checked".
+   */
+  | 'PINNED_EVIDENCE_UNREADABLE';
 
 export interface GovernedDocumentCheck extends GovernedLayerCheck {
   readonly layer: typeof GOVERNED_DOCUMENT_CHECK_LAYER;
@@ -94,6 +100,10 @@ const DOCUMENT_CHECK_MESSAGE_SV: Readonly<Record<GovernedDocumentCheckReason | '
     'mänskligt verifierat dokumentfaktum, så underlaget har inte prövats mot regeln om tidigare beslut.',
   PINNED_EVIDENCE_REFS_UNREADABLE:
     'Dokument och tidigare beslut: inte kontrollerat. Bedömningens evidensreferenser kunde inte läsas.',
+  PINNED_EVIDENCE_UNREADABLE:
+    'Dokument och tidigare beslut: tekniskt fel. Dokumentunderlaget som bedömningen är bunden till kunde ' +
+    'inte läsas ur CAS och kan därför inte verifieras. Kontrollen redovisas inte som genomförd, och ingen ' +
+    'slutsats dras om dokument eller tidigare beslut.',
 };
 
 function pinnedIdsOfType(refs: readonly unknown[], artifactType: string): string[] {
@@ -106,8 +116,16 @@ function pinnedIdsOfType(refs: readonly unknown[], artifactType: string): string
   return ids.sort();
 }
 
-/** @param pinnedEvidenceRefs the persisted assessment's own `payload.evidence_refs`. */
-export function computeGovernedDocumentCheck(pinnedEvidenceRefs: unknown): GovernedDocumentCheck {
+/**
+ * @param pinnedEvidenceRefs the persisted assessment's own `payload.evidence_refs`.
+ * @param options.unreadableArtifactIds U20CDF: ids of pinned refs the caller tried to read from CAS
+ *        and could not (the read-back passes them; the fresh run has just resolved its documents and
+ *        passes none). A pinned document artifact among them makes the check a technical error.
+ */
+export function computeGovernedDocumentCheck(
+  pinnedEvidenceRefs: unknown,
+  options: { readonly unreadableArtifactIds?: readonly string[] } = {},
+): GovernedDocumentCheck {
   const make = (
     status: GovernedDocumentCheck['status'],
     reason: GovernedDocumentCheckReason | null,
@@ -122,6 +140,17 @@ export function computeGovernedDocumentCheck(pinnedEvidenceRefs: unknown): Gover
   });
 
   if (!Array.isArray(pinnedEvidenceRefs)) return make('NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null);
+  const unreadable = new Set(options.unreadableArtifactIds ?? []);
+  const unreadableDocumentIds = [
+    ...pinnedIdsOfType(pinnedEvidenceRefs, 'DOCUMENT_EVIDENCE'),
+    ...pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT'),
+  ]
+    .filter((id) => unreadable.has(id))
+    .sort();
+  if (unreadableDocumentIds.length > 0) {
+    // The assessment says it is bound to document evidence that cannot be read back: technical error.
+    return make('NOT_CHECKED', 'PINNED_EVIDENCE_UNREADABLE', unreadableDocumentIds[0]!);
+  }
   const documentEvidenceIds = pinnedIdsOfType(pinnedEvidenceRefs, 'DOCUMENT_EVIDENCE');
   if (documentEvidenceIds.length === 0) return make('NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null);
   if (pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT').length === 0) {

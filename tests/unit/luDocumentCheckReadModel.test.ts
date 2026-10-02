@@ -97,6 +97,7 @@ import type { ProjectContextBindingIndex } from '../../server/repositories/proje
 import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { computeGovernedDocumentCheck } from '../../server/modules/localization/governedLayerChecks';
+import { recomputeVerifiedDocumentFactContentHash } from '../../packages/mps-data-governance/src/verifyRealDocumentFactCandidate';
 import {
   exportCurrentLuAssessmentPdf,
   resolveCurrentLuAssessmentSummary,
@@ -287,6 +288,42 @@ async function setup() {
 
 type PdfData = { dokumentkontroll?: Record<string, unknown>; limitations?: string[] };
 
+/** A DOCUMENT_EVIDENCE that passes the read-back's structural check (type, id, content hash present). */
+function readableDocumentEvidence(id: string) {
+  return { artifact_id: id, artifact_type: 'DOCUMENT_EVIDENCE', content_hash: { algorithm: 'sha256', value: 'd'.repeat(64) }, references: [], payload: {} };
+}
+
+/** A self-consistent VERIFIED_DOCUMENT_FACT: its content_hash is recomputed from its own fields. */
+function readableVerifiedFact(id: string) {
+  const fact = {
+    artifact_id: id,
+    artifact_type: 'VERIFIED_DOCUMENT_FACT' as const,
+    verification_status: 'VERIFIED' as const,
+    fact_type: 'PRIOR_LOCATION_RESTRICTING_DECISION',
+    fact_version: '1.0',
+    source_document_ref: { id: 'source-document-k0', content_hash: { algorithm: 'sha256', digest: 'e'.repeat(64) } },
+    inventory_ref: { id: 'inventory-k0', content_hash: { algorithm: 'sha256', digest: 'f'.repeat(64) } },
+    source_span: { text_projection_ref: { id: 'projection-k0' }, start_offset: 0, end_offset: 10 },
+    candidate_ref: { id: 'candidate-k0', content_hash: { algorithm: 'sha256', digest: '1'.repeat(64) } },
+    assertion: {
+      asserted_by: { identity_ref: { id: 'asserter-k0' }, role: 'MACHINE' },
+      assertion_method: 'TEST_FIXTURE',
+      asserter_version: '1',
+      asserted_at: '2026-10-02T00:00:00.000Z',
+    },
+    verification: {
+      verified_by: { identity_ref: { id: 'reviewer-k0' }, role: 'GOVERNANCE_REVIEWER' },
+      verification_method: 'HUMAN_REVIEW',
+      verification_policy_version: 'test-policy',
+      verified_at: '2026-10-02T00:00:00.000Z',
+    },
+    signature: { algorithm: 'ed25519', key_id: 'test', value: 'sig' },
+    content_hash: { algorithm: 'sha256', digest: '' },
+  };
+  fact.content_hash.digest = recomputeVerifiedDocumentFactContentHash(fact as never);
+  return fact;
+}
+
 beforeEach(() => {
   capturedPdfData = undefined;
   hermeticPrismaTouches.length = 0;
@@ -318,6 +355,7 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
       kontroll: 'document',
       regel: 'LU-DOC-BESLUT-001',
       status: 'NOT_CHECKED',
+      tillstand: 'NOT_CHECKED',
       orsak: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED',
       underlag_artifact_id: null,
       beskrivning: readBack!.message_sv,
@@ -328,7 +366,34 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     expect(JSON.stringify(data.dokumentkontroll)).not.toMatch(/CHECKED_NO_HIT|ingen träff|LOW/);
   });
 
-  it('DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT pinned -> CHECKED_HIT in read-back and PDF, without any live read of the document', async () => {
+  it('DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT pinned and readable from CAS -> CHECKED_HIT in read-back and PDF', async () => {
+    const s = await setup();
+    await s.repository.put({ artifact_id: 'doc-evidence-k0', body: readableDocumentEvidence('doc-evidence-k0') });
+    await s.repository.put({ artifact_id: 'verified-fact-k0', body: readableVerifiedFact('verified-fact-k0') });
+    await s.persistCurrentAssessment([
+      ...SPATIAL_REFS,
+      { artifact_id: 'doc-evidence-k0', artifact_type: 'DOCUMENT_EVIDENCE' },
+      { artifact_id: 'verified-fact-k0', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+    ]);
+    const summary = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(summary.ok, JSON.stringify(summary)).toBe(true);
+    const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
+    expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
+    const details = (summary as unknown as { evidenceDetails: Array<Record<string, unknown>> }).evidenceDetails;
+    expect(details.find((d) => d.evidence_artifact_id === 'doc-evidence-k0')).toMatchObject({ resolution: 'RESOLVED', integrity: 'STRUCTURAL_ONLY' });
+    expect(details.find((d) => d.evidence_artifact_id === 'verified-fact-k0')).toMatchObject({ resolution: 'RESOLVED', integrity: 'CONTENT_HASH_VERIFIED' });
+    const checks = (summary as unknown as { governedLayerChecks: Array<Record<string, unknown>> }).governedLayerChecks;
+    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', coverage_state: 'CHECKED_HIT' });
+
+    await exportCurrentLuAssessmentPdf(s.deps());
+    expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({ status: 'CHECKED_HIT', orsak: null, underlag_artifact_id: 'doc-evidence-k0' });
+  });
+
+  // U20CDF (U20CD verification F3; owner decision OD-R2; DIRECTIVE-72H section 11). This case used
+  // to require CHECKED_HIT ("kontrollerat – träff") while the same answer reported both pinned
+  // document artifacts as EVIDENCE_NOT_FOUND. A pinned document artifact that cannot be read is a
+  // technical error -- the same class as unreadable spatial evidence -- and never a hit.
+  it('DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT pinned but NOT readable from CAS -> technical error in read-back and PDF, never a hit', async () => {
     const s = await setup();
     await s.persistCurrentAssessment([
       ...SPATIAL_REFS,
@@ -338,19 +403,34 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     const summary = await resolveCurrentLuAssessmentSummary(s.deps());
     expect(summary.ok).toBe(true);
     const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
-    expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
-    // Derived from the pinned refs alone: the document artifacts are not even in CAS. U20-D's evidence
-    // details now try to read every pinned ref and report these two honestly as EVIDENCE_NOT_FOUND --
-    // and the document check is unaffected by that (it never depends on resolving them).
+    expect(readBack).toEqual({
+      layer: 'document',
+      rule_id: 'LU-DOC-BESLUT-001',
+      status: 'NOT_CHECKED',
+      evidence_artifact_id: 'doc-evidence-k0',
+      reason: 'PINNED_EVIDENCE_UNREADABLE',
+      message_sv: expect.stringMatching(/^Dokument och tidigare beslut: tekniskt fel\./),
+    });
+    expect(String(readBack!.message_sv)).not.toMatch(/träff/);
     const details = (summary as unknown as { evidenceDetails: Array<Record<string, unknown>> }).evidenceDetails;
     for (const id of ['doc-evidence-k0', 'verified-fact-k0']) {
       expect(details.find((d) => d.evidence_artifact_id === id)).toMatchObject({
         resolution: 'NOT_FOUND', technical_error_class: 'EVIDENCE_NOT_FOUND',
       });
     }
+    // The presented row is the same check, as TECHNICAL_ERROR (like spatial), and is not counted as done.
+    const checks = (summary as unknown as { governedLayerChecks: Array<Record<string, unknown>> }).governedLayerChecks;
+    const { coverage_state, coverage_limitation_sv: _limitation, ...documentRow } = checks.at(-1)!;
+    expect(coverage_state).toBe('TECHNICAL_ERROR');
+    expect(documentRow).toEqual(readBack);
+    const statement = (summary as unknown as { overallStatement: { coverage: { not_completed_layers: string[] } } }).overallStatement;
+    expect(statement.coverage.not_completed_layers).toContain('document');
 
     await exportCurrentLuAssessmentPdf(s.deps());
-    expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({ status: 'CHECKED_HIT', orsak: null, underlag_artifact_id: 'doc-evidence-k0' });
+    expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({
+      status: 'NOT_CHECKED', orsak: 'PINNED_EVIDENCE_UNREADABLE', underlag_artifact_id: 'doc-evidence-k0',
+    });
+    expect(JSON.stringify((capturedPdfData as PdfData).dokumentkontroll)).not.toMatch(/CHECKED_HIT|träff/);
   });
 
   it('stored findings do not move the check: an LU-DOC-BESLUT-001 finding without pinned document refs stays NOT_CHECKED', async () => {
@@ -410,6 +490,22 @@ describe('K0b: computeGovernedDocumentCheck (pure)', () => {
     const check = computeGovernedDocumentCheck(refs);
     expect(check).toMatchObject({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status, reason, evidence_artifact_id: evidenceId });
     expect(check.message_sv).toMatch(/^Dokument och tidigare beslut: /);
+  });
+
+  it('U20CDF: a pinned document artifact that could not be read is PINNED_EVIDENCE_UNREADABLE, never a hit; other unreadable refs do not matter', () => {
+    const refs = [SE('s1'), DE('d1'), VF('f1')];
+    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['f1'] })).toMatchObject({
+      status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', evidence_artifact_id: 'f1',
+    });
+    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['f1', 'd1'] })).toMatchObject({
+      status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', evidence_artifact_id: 'd1',
+    });
+    expect(computeGovernedDocumentCheck([SE('s1'), DE('d1')], { unreadableArtifactIds: ['d1'] })).toMatchObject({
+      status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE',
+    });
+    // An unreadable SPATIAL ref is the spatial row's business; the document check is unchanged.
+    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['s1'] })).toEqual(computeGovernedDocumentCheck(refs));
+    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: [] })).toMatchObject({ status: 'CHECKED_HIT' });
   });
 
   it('never CHECKED_NO_HIT and never a "no hit" text, for any combination of pinned ref types', () => {
