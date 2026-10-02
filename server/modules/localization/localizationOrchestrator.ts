@@ -24,6 +24,7 @@ import {
   type LocalizationAssessmentArtifact,
   type LocalizationGeometryArtifact,
   type LuReExecutionMismatch,
+  type LuReExecutionResult,
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
@@ -959,8 +960,45 @@ function pdfPropertyRoot(root: PropertyRootDetails) {
  * or in H15 itself. No PostGIS/current-runtime-state dependency is introduced: H15 resolves
  * everything it needs from CAS-pinned artifacts only, exactly as it already did before this unit.
  */
+const NOT_CHECKED_FINDING_ID_PREFIX = 'finding-notchecked-';
+
+/**
+ * U20CDF (U30-R2 follow-up; U30R2-REPORT section 3, owner question 6): the Swedish result text of a
+ * verification, on top of the machine outcome and notices (both returned unchanged). A PASS that
+ * carries NOT_CHECKED_CAUSE_NOT_PINNED is identical in layer, rule, version, risk level and evidence,
+ * but the cause text of the listed NOT_CHECKED layers was never saved -- the text says so instead of
+ * an unqualified "identiskt". Neutral wording; nothing here suggests tampering.
+ */
+export function verifyOutcomeSv(
+  outcome: 'PASS' | 'DENY',
+  notices: LuReExecutionResult['notices'],
+): string {
+  if (outcome !== 'PASS') {
+    return 'Bedömningen kunde inte verifieras: återexekveringen gav inte samma resultat som den sparade bedömningen.';
+  }
+  const unpinned = notices
+    .filter((notice) => notice.code === 'NOT_CHECKED_CAUSE_NOT_PINNED')
+    .flatMap((notice) => notice.finding_ids);
+  const passed = 'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt';
+  if (unpinned.length === 0) return `${passed}.`;
+  const layers = unpinned
+    .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
+    .map((id) => governedLayerLabelSv(id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length)));
+  const named = layers.length > 0 ? ` (${layers.join(', ')})` : '';
+  return `${passed}, men orsaken till att ${unpinned.length > 1 ? 'lagren' : 'lagret'} inte kontrollerades sparades inte${named}.`;
+}
+
 export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): Promise<
-  | { ok: true; outcome: 'PASS' | 'DENY'; assessmentArtifactId: string; mismatches: readonly LuReExecutionMismatch[] }
+  | {
+      ok: true;
+      outcome: 'PASS' | 'DENY';
+      assessmentArtifactId: string;
+      mismatches: readonly LuReExecutionMismatch[];
+      /** U30-R2: machine-readable statuses that are not deviations (e.g. NOT_CHECKED_CAUSE_NOT_PINNED). */
+      notices: LuReExecutionResult['notices'];
+      /** U20CDF: Swedish presentation of outcome + notices (verifyOutcomeSv). */
+      outcome_sv: string;
+    }
   | { ok: false; status: number; error: string }
 > {
   // U20-D: identity resolution only (plus the optional explicit-id binding) -- not the evidence
@@ -975,11 +1013,14 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
     artifactRepository: core.artifactRepository,
   });
 
+  const notices = Array.isArray(result.notices) ? result.notices : [];
   return {
     ok: true,
     outcome: result.outcome,
     assessmentArtifactId: result.assessment_artifact_id,
     mismatches: result.mismatches,
+    notices,
+    outcome_sv: verifyOutcomeSv(result.outcome, notices),
   };
 }
 

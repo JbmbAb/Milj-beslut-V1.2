@@ -498,6 +498,9 @@ router.post(
         outcome: result.outcome,
         assessmentArtifactId: result.assessmentArtifactId,
         mismatches: result.mismatches,
+        // U20CDF (U30-R2 follow-up): machine notices unchanged, Swedish text on top.
+        notices: result.notices,
+        outcome_sv: result.outcome_sv,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;

@@ -41,6 +41,8 @@ const state = vi.hoisted(() => ({
   verification: null as unknown,
   context: null as unknown,
   geometry: null as unknown,
+  /** U20CDF: optional wrapper around the real re-execution (to add a U30-R2 notice). */
+  reExecute: null as null | ((real: (args: unknown) => Promise<unknown>, args: unknown) => Promise<unknown>),
 }));
 
 vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => ({
@@ -82,6 +84,10 @@ vi.mock('@miljobeslut/mps-lu', async (importOriginal) => {
   return {
     ...original,
     deriveLuExecutionSeed: vi.fn(() => 'canonical-seed-u20d'),
+    reExecuteLocalizationAssessment: (args: unknown) => {
+      const real = original.reExecuteLocalizationAssessment as (a: unknown) => Promise<unknown>;
+      return state.reExecute ? state.reExecute(real, args) : real(args);
+    },
     runCanonicalLuProductAssessment: (input: Record<string, unknown>) =>
       kernel.runLuAssessmentViaKernel({
         site_id: input.site_id as string,
@@ -475,6 +481,7 @@ function app() {
 const token = () => createTokenPair({ id: AUTH_USER.id, organisationId: AUTH_USER.organisationId, bankidId: AUTH_USER.bankidId, role: 'ADMIN' }).accessToken;
 
 beforeEach(() => {
+  state.reExecute = null;
   capturedPdfData = undefined;
   hermeticPrismaTouches.length = 0;
   process.env.MPS_LU_BOOTSTRAP_ADMIT = '1';
@@ -701,7 +708,11 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     expect(capturedPdfData).toBeUndefined();
 
     const verified = await verifyCurrentLuAssessment(s.deps());
-    expect(verified).toMatchObject({ ok: true, outcome: 'DENY' });
+    expect(verified).toMatchObject({ ok: true, outcome: 'DENY', notices: [] });
+    // U20CDF: a neutral Swedish result text on top of the machine outcome (no manipulation tone).
+    expect((verified as { outcome_sv: string }).outcome_sv).toBe(
+      'Bedömningen kunde inte verifieras: återexekveringen gav inte samma resultat som den sparade bedömningen.',
+    );
     expect((verified as unknown as { mismatches: Array<{ code: string }> }).mismatches.map((m) => m.code)).toContain('TAMPERED_EVIDENCE');
   });
 
@@ -804,6 +815,9 @@ describe('U20-D: export and verify bound to an explicit assessment id', () => {
     const verifyOk = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set(auth).send({ assessmentArtifactId: currentId });
     expect(verifyOk.status).toBe(200);
     expect(verifyOk.body).toMatchObject({ ok: true, outcome: 'PASS', assessmentArtifactId: currentId });
+    // U20CDF (U30-R2 follow-up): the machine notices travel with the answer; none here.
+    expect(verifyOk.body.notices).toEqual([]);
+    expect(verifyOk.body.outcome_sv).toBe('Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.');
 
     const malformed = await request(app()).get(`/api/localization/${PROJECT_ID}/export-assessment-pdf?assessmentArtifactId=${encodeURIComponent('a b;c')}`).set(auth);
     expect(malformed.status).toBe(400);
@@ -812,6 +826,42 @@ describe('U20-D: export and verify bound to an explicit assessment id', () => {
     const legacy = await request(app()).get(`/api/localization/${PROJECT_ID}/export-assessment-pdf`).set(auth);
     expect(legacy.status).toBe(200);
     expect(legacy.headers['x-assessment-artifact-id']).toBe(currentId);
+  });
+});
+
+describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and says them honestly', () => {
+  it('PASS with NOT_CHECKED_CAUSE_NOT_PINNED -> notices in the answer, and "identiskt" only with the unsaved cause stated', async () => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    const currentId = fresh.executionMotor!.assessment_artifact_id!;
+    const notice = {
+      code: 'NOT_CHECKED_CAUSE_NOT_PINNED',
+      finding_ids: ['finding-notchecked-protected_area'],
+      detail: 'reproduced from the attested execution; the stored cause text was never pinned',
+    };
+    state.reExecute = async (real, args) => ({ ...((await real(args)) as object), notices: [notice] });
+
+    const direct = await verifyCurrentLuAssessment(s.deps());
+    expect(direct).toMatchObject({ ok: true, outcome: 'PASS', notices: [notice] });
+    const res = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', `Bearer ${token()}`).send({ assessmentArtifactId: currentId });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, outcome: 'PASS', mismatches: [], notices: [notice] });
+    expect(res.body.outcome_sv).toBe(
+      'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt, men orsaken till att ' +
+        'lagret inte kontrollerades sparades inte (Skyddad natur).',
+    );
+    expect(res.body.outcome_sv).not.toMatch(/manipul|förfalsk/i);
+
+    // Two layers -> plural, both named.
+    state.reExecute = async (real, args) => ({
+      ...((await real(args)) as object),
+      notices: [{ ...notice, finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-water'] }],
+    });
+    const two = await verifyCurrentLuAssessment(s.deps());
+    expect((two as { outcome_sv: string }).outcome_sv).toBe(
+      'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt, men orsaken till att ' +
+        'lagren inte kontrollerades sparades inte (Natura 2000, Brunnar).',
+    );
   });
 });
 
