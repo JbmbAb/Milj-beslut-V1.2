@@ -377,3 +377,112 @@ describe('W-CATCH3 #12: the re-read after a verified reuse is bound to its id', 
     expectTypedNoWrite(await run(), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3-R2 (CATCH3 verifier findings 2 and 3, MEDIUM; owner decision: provisioning bound to exactly
+// the requested id and content): the worker read the requested point and the configured authority
+// (lifecycle, root, issuer) without binding them to the ids it asked for. A misdirected point entry made
+// a request for P COMPLETED with Q's identity (or minted one for Q); a configured, REVOKED lifecycle
+// whose entry pointed at the older one minted a temporal status anyway -- the revocation was bypassed.
+// ------------------------------------------------------------------------------------------------
+describe('W-CATCH3-R2 #12: the requested point and the configured authority are bound to their ids', () => {
+  const pointAt = (fromId: string, toId: string) => {
+    const { hash } = JSON.parse(readFileSync(indexEntryPath(toId), 'utf8')) as { hash: string };
+    writeFileSync(indexEntryPath(fromId), JSON.stringify({ artifact_id: fromId, hash }));
+  };
+  async function anotherPoint(label: string, lng: number, provision: boolean) {
+    const original = geometryId;
+    const other = createLocalizationGeometryArtifact({
+      project_id: PROJECT_ID,
+      property_context_ref: { artifact_id: 'lu_property_context-catch2', artifact_type: 'LU_PROPERTY_CONTEXT' },
+      wgs84LngLat: [lng, 59.35],
+      sweref99NorthingEasting: [6581000 + Math.round(lng * 10), 675000],
+      provenance: 'user_defined',
+      label,
+      created_by: 'requester-1',
+    });
+    await put(other);
+    let ids: Awaited<ReturnType<typeof provisionedOnce>> | null = null;
+    if (provision) {
+      geometryId = other.artifact_id;
+      ids = await provisionedOnce();
+      geometryId = original;
+    }
+    return { geometryId: other.artifact_id, ids };
+  }
+  const authority = async () => {
+    const issuerId = process.env.LU_EXECUTION_AUTHORITY_ISSUER_ARTIFACT_ID!;
+    const issuer = (await repository().resolve({ artifact_id: issuerId, artifact_type: 'lu_execution_authority_issuer' })) as never as {
+      artifact_id: string;
+      payload: { root_ref: { artifact_id: string; artifact_type: string } };
+    };
+    const root = (await repository().resolve(issuer.payload.root_ref)) as never as { artifact_id: string; artifact_type: string };
+    return { issuer, root };
+  };
+  const STORAGE: Expected = { failureCode: 'PROVISIONING_STORAGE_INTEGRITY_FAULT', retryable: false };
+
+  it('IN1: the requested point P\'s index entry points at another valid point Q (Q already provisioned) -> GEOMETRY_UNAVAILABLE_OR_TAMPERED (lasting integrity fault), never COMPLETED with Q\'s identity', async () => {
+    await provisionedOnce();
+    const q = await anotherPoint('IN1-Q', 18.24, true);
+    pointAt(geometryId, q.geometryId);
+    const outcome = (await run()) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect({ ok: outcome.ok, failureCode: outcome.failureCode }).toEqual({ ok: false, failureCode: 'GEOMETRY_UNAVAILABLE_OR_TAMPERED' });
+    expect(outcome.failureDetail).toContain('bestående lagrings- eller integritetsfel');
+    expect(outcome.failureDetail?.endsWith('Inget utfärdades.')).toBe(true);
+    expect(h.puts).toEqual([]);
+  });
+  it('IN1b: the same misdirection, Q never provisioned -> typed, nothing minted for Q', async () => {
+    const q = await anotherPoint('IN1b-Q', 18.25, false);
+    pointAt(geometryId, q.geometryId);
+    const outcome = (await run()) as { ok: boolean; failureCode?: string };
+    expect({ ok: outcome.ok, failureCode: outcome.failureCode }).toEqual({ ok: false, failureCode: 'GEOMETRY_UNAVAILABLE_OR_TAMPERED' });
+    expect(h.puts).toEqual([]);
+  });
+  it('IN8: the configured lifecycle is REVOKED and its index entry points at the older, non-revoked lifecycle -> a lasting integrity fault, never a temporal status bound to the older one', async () => {
+    const { issuer, root } = await authority();
+    const olderLifecycleId = process.env.LU_EXECUTION_AUTHORITY_LIFECYCLE_ID!;
+    const bareRevoked = createLuExecutionAuthorityLifecycleArtifact({
+      root: root as never,
+      issuer: issuer as never,
+      valid_from: '2020-01-01T00:00:00.000Z',
+      valid_until: '2035-01-01T00:00:00.000Z',
+      revoked_at: '2021-01-01T00:00:00.000Z',
+      previous_lifecycle_ref: { artifact_id: olderLifecycleId, artifact_type: 'lu_execution_authority_lifecycle' },
+    });
+    const revoked = { ...bareRevoked, attestation: await attestLuExecutionAuthorityLifecycle({ lifecycle: bareRevoked, root: root as never, signing: rootKey.provider }) };
+    await put(revoked as never);
+    process.env.LU_EXECUTION_AUTHORITY_LIFECYCLE_ID = revoked.artifact_id;
+    const control = (await run()) as { ok: boolean };
+    expect(control.ok, 'control: the revoked configured lifecycle refuses with an intact index').toBe(false);
+    h.puts.length = 0;
+    pointAt(revoked.artifact_id, olderLifecycleId);
+    expectTypedNoWrite(await run(), STORAGE);
+  });
+  it('the configured root\'s index entry points at ANOTHER root signed by the same key -> a lasting integrity fault, nothing written', async () => {
+    await provisionedOnce();
+    const { root } = await authority();
+    const bareOther = createLuExecutionAuthorityRootArtifact({ root_key_id: rootKey.keyId, public_key_fingerprint: 'root-fingerprint-other-catch3' });
+    const otherRoot = { ...bareOther, attestation: await attestLuExecutionAuthorityRoot({ root: bareOther, signing: rootKey.provider }) };
+    await put(otherRoot);
+    pointAt(root.artifact_id, otherRoot.artifact_id);
+    expectTypedNoWrite(await run(), STORAGE);
+  });
+  it('the configured issuer\'s index entry points at ANOTHER issuer of the same key and root -> a lasting integrity fault, nothing written', async () => {
+    await provisionedOnce();
+    const { issuer, root } = await authority();
+    const bareOther = createLuExecutionAuthorityIssuerArtifact({ issuer_key_id: authorityKey.keyId, public_key_fingerprint: 'issuer-fingerprint-other-catch3', root_ref: { artifact_id: root.artifact_id, artifact_type: root.artifact_type } });
+    const otherIssuer = { ...bareOther, attestation: await attestLuExecutionAuthorityIssuer({ issuer: bareOther, root: root as never, signing: rootKey.provider }) };
+    await put(otherIssuer);
+    pointAt(issuer.artifact_id, otherIssuer.artifact_id);
+    expectTypedNoWrite(await run(), STORAGE);
+  });
+  it('controls (no over-closing): a fresh point mints, a retry reuses without a write, a second point mints its own identity', async () => {
+    const first = (await run()) as { ok: boolean; reused?: boolean; executionIdentityArtifactId?: string };
+    expect(first).toMatchObject({ ok: true, reused: false });
+    h.puts.length = 0;
+    expect(await run()).toEqual({ ok: true, executionIdentityArtifactId: first.executionIdentityArtifactId, reused: true });
+    expect(h.puts).toEqual([]);
+    const q = await anotherPoint('control-Q', 18.26, true);
+    expect(q.ids?.identityId).not.toBe(first.executionIdentityArtifactId);
+  });
+});

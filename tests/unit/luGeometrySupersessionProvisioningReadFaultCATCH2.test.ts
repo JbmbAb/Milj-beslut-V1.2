@@ -88,7 +88,10 @@ import { FileCASRepository, LocalPemSigningKeyProvider, LocalPemVerificationKeyP
 import { createLocalizationGeometryArtifact, createLocalizationGeometrySupersessionIssuerArtifact } from '@miljobeslut/mps-lu';
 import { MimersByteStorageBackend } from '../../packages/mps-runtime/src/repository/MimersByteStorageBackend';
 import { CasBackedArtifactRepository } from '../../packages/mps-runtime/src/repository/CasBackedArtifactRepository';
-import { executeGeometrySupersessionProvisioning } from '../../server/modules/localization/luGeometrySupersessionProvisioning';
+import { executeGeometrySupersessionProvisioning, mintLegacyBackfillSupersession } from '../../server/modules/localization/luGeometrySupersessionProvisioning';
+import { LocalizationGeometryCurrentProvider } from '../../server/modules/localization/localizationGeometryCurrentProvider';
+import { PrismaLocalizationGeometrySupersessionIndex } from '../../server/repositories/localizationGeometrySupersessionRepository';
+import { getLocalizationGeometrySupersessionVerifier } from '../../server/security/localizationGeometrySupersessionVerifier';
 import { attestLocalizationGeometrySupersessionIssuerArtifact } from '../../server/modules/localization/localizationGeometrySupersessionAuthority';
 import { PrismaLocalizationGeometryProjectionIndex } from '../../server/repositories/localizationGeometryProjectionRepository';
 import { __resetLocalizationGeometrySupersessionSigningProviderForTests } from '../../server/security/localizationGeometrySupersessionSigningKey';
@@ -439,5 +442,72 @@ describe('W-CATCH3 #11: pins for what the mutation round showed unguarded', () =
     expect(h.puts, 'a relation that does not verify never reaches the CAS').toEqual([]);
     expect(JSON.stringify(h.edgeRows)).toBe(edgesBefore);
     expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3-R2 (CATCH3 verifier finding 1, HIGH; owner decision: provisioning bound to exactly the
+// requested id and content): the worker read the pinned predecessor and successor without binding them
+// to the requested ids. A misdirected index entry B->C made a request A->B COMPLETED with a signed
+// relation A->C, C was registered and M1a then called C -- a point the user never chose -- current.
+// Now the object read under a pinned id must BE that point: a typed integrity fault
+// (PREDECESSOR_/SUCCESSOR_GEOMETRY_UNAVAILABLE, class STORAGE_INTEGRITY_FAULT), nothing written.
+// ------------------------------------------------------------------------------------------------
+describe('W-CATCH3-R2 #11: the pinned predecessor and successor are bound to the requested ids', () => {
+  const currentPoint = async (): Promise<string> => {
+    const provider = new LocalizationGeometryCurrentProvider(
+      repository() as never,
+      new PrismaLocalizationGeometryProjectionIndex() as never,
+      new PrismaLocalizationGeometrySupersessionIndex() as never,
+      getLocalizationGeometrySupersessionVerifier(),
+    );
+    const g = (await provider.resolveCurrent(PROJECT_ID)) as { artifact_id: string };
+    return g.artifact_id === A.artifact_id ? 'A' : g.artifact_id === B.artifact_id ? 'B' : g.artifact_id === C.artifact_id ? 'C' : g.artifact_id;
+  };
+  it('SN1: the SUCCESSOR B\'s index entry points at the valid point C; request A->B -> SUCCESSOR_GEOMETRY_UNAVAILABLE (lasting integrity fault), nothing written, C never registered', async () => {
+    pointIndexAt(B.artifact_id, C.artifact_id);
+    const outcome = (await request(A, B)) as { ok: boolean; superseded?: boolean; failureCode?: string; failureDetail?: string };
+    expect({ ok: outcome.ok, superseded: outcome.superseded, failureCode: outcome.failureCode }).toEqual({ ok: false, superseded: false, failureCode: 'SUCCESSOR_GEOMETRY_UNAVAILABLE' });
+    expect(outcome.failureDetail).toContain('bestående lagrings- eller integritetsfel');
+    expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
+    expect(outcome.failureDetail).not.toMatch(RAW);
+    expect(h.puts, 'neither the issuer nor a relation is written').toEqual([]);
+    expect(h.edgeRows).toEqual([]);
+    expect(h.geometryRows.map((r) => r.geometryArtifactId)).toEqual([A.artifact_id]);
+  });
+  it('SN1b: after that request the project\'s current point (the real M1a provider) is still A -- never C', async () => {
+    pointIndexAt(B.artifact_id, C.artifact_id);
+    await request(A, B);
+    expect(await currentPoint()).toBe('A');
+  });
+  it('SN2: the PREDECESSOR A\'s index entry points at the valid point C; request A->B -> PREDECESSOR_GEOMETRY_UNAVAILABLE before anything is minted', async () => {
+    pointIndexAt(A.artifact_id, C.artifact_id);
+    const outcome = (await request(A, B)) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect({ ok: outcome.ok, failureCode: outcome.failureCode }).toEqual({ ok: false, failureCode: 'PREDECESSOR_GEOMETRY_UNAVAILABLE' });
+    expect(outcome.failureDetail).toContain('bestående lagrings- eller integritetsfel');
+    expect(h.puts, 'not even the global issuer is minted').toEqual([]);
+  });
+  it('the one-time backfill: the successor\'s index entry points at another point -> a typed integrity fault, no relation, no edge', async () => {
+    pointIndexAt(B.artifact_id, C.artifact_id);
+    const failure = await mintLegacyBackfillSupersession({
+      repo: repository() as never,
+      projectId: PROJECT_ID,
+      predecessorGeometryArtifactId: A.artifact_id,
+      successorGeometryArtifactId: B.artifact_id,
+      issuedAt: '2026-10-01T00:00:00.000Z',
+    }).then(
+      () => null,
+      (error: unknown) => error as Error & Record<string, unknown>,
+    );
+    expect(failure).toMatchObject({ name: 'LuReadFaultError', faultClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+    expect(h.edgeRows).toEqual([]);
+  });
+  it('controls (no over-closing): the intact A->B still mints and C is never involved; a retry reuses; the current point is then B', async () => {
+    const first = (await request(A, B)) as { ok: boolean; reused?: boolean; supersessionArtifactId?: string };
+    expect(first).toMatchObject({ ok: true, reused: false });
+    expect(await currentPoint()).toBe('B');
+    h.puts.length = 0;
+    expect(await request(A, B)).toEqual({ ok: true, supersessionArtifactId: first.supersessionArtifactId, reused: true });
+    expect(h.puts).toEqual([]);
   });
 });
