@@ -37,6 +37,7 @@ function makeReport(overrides: Partial<LocalizationReport> = {}): LocalizationRe
       reasoning: 'Baseline motivering',
       comparison_status: 'COMPLETE',
       assessed_site_ids: ['A'],
+      not_ranked_site_ids: [],
       unassessed_site_ids: [],
     },
     warnings: [],

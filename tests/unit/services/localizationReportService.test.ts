@@ -225,6 +225,8 @@ describe('generateLocalizationReport', () => {
     ).toBeUndefined();
     expect(report.summary.comparison_status).toBe('UNAVAILABLE');
     expect(report.summary.unassessed_site_ids).toEqual(['alt-low', 'alt-high']);
+    // U20CDF4 (owner decision 2026-10-03 (4) point 4): no governed assessment -> unassessed, not "not ranked".
+    expect(report.summary.not_ranked_site_ids).toEqual([]);
   });
 });
 

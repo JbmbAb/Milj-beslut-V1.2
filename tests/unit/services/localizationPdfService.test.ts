@@ -106,6 +106,7 @@ function makeReport(overrides: Partial<LocalizationReport> = {}): LocalizationRe
       // best of all alternatives.
       comparison_status: 'COMPLETE' as const,
       assessed_site_ids: ['alt-1'],
+      not_ranked_site_ids: [],
       unassessed_site_ids: [],
     },
     warnings: [],
@@ -144,6 +145,7 @@ describe('buildLocalizationPdfData', () => {
         reasoning: 'Ingen rangordning tillgänglig',
         comparison_status: 'UNAVAILABLE' as const,
         assessed_site_ids: [],
+        not_ranked_site_ids: [],
         unassessed_site_ids: ['alt-1'],
       },
     });
@@ -159,6 +161,26 @@ describe('buildLocalizationPdfData', () => {
     expect(pdf.summary.comparison_status).toBe('COMPLETE');
     expect(pdf.summary.assessed_site_ids).toEqual(['alt-1']);
     expect(pdf.summary.unassessed_site_ids).toEqual([]);
+    // U20CDF4 (owner decision 2026-10-03 (4) point 4).
+    expect(pdf.summary.not_ranked_site_ids).toEqual([]);
+  });
+
+  it('U20CDF4: not_ranked_site_ids is carried; a report of the older shape (compatibility field only) still builds and gets no fabricated list', () => {
+    const report = makeReport({
+      summary: { reasoning: 'x', comparison_status: 'PARTIAL' as const, assessed_site_ids: ['alt-1'], not_ranked_site_ids: ['alt-2'], unassessed_site_ids: ['alt-3'] },
+    });
+    expect(buildLocalizationPdfData(report).summary).toMatchObject({ assessed_site_ids: ['alt-1'], not_ranked_site_ids: ['alt-2'], unassessed_site_ids: ['alt-3'] });
+    const older = makeReport({ summary: { reasoning: 'x', comparison_status: 'COMPLETE' as const, assessed_site_ids: ['alt-1'], unassessed_site_ids: [] } as never });
+    const pdf = buildLocalizationPdfData(older);
+    expect(pdf.summary.unassessed_site_ids).toEqual([]);
+    expect(Object.prototype.hasOwnProperty.call(pdf.summary, 'not_ranked_site_ids')).toBe(false);
+  });
+
+  it('U20CDF4: a not_ranked_site_ids that is not a list is refused like the other coverage fields', () => {
+    const report = makeReport({
+      summary: { reasoning: 'x', comparison_status: 'COMPLETE' as const, assessed_site_ids: ['alt-1'], not_ranked_site_ids: 'alt-2', unassessed_site_ids: [] } as never,
+    });
+    expect(() => buildLocalizationPdfData(report)).toThrow(/coverage fields required/);
   });
 
   it('utelämnar verdict-fält för en plats utan governad bedömning', () => {
@@ -183,6 +205,7 @@ describe('buildLocalizationPdfData', () => {
         reasoning: 'Ingen rangordning tillgänglig',
         comparison_status: 'UNAVAILABLE' as const,
         assessed_site_ids: [],
+        not_ranked_site_ids: [],
         unassessed_site_ids: ['alt-1'],
       },
     });
@@ -393,7 +416,7 @@ describe('buildLocalizationPdfData', () => {
             executionMotor: makeExecutionMotor('alt-1', { assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null }),
           }),
         ],
-        summary: { reasoning: 'x', comparison_status: 'UNAVAILABLE', assessed_site_ids: [], unassessed_site_ids: ['alt-1'] },
+        summary: { reasoning: 'x', comparison_status: 'UNAVAILABLE', assessed_site_ids: [], not_ranked_site_ids: [], unassessed_site_ids: ['alt-1'] },
       });
       const site = buildLocalizationPdfData(report).sites[0];
       expect(Object.prototype.hasOwnProperty.call(site, 'overall_statement_sv')).toBe(false);

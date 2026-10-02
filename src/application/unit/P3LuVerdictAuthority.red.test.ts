@@ -397,6 +397,8 @@ describe("🔴 P3-LU-CANONICAL-CHAIN-01 — LU_VERDICT_AUTHORITY_V1", () => {
     expect(report.summary.bestAlternativeId).toBe("site-b");
     expect(report.summary.unassessed_site_ids).toEqual(["site-a"]);
     expect(report.summary.assessed_site_ids).toEqual(["site-b"]);
+    // U20CDF4 (owner decision 2026-10-03 (4) point 4): nothing here is assessed-but-unranked.
+    expect(report.summary.not_ranked_site_ids).toEqual([]);
   });
 
   it("RED-6: a PARTIAL report ranks assessed sites only and says so", async () => {
@@ -408,6 +410,7 @@ describe("🔴 P3-LU-CANONICAL-CHAIN-01 — LU_VERDICT_AUTHORITY_V1", () => {
     expect(report.summary.comparison_status).toBe("PARTIAL");
     expect(report.summary.assessed_site_ids.sort()).toEqual(["site-a", "site-c"]);
     expect(report.summary.unassessed_site_ids).toEqual(["site-b"]);
+    expect(report.summary.not_ranked_site_ids).toEqual([]);
     expect(
       report.summary.reasoning,
       "A winner drawn from a subset must not read as best of all candidates.",

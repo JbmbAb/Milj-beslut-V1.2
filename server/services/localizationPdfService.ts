@@ -86,6 +86,13 @@ export interface LocalizationPdfData {
     /** COMPLETE | PARTIAL | UNAVAILABLE — how much of the candidate set was assessed. */
     comparison_status: LuComparisonStatus;
     assessed_site_ids: string[];
+    /**
+     * U20CDF4 (owner decision 2026-10-03 (4) point 4): assessed but not ranked (a governed assessment
+     * exists, outside the ranking population). Present iff the report carries it -- a report of the
+     * older shape gets no fabricated empty list.
+     */
+    not_ranked_site_ids?: string[];
+    /** COMPATIBILITY FIELD (U20CDF4): only candidates WITHOUT a governed assessment -- see the report type. */
     unassessed_site_ids: string[];
   };
   sites: Array<{
@@ -221,7 +228,10 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
     !report.summary ||
     typeof report.summary.comparison_status !== 'string' ||
     !Array.isArray(report.summary.assessed_site_ids) ||
-    !Array.isArray(report.summary.unassessed_site_ids)
+    !Array.isArray(report.summary.unassessed_site_ids) ||
+    // U20CDF4: the compatibility field above is still required (older consumers and the Dev-Gov unit
+    // fixtures build reports with it); not_ranked_site_ids, when present, must be a list.
+    (report.summary.not_ranked_site_ids !== undefined && !Array.isArray(report.summary.not_ranked_site_ids))
   ) {
     throw new Error(
       'LocalizationReport.summary is missing the coverage fields required since ' +
@@ -249,6 +259,7 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
       reasoning: report.summary.reasoning,
       comparison_status: report.summary.comparison_status,
       assessed_site_ids: [...report.summary.assessed_site_ids],
+      ...(Array.isArray(report.summary.not_ranked_site_ids) ? { not_ranked_site_ids: [...report.summary.not_ranked_site_ids] } : {}),
       unassessed_site_ids: [...report.summary.unassessed_site_ids],
     },
     sites: report.siteAnalyses.map((analysis) => {

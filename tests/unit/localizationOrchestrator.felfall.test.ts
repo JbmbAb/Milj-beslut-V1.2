@@ -101,6 +101,7 @@ function makeReport(projectId = PROJECT_ID, legacy?: { spatialDown: boolean; una
       reasoning: 'Ingen rangordning tillgänglig.',
       comparison_status: 'UNAVAILABLE',
       assessed_site_ids: [],
+      not_ranked_site_ids: [],
       unassessed_site_ids: ['alt-1'],
     },
     warnings: [],

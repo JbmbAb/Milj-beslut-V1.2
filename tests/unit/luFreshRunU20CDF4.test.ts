@@ -370,14 +370,12 @@ describe('U20CDF4 (owner decisions (4) points 1 and 3; coordinator clarification
     // highest possible. ALT-B: a valid MEDIUM record -> 0.5. Before U20CDF4 ALT-A was ranked first.
     const WATER_HIT = spatialEvidence('water', true);
     const WITH_WATER_HIT = LAYERS.map((layer) => (layer === 'water' ? WATER_HIT : spatialEvidence(layer)));
-    const NEGATIVES_ONLY = LAYERS.map((layer) => spatialEvidence(layer));
     const waterMedium = { finding_id: 'finding-water-medium', rule_id: RULE.water, rule_version: '2.0', risk_level: 'MEDIUM', explanation: 'x', evidence_refs: [refOf(WATER_HIT)] };
-    queryMock
-      .mockResolvedValueOnce({ evidence: NEGATIVES_ONLY, unavailable_layers: [] })
-      .mockResolvedValueOnce({ evidence: WITH_WATER_HIT, unavailable_layers: [] });
+    // The same provider answer for both sites (the sites run concurrently; nothing depends on call order).
+    queryMock.mockResolvedValue({ evidence: WITH_WATER_HIT, unavailable_layers: [] });
     kernelMock.mockImplementation(async (input: { assessment_draft: { site_id: string } }) =>
       input.assessment_draft.site_id === 'ALT-A'
-        ? admitted('assessment-a', [{ ...waterCritical, risk_level: 'high' }], NEGATIVES_ONLY)
+        ? admitted('assessment-a', [{ ...waterCritical, risk_level: 'high' }], WITH_WATER_HIT)
         : admitted('assessment-b', [waterMedium], WITH_WATER_HIT),
     );
     const res = await post('/api/localization/generate-report', [SITE_A, SITE_B]);
@@ -432,5 +430,51 @@ describe('U20CDF4 (owner decisions (4) points 1 and 3; coordinator clarification
     expect(site.complianceAnalysis).toMatchObject({ overallRisk: 'LOW', permitProbability: 0.95 });
     expect(res.body.summary.bestAlternativeId).toBe('ALT-A');
     expect(res.body.summary.comparison_status).toBe('COMPLETE');
+  });
+});
+
+describe('U20CDF4 (owner decision (4) point 4; coordinator clarification 4): not_ranked_site_ids is the truthful field; unassessed_site_ids keeps only its original meaning', () => {
+  it('a SEM-1 site (NOT_CHECKED, no probability), an integrity site and a denied site: three fields, three meanings, one partition', async () => {
+    const SITE_C = { id: 'ALT-C', name: 'Plats C', lat: 59.35, lng: 18.08 };
+    const NC = LAYERS.map((layer) => ({
+      finding_id: `finding-notchecked-${layer}`, rule_id: RULE[layer], rule_version: '2.0', risk_level: 'NOT_CHECKED', explanation: 'x', evidence_refs: [],
+    }));
+    // Every layer unavailable for every site (the sites run concurrently; nothing depends on call order).
+    queryMock.mockResolvedValue({ evidence: [], unavailable_layers: LAYERS.map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' })) });
+    kernelMock.mockImplementation(async (input: { assessment_draft: { site_id: string } }) => {
+      if (input.assessment_draft.site_id === 'ALT-A') return admitted('assessment-a', NC, []);
+      if (input.assessment_draft.site_id === 'ALT-B') {
+        return admitted('assessment-b', [...NC, { finding_id: 'f-odd', rule_id: 'LU-OTHER-001', rule_version: '2.0', risk_level: 'CRITICAL', explanation: 'x', evidence_refs: [] }], []);
+      }
+      return { admitted: false, reason_codes: ['CAPABILITY_DENIED'], attempt_id: null, outcome_id: null, manifest_id: null, findings: [], finding_ids: [], assessment: null };
+    });
+    const res = await post('/api/localization/generate-report', [SITE_A, SITE_B, SITE_C]);
+    expect(res.body.siteAnalyses.map((a: { executionMotor: { assessment_status: string } }) => a.executionMotor.assessment_status)).toEqual([
+      'ASSESSED', 'RECORD_INTEGRITY_ERROR', 'GOVERNANCE_DENIED',
+    ]);
+    expect(res.body.summary).toMatchObject({
+      comparison_status: 'UNAVAILABLE',
+      assessed_site_ids: [],
+      // assessed (a governed assessment artifact exists) but not in the ranking population
+      not_ranked_site_ids: ['ALT-A', 'ALT-B'],
+      // COMPATIBILITY ONLY, its original meaning: no governed assessment at all
+      unassessed_site_ids: ['ALT-C'],
+    });
+    const details = (vi.mocked(auditTrail.logAction).mock.calls.at(-1)![6] as { details: Record<string, unknown> }).details;
+    expect(details.unassessed_sites).toEqual([{ site_id: 'ALT-C', assessment_status: 'GOVERNANCE_DENIED', reason_codes: ['CAPABILITY_DENIED'] }]);
+    expect(details.not_ranked_sites).toEqual([
+      { site_id: 'ALT-A', assessment_status: 'ASSESSED', assessment_artifact_id: 'assessment-a', governed_coverage_state: 'DETERMINED' },
+      { site_id: 'ALT-B', assessment_status: 'RECORD_INTEGRITY_ERROR', assessment_artifact_id: 'assessment-b', governed_coverage_state: 'RECORD_INTEGRITY_ERROR' },
+    ]);
+    // Audited by status only (RED-8): no risk, no probability for a site that is not ranked.
+    expect(JSON.stringify(details.not_ranked_sites)).not.toMatch(/permitProbability|overallRisk|risk_level/);
+
+    const pdf = await post('/api/localization/generate-pdf-data', [SITE_A, SITE_B, SITE_C]);
+    expect(pdf.body.pdfData.summary).toMatchObject({ not_ranked_site_ids: ['ALT-A', 'ALT-B'], unassessed_site_ids: ['ALT-C'], assessed_site_ids: [] });
+  });
+
+  it('a ranked site appears in assessed_site_ids only (control)', async () => {
+    const res = await post('/api/localization/generate-report');
+    expect(res.body.summary).toMatchObject({ assessed_site_ids: ['ALT-A'], not_ranked_site_ids: [], unassessed_site_ids: [] });
   });
 });

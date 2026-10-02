@@ -436,9 +436,19 @@ export interface LocalizationReport {
      */
     assessed_site_ids: string[];
     /**
-     * Candidates excluded from ranking. U20CDF3 (H2): despite the field name this includes sites
-     * that ARE assessed (artifact present) but whose permitProbability is withheld (SEM-1); the
-     * reasoning names them as assessed. The name is kept (machine contract; owner decision).
+     * U20CDF4 (owner decision 2026-10-03 (4) point 4): candidates that HAVE a governed
+     * LocalizationAssessmentArtifact but are not in the ranking population -- a withheld
+     * permitProbability (SEM-1: a NOT_CHECKED finding and no HIGH/MEDIUM one) or a record that is not
+     * established (RECORD_INTEGRITY_ERROR). assessed_site_ids + not_ranked_site_ids +
+     * unassessed_site_ids partition the candidates.
+     */
+    not_ranked_site_ids: string[];
+    /**
+     * COMPATIBILITY FIELD (U20CDF4, owner decision (4) point 4): kept only until its consumers have moved
+     * to assessed_site_ids / not_ranked_site_ids, and only in its original, narrower meaning --
+     * candidates WITHOUT a governed assessment (no artifact: NOT_ASSESSED, GOVERNANCE_DENIED,
+     * EXECUTION_FAILED). An assessed but unranked site is never listed here any more (U20CDF3 H2 had
+     * noted that it was).
      */
     unassessed_site_ids: string[];
   };
@@ -1773,7 +1783,10 @@ export class GenerateLocalizationReportUseCase {
     // unassessed candidate stays in siteAnalyses with its status, but cannot be ranked and
     // cannot win.
     const assessed = analyses.filter(isAssessed);
-    const unassessed = analyses.filter((a) => !isAssessed(a));
+    // U20CDF4 (owner decision (4) point 4): "unassessed" means one thing -- no governed assessment.
+    // A site that has one but is not ranked is not_ranked, never "unassessed".
+    const notRanked = analyses.filter((a) => !isAssessed(a) && a.executionMotor?.assessment_artifact_id != null);
+    const unassessed = analyses.filter((a) => a.executionMotor?.assessment_artifact_id == null);
 
     const sortedByPermit = [...assessed].sort(
       (a, b) => rankedProbability(b) - rankedProbability(a),
@@ -1800,6 +1813,7 @@ export class GenerateLocalizationReportUseCase {
         reasoning,
         comparison_status: comparisonStatus,
         assessed_site_ids: assessed.map((a) => a.site.id),
+        not_ranked_site_ids: notRanked.map((a) => a.site.id),
         unassessed_site_ids: unassessed.map((a) => a.site.id),
       },
       warnings: reportWarnings,
@@ -1828,6 +1842,14 @@ export class GenerateLocalizationReportUseCase {
               site_id: a.site.id,
               assessment_status: a.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
               reason_codes: a.executionMotor?.reason_codes ?? [],
+            })),
+            // U20CDF4 (owner decision (4) point 4): assessed but not ranked -- by status and record
+            // state only, never a risk or a probability (same rule as above).
+            not_ranked_sites: notRanked.map((a) => ({
+              site_id: a.site.id,
+              assessment_status: a.executionMotor?.assessment_status ?? 'NOT_ASSESSED',
+              assessment_artifact_id: a.executionMotor?.assessment_artifact_id ?? null,
+              governed_coverage_state: a.executionMotor?.governed_coverage_state ?? null,
             })),
             ...(bestAlternative
               ? {

@@ -97,6 +97,10 @@ function report(
       comparison_status:
         assessed.length === 0 ? "UNAVAILABLE" : unassessed.length === 0 ? "COMPLETE" : "PARTIAL",
       assessed_site_ids: assessed.map((s) => s.site.id),
+      // U20CDF4 (owner decision 2026-10-03 (4) point 4): a governed assessment, but not ranked.
+      not_ranked_site_ids: sites
+        .filter((s) => s.executionMotor?.assessment_artifact_id != null && !assessed.includes(s))
+        .map((s) => s.site.id),
       unassessed_site_ids: unassessed.map((s) => s.site.id),
       ...(assessed.length > 0 ? { bestAlternativeId: assessed[0].site.id } : {}),
       ...summary,
@@ -145,6 +149,7 @@ describe("P3-LU-CANONICAL-CHAIN-01 — PDF projection", () => {
     expect(pdf.summary.comparison_status).toBe("PARTIAL");
     expect(pdf.summary.assessed_site_ids).toEqual(["a"]);
     expect(pdf.summary.unassessed_site_ids).toEqual(["b"]);
+    expect(pdf.summary.not_ranked_site_ids).toEqual([]);
     expect(pdf.summary.bestAlternativeId).toBe("a");
 
     const [a, b] = pdf.sites;
