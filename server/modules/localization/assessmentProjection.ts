@@ -32,7 +32,7 @@ import {
 } from "../../repositories/projectAssessmentProjectionRepository.js";
 import { ProjectContextBindingProvider } from "./projectContextBindingRuntime.js";
 import { isPersistentStorageFault } from "./storageFaultClassification.js";
-import { classifyReadFault } from "./readFaultClassification.js";
+import { classifyReadFault, readExistingOrProvenAbsent } from "./readFaultClassification.js";
 
 function sameHash(
   left: { readonly algorithm: string; readonly value: string },
@@ -507,15 +507,18 @@ export async function reconcileAssessmentProjection(args: {
   readonly currentReleaseRef: ArtifactReference;
   readonly index?: ProjectAssessmentProjectionIndex;
 }): Promise<AssessmentProjectionReconciliationResult> {
-  let assessment: LocalizationAssessmentArtifact;
-  try {
-    assessment = await args.artifactRepository.resolve<LocalizationAssessmentArtifact>({
-      artifact_id: args.assessmentArtifactId,
-      artifact_type: "LOCALIZATION_ASSESSMENT",
-    });
-  } catch {
+  // W-CATCH2 #16 (OD-R2): MISSING_CAS_ARTIFACT only for the repository's proven "never stored" for this
+  // id; any other read failure propagates as a typed LuReadFaultError (like the projection-store failure
+  // below), so an operator run never records a read error as a missing artifact.
+  const read = await readExistingOrProvenAbsent<LocalizationAssessmentArtifact>(
+    args.artifactRepository,
+    { artifact_id: args.assessmentArtifactId, artifact_type: "LOCALIZATION_ASSESSMENT" },
+    "assessment",
+  );
+  if (!read.found) {
     return { reconciled: false, reason: "MISSING_CAS_ARTIFACT" };
   }
+  const assessment = read.value;
 
   if (assessment.artifact_type !== "LOCALIZATION_ASSESSMENT") {
     return { reconciled: false, reason: "WRONG_TYPE" };

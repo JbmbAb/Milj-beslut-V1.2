@@ -66,11 +66,14 @@ export class ProjectContextBindingProvider {
   ) {}
 
   async resolve(projectId: string, projectContextRef: ArtifactReference): Promise<AnyProjectContextBindingArtifact> {
+    // W-CATCH2 #7: the refusals below are unchanged (callers key on them), but each keeps the original
+    // failure as `cause`, so a read error is never indistinguishable from a refusal
+    // (readFaultClassification.ts classifies the root cause).
     let bindingArtifactId: string;
     try {
       bindingArtifactId = await this.index.resolve(projectId, projectContextRef);
-    } catch {
-      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+    } catch (error) {
+      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE", { cause: error });
     }
 
     let binding: AnyProjectContextBindingArtifact;
@@ -79,8 +82,8 @@ export class ProjectContextBindingProvider {
         artifact_id: bindingArtifactId,
         artifact_type: PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE,
       });
-    } catch {
-      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+    } catch (error) {
+      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE", { cause: error });
     }
 
     const verified = validateProjectContextBindingAnyVersion(binding);
@@ -91,8 +94,8 @@ export class ProjectContextBindingProvider {
         artifactRepository: this.artifactRepository,
         verification: this.verification,
       });
-    } catch {
-      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_AUTHORITY_INVALID");
+    } catch (error) {
+      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_AUTHORITY_INVALID", { cause: error });
     }
     if (
       verified.payload.project_id !== projectId ||
