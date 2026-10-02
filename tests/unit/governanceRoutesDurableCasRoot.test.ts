@@ -8,6 +8,8 @@
 // storage and canonical pipeline are mocked at the module boundary, and the constructor
 // arguments are recorded so the chosen root is observable.
 
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import request from 'supertest';
@@ -105,7 +107,7 @@ describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
   });
 
   it('opens no CAS at module load: importing the router has no storage side effect', async () => {
-    process.env.MIMERS_ROOT = path.join(path.parse(process.cwd()).root, 'mimers-durable-root-under-test');
+    process.env.MIMERS_ROOT = mkdtempSync(path.join(tmpdir(), 'mimers-durable-root-under-test-'));
     await loadApp();
 
     expect(mocks.casConstructed).toEqual([]);
@@ -113,7 +115,9 @@ describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
   });
 
   it('opens the durable root from MIMERS_ROOT on first use, once', async () => {
-    const root = path.join(path.parse(process.cwd()).root, 'mimers-durable-root-under-test');
+    // Since ADV-1 rest the root must be an existing absolute directory (it is only stat'ed here; the
+    // CAS itself is mocked, so nothing is written into it).
+    const root = mkdtempSync(path.join(tmpdir(), 'mimers-durable-root-under-test-'));
     process.env.MIMERS_ROOT = root;
     const app = await loadApp();
 

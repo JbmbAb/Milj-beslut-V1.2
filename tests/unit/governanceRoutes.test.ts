@@ -22,9 +22,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createTokenPair } from '../../server/security/auth';
 
 // U30-A: the routes resolve the one durable MIMERS_ROOT (no `.data/mimers` fallback any more).
-// FileCASRepository is mocked below, so this root is never touched on disk.
-vi.hoisted(() => {
-  process.env.MIMERS_ROOT = '/governance-routes-test-mimers-root';
+// Since ADV-1 rest that root must be an existing absolute directory: a fresh empty temp directory,
+// only stat'ed -- FileCASRepository is mocked below, so nothing is written into it.
+await vi.hoisted(async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  process.env.MIMERS_ROOT = mkdtempSync(join(tmpdir(), 'governance-routes-test-mimers-root-'));
 });
 
 const mocks = vi.hoisted(() => ({

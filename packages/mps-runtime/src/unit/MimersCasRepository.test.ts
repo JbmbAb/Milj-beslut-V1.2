@@ -124,15 +124,17 @@ describe("Mimers CAS artifact repository", () => {
   });
 
   it("MIMERS_REQUIRED=1 fails closed when CAS cannot initialize", async () => {
-    // Point MIMERS_ROOT at a file so mkdir/init for cas/ fails closed.
-    const blocker = path.join(root, "not-a-dir");
-    await fs.writeFile(blocker, "block");
+    // A valid durable root whose cas/ is a FILE, so mkdir/init for cas/ fails closed. (A root that is
+    // itself a file is refused earlier, by resolveDurableMimersRoot -- see DurableMimersRoot.test.ts.)
+    const validRoot = path.join(root, "root-with-blocked-cas");
+    await fs.mkdir(validRoot);
+    await fs.writeFile(path.join(validRoot, "cas"), "block");
 
     await expect(
       createKernelArtifactRepository({
         env: mimersEnv({
           MIMERS_REQUIRED: "1",
-          MIMERS_ROOT: blocker,
+          MIMERS_ROOT: validRoot,
         }),
         forceMimers: true,
       }),

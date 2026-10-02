@@ -10,7 +10,14 @@
  *
  * The in-memory CAS is a separate, explicit test-only mode (`isMimersTestEnvironment`), never a
  * fallback for a missing root.
+ *
+ * ADV-1 rest / U30 verification F7: the root must be an ABSOLUTE path to an EXISTING directory. A
+ * relative MIMERS_ROOT re-introduced the cwd dependency through configuration, and a misspelled root
+ * was silently initialized as a new, EMPTY CAS (FileCASRepository.initialize creates it), in which
+ * every stored artifact read as "Artifact not found". The durable root is created explicitly by the
+ * operator or deployment, never implicitly by a process that happens to start.
  */
+import { statSync } from "node:fs";
 import path from "node:path";
 
 export const MIMERS_ROOT_REQUIRED = "MIMERS_ROOT_REQUIRED" as const;
@@ -32,8 +39,9 @@ export class MimersRootRequiredError extends Error {
 }
 
 /**
- * Resolve the durable Mimers root from `MIMERS_ROOT` (trimmed, made absolute).
- * Throws `MimersRootRequiredError` when it is unset or blank. Never touches the filesystem.
+ * Resolve the durable Mimers root from `MIMERS_ROOT` (trimmed, normalized).
+ * Throws `MimersRootRequiredError` when it is unset or blank, not an absolute path, does not exist,
+ * or is not a directory. Only stats the path; never creates anything.
  */
 export function resolveDurableMimersRoot(
   env: NodeJS.ProcessEnv = process.env,
@@ -43,7 +51,29 @@ export function resolveDurableMimersRoot(
   if (!raw) {
     throw new MimersRootRequiredError(consumer);
   }
-  return path.resolve(raw);
+  if (!path.isAbsolute(raw)) {
+    throw new MimersRootRequiredError(
+      consumer,
+      `MIMERS_ROOT '${raw}' for ${consumer} is not an absolute path (a relative root would resolve against the process's working directory)`,
+    );
+  }
+  const root = path.resolve(raw);
+  let isDirectory: boolean;
+  try {
+    isDirectory = statSync(root).isDirectory();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    throw new MimersRootRequiredError(
+      consumer,
+      code === "ENOENT"
+        ? `MIMERS_ROOT '${raw}' for ${consumer} does not exist (a misspelled root must not become a new, empty CAS; create the durable root explicitly)`
+        : `MIMERS_ROOT '${raw}' for ${consumer} cannot be inspected (${code ?? "unknown error"})`,
+    );
+  }
+  if (!isDirectory) {
+    throw new MimersRootRequiredError(consumer, `MIMERS_ROOT '${raw}' for ${consumer} is not a directory`);
+  }
+  return root;
 }
 
 /**

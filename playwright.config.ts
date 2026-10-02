@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
@@ -28,6 +29,14 @@ const testEnv = loadEnv('test', process.cwd(), '');
 
 const geminiApiKey = trim(testEnv.GEMINI_API_KEY) || (process.env.CI ? 'ci-gemini-key' : '');
 
+// U30-A: the server refuses to start without the durable Mimers CAS root (no `.data/mimers`
+// fallback any more). ADV-1 rest: that root must also be an EXISTING absolute directory -- it is never
+// created implicitly. The harness therefore creates its OWN default test root; a caller-provided
+// MIMERS_ROOT is used as given and must already exist.
+const callerMimersRoot = trim(process.env.MIMERS_ROOT);
+const e2eMimersRoot = callerMimersRoot || path.join(os.tmpdir(), `miljobeslut-e2e-mimers-${localApiPort}`);
+if (!callerMimersRoot && !isExternalTarget) mkdirSync(e2eMimersRoot, { recursive: true });
+
 const serverEnv = {
   NODE_ENV: 'development',
   PORT: String(localApiPort),
@@ -52,10 +61,8 @@ const serverEnv = {
   TIMOCOM_API_KEY: 'mock-e2e-timocom-key',
   CORS_ALLOW_ORIGINS: localUiBaseUrl,
   START_WORKERS_IN_PROCESS: 'false',
-  // U30-A: the server refuses to start without the durable Mimers CAS root (no `.data/mimers`
-  // fallback any more). The E2E harness names an explicit test root instead.
-  MIMERS_ROOT:
-    trim(process.env.MIMERS_ROOT) || path.join(os.tmpdir(), `miljobeslut-e2e-mimers-${localApiPort}`),
+  // U30-A: the E2E harness names an explicit test root (see e2eMimersRoot above).
+  MIMERS_ROOT: e2eMimersRoot,
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
