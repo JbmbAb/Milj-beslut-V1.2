@@ -515,8 +515,10 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
       statement_sv: 'Hög risk i de kontroller som utfördes; underlaget är ofullständigt: 4 av 6 kontroller genomförda.',
     });
     expect(fresh.complianceAnalysis.summary).toBe(summary.overallStatement.statement_sv);
-    // Provisional, derived (coordinator item 3): the same derivation, its own field.
+    // Provisional, derived (coordinator item 3): the same derivation, its own field. U20CDF (F10):
+    // "provisional" is in the payload, next to "derived".
     expect(summary.overall_summary).toEqual({
+      provisional: true,
       derived: true,
       derivation: 'governedVerdictFromFindings + governed layer checks (stored)',
       risk_level: 'HIGH',

@@ -195,6 +195,11 @@ async function resolveBoundLocalizationGeometry(
  * own field; nothing in the product reads it.
  */
 export interface DerivedOverallSummary {
+  /**
+   * U20CDF (U20CD verification F10): provisional in the payload itself, not only in this comment --
+   * a consumer must not build on the field before the owner decision (U20CD-REPORT question 9).
+   */
+  readonly provisional: true;
   readonly derived: true;
   readonly derivation: 'governedVerdictFromFindings + governed layer checks (stored)';
   readonly risk_level: string;
@@ -212,6 +217,7 @@ function derivedOverallSummary(
   checks: readonly PresentedGovernedLayerCheck[],
 ): DerivedOverallSummary {
   return {
+    provisional: true,
     derived: true,
     derivation: 'governedVerdictFromFindings + governed layer checks (stored)',
     risk_level: statement.risk_level,
