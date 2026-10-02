@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { runCanonicalLuProductAssessment, runLuAssessmentViaKernel } from "../src/execution/LuExecutionKernelClient";
 import { reExecuteLocalizationAssessment, resolveEvidence } from "../src/execution/LuDeterministicReExecution";
-import * as reExecutionModule from "../src/execution/LuDeterministicReExecution";
 import type { SpatialEvidenceArtifact } from "../src/artifacts/SpatialEvidenceArtifact";
 import { SPATIAL_STACK_V1 } from "../src/artifacts/SpatialEngineFingerprint";
 import { buildSpatialEvidenceContentHash } from "../src/artifacts/SpatialEvidenceIdentity";
@@ -1971,8 +1970,11 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expect(b.mismatches.map((m) => m.code)).toEqual(["EXECUTION_SUBJECT_UNBOUND"]);
   });
 
-  it("KNOWN_LIMITATION marker (LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY): the machine-readable record carries exactly the meaning and names every residual form -- NOT approved behaviour", () => {
-    const marker = (reExecutionModule as Record<string, unknown>).LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION as
+  it("KNOWN_LIMITATION marker (LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY): the machine-readable record carries exactly the meaning and names every residual form -- NOT approved behaviour", async () => {
+    // Its own module, deliberately not a package-root export (the root re-exports LuDeterministicReExecution
+    // wholesale; the API boundary snapshot must not change). Imported dynamically so its absence fails only here.
+    const markerModule = (await import("../src/execution/LuReExecutionKnownLimitation").catch(() => ({}))) as Record<string, unknown>;
+    const marker = markerModule.LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION as
       | {
           code: string;
           id: string;
@@ -1981,7 +1983,9 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
           owner_decision: string;
         }
       | undefined;
-    expect(marker, "LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION is exported by the re-execution module").toBeDefined();
+    expect(marker, "LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION is exported by LuReExecutionKnownLimitation.ts").toBeDefined();
+    const packageRoot = await import("../src/index");
+    expect(Object.keys(packageRoot), "the marker is not a package-root export").not.toContain("LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION");
     expect(marker!.code).toBe("KNOWN_LIMITATION");
     expect(marker!.id).toBe("LU_REEXECUTION_CONSISTENCY_NOT_AUTHENTICITY");
     expect(marker!.meaning_sv).toBe(
