@@ -114,13 +114,24 @@ export function assertSpatialQueryContractV3NumericParameters(parameters: unknow
  * layer was checked and found nothing" without inventing a fabricated evidence artifact for a
  * query that never actually completed.
  *
- * `reason` is a short, stable error-class label plus a brief technical description -- never a
- * raw stack trace or full driver error object, since this value can end up referenced from an
- * assessment artifact.
+ * U30-R2 (LU 72h, owner 2026-10-02: governed artifacts carry a stable machine code and a
+ * deterministic, neutral explanation; raw provider text stays internal):
+ *  - `reason` is the stable machine code of the cause class. The PostGIS provider reports
+ *    `SOURCE_UNAVAILABLE` -- the governed query of the layer could not be executed -- the same
+ *    vocabulary the read model uses for a governed NOT_CHECKED finding (coverage_state). It is the
+ *    only cause class a NOT_CHECKED layer finding has today: identity/admission failures deny the
+ *    whole run instead.
+ *  - `diagnostic` is the provider's raw technical text (error class + message, possibly SQL). It
+ *    is internal diagnostics for logging only: the rule engine never reads it, it is never part
+ *    of a finding, an assessment, replay identity, an HTTP response or a PDF.
+ * Neither value changes a byte of the NOT_CHECKED finding: the finding is a function of the layer
+ * alone (LURuleEngine), so deterministic re-execution can reproduce it from the attested
+ * execution without the cause ever having been pinned.
  */
 export interface SpatialLayerUnavailable {
   readonly dataset: string;
   readonly reason: string;
+  readonly diagnostic?: string;
 }
 
 /**

@@ -2,6 +2,7 @@ import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifact
 import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import {
   validateFrozenExecutionOutcomeIdentity,
+  type FrozenCapabilityExecutionArtifact,
   type FrozenExecutionOutcomeIdentity,
 } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
@@ -29,6 +30,11 @@ import {
   isDocumentEvidenceV2ContentHashValid,
   type DocumentEvidenceArtifactV2,
 } from "../artifacts/DocumentEvidenceArtifactV2.js";
+import {
+  NOT_CHECKED_CAUSE_SOURCE_UNAVAILABLE,
+  NOT_CHECKED_FINDING_ID_PREFIX,
+  isHistoricalNotCheckedExplanation,
+} from "../rules/LURuleEngine.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -74,6 +80,15 @@ import {
  * is the semantically meaningful guarantee ("the same evidence produces the same findings") and
  * is order-independent by construction, since `finding_id` is deterministic from the evidence
  * artifact_id alone, never from array position.
+ *
+ * U30-R2 (NOT_CHECKED replay within the existing contracts; owner 2026-10-02: no new artifact
+ * type). A NOT_CHECKED layer finding is a function of its layer alone (LURuleEngine), and WHICH
+ * layers were not checked is re-derived from the attested execution -- the CAPABILITY_EXECUTION
+ * pinned by the validated v2 outcome, re-hashed (`attestedNotCheckedLayers`) -- never from the
+ * stored findings under comparison: an added, removed or rewritten NOT_CHECKED finding therefore
+ * still mismatches. A historical NOT_CHECKED finding whose explanation embeds the provider's
+ * never-pinned free text is reproduced in every semantic field; its wording difference is reported
+ * as the machine-readable notice NOT_CHECKED_CAUSE_NOT_PINNED, not as a mismatch.
  */
 
 export type LuReExecutionMismatchCode =
@@ -96,6 +111,19 @@ export interface LuReExecutionResult {
   readonly mismatches: readonly LuReExecutionMismatch[];
   readonly fresh_findings: readonly AssessmentFinding[];
   readonly fresh_rule_refs: readonly { readonly rule_id: RuleId; readonly rule_version: RuleVersion }[];
+  /**
+   * U30-R2 -- machine-readable statuses that are NOT deviations and never turn PASS into DENY.
+   * `NOT_CHECKED_CAUSE_NOT_PINNED` (PRES-24 token, kept from the U30-R proposal): the listed
+   * historical NOT_CHECKED findings were reproduced from the attested execution in layer, rule,
+   * version, risk level and evidence, but their stored explanation embeds the provider's free-text
+   * cause, which was never pinned and so can neither be reproduced nor contradicted
+   * ("kan inte återskapas: orsaken sparades inte"). Always present; `[]` when there is none.
+   */
+  readonly notices: readonly {
+    readonly code: "NOT_CHECKED_CAUSE_NOT_PINNED";
+    readonly finding_ids: readonly string[];
+    readonly detail: string;
+  }[];
 }
 
 function canonicalFindingsKey(findings: readonly AssessmentFinding[]): readonly AssessmentFinding[] {
@@ -251,6 +279,7 @@ export async function reExecuteLocalizationAssessment(args: {
       }],
       fresh_findings: [],
       fresh_rule_refs: [],
+      notices: [],
     };
   }
 
@@ -268,6 +297,7 @@ export async function reExecuteLocalizationAssessment(args: {
       }],
       fresh_findings: [],
       fresh_rule_refs: [],
+      notices: [],
     };
   }
 
@@ -289,6 +319,7 @@ export async function reExecuteLocalizationAssessment(args: {
       }],
       fresh_findings: [],
       fresh_rule_refs: [],
+      notices: [],
     };
   }
   const manifestIdFromAttemptRef = deriveManifestIdFromAttemptId(outcome.attempt_ref.artifact_id);
@@ -305,6 +336,7 @@ export async function reExecuteLocalizationAssessment(args: {
       }],
       fresh_findings: [],
       fresh_rule_refs: [],
+      notices: [],
     };
   }
   const attempt = await args.artifactRepository.resolve<{ manifest_ref: ArtifactReference }>(outcome.attempt_ref);
@@ -318,6 +350,7 @@ export async function reExecuteLocalizationAssessment(args: {
       }],
       fresh_findings: [],
       fresh_rule_refs: [],
+      notices: [],
     };
   }
 
@@ -332,14 +365,60 @@ export async function reExecuteLocalizationAssessment(args: {
       mismatches,
       fresh_findings: [],
       fresh_rule_refs: [],
+      notices: [],
     };
   }
 
-  const freshFindings = evaluateLuRuleSet(spatial_evidence, document_evidence, verified_document_facts);
+  // U30-R2: which layers the original run could not check comes from the attested execution only.
+  const attested = await attestedNotCheckedLayers(outcome, args.artifactRepository);
+  if ("mismatch" in attested) {
+    return {
+      outcome: "DENY",
+      assessment_artifact_id: args.assessmentArtifactId,
+      mismatches: [attested.mismatch],
+      fresh_findings: [],
+      fresh_rule_refs: [],
+      notices: [],
+    };
+  }
+
+  const freshFindings = evaluateLuRuleSet(
+    spatial_evidence,
+    document_evidence,
+    verified_document_facts,
+    attested.layers.map((dataset) => ({ dataset, reason: NOT_CHECKED_CAUSE_SOURCE_UNAVAILABLE })),
+  );
   const freshRuleRefs = freshFindings.map((f) => ({ rule_id: f.rule_id, rule_version: f.rule_version }));
 
+  // U30-R2: a historical NOT_CHECKED finding (wording with the never-pinned provider text) is
+  // compared in today's wording -- only when the attested execution reproduced it and every other
+  // field matches. Stored findings are read here only to compare, never to decide what exists.
+  const freshById = new Map(freshFindings.map((finding) => [finding.finding_id, finding] as const));
+  const causeNotPinned: string[] = [];
+  const storedComparable = assessment.payload.findings.map((stored) => {
+    const fresh = freshById.get(stored.finding_id);
+    if (fresh && isHistoricalNotCheckedWordingOf(stored, fresh)) {
+      causeNotPinned.push(stored.finding_id);
+      return { ...stored, explanation: fresh.explanation };
+    }
+    return stored;
+  });
+  const notices: LuReExecutionResult["notices"] =
+    causeNotPinned.length === 0
+      ? []
+      : [
+          {
+            code: "NOT_CHECKED_CAUSE_NOT_PINNED",
+            finding_ids: [...causeNotPinned].sort(),
+            detail:
+              `NOT_CHECKED finding(s) ${JSON.stringify([...causeNotPinned].sort())} were reproduced from the attested execution ` +
+              `(layer, rule, version, risk level, evidence); their stored explanation is the historical wording that embedded ` +
+              `the provider's free-text cause, which was never pinned and is neither reproduced nor contradicted.`,
+          },
+        ];
+
   const comparisonMismatches: LuReExecutionMismatch[] = [];
-  const storedFindingsCanonical = canonicalFindingsKey(assessment.payload.findings);
+  const storedFindingsCanonical = canonicalFindingsKey(storedComparable);
   const freshFindingsCanonical = canonicalFindingsKey(freshFindings);
   if (JSON.stringify(storedFindingsCanonical) !== JSON.stringify(freshFindingsCanonical)) {
     comparisonMismatches.push({
@@ -362,7 +441,115 @@ export async function reExecuteLocalizationAssessment(args: {
     mismatches: comparisonMismatches,
     fresh_findings: freshFindings,
     fresh_rule_refs: freshRuleRefs,
+    notices,
   };
+}
+
+/**
+ * U30-R2 -- the governed layers the ATTESTED execution reported as not checked.
+ *
+ * Source: the assessment's execution_outcome_ref (a FrozenExecutionOutcome v2, validated above)
+ * -> its capability_execution_ref -> the CAPABILITY_EXECUTION the kernel wrote when the rules ran
+ * -> its output_refs, i.e. the finding ids that execution produced; `finding-notchecked-<layer>`
+ * names a layer the run could not check. The record is re-hashed from its own outputs and the
+ * pinned capability definition's implementation id -- the formula CapabilityRuntime.execute
+ * (packages/mps-runtime/src/capability/CapabilityRuntime.ts) uses -- and its id must carry that
+ * hash, so a rewritten output list is detected instead of trusted. Missing or inconsistent lineage
+ * is MANIFEST_ATTEMPT_MISMATCH: the pinned execution chain cannot be trusted.
+ *
+ * Deliberately NOT sources:
+ *  - the stored findings under comparison: circular -- an added NOT_CHECKED would "reproduce"
+ *    itself;
+ *  - "governed layers in code minus layers with pinned SpatialEvidence": the requested layer set
+ *    is pinned nowhere per assessment (the manifest pins site_id + seed only), so that difference
+ *    would invent NOT_CHECKED findings for layers a run never asked for (single-layer runs,
+ *    assessments from before LU-BREADTH-01).
+ *
+ * A V1 outcome carries no capability lineage. V1 predates NOT_CHECKED (SEM-1) by a month, so it
+ * attests none: nothing is fed back, exactly as before U30-R2.
+ */
+async function attestedNotCheckedLayers(
+  outcome: FrozenExecutionOutcomeIdentity,
+  repository: ArtifactRepositoryPort,
+): Promise<{ readonly layers: readonly string[] } | { readonly mismatch: LuReExecutionMismatch }> {
+  if (!("capability_execution_ref" in outcome)) {
+    return { layers: [] };
+  }
+  const untrusted = (detail: string) => ({
+    mismatch: { code: "MANIFEST_ATTEMPT_MISMATCH" as const, detail: `attested execution lineage: ${detail}` },
+  });
+  const executionRef = outcome.capability_execution_ref;
+
+  let execution: FrozenCapabilityExecutionArtifact;
+  try {
+    execution = await repository.resolve<FrozenCapabilityExecutionArtifact>(executionRef);
+  } catch {
+    return untrusted(`CAPABILITY_EXECUTION ${executionRef.artifact_id} pinned by the outcome could not be resolved from CAS`);
+  }
+  if (
+    !execution ||
+    execution.artifact_type !== "CAPABILITY_EXECUTION" ||
+    execution.artifact_id !== executionRef.artifact_id ||
+    !Array.isArray(execution.output_refs) ||
+    typeof execution.capability_ref?.artifact_id !== "string"
+  ) {
+    return untrusted(`${executionRef.artifact_id} is not the CAPABILITY_EXECUTION the outcome pins`);
+  }
+
+  let capability: { readonly artifact_id?: unknown; readonly implementation_ref?: { readonly artifact_id?: unknown } };
+  try {
+    capability = await repository.resolve(execution.capability_ref);
+  } catch {
+    return untrusted(`capability definition ${execution.capability_ref.artifact_id} could not be resolved from CAS`);
+  }
+  const implementationId = capability?.implementation_ref?.artifact_id;
+  if (capability?.artifact_id !== execution.capability_ref.artifact_id || typeof implementationId !== "string" || implementationId.length === 0) {
+    return untrusted(`capability definition ${execution.capability_ref.artifact_id} does not name an implementation`);
+  }
+
+  const outputIds = execution.output_refs.map((ref) => ref?.artifact_id);
+  if (outputIds.some((id) => typeof id !== "string")) {
+    return untrusted(`${executionRef.artifact_id} has a malformed output_refs entry`);
+  }
+  const recomputed = sha256ContentHash({
+    capability: execution.capability_ref.artifact_id,
+    implementation: implementationId,
+    outputs: outputIds,
+  });
+  if (
+    recomputed.value !== execution.content_hash?.value ||
+    execution.artifact_id !== `exec-${execution.capability_ref.artifact_id}-${recomputed.value.slice(0, 12)}`
+  ) {
+    return untrusted(`${executionRef.artifact_id} does not match its own outputs (recomputed ${recomputed.value}) -- rewritten or malformed`);
+  }
+
+  return {
+    layers: (outputIds as string[])
+      .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
+      .map((id) => id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length)),
+  };
+}
+
+/**
+ * U30-R2: `stored` is the historical form of the reproduced NOT_CHECKED finding `fresh` -- equal in
+ * every field except the explanation, which has the pre-U30-R2 frame around a provider text.
+ */
+function isHistoricalNotCheckedWordingOf(stored: AssessmentFinding, fresh: AssessmentFinding): boolean {
+  if (fresh.risk_level !== "NOT_CHECKED" || !fresh.finding_id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX)) {
+    return false;
+  }
+  const dataset = fresh.finding_id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length);
+  return (
+    stored.finding_id === fresh.finding_id &&
+    stored.rule_id === fresh.rule_id &&
+    stored.rule_version === fresh.rule_version &&
+    stored.risk_level === fresh.risk_level &&
+    Array.isArray(stored.evidence_refs) &&
+    JSON.stringify(stored.evidence_refs) === JSON.stringify(fresh.evidence_refs) &&
+    typeof stored.explanation === "string" &&
+    stored.explanation !== fresh.explanation &&
+    isHistoricalNotCheckedExplanation(stored.explanation, dataset)
+  );
 }
 
 function deriveManifestIdFromAttemptId(attemptId: string): string {

@@ -644,7 +644,7 @@ describe("U30-R2: canonical product boundary keeps the existing NOT_CHECKED cont
     );
     // No identity was provisioned, so admission denies -- what matters is that the boundary itself
     // does not refuse the existing machine-readable NOT_CHECKED input.
-    expect(settled.ok ? null : (settled.error as { code?: string }).code).not.toBe("LU_CANONICAL_UNAVAILABLE_LAYER_CAUSE_NOT_PINNED");
+    expect("error" in settled ? (settled.error as { code?: string }).code : null).not.toBe("LU_CANONICAL_UNAVAILABLE_LAYER_CAUSE_NOT_PINNED");
     expect(settled.ok).toBe(true);
   });
 });

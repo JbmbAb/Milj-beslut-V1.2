@@ -74,6 +74,50 @@ const LAYER_RULE_IDS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * U30-R2 (LU 72h) -- the NOT_CHECKED layer finding's stable parts, shared with deterministic
+ * re-execution. Internal to mps-lu (this module is not exported from the package root).
+ *
+ * `finding-notchecked-<layer>` has been the finding id since SEM-1; re-execution reads the layer
+ * back from the ids the ATTESTED execution produced (CAPABILITY_EXECUTION.output_refs).
+ */
+export const NOT_CHECKED_FINDING_ID_PREFIX = "finding-notchecked-";
+
+/**
+ * The stable machine code of the only cause class a NOT_CHECKED layer finding has: the layer's
+ * governed query could not be executed when the assessment ran. Same vocabulary as the read
+ * model's coverage_state for a governed NOT_CHECKED finding. Re-execution feeds it back with the
+ * attested layers; it never changes the finding's bytes.
+ */
+export const NOT_CHECKED_CAUSE_SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE";
+
+/**
+ * The deterministic, neutral explanation of a NOT_CHECKED layer finding (U20CD finding 5: no
+ * provider or SQL text). Keeps the SEM-1 frame ('Lagret "<layer>" kunde inte kontrolleras ...
+ * Ej kontrollerbart - underlag saknas.') so readers of the text see the same finding.
+ */
+export function notCheckedLayerExplanation(dataset: string): string {
+  return `Lagret "${dataset}" kunde inte kontrolleras: källan kunde inte frågas vid bedömningen. Ej kontrollerbart - underlag saknas.`;
+}
+
+const HISTORICAL_NOT_CHECKED_SUFFIX = "). Ej kontrollerbart - underlag saknas.";
+
+/**
+ * The wording every NOT_CHECKED layer finding was stored with before U30-R2:
+ * 'Lagret "<layer>" kunde inte kontrolleras (<provider free text>). Ej kontrollerbart - underlag saknas.'
+ * The free text was never pinned anywhere else, so it cannot be reproduced; this recognizes the
+ * historical frame only, so re-execution can report such a finding honestly
+ * (NOT_CHECKED_CAUSE_NOT_PINNED) instead of as tampering. Any other wording is not recognized.
+ */
+export function isHistoricalNotCheckedExplanation(explanation: string, dataset: string): boolean {
+  const prefix = `Lagret "${dataset}" kunde inte kontrolleras (`;
+  return (
+    explanation.startsWith(prefix) &&
+    explanation.endsWith(HISTORICAL_NOT_CHECKED_SUFFIX) &&
+    explanation.length > prefix.length + HISTORICAL_NOT_CHECKED_SUFFIX.length
+  );
+}
+
+/**
  * F4B — the fact type `LU-DOC-BESLUT-001` is predicated on.
  *
  * The rule asks whether a *verified legal fact* of this type exists. It does not read document
@@ -174,6 +218,12 @@ export class LURuleEngine {
    * `rule_version: "2.0"` on a `NOT_CHECKED` finding is the same version as that rule's normal
    * LOW/MEDIUM/HIGH findings (bumped above): the rule's contract, not any single outcome, is
    * what changed by admitting this new non-severity state.
+   *
+   * U30-R2: the finding is a function of the layer ALONE. Its explanation is the deterministic,
+   * neutral text of the one cause class (`notCheckedLayerExplanation`); the entry's `reason` (the
+   * stable cause code) and `diagnostic` (raw provider text) never reach it. Before U30-R2 the
+   * provider's free text was embedded here, so it reached the assessment, the HTTP response and
+   * the governed PDF, and deterministic re-execution could not reproduce it.
    */
   private evaluateUnavailableLayers(input: LURuleEvaluationInput): AssessmentFinding[] {
     const findings: AssessmentFinding[] = [];
@@ -183,13 +233,11 @@ export class LURuleEngine {
         continue;
       }
       findings.push({
-        finding_id: `finding-notchecked-${unavailable.dataset}`,
+        finding_id: `${NOT_CHECKED_FINDING_ID_PREFIX}${unavailable.dataset}`,
         rule_id: ruleId,
         rule_version: "2.0",
         risk_level: "NOT_CHECKED",
-        explanation:
-          `Lagret "${unavailable.dataset}" kunde inte kontrolleras (${unavailable.reason}). ` +
-          "Ej kontrollerbart - underlag saknas.",
+        explanation: notCheckedLayerExplanation(unavailable.dataset),
         evidence_refs: [],
       });
     }

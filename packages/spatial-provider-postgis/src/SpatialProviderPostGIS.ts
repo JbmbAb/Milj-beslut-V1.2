@@ -22,7 +22,19 @@ import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/Execut
 import { resolveLayerBinding } from "./SpatialLayerRegistry";
 import { verifySpatialLayerRuntimeBinding, SpatialLayerRuntimeBindingError } from "./SpatialDatasetRuntimeBinding";
 
-/** Error-class + short text, never a raw stack trace -- this can end up in an assessment artifact. */
+/**
+ * U30-R2: the stable machine code a layer whose governed query could not be executed is reported
+ * with (`SpatialLayerUnavailable.reason`). Same vocabulary as mps-lu's
+ * NOT_CHECKED_CAUSE_SOURCE_UNAVAILABLE and the read model's coverage_state; kept as a literal here
+ * because the provider only imports the mps-lu package root.
+ */
+const NOT_CHECKED_CAUSE_SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE";
+
+/**
+ * Error-class + short text, never a raw stack trace. U30-R2: internal diagnostics only
+ * (`SpatialLayerUnavailable.diagnostic`) -- never part of a finding, an assessment, an HTTP
+ * response or a PDF.
+ */
 function describeQueryFailure(error: unknown): string {
   const name = error instanceof Error ? error.name : "UnknownError";
   const message = error instanceof Error ? error.message : String(error);
@@ -208,9 +220,12 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         if (error instanceof SpatialLayerRuntimeBindingError) {
           throw error;
         }
+        // U30-R2: existing NOT_CHECKED contract -- stable cause code, raw text only as internal
+        // diagnostic. Nothing is written to CAS for a layer that was not checked.
         unavailable_layers.push({
           dataset: layer.name,
-          reason: describeQueryFailure(error),
+          reason: NOT_CHECKED_CAUSE_SOURCE_UNAVAILABLE,
+          diagnostic: describeQueryFailure(error),
         });
         continue;
       }
