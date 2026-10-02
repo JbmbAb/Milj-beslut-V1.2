@@ -181,6 +181,14 @@ export interface PinnedEvidenceReadability {
    * spelling). The record is a RECORD_INTEGRITY_ERROR. Absent when there is none.
    */
   readonly malformed_evidence_ref_indexes?: readonly number[];
+  /**
+   * W-U20CDF5 (U20CDF4 verification M1): the refs alone pin at least one DOCUMENT_EVIDENCE and one
+   * VERIFIED_DOCUMENT_FACT -- exactly what LU-DOC-BESLUT-001 reads -- known WITHOUT reading any artifact.
+   * Lets a NOT_CHECKED document finding beside them be recognised as a contradiction even when a pinned
+   * document could not be read (the document row is then a technical error, not CHECKED_HIT). Absent
+   * when not.
+   */
+  readonly document_rule_inputs_pinned?: boolean;
 }
 
 export const HISTORICAL_COVERAGE_UNKNOWN_SV = 'Täckningsgrad kan inte fastställas för denna historiska bedömning.';
@@ -238,35 +246,14 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
       ? { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: ['CHECKS_UNAVAILABLE'], coverage: null }
       : { coverage_state: 'CHECKS_UNAVAILABLE', coverage_basis: [], coverage: null };
   }
-  // U20CDF2 (G2): bound to evidence that cannot be read -- an integrity/technical error first of all.
   const pinned = context?.pinnedEvidence;
-  if (pinned && pinned.unreadable_artifact_ids.length > 0) {
-    return {
-      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
-      coverage_basis: pinned.unreadable_artifact_ids.map((id) => `PINNED_EVIDENCE_UNREADABLE:${id}`),
-      coverage: null,
-      // Exactly the readability fields (the integrity list below is reported through coverage_basis).
-      pinned_evidence: {
-        pinned_total: pinned.pinned_total,
-        unreadable_artifact_ids: pinned.unreadable_artifact_ids,
-        technical_error_class: pinned.technical_error_class,
-        retryable: pinned.retryable,
-      },
-    };
-  }
-  const unreadableRows = checks.filter(
-    (entry): entry is GovernedLayerCheck => Boolean(entry) && (entry as GovernedLayerCheck).reason === 'PINNED_EVIDENCE_UNREADABLE',
-  );
-  if (unreadableRows.length > 0) {
-    return {
-      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
-      coverage_basis: unreadableRows.map((check) => `PINNED_EVIDENCE_UNREADABLE:${check.evidence_artifact_id ?? check.layer}`),
-      coverage: null,
-    };
-  }
   const findings = Array.isArray(context?.findings) ? context.findings : [];
   // U20CDF3 (owner: "ogiltig kombination fail-closed"; one common normal form): combinations no known
   // producer writes are a typed integrity error, ahead of the historical classification.
+  // W-U20CDF5 (U20CDF4 verification M1): and ahead of PINNED_EVIDENCE_UNREADABLE. Every entry below is
+  // established WITHOUT the evidence that could not be read -- from the record itself (findings, refs) or
+  // from evidence that WAS read -- so a read fault never hides it: the record is a RECORD_INTEGRITY_ERROR
+  // (not retryable), with what could not be read appended to its basis.
   const integrity: string[] = [];
   for (const id of pinned?.outside_governed_layers_artifact_ids ?? []) integrity.push(`EVIDENCE_OUTSIDE_GOVERNED_LAYERS:${id}`);
   // U20CDF4 (U20CDF3 verification L6.2/L6.3; owner decision 2): entries that break the record's own
@@ -291,7 +278,10 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
       // of LU-DOC-BESLUT-001 next to the pinned DE + VF it would rest on (the row CHECKED_HIT, derived
       // from the refs, OD-K0-3) read "6 av 6". The rule engine writes NOT_CHECKED only for an unavailable
       // spatial layer, so no producer writes this: the same contradiction as for a layer.
-      if (check.status === 'CHECKED_HIT' && notCheckedRules.has(GOVERNED_DOCUMENT_CHECK_RULE_ID)) {
+      // W-U20CDF5 (M1): the pinned DE + VF are known from the refs alone, also when a pinned document
+      // could not be read (the row is then a technical error, not CHECKED_HIT).
+      const ruleInputsPinned = check.status === 'CHECKED_HIT' || pinned?.document_rule_inputs_pinned === true;
+      if (ruleInputsPinned && notCheckedRules.has(GOVERNED_DOCUMENT_CHECK_RULE_ID)) {
         integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${GOVERNED_DOCUMENT_CHECK_LAYER}`);
       }
       continue;
@@ -319,7 +309,35 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
     const ruleId = (finding as { rule_id?: unknown })?.rule_id;
     integrity.push(`UNKNOWN_SEVERITY:${typeof id === 'string' && id ? id : typeof ruleId === 'string' && ruleId ? ruleId : `#${index}`}`);
   });
-  if (integrity.length > 0) return { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: integrity, coverage: null };
+  // U20CDF2 (G2): bound to evidence that cannot be read -- a technical/integrity error, never a recount of
+  // what happens to be readable now. W-U20CDF5 (M1): only when nothing above already establishes a break.
+  const unreadableBasis =
+    pinned && pinned.unreadable_artifact_ids.length > 0
+      ? pinned.unreadable_artifact_ids.map((id) => `PINNED_EVIDENCE_UNREADABLE:${id}`)
+      : checks
+          .filter((entry): entry is GovernedLayerCheck => Boolean(entry) && (entry as GovernedLayerCheck).reason === 'PINNED_EVIDENCE_UNREADABLE')
+          .map((check) => `PINNED_EVIDENCE_UNREADABLE:${check.evidence_artifact_id ?? check.layer}`);
+  if (integrity.length > 0) {
+    return { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: [...integrity, ...unreadableBasis], coverage: null };
+  }
+  if (unreadableBasis.length > 0) {
+    return {
+      coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
+      coverage_basis: unreadableBasis,
+      coverage: null,
+      // Exactly the readability fields (the integrity list above is reported through coverage_basis).
+      ...(pinned && pinned.unreadable_artifact_ids.length > 0
+        ? {
+            pinned_evidence: {
+              pinned_total: pinned.pinned_total,
+              unreadable_artifact_ids: pinned.unreadable_artifact_ids,
+              technical_error_class: pinned.technical_error_class,
+              retryable: pinned.retryable,
+            },
+          }
+        : {}),
+    };
+  }
   const riskRules = new Set(findings.filter(isGovernedRiskFinding).map((finding) => finding.rule_id));
   const basis: string[] = [];
   let documentCheck: GovernedLayerCheck | null = null;

@@ -1126,6 +1126,8 @@ export async function resolveGovernedAssessmentDetails(input: {
         ? { outside_governed_layers_artifact_ids: [...outsideGovernedLayerIds].sort() }
         : {}),
       ...(malformedRefIndexes.length > 0 ? { malformed_evidence_ref_indexes: malformedRefIndexes } : {}),
+      // W-U20CDF5 (M1): what LU-DOC-BESLUT-001 reads is pinned -- from the refs alone, no artifact read.
+      ...(computeGovernedDocumentCheck(rawRefs).status === 'CHECKED_HIT' ? { document_rule_inputs_pinned: true } : {}),
     },
     propertyRoot,
     integrity: integrityFailure,

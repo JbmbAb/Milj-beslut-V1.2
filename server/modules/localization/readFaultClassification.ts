@@ -113,6 +113,15 @@ function fault(faultClass: ReadFaultClass, refusalCode: string | null = null): R
 }
 
 /**
+ * W-U20CDF5: the ReadFault of a class a caller already knows from an existing, reviewed classification
+ * of its own reads (e.g. governedEvidenceDetails' EVIDENCE_NOT_FOUND / EVIDENCE_READ_ERROR) -- `retryable`
+ * derived from the class exactly as classifyReadFault does, never chosen by the caller.
+ */
+export function readFaultOfClass(faultClass: ReadFaultClass): ReadFault {
+  return fault(faultClass);
+}
+
+/**
  * The class of a failed read (or of the failed verification of an object that was read). Order:
  * an already-typed LuReadFaultError keeps its class; then index inconsistency, "never stored" for
  * something that must exist, a lasting storage fault, a read fault anywhere in the chain; then the ROOT

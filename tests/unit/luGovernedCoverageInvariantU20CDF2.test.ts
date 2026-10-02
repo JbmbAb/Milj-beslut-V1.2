@@ -608,20 +608,25 @@ const RISK_FINDINGS = new Set<FindingState>(['HIGH', 'MEDIUM', 'LOW']);
 /** The oracle (see the header of this part): from the specification and the producer contract. */
 function specOracle(record: StoredRecord): OracleVerdict {
   const layerStates = LAYERS.map((l) => record.layers[l]);
-  // (S3) an unreadable pinned object: a technical/integrity error, never a recount.
-  const unreadable = layerStates.some((s) => UNREADABLE.has(s.evidence as EvidenceState)) || record.document === 'UNREADABLE_WITH_FINDING';
-  if (unreadable) {
-    const lasting = layerStates.some((s) => s.evidence === 'UNREADABLE_NOT_FOUND') || record.document === 'UNREADABLE_WITH_FINDING';
-    return { kind: 'UNREADABLE', lasting };
-  }
+  const readable = (s: LayerRecord) => !UNREADABLE.has(s.evidence as EvidenceState);
   // (S4) invalid combinations no producer writes: fail-closed as an integrity error.
+  // W-U20CDF5 (U20CDF4 verification M1): every one of them that is established WITHOUT the unreadable
+  // evidence -- from the record itself or from evidence that was read -- goes BEFORE (S3): a read fault
+  // never hides an integrity error (a NOT_CHECKED finding beside UNREADABLE evidence is not established:
+  // that evidence was not read).
   const invalidCombination =
     record.foreign !== null ||
     layerStates.some((s) => s.finding === 'UNKNOWN_SEVERITY') ||
     layerStates.some((s) => s.evidence === 'DUP_NO_HIT' || s.evidence === 'DUP_HIT_NO_HIT') ||
-    layerStates.some((s) => (s.finding === 'NC' || s.finding === 'HIGH_NC') && s.evidence !== 'NONE') ||
+    layerStates.some((s) => (s.finding === 'NC' || s.finding === 'HIGH_NC') && s.evidence !== 'NONE' && readable(s)) ||
     layerStates.some((s) => INVALID.has(s.evidence as EvidenceState));
   if (invalidCombination) return { kind: 'NO_COUNT', integrity: true };
+  // (S3) an unreadable pinned object: a technical/integrity error, never a recount.
+  const unreadable = layerStates.some((s) => !readable(s)) || record.document === 'UNREADABLE_WITH_FINDING';
+  if (unreadable) {
+    const lasting = layerStates.some((s) => s.evidence === 'UNREADABLE_NOT_FOUND') || record.document === 'UNREADABLE_WITH_FINDING';
+    return { kind: 'UNREADABLE', lasting };
+  }
   // The producer shapes.
   let completed = 0;
   for (const { evidence: ev, finding } of layerStates) {

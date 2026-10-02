@@ -66,6 +66,7 @@ import { governedLayerLabelSv, highestGovernedRiskLevel, storedRiskFindingsSv } 
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
+import { readFaultHttpStatus, readFaultOfClass, readFaultSentenceSv, type ReadFaultClass } from './readFaultClassification';
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
@@ -404,6 +405,7 @@ export async function resolveLuViewerPresentation(input: {
   | { ok: false; status: number; error: string }
   | GovernedRecordIntegrityFailure
   | GovernedEvidenceIntegrityFailure
+  | PinnedEvidenceUnreadableRefusal
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
@@ -505,7 +507,7 @@ export async function resolveLuViewerPresentation(input: {
   if (assessment.artifact_id !== presentation.assessmentArtifactId || assessment.artifact_id !== `assessment-${recomputed.value}`) {
     return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.' };
   }
-  const recordRefusal = await currentRecordIntegrityRefusal(assessment, artifactRepository, 'refuse');
+  const recordRefusal = await currentRecordIntegrityRefusal(assessment, artifactRepository, 'map');
   if (recordRefusal) return recordRefusal;
 
   return {
@@ -760,29 +762,77 @@ export function recordIntegrityDiagnosticWire(raw: unknown): RecordIntegrityDiag
   };
 }
 
+/** W-U20CDF5 (U20CDF4 verification M1): verify / the map could not read every pinned evidence of the record. */
+export const ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE = 'ASSESSMENT_PINNED_EVIDENCE_UNREADABLE';
+
+/**
+ * W-U20CDF5 (U20CDF4 verification M1; owner decisions (4) point 1 and (5)): the integrity pre-check of verify
+ * or the map could not read every pinned evidence, and nothing it could read establishes a break. The record
+ * may be fine or may not: its integrity is not established, so verify does not replay it (never PASS) and the
+ * map does not present it (never 200). A typed read fault in the shared classes: READ_ERROR (retryable) for a
+ * read of unknown persistence, MISSING_FROM_CAS (lasting, not retryable) for pinned evidence the CAS does not
+ * hold. (The read-back keeps its own 200 PINNED_EVIDENCE_UNREADABLE state, U20CDF2 G2: it presents no level
+ * and no count, and names the stored findings.)
+ */
+export interface PinnedEvidenceUnreadableRefusal {
+  readonly ok: false;
+  readonly status: 409 | 503;
+  readonly error: string;
+  readonly code: typeof ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE;
+  readonly failureClass: ReadFaultClass;
+  /** EVIDENCE_READ_ERROR / EVIDENCE_NOT_FOUND (governedEvidenceDetails' class of the failed reads), else PINNED_EVIDENCE_UNREADABLE. */
+  readonly reasonCode: string;
+  readonly retryable: boolean;
+}
+
+function pinnedEvidenceUnreadableRefusal(statement: GovernedOverallStatement, path: 'verify' | 'map'): PinnedEvidenceUnreadableRefusal {
+  const technical = statement.pinned_evidence?.technical_error_class ?? null;
+  // governedEvidenceDetails' own reviewed classification of the failed reads, in the shared classes: a pinned
+  // artifact the CAS does not hold is MISSING_FROM_CAS (lasting); anything else a READ_ERROR (retryable).
+  const fault = readFaultOfClass(technical === 'EVIDENCE_NOT_FOUND' ? 'MISSING_FROM_CAS' : 'READ_ERROR');
+  const consequence =
+    path === 'verify'
+      ? 'Bedömningens integritet kunde därför inte kontrolleras: reproducerbarhetskontrollen genomfördes inte och inget utfall anges.'
+      : 'Bedömningens integritet kunde därför inte kontrolleras, och kartan visar inte bedömningen.';
+  return {
+    ok: false,
+    status: readFaultHttpStatus(fault),
+    error: `${readFaultSentenceSv(fault, 'Den pinnade evidensen som bedömningen är bunden till')} ${consequence}`,
+    code: ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE,
+    failureClass: fault.faultClass,
+    reasonCode: technical ?? 'PINNED_EVIDENCE_UNREADABLE',
+    retryable: fault.retryable,
+  };
+}
+
 /**
  * U20CDF4: the record-integrity check of an already identity-verified current assessment, for the
- * paths that do not build the read-back themselves (verify, the map). `onEvidenceIntegrityFailure`:
- * 'refuse' answers a tampered/corrupted pinned artifact with the read-back's own 424; 'pass' leaves it
- * to the caller (verify keeps its PASS/DENY semantics: H15 reports a tampered evidence as DENY).
+ * paths that do not build the read-back themselves (verify, the map). 'map' answers a tampered/corrupted
+ * pinned artifact with the read-back's own 424; 'verify' leaves it to H15 (its PASS/DENY semantics: H15
+ * reports a tampered evidence as DENY).
+ * W-U20CDF5 (U20CDF4 verification M1): a pre-check that could not read every pinned evidence never lets
+ * either path go on -- a visible break is the 424 (assessGovernedCoverage puts it first), otherwise the
+ * typed PinnedEvidenceUnreadableRefusal.
  */
 async function currentRecordIntegrityRefusal(
   assessment: LocalizationAssessmentArtifact,
   artifactRepository: ArtifactRepositoryPort,
-  onEvidenceIntegrityFailure: 'refuse' | 'pass',
-): Promise<GovernedRecordIntegrityFailure | GovernedEvidenceIntegrityFailure | null> {
+  path: 'verify' | 'map',
+): Promise<GovernedRecordIntegrityFailure | GovernedEvidenceIntegrityFailure | PinnedEvidenceUnreadableRefusal | null> {
   const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
   if (details.integrity.ok === false) {
-    return onEvidenceIntegrityFailure === 'refuse' ? governedEvidenceIntegrityFailure(details.integrity) : null;
+    return path === 'map' ? governedEvidenceIntegrityFailure(details.integrity) : null;
   }
   const statement = governedOverallStatement(
     governedVerdictFromFindings(assessment.payload.findings).overallRisk,
     details.governedLayerChecks,
     { findings: assessment.payload.findings, pinnedEvidence: details.pinnedEvidence },
   );
-  return statement.coverage_state === 'RECORD_INTEGRITY_ERROR'
-    ? recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings)
-    : null;
+  if (statement.coverage_state === 'RECORD_INTEGRITY_ERROR') {
+    return recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings);
+  }
+  if (statement.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') return pinnedEvidenceUnreadableRefusal(statement, path);
+  return null;
 }
 
 type CurrentAssessmentInput = {
@@ -1552,6 +1602,7 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
     }
   | { ok: false; status: number; error: string }
   | GovernedRecordIntegrityFailure
+  | PinnedEvidenceUnreadableRefusal
 > {
   // U20-D: identity resolution only (plus the optional explicit-id binding) -- not the evidence
   // details, so a tampered evidence still reaches H15 and comes back as DENY/TAMPERED_EVIDENCE.
@@ -1564,7 +1615,8 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
   // PASS for such a record): a current record that fails its integrity check is the same 424 as the
   // read-back -- never replayed and never "Reproducerbarhet verifierad" next to an integrity error. A
   // tampered/corrupted pinned evidence is left to H15 as before (DENY/TAMPERED_EVIDENCE).
-  const recordRefusal = await currentRecordIntegrityRefusal(core.assessment, core.artifactRepository, 'pass');
+  // W-U20CDF5 (U20CDF4 verification M1): nor when the pre-check could not read every pinned evidence.
+  const recordRefusal = await currentRecordIntegrityRefusal(core.assessment, core.artifactRepository, 'verify');
   if (recordRefusal) return recordRefusal;
 
   const result = await reExecuteLocalizationAssessment({
