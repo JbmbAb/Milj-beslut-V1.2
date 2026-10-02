@@ -352,9 +352,11 @@ describe("🔴 P3-LU-CANONICAL-CHAIN-01 — LU_VERDICT_AUTHORITY_V1", () => {
       expect(analysis.complianceAnalysis.overallRisk).toBe("MEDIUM");
       expect(analysis.complianceAnalysis.permitProbability).toBe(0.5);
       // U20-C / OD-K0-1: the summary text is the governed, coverage-qualified statement (never the
-      // bare level and never the live engine's "live verdict A/B").
-      expect(analysis.complianceAnalysis.summary).toMatch(/^Måttlig risk i de kontroller som utfördes; /);
-      expect(analysis.complianceAnalysis.summary).not.toMatch(/live verdict/);
+      // bare level and never the live engine's "live verdict A/B"). U20CDF (F2, owner wording): this
+      // fixture's provider returns no evidence, so 0 of 6 governed checks completed and the text names
+      // no level at all; the machine values above still prove the verdict comes from the governed finding.
+      expect(analysis.complianceAnalysis.summary).toBe('Ingen samlad risknivå kan presenteras – 0 av 6 kontroller genomförda.');
+      expect(analysis.complianceAnalysis.summary).not.toMatch(/live verdict|låg risk/i);
     }
   });
 
