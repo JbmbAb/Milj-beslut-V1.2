@@ -32,6 +32,8 @@ vi.mock('../../server/db/prisma', () => ({
     $queryRaw: mocks.queryRaw,
     project: { findUnique: mocks.projectFindUnique },
     projectMember: { findFirst: mocks.memberFindFirst },
+    // W-BOOT (APR F2): no earlier completed bootstrap for this project.
+    projectContextBootstrapRequest: { count: async () => 0 },
   },
 }));
 vi.mock('../../server/security/auditTrail', () => ({ appendPropertyAudit: mocks.appendPropertyAudit }));
@@ -61,6 +63,21 @@ vi.mock('../../server/security/projectContextBindingIssuerKey', () => ({
 vi.mock('../../server/repositories/projectContextBindingRepository', () => ({
   PrismaProjectContextBindingIndex: class {
     async listSupersessionRefs() {
+      return [];
+    }
+  },
+}));
+// W-BOOT (APR F2): ... nor any assessment or localization geometry row (index traces of a binding).
+vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () => ({
+  PrismaProjectAssessmentProjectionIndex: class {
+    async listForProject() {
+      return [];
+    }
+  },
+}));
+vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
+  PrismaLocalizationGeometryProjectionIndex: class {
+    async listForProject() {
       return [];
     }
   },
