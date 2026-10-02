@@ -16,9 +16,6 @@ import {
   type LocalizationGeometryArtifact,
   validateLocalizationGeometryArtifact,
   SPATIAL_STACK_V1,
-  createSpatialLayerUnavailableEvidence,
-  toSpatialLayerUnavailable,
-  type SpatialLayerUnavailableArtifact,
 } from "@miljobeslut/mps-lu";
 import { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifacts/ArtifactContract";
 import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/ExecutionKernel";
@@ -211,18 +208,10 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
         if (error instanceof SpatialLayerRuntimeBindingError) {
           throw error;
         }
-        // U30-R: the cause is pinned in CAS, not just reported, so the NOT_CHECKED finding it
-        // produces can be reproduced by deterministic re-execution.
-        unavailable_layers.push(
-          await this.recordLayerUnavailable({
-            layerName: layer.name,
-            layerVersion: layer.version_hash,
-            layerVersionHash: binding.version_hash,
-            provider: binding.provider,
-            queryContract,
-            reason: describeQueryFailure(error),
-          }),
-        );
+        unavailable_layers.push({
+          dataset: layer.name,
+          reason: describeQueryFailure(error),
+        });
         continue;
       }
 
@@ -396,48 +385,6 @@ export class SpatialProviderPostGIS implements ISpatialProvider {
     });
 
     return artifact;
-  }
-
-  /**
-   * U30-R: one content-addressed SPATIAL_LAYER_UNAVAILABLE record per layer whose governed query
-   * failed to execute (layer, registry version hash, the exact query contract, reason), written to
-   * CAS with the same WORM-idempotent pattern as `createEvidence`. A CAS write failure propagates:
-   * an unpinned cause is never reported as if it were pinned.
-   */
-  private async recordLayerUnavailable(input: {
-    layerName: string;
-    layerVersion: string;
-    layerVersionHash: string;
-    provider: string;
-    queryContract: SpatialQueryContractV3;
-    reason: string;
-  }): Promise<SpatialLayerUnavailable> {
-    const artifact = createSpatialLayerUnavailableEvidence({
-      layer_id: input.layerName,
-      version_hash: input.layerVersionHash,
-      layer_version: input.layerVersion,
-      provider: input.provider,
-      query_contract: input.queryContract,
-      reason: input.reason,
-    });
-    let present = false;
-    try {
-      const existing = await this.casRepo.resolve<SpatialLayerUnavailableArtifact>({
-        artifact_id: artifact.artifact_id,
-        artifact_type: artifact.artifact_type,
-      });
-      present = existing?.content_hash?.value === artifact.content_hash.value;
-    } catch {
-      // not present -- continue to first-write
-    }
-    if (!present) {
-      await this.casRepo.put({
-        artifact_id: artifact.artifact_id,
-        content_hash: artifact.content_hash,
-        body: artifact,
-      });
-    }
-    return toSpatialLayerUnavailable(artifact);
   }
 
   async close(): Promise<void> {

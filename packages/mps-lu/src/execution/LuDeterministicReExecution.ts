@@ -29,12 +29,6 @@ import {
   isDocumentEvidenceV2ContentHashValid,
   type DocumentEvidenceArtifactV2,
 } from "../artifacts/DocumentEvidenceArtifactV2.js";
-import {
-  SPATIAL_LAYER_UNAVAILABLE,
-  isSpatialLayerUnavailableEvidenceValid,
-  toSpatialLayerUnavailable,
-} from "../artifacts/SpatialLayerUnavailableEvidence.js";
-import type { SpatialLayerUnavailable } from "../services/SpatialQueryContract.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -80,16 +74,6 @@ import type { SpatialLayerUnavailable } from "../services/SpatialQueryContract.j
  * is the semantically meaningful guarantee ("the same evidence produces the same findings") and
  * is order-independent by construction, since `finding_id` is deterministic from the evidence
  * artifact_id alone, never from array position.
- *
- * U30-R (NOT_CHECKED replay): a NOT_CHECKED finding is reproduced from its pinned cause -- the
- * SPATIAL_LAYER_UNAVAILABLE records in the assessment's `evidence_refs`, resolved and re-verified
- * like every other evidence family and fed back to the rule engine as `unavailable_layers`. It is
- * NEVER derived from the stored findings under comparison: that would let an added NOT_CHECKED
- * "reproduce" itself. A historical assessment (pinning no cause at all) whose NOT_CHECKED findings
- * carry `evidence_refs: []` cannot have them re-derived; they are reported as
- * NOT_CHECKED_CAUSE_NOT_PINNED instead of FINDINGS_MISMATCH. The outcome stays DENY (nothing about
- * them is re-verified), but the code no longer reads as manipulation; every other finding must
- * still match exactly.
  */
 
 export type LuReExecutionMismatchCode =
@@ -99,12 +83,7 @@ export type LuReExecutionMismatchCode =
   | "MANIFEST_ATTEMPT_MISMATCH"
   | "MISSING_PINNED_EVIDENCE"
   | "TAMPERED_EVIDENCE"
-  | "UNSUPPORTED_CONTRACT_VERSION"
-  /**
-   * U30-R, PRES-24 new token: a historical NOT_CHECKED finding whose cause was never pinned in CAS.
-   * It cannot be reproduced and is not claimed to be; this is not evidence of tampering.
-   */
-  | "NOT_CHECKED_CAUSE_NOT_PINNED";
+  | "UNSUPPORTED_CONTRACT_VERSION";
 
 export interface LuReExecutionMismatch {
   readonly code: LuReExecutionMismatchCode;
@@ -158,14 +137,11 @@ export async function resolveEvidence(args: {
   readonly spatial_evidence: SpatialEvidenceArtifact[];
   readonly document_evidence: DocumentEvidenceArtifact[];
   readonly verified_document_facts: VerifiedDocumentFactArtifact[];
-  /** U30-R: the pinned NOT_CHECKED causes, as rule-engine input (each carries its evidence_ref). */
-  readonly unavailable_layers: SpatialLayerUnavailable[];
   readonly mismatches: LuReExecutionMismatch[];
 }> {
   const spatial_evidence: SpatialEvidenceArtifact[] = [];
   const document_evidence: DocumentEvidenceArtifact[] = [];
   const verified_document_facts: VerifiedDocumentFactArtifact[] = [];
-  const unavailable_layers: SpatialLayerUnavailable[] = [];
   const mismatches: LuReExecutionMismatch[] = [];
 
   for (const ref of args.evidenceRefs) {
@@ -232,49 +208,15 @@ export async function resolveEvidence(args: {
         continue;
       }
       verified_document_facts.push(artifact as unknown as VerifiedDocumentFactArtifact);
-    } else if (ref.artifact_type === SPATIAL_LAYER_UNAVAILABLE) {
-      // U30-R: the hash and id must be re-derivable from the record's own payload, and it must be
-      // the record the ref names -- same "never trust a present hash" discipline as above.
-      if (!isSpatialLayerUnavailableEvidenceValid(artifact) || artifact.artifact_id !== ref.artifact_id) {
-        mismatches.push({
-          code: "TAMPERED_EVIDENCE",
-          detail: `${SPATIAL_LAYER_UNAVAILABLE}:${ref.artifact_id} content_hash/artifact_id do not match its own payload -- tampered or malformed`,
-        });
-        continue;
-      }
-      unavailable_layers.push(toSpatialLayerUnavailable(artifact));
     } else {
       mismatches.push({
         code: "EVIDENCE_SET_MISMATCH",
-        detail: `${ref.artifact_type}:${ref.artifact_id} is pinned in evidence_refs but is not one of the evidence families LURuleEngine accepts (SPATIAL_EVIDENCE / DOCUMENT_EVIDENCE / VERIFIED_DOCUMENT_FACT / ${SPATIAL_LAYER_UNAVAILABLE})`,
+        detail: `${ref.artifact_type}:${ref.artifact_id} is pinned in evidence_refs but is not one of the three evidence families LURuleEngine accepts (SPATIAL_EVIDENCE / DOCUMENT_EVIDENCE / VERIFIED_DOCUMENT_FACT)`,
       });
     }
   }
 
-  return { spatial_evidence, document_evidence, verified_document_facts, unavailable_layers, mismatches };
-}
-
-/**
- * U30-R: the NOT_CHECKED findings re-execution cannot reproduce because their cause was never
- * pinned -- only for a historical assessment that pins no SPATIAL_LAYER_UNAVAILABLE record at all
- * (a producer that pins causes pins every one, so an unpinned NOT_CHECKED next to pinned ones is a
- * plain mismatch). Read from the stored findings only to CLASSIFY what is missing from the fresh
- * result, never to produce a fresh finding.
- */
-function unpinnedHistoricalNotChecked(
-  assessment: LocalizationAssessmentArtifact,
-  freshFindings: readonly AssessmentFinding[],
-): AssessmentFinding[] {
-  if (assessment.payload.evidence_refs.some((ref) => ref.artifact_type === SPATIAL_LAYER_UNAVAILABLE)) {
-    return [];
-  }
-  const freshIds = new Set(freshFindings.map((finding) => finding.finding_id));
-  return assessment.payload.findings.filter(
-    (finding) =>
-      finding.risk_level === "NOT_CHECKED" &&
-      finding.evidence_refs.length === 0 &&
-      !freshIds.has(finding.finding_id),
-  );
+  return { spatial_evidence, document_evidence, verified_document_facts, mismatches };
 }
 
 /**
@@ -379,7 +321,7 @@ export async function reExecuteLocalizationAssessment(args: {
     };
   }
 
-  const { spatial_evidence, document_evidence, verified_document_facts, unavailable_layers, mismatches } = await resolveEvidence({
+  const { spatial_evidence, document_evidence, verified_document_facts, mismatches } = await resolveEvidence({
     evidenceRefs: assessment.payload.evidence_refs,
     artifactRepository: args.artifactRepository,
   });
@@ -393,14 +335,11 @@ export async function reExecuteLocalizationAssessment(args: {
     };
   }
 
-  // U30-R: pinned NOT_CHECKED causes go back in exactly as the original run received them.
-  const freshFindings = evaluateLuRuleSet(spatial_evidence, document_evidence, verified_document_facts, unavailable_layers);
+  const freshFindings = evaluateLuRuleSet(spatial_evidence, document_evidence, verified_document_facts);
   const freshRuleRefs = freshFindings.map((f) => ({ rule_id: f.rule_id, rule_version: f.rule_version }));
 
   const comparisonMismatches: LuReExecutionMismatch[] = [];
-  const unpinned = unpinnedHistoricalNotChecked(assessment, freshFindings);
-  const storedComparable = assessment.payload.findings.filter((finding) => !unpinned.includes(finding));
-  const storedFindingsCanonical = canonicalFindingsKey(storedComparable);
+  const storedFindingsCanonical = canonicalFindingsKey(assessment.payload.findings);
   const freshFindingsCanonical = canonicalFindingsKey(freshFindings);
   if (JSON.stringify(storedFindingsCanonical) !== JSON.stringify(freshFindingsCanonical)) {
     comparisonMismatches.push({
@@ -408,27 +347,12 @@ export async function reExecuteLocalizationAssessment(args: {
       detail: `re-executed findings (canonicalized) do not match the stored assessment's findings. stored=${JSON.stringify(storedFindingsCanonical.map((f) => f.finding_id))} fresh=${JSON.stringify(freshFindingsCanonical.map((f) => f.finding_id))}`,
     });
   }
-  // The unreproducible findings' own rule refs are expected in the stored set; nothing else is.
   const storedRuleRefsCanonical = canonicalRuleRefsKey(assessment.payload.rule_refs);
-  const freshRuleRefsCanonical = canonicalRuleRefsKey([
-    ...freshRuleRefs,
-    ...unpinned
-      .filter((finding) => !freshRuleRefs.some((ref) => ref.rule_id === finding.rule_id && ref.rule_version === finding.rule_version))
-      .map((finding) => ({ rule_id: finding.rule_id, rule_version: finding.rule_version })),
-  ]);
+  const freshRuleRefsCanonical = canonicalRuleRefsKey(freshRuleRefs);
   if (JSON.stringify(storedRuleRefsCanonical) !== JSON.stringify(freshRuleRefsCanonical)) {
     comparisonMismatches.push({
       code: "RULE_REFS_MISMATCH",
       detail: `re-executed rule_refs (canonicalized) do not match the stored assessment's rule_refs.`,
-    });
-  }
-  if (unpinned.length > 0) {
-    comparisonMismatches.push({
-      code: "NOT_CHECKED_CAUSE_NOT_PINNED",
-      detail:
-        `NOT_CHECKED finding(s) ${JSON.stringify(unpinned.map((f) => f.finding_id))} cannot be re-derived: ` +
-        `this assessment pinned no cause for them in CAS (produced before U30-R). ` +
-        `They are neither reproduced nor contradicted; every other finding was compared exactly.`,
     });
   }
 
