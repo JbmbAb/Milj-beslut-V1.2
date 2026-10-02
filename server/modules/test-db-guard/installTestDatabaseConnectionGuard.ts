@@ -18,6 +18,7 @@ import {
   splitDatabaseConnectionEntries,
   TestDatabaseTargetRefusedError,
 } from './testDatabaseTargetPolicy';
+import { isTestDataRootEnvKey } from './testDataRootIsolation';
 
 /**
  * TEST-DB-GUARD (OD-K0-5): connection-time enforcement in a TEST RUNTIME. Installed by the first
@@ -249,6 +250,15 @@ function guardDotenvFileLoading(): void {
         noteTestEnvFileGuard(
           filePath,
           `database connection keys not loaded in a test runtime: ${dropped.join(', ')}`,
+        );
+      }
+      // TDG-4: nor a data root -- an env file cannot refill what the test setup scrubbed.
+      const droppedRoots = Object.keys(kept).filter(isTestDataRootEnvKey).sort();
+      for (const key of droppedRoots) delete kept[key];
+      if (droppedRoots.length > 0) {
+        noteTestEnvFileGuard(
+          filePath,
+          `data-root keys not loaded in a test runtime: ${droppedRoots.join(', ')}`,
         );
       }
       dotenv.populate(parsedAll, kept, options);

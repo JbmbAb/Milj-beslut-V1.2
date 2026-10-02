@@ -8,6 +8,7 @@ import {
   isTestRuntime,
   noteTestEnvFileGuard,
 } from './modules/test-db-guard/testDatabaseTargetPolicy';
+import { isTestDataRootEnvKey } from './modules/test-db-guard/testDataRootIsolation';
 
 type LoadEnvOptions = {
   includePrefixes?: string[];
@@ -68,7 +69,12 @@ export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions =
     const rawValue = trimmed.slice(eq + 1).trim();
     // TEST-DB-GUARD (OD-K0-5): a test runtime never takes a database connection setting (or the
     // MIMER_TEST_DB_ALLOW opt-in) from any env file; those come from the explicit environment only.
-    if (testRuntime && isDatabaseConnectionEnvKey(key, stripQuotes(rawValue))) {
+    // TDG-4: nor a data root (QUARANTINE_ROOT, MIMERS_ROOT, ...): an env file cannot refill what the
+    // test setup scrubbed (server/modules/test-db-guard/testDataRootIsolation.ts).
+    if (
+      testRuntime &&
+      (isDatabaseConnectionEnvKey(key, stripQuotes(rawValue)) || isTestDataRootEnvKey(key))
+    ) {
       droppedInTestRuntime.push(key);
       continue;
     }
@@ -79,7 +85,7 @@ export function loadEnvFile(fileName: string = '.env', options: LoadEnvOptions =
   if (droppedInTestRuntime.length > 0) {
     noteTestEnvFileGuard(
       filePath,
-      `database connection keys not loaded in a test runtime: ${droppedInTestRuntime.join(', ')}`,
+      `database connection and data-root keys not loaded in a test runtime: ${droppedInTestRuntime.join(', ')}`,
     );
   }
 }

@@ -219,9 +219,22 @@ process.exit(0);
   });
 });
 
+// TDG-4: removing ADMIN_ROLE_GRANT_CAS_ROOT sent adminRoleGrantService to its default,
+// `.data/admin-role-grants` under cwd (the live tree when cwd is a worktree). It is now the one CAS
+// key a worker and its children carry: a fresh temp root of the test file, never the shell's.
+const isFreshTempRoot = (value: string | undefined, tmp: string) =>
+  typeof value === 'string' &&
+  path.isAbsolute(value) &&
+  path
+    .resolve(value)
+    .toLowerCase()
+    .startsWith(path.resolve(tmp).toLowerCase() + path.sep) &&
+  path.basename(path.dirname(value)).startsWith('miljobeslut-test-data-');
+
 describe('Vitest: no process a test starts inherits a shell CAS', () => {
-  it('this worker has no CAS setting left after the setup file', () => {
-    expect(Object.keys(process.env).filter(isCasEnvKey)).toEqual([]);
+  it('this worker has no CAS setting of the shell left after the setup file (only its own fresh grant root)', () => {
+    expect(Object.keys(process.env).filter(isCasEnvKey)).toEqual(['ADMIN_ROLE_GRANT_CAS_ROOT']);
+    expect(isFreshTempRoot(process.env.ADMIN_ROLE_GRANT_CAS_ROOT, os.tmpdir())).toBe(true);
   });
 
   it('the setup file removes MIMERS_ROOT=D:\\mimer-demo\\cas, so a child (and grandchild) never sees it', () => {
@@ -233,11 +246,13 @@ const child = spawnSync(process.execPath, ['-e',
   "const k = Object.keys(process.env).filter((key) => /^MIMERS_|(^|_)CAS(_|$)/i.test(key));" +
   "process.stdout.write(JSON.stringify(Object.fromEntries(k.map((key) => [key, process.env[key]]))))"],
   { encoding: 'utf8' });
-process.stdout.write('WTDG3_RESULT ' + JSON.stringify({ worker: process.env.MIMERS_ROOT ?? null, child: JSON.parse(child.stdout || 'null') }) + String.fromCharCode(10));
+process.stdout.write('WTDG3_RESULT ' + JSON.stringify({ worker: process.env.MIMERS_ROOT ?? null, grant: process.env.ADMIN_ROLE_GRANT_CAS_ROOT ?? null, child: JSON.parse(child.stdout || 'null') }) + String.fromCharCode(10));
 process.exit(0);
 `,
       bareEnv({ ...SHELL_CAS_ENV, DATABASE_URL: 'postgresql://x:x@127.0.0.1:1/none' }),
-    );
-    expect(report).toEqual({ worker: null, child: {} });
+    ) as { worker: string | null; grant: string | null; child: Record<string, string> };
+    expect(report.worker).toBeNull();
+    expect(isFreshTempRoot(report.grant ?? undefined, tmpRoot)).toBe(true);
+    expect(report.child).toEqual({ ADMIN_ROLE_GRANT_CAS_ROOT: report.grant });
   });
 });

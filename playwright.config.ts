@@ -8,11 +8,11 @@ import {
   resolveLocalE2eServerPlan,
   type LocalE2eServerPlan,
 } from './server/modules/test-db-guard/localE2eServerPolicy';
+import { createFreshTestCasRoots } from './server/modules/test-db-guard/testCasIsolation';
 import {
-  createFreshTestCasRoots,
-  noteRemovedCasEnv,
-  removeInheritedCasEnv,
-} from './server/modules/test-db-guard/testCasIsolation';
+  createFreshTestDataRoots,
+  isolateTestDataRootEnv,
+} from './server/modules/test-db-guard/testDataRootIsolation';
 
 function trim(value: string | undefined): string {
   return String(value || '').trim();
@@ -56,8 +56,12 @@ const geminiApiKey = trim(process.env.GEMINI_API_KEY) || (process.env.CI ? 'ci-g
 // the runner and the workers -- Playwright starts both servers with { ...process.env, ...env } --
 // and the API server gets a FRESH CAS of this run, a new directory in the temp dir
 // (server/modules/test-db-guard/testCasIsolation.ts).
-noteRemovedCasEnv(removeInheritedCasEnv(process.env), 'playwright.config.ts');
+// TDG-4: the same for EVERY data root of the declarative list
+// (server/modules/test-db-guard/testDataRootIsolation.ts): removed from the runner and workers, and
+// the servers get the keys with a location default as paths in a FRESH temp run directory.
+isolateTestDataRootEnv(process.env, 'playwright.config.ts', { assignFreshRoots: false });
 const e2eCas = localPlan ? createFreshTestCasRoots() : null;
+const e2eDataRoots = localPlan ? createFreshTestDataRoots() : null;
 
 const serverEnv = {
   NODE_ENV: 'development',
@@ -82,6 +86,8 @@ const serverEnv = {
   TIMOCOM_API_KEY: 'mock-e2e-timocom-key',
   CORS_ALLOW_ORIGINS: localUiBaseUrl,
   START_WORKERS_IN_PROCESS: 'false',
+  // TDG-4: every data root with a location default, in this run's fresh temp directory.
+  ...(e2eDataRoots ? e2eDataRoots.roots : {}),
   // U30-A / TDG-3: the fresh CAS of this run (see e2eCas above), never the caller's.
   MIMERS_ROOT: e2eCas ? e2eCas.mimersRoot : '',
   ADMIN_ROLE_GRANT_CAS_ROOT: e2eCas ? e2eCas.adminRoleGrantCasRoot : '',

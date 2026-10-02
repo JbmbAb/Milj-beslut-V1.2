@@ -20,6 +20,11 @@
  *      naming the demonstrator's CAS), so neither this worker nor any process a test starts can
  *      write into it; a test that needs a CAS creates its own temp root
  *      (tests/setup/casTestIsolationRoot.ts). TDG-3, server/modules/test-db-guard/testCasIsolation.ts.
+ *      TDG-4: the same for EVERY data root (QUARANTINE_ROOT, MASTER_ARCHIVE_ROOT, OUTLOOK_*,
+ *      IMPORT_*_ROOT, ADMIN_ROLE_GRANT_CAS_ROOT ... -- the declarative list in
+ *      server/modules/test-db-guard/testDataRootIsolation.ts): removed before every test file, and
+ *      each key whose unset default is a location (a cwd-relative or absolute live directory) is
+ *      set to a path in a NEW temp run directory of this test file instead.
  *
  * Policy and denylist: server/modules/test-db-guard/testDatabaseTargetPolicy.ts. The destructive
  * GIS globalSetup admission (tests/setup/disposableGisTestDatabase.ts) uses the same policy.
@@ -36,10 +41,7 @@
  * and they never reach a live database.
  */
 import { installTestDatabaseConnectionGuard } from '../../server/modules/test-db-guard/installTestDatabaseConnectionGuard';
-import {
-  noteRemovedCasEnv,
-  removeInheritedCasEnv,
-} from '../../server/modules/test-db-guard/testCasIsolation';
+import { isolateTestDataRootEnv } from '../../server/modules/test-db-guard/testDataRootIsolation';
 import {
   assertNoKnownLiveDatabaseInEnv,
   isHermeticTestProcess,
@@ -55,5 +57,6 @@ if (!isHermeticTestProcess(process.env)) {
   process.env[TEST_MODE_ENV] = vitestWorkerTestModeMarker(process.pid);
 }
 
-// Before every test file: no CAS setting of the shell (or of an earlier file) reaches the test.
-noteRemovedCasEnv(removeInheritedCasEnv(process.env), 'Vitest setup (tests/setup/testDatabaseGuard.ts)');
+// Before every test file: no data root of the shell (or of an earlier file) reaches the test; the
+// keys with a location default get a fresh temp root of this file (TDG-3 CAS, TDG-4 all roots).
+isolateTestDataRootEnv(process.env, 'Vitest setup (tests/setup/testDatabaseGuard.ts)');
