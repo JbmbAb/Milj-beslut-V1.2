@@ -1,0 +1,246 @@
+/**
+ * U20CDF4 (U20CDF3 verification L1-L3; owner decisions 2026-10-03 night (4), points 1, 3 and 4) -- the
+ * FRESH generate-report run.
+ *
+ * Path under test: real router + requireAuth -> real localizationOrchestrator -> real
+ * localizationReportService -> real GenerateLocalizationReportUseCase. Hermetic: server/db/prisma is
+ * the throwing guard, the spatial runtime is an in-memory fake, the kernel is a stub (so a record no
+ * real producer writes can be returned on purpose), the older sources are stubs that can fail with
+ * invented secret-bearing texts.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
+vi.mock('../../server/repositories/tokenRepository', () => ({
+  isTokenRevoked: vi.fn(async () => false),
+  markRefreshTokenAsUsed: vi.fn(async () => undefined),
+  revokeRefreshToken: vi.fn(async () => undefined),
+  cleanupExpiredTokenRevocations: vi.fn(async () => 0),
+}));
+vi.mock('../../server/security/projectAccess', () => ({ assertProjectAccess: vi.fn(async () => undefined) }));
+
+const kernelMock = vi.fn();
+const queryMock = vi.fn();
+vi.mock('@miljobeslut/mps-lu', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  LU_SPATIAL_CAPABILITY_KEY: 'lu.spatial',
+  runCanonicalLuProductAssessment: (...args: unknown[]) => kernelMock(...args),
+  deriveLuExecutionSeed: vi.fn(() => 'canonical-seed'),
+  createLuRegistryRuntime: vi.fn(() => ({ getReleaseSnapshot: () => ({ snapshot_id: 'lu-registry-snapshot-test' }) })),
+}));
+vi.mock('../../server/modules/localization/createLocalizationSpatialRuntime', () => ({
+  createLocalizationSpatialRuntime: vi.fn(async () => ({
+    artifactRepository: {
+      put: vi.fn(async () => undefined),
+      resolve: vi.fn(async (ref: { artifact_id: string }) => { throw new Error(`Artifact not found: ${ref.artifact_id}`); }),
+    },
+    resolveSpatialProvider: vi.fn(() => ({ query: queryMock })),
+    sweref99ToWgs84: vi.fn(async () => [59.33, 18.06] as const),
+    close: vi.fn(async () => undefined),
+  })),
+}));
+vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({ enqueueAdmittedLuTicket: vi.fn(async () => 'ticket-1') }));
+vi.mock('../../server/modules/localization/assessmentProjection', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  registerAssessmentProjection: vi.fn(async () => undefined),
+}));
+vi.mock('../../src/application/resolveCanonicalProjectContext', () => ({
+  resolveCanonicalProjectContext: vi.fn(async () => ({
+    projectContextRef: { artifact_id: 'project-context-1', artifact_type: 'LU_PROJECT_CONTEXT' },
+    propertyContextRef: { artifact_id: 'property-context-1', artifact_type: 'LU_PROPERTY_CONTEXT' },
+    geometryRef: { artifact_id: 'property-geometry-1', artifact_type: 'geometry' },
+    contextBindingRef: { artifact_id: 'project-context-binding-1', artifact_type: 'project_context_binding' },
+    propertyIdentity: 'property-1',
+    coordinates: [6580000, 674000],
+    geometry: { type: 'Point', coordinates: [674000, 6580000] },
+  })),
+}));
+vi.mock('../../server/modules/release/productReleaseRuntime', () => ({
+  resolveCanonicalProductRelease: vi.fn(async () => ({
+    artifact_id: 'product-release-1', artifact_type: 'product_release_manifest', release_hash: { value: 'a'.repeat(64) },
+  })),
+}));
+vi.mock('../../server/modules/localization/localizationGeometryService', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  resolveOrDeriveCurrentLocalizationGeometry: vi.fn(async () => ({
+    geometry: { artifact_id: 'localization-geometry-1', artifact_type: 'localization_geometry', payload: { provenance: 'user_defined' } },
+    wasDerived: false,
+  })),
+}));
+
+// ---- the older, ungoverned sources: answer normally, or fail with invented secret-bearing texts ----
+const legacy = vi.hoisted(() => ({ failWithSecrets: false }));
+/** Invented values only. Each legacy failure text carries one secret and one piece of context. */
+const LEGACY_SECRET_TEXT: Readonly<Record<string, string>> = {
+  spatialAudit: 'connect ECONNREFUSED postgresql://mimer:hemligtSA1@10.0.0.5:5432/lu (spatialAudit)',
+  nvr: 'NVR upstream 401 Authorization: Bearer nvrT0kenSecret1 (nvr)',
+  raa: 'RAA proxy failed PGPASSWORD=hemligtRAA2 (raa)',
+  viss: 'VISS fetch https://api.example/x?api_key=vissKey3secret (viss)',
+  slu: 'SLU search failed password=hemligtSLU4 (slu)',
+  sluEnrich: 'Artfakta enrich failed {"token":"artfaktaTok5"} (artfakta)',
+  rules: 'legacy engine crashed secret=hemligtRULES6 (rules)',
+};
+vi.mock('../../server/services/spatialAuditService', () => ({
+  runSpatialAudit: vi.fn(async () => {
+    if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.spatialAudit);
+    return {
+      protectedAreaHits: [], protectedAreaAvailable: true, isProtected: false,
+      sgu: { manualReviewRequired: false, summary: 'SGU-risk: låg' },
+      distanceToWaterMeters: 40, distanceToWaterAvailable: true,
+    };
+  }),
+}));
+vi.mock('../../server/services/nvrService', () => ({
+  fetchProtectedAreas: vi.fn(async () => {
+    if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.nvr);
+    return [];
+  }),
+}));
+vi.mock('../../server/services/raaService', () => ({
+  fetchAncientMonuments: vi.fn(async () => {
+    if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.raa);
+    return [];
+  }),
+}));
+vi.mock('../../server/services/vissService', () => ({
+  queryVissPoint: vi.fn(async () => {
+    if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.viss);
+    return { ok: true, primaryWaterStatus: { waterName: 'Testsjön' } };
+  }),
+}));
+vi.mock('../../server/services/sluService', () => ({
+  // When failing: the search itself answers (so the enrich step runs and fails) unless the search is
+  // the failing step -- toggled per call below.
+  searchSluByCoordinates: vi.fn(async () => ({ observations: [{ taxonName: 'Rana arvalis', taxonId: 101 }] })),
+  getSpeciesInformation: vi.fn(async () => {
+    if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.sluEnrich);
+    return null;
+  }),
+}));
+vi.mock('../../server/services/sguRiskService', () => ({ toGeologicalData: vi.fn(() => ({})) }));
+vi.mock('../../server/services/complianceRuleEngine', () => ({
+  evaluateComplianceRules: vi.fn(() => {
+    if (legacy.failWithSecrets) throw new Error(LEGACY_SECRET_TEXT.rules);
+    return { overallRisk: 'HIGH', permitProbability: 0.1, restrictions: [], rules: [], summary: 'legacy HIGH' };
+  }),
+}));
+vi.mock('../../server/services/auditTrailService', () => ({
+  auditTrail: { logAction: vi.fn(async () => ({ id: 'audit-1' })) },
+  getAuditTrail: vi.fn(async () => []),
+}));
+vi.mock('../../server/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+
+import express from 'express';
+import request from 'supertest';
+import { createTokenPair } from '../../server/security/auth';
+import localizationRoutes from '../../server/routes/localization.routes';
+import { logger } from '../../server/logger';
+import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
+
+const LAYERS = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'] as const;
+const RULE: Readonly<Record<string, string>> = {
+  water: 'LU-WATER-001',
+  ebh: 'LU-EBH-001',
+  protected_area: 'LU-PROTECTED-001',
+  natura2000: 'LU-NATURA2000-001',
+  water_protection_area: 'LU-WATERPROTECTION-001',
+};
+
+function spatialEvidence(layer: string, exists = false) {
+  return {
+    artifact_id: `evidence-${layer}-${exists ? 'hit' : 'neg'}-u20cdf4`,
+    artifact_type: 'SPATIAL_EVIDENCE',
+    payload: {
+      source_metadata: { dataset: layer },
+      result_semantics: {
+        kind: 'EXISTENCE_WITHIN_DISTANCE',
+        result: { exists, match_count_observed: exists ? 2 : 0, max_features_per_layer: 50 },
+      },
+    },
+  };
+}
+const refOf = (e: { artifact_id: string; artifact_type: string }) => ({ artifact_id: e.artifact_id, artifact_type: e.artifact_type });
+
+const app = express();
+app.use(express.json());
+app.use(localizationRoutes);
+const token = createTokenPair({ id: 'user-u20cdf4', organisationId: 'org-u20cdf4', bankidId: 'bankid:u20cdf4', role: 'ADMIN' }).accessToken;
+const SITE_A = { id: 'ALT-A', name: 'Plats A', lat: 59.33, lng: 18.06 };
+const SITE_B = { id: 'ALT-B', name: 'Plats B', lat: 59.34, lng: 18.07 };
+
+async function post(path: string, sites: readonly { id: string; name: string; lat: number; lng: number }[] = [SITE_A]) {
+  return request(app).post(path).set('Authorization', `Bearer ${token}`).send({ projectId: 'proj-u20cdf4', siteAlternatives: sites });
+}
+
+/** The admitted kernel answer for a record with these findings over these stored evidences. */
+function admitted(artifactId: string, findings: readonly unknown[], evidence: readonly { artifact_id: string; artifact_type: string }[]) {
+  return {
+    admitted: true, reason_codes: [], attempt_id: `attempt-${artifactId}`, outcome_id: `outcome-${artifactId}`, manifest_id: `manifest-${artifactId}`,
+    findings, finding_ids: findings.map((f) => (f as { finding_id?: string } | null)?.finding_id ?? 'x'),
+    assessment: { artifact_id: artifactId, payload: { evidence_refs: evidence.map(refOf), findings } },
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  hermeticPrismaTouches.length = 0;
+  legacy.failWithSecrets = false;
+  queryMock.mockResolvedValue({ evidence: LAYERS.map((layer) => spatialEvidence(layer)), unavailable_layers: [] });
+  kernelMock.mockResolvedValue(admitted('assessment-u20cdf4', [], LAYERS.map((layer) => spatialEvidence(layer))));
+});
+
+afterEach(() => {
+  expect(hermeticPrismaTouches).toEqual([]);
+});
+
+function warnCalls(message: string) {
+  return vi.mocked(logger.warn).mock.calls.filter((call) => call[0] === message);
+}
+
+describe('U20CDF4 (U20CDF3 verification L1): a malformed unavailable entry is the gate\'s typed violation, never an ExecutionKernel error', () => {
+  const ANSWERED = LAYERS.filter((layer) => layer !== 'water').map((layer) => spatialEvidence(layer));
+
+  it.each<[string, unknown]>([
+    ['null', null],
+    ['undefined', undefined],
+    ['a number', 42],
+    ['a string', 'water'],
+    ['a boolean', true],
+  ])('an unavailable entry that is %s -> REJECT_SPATIAL_EVIDENCE_FORM / UNAVAILABLE_WITHOUT_DATASET, no kernel, no assessment', async (_label, junk) => {
+    queryMock.mockResolvedValue({ evidence: ANSWERED, unavailable_layers: [{ dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }, junk] });
+    const res = await post('/api/localization/generate-report');
+    expect(res.status).toBe(200);
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor).toMatchObject({
+      admitted: false, assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null,
+      reason_codes: ['REJECT_SPATIAL_EVIDENCE_FORM', 'UNAVAILABLE_WITHOUT_DATASET'],
+    });
+    expect(kernelMock).not.toHaveBeenCalled();
+    expect(site.warnings).toEqual([
+      'Spatialt underlag avvisat: en uppgift om otillgängligt lager saknar lagernamn (REJECT_SPATIAL_EVIDENCE_FORM: UNAVAILABLE_WITHOUT_DATASET). ' +
+        'Ingen bedömning gjordes; regelmotorn nåddes aldrig.',
+    ]);
+    expect(JSON.stringify(res.body)).not.toMatch(/ExecutionKernel error|EXECUTION_KERNEL_ERROR/);
+  });
+
+  it('the not yet validated layer, reason and diagnostic of an unavailable entry are logged redacted (the gate has not admitted them)', async () => {
+    queryMock.mockResolvedValue({
+      evidence: ANSWERED,
+      unavailable_layers: [
+        { dataset: 'water', reason: 'SOURCE_UNAVAILABLE', diagnostic: 'ECONNREFUSED password=hemligtL1a' },
+        { dataset: 'postgresql://mimer:hemligtL1b@10.0.0.5:5432/lu', reason: 'PGPASSWORD=hemligtL1c', diagnostic: 'x' },
+      ],
+    });
+    const res = await post('/api/localization/generate-report');
+    // The second entry names a dataset that was not requested: the gate rejects the outcome.
+    expect(res.body.siteAnalyses[0].executionMotor.reason_codes).toEqual(['REJECT_SPATIAL_EVIDENCE_FORM', 'DATASET_NOT_REQUESTED']);
+    const logged = warnCalls('Governed LU layer query failed (internal diagnostic)').map((call) => call[1] as Record<string, unknown>);
+    expect(logged).toHaveLength(2);
+    expect(logged[0]).toMatchObject({ site: 'ALT-A', layer: 'water', reason: 'SOURCE_UNAVAILABLE' });
+    expect(String(logged[0]!.diagnostic)).toContain('ECONNREFUSED');
+    const text = JSON.stringify(logged);
+    for (const secret of ['hemligtL1a', 'hemligtL1b', 'hemligtL1c']) expect(text, text).not.toContain(secret);
+    expect(String(logged[1]!.layer)).toContain('10.0.0.5:5432/lu');
+    expect(JSON.stringify(res.body)).not.toMatch(/hemligt|10\.0\.0\.5/);
+  });
+});

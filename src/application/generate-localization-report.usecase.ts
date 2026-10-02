@@ -1136,12 +1136,21 @@ async function analyzeSite(
     // diagnostics -- logged here, structured and redacted, and passed on nowhere: the kernel gets
     // only the stable cause code (reason), so the diagnostic cannot reach a finding, an artifact,
     // a response or a PDF.
-    for (const unavailable of providerUnavailableLayers) {
+    // U20CDF4 (U20CDF3 verification L1): this loop runs BEFORE the gate below, so it reads the entries
+    // as untrusted -- any shape (a null entry used to throw here and turn the gate's typed
+    // UNAVAILABLE_WITHOUT_DATASET into a generic EXECUTION_KERNEL_ERROR), and the not yet admitted
+    // layer and reason are redacted like the diagnostic.
+    for (const unavailable of providerUnavailableLayers as readonly unknown[]) {
+      const entry = (unavailable && typeof unavailable === 'object' ? unavailable : {}) as {
+        dataset?: unknown;
+        reason?: unknown;
+        diagnostic?: unknown;
+      };
       logger.warn('Governed LU layer query failed (internal diagnostic)', {
         site: site.id,
-        layer: unavailable.dataset,
-        reason: unavailable.reason,
-        diagnostic: redactInternalDiagnostic(unavailable.diagnostic),
+        layer: redactInternalDiagnostic(entry.dataset),
+        reason: redactInternalDiagnostic(entry.reason),
+        diagnostic: redactInternalDiagnostic(entry.diagnostic),
       });
     }
     // U20CDF2 (U20CDF verification G3; owner's locked specification): the provider's outcome must be
