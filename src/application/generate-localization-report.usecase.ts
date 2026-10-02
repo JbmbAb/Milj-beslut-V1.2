@@ -915,7 +915,14 @@ const DIAGNOSTIC_MAX_LENGTH = 1000;
 const SECRET_KEY =
   /[A-Za-z0-9_.-]*(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|credential|private[_-]?key|access[_-]?key|(?:pass|auth|sig|session|sid|cookie)(?![a-z]))[A-Za-z0-9_.-]*/
     .source;
-const SECRET_VALUE = /(?:"[^"]*"|'[^']*'|[^\s,;}"']+)/.source;
+/**
+ * U20CDF4 (U20CDF3 verification L3): a ";" ends an unquoted value only where a new `key=` follows it
+ * (a connection-string separator) -- "Password=Semi;Colon34;Host=db" used to leave "Colon34" in the
+ * clear. A ";" followed by anything else is taken as part of the secret (over-masking accepted). ODBC
+ * braced values ({...}) are masked whole.
+ */
+const VALUE_SEMICOLON = /;(?![A-Za-z][A-Za-z0-9_.-]*=)/.source;
+const SECRET_VALUE = new RegExp(`(?:"[^"]*"|'[^']*'|\\{[^}]*\\}|(?:[^\\s,;}"']|${VALUE_SEMICOLON})+)`).source;
 const SECRET_KEY_VALUE = new RegExp(`(${SECRET_KEY})(["']?)(\\s*[=:]\\s*)${SECRET_VALUE}`, 'gi');
 /** U20CDF3 (low 1): a Digest parameter list (all of it -- response, nonce, cnonce, opaque, ...). */
 const DIGEST_PARAMS =
@@ -927,9 +934,15 @@ const PROVIDER_TOKEN =
 const COOKIE_VALUE = /\b((?:set-)?cookie2?)(["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s;,"']+(?:\s*;\s*[^\s;,"']+)*)/gi;
 /** U20CDF3 (low 1): mysql-style -p<password> / -p <password>. */
 const SHORT_PASSWORD_FLAG = /(^|[\s'"(=])(-p)(\s*)(?![-\s])([^\s'"]+)/g;
-/** U20CDF3 (low 1): "passwd <value>" -- not when the next word is ordinary error text. */
-const PASSWORD_WORD_VALUE =
-  /\b(password|passwd|passphrase|pwd)(\s+)(?!(?:authentication|auth|for|is|was|were|must|required|missing|not|expired|incorrect|invalid|too|has|have|cannot|can|should|failed|mismatch|changed|reset|and|or|of|the|to|policy|length|field|hash|\*\*\*)\b)(?![=:"'*])[^\s,;]+/gi;
+/**
+ * U20CDF3 (low 1): "passwd <value>" -- not when the next word is ordinary error text. U20CDF4 (L3): a
+ * ";" inside the value is part of it unless a new `key=` follows.
+ */
+const PASSWORD_WORD_VALUE = new RegExp(
+  /\b(password|passwd|passphrase|pwd)(\s+)(?!(?:authentication|auth|for|is|was|were|must|required|missing|not|expired|incorrect|invalid|too|has|have|cannot|can|should|failed|mismatch|changed|reset|and|or|of|the|to|policy|length|field|hash|\*\*\*)\b)(?![=:"'*])/
+    .source + `(?:[^\\s,;]|${VALUE_SEMICOLON})+`,
+  'gi',
+);
 
 export function redactInternalDiagnostic(text: unknown): string | null {
   if (typeof text !== 'string' || text.length === 0) return null;
