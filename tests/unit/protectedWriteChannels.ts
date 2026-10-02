@@ -186,8 +186,25 @@ function statementLike(tokens: SqlTokens): boolean {
   return tokens.filter((t) => t.t !== "SEMI").length >= 2;
 }
 
+/**
+ * U30F3 H-1: texts holding the fold-cap mark stand for values the scan did not enumerate. They are judged with
+ * the mark read as a dynamic value (an enumerated protected write stays PROTECTED) and are at least
+ * UNRESOLVABLE (FOLD_CAP_EXCEEDED): never ALLOWED, never skipped as "not SQL".
+ */
+function withFoldCap(texts: readonly string[], judge: (texts: string[]) => TextVerdict | null): TextVerdict | null {
+  if (!texts.some(hasFoldCap)) return judge([...texts]);
+  const stand = dyn("fold_cap");
+  const v = judge(texts.map((t) => t.split(foldCapMark()).join(stand)));
+  const capped: TextVerdict = { verdict: "UNRESOLVABLE", detail: FOLD_CAP_EXCEEDED };
+  return v ? worst(v, capped) : capped;
+}
+
 /** A SQL text as the gate reads it, or null when it holds no SQL write vocabulary. */
 function classifySqlText(text: string, def: ProtectedRelationsDefinition): TextVerdict | null {
+  return withFoldCap([text], ([t]) => classifySqlTextUncapped(t!, def));
+}
+
+function classifySqlTextUncapped(text: string, def: ProtectedRelationsDefinition): TextVerdict | null {
   if (!hasTriggerWord(text)) return null;
   const { tokens, error } = tokenizeSql(text);
   if (!error && !statementLike(tokens)) return null;
@@ -245,6 +262,10 @@ function sqlShaped(text: string): boolean {
  * is judged where it is run (the exec/spawn/psql channel), not where its text is assembled.
  */
 function classifyLiteral(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  return withFoldCap([text], ([t]) => classifyLiteralUncapped(t!, def, readSqlFile));
+}
+
+function classifyLiteralUncapped(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
   let v: TextVerdict | null = null;
   if (hasTriggerWord(text) && sqlShaped(text)) v = classifySqlText(text, def);
   if (mentionsTool(text) && /\s/.test(text.trim())) {
@@ -256,6 +277,10 @@ function classifyLiteral(text: string, def: ProtectedRelationsDefinition, readSq
 
 /** A command line as the gate reads it, or null when it names no DB/GIS tool or shell wrapper. */
 function classifyCommandText(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  return withFoldCap([text], ([t]) => classifyCommandTextUncapped(t!, def, readSqlFile));
+}
+
+function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
   if (!mentionsTool(text)) return null;
   const v = verdictOf(judgeWrites(analyzeCommandLine(text, { readSqlFile }), def));
   if (v.verdict === "ALLOWED") return v;
@@ -266,8 +291,7 @@ function classifyCommandText(text: string, def: ProtectedRelationsDefinition, re
 }
 
 function classifyArgv(argv: readonly string[], def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict {
-  if (lookupOnly(argv)) return ALLOWED;
-  return verdictOf(judgeWrites(analyzeCommandArgv(argv, { readSqlFile }), def));
+  return withFoldCap(argv, (a) => (lookupOnly(a) ? ALLOWED : verdictOf(judgeWrites(analyzeCommandArgv(a, { readSqlFile }), def)))) ?? ALLOWED;
 }
 
 /** The argv only looks a tool up (which/where/command -v/Get-Command), also inside `docker exec <container>`. */
@@ -290,7 +314,10 @@ function lookupOnly(argv: readonly string[]): boolean {
 }
 
 /** A statement of the text starts with a dynamic value: its verb (what it does) is not in the source. */
-function sqlVerbDynamic(text: string): boolean {
+function sqlVerbDynamic(textIn: string): boolean {
+  // U30F3 H-1: values past the fold cap are judged UNRESOLVABLE (FOLD_CAP_EXCEEDED), not DYNAMIC -- so an
+  // enumerated PROTECTED value of the same payload is never masked by a DYNAMIC verdict
+  const text = hasFoldCap(textIn) ? textIn.split(foldCapMark()).join("") : textIn;
   const { tokens, error } = tokenizeSql(text);
   if (error) return false;
   let atStart = true;
@@ -468,8 +495,12 @@ function requote(a: string): string {
 /** An argument vector run with `stdin` text (spawnSync input:, subprocess input=): read as a here-document. */
 function classifyArgvWithStdin(argv: readonly string[], stdin: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict {
   const marker = "WU30F2_STDIN_EOF";
-  const command = `${argv.map(requote).join(" ")} <<'${marker}'\n${stdin}\n${marker}`;
-  return verdictOf(judgeWrites(analyzeCommandLine(command, { readSqlFile }), def));
+  return (
+    withFoldCap([...argv, stdin], (parts) => {
+      const command = `${parts.slice(0, -1).map(requote).join(" ")} <<'${marker}'\n${parts[parts.length - 1]}\n${marker}`;
+      return verdictOf(judgeWrites(analyzeCommandLine(command, { readSqlFile }), def));
+    }) ?? ALLOWED
+  );
 }
 
 /**
@@ -607,8 +638,45 @@ function scopeKey(ctx: FoldContext, refPos: number): string {
   return String(scopesAt(ctx.scopes, refPos)[0]?.id ?? "top");
 }
 
-const MAX_TEXTS = 16;
+/**
+ * U30F3 H-1 (U30F2-VERIFICATION H-1): the fold cap FAILS CLOSED. The cap bounds the work of folding an
+ * expression into its possible values; it never decides what is judged. An expression with more possible
+ * * values than FOLD_MAX_TEXTS keeps the values it has enumerated and gains the fold-cap mark, a value that stands
+ * for "values this scan did not enumerate". A text holding the mark is at least UNRESOLVABLE
+ * (FOLD_CAP_EXCEEDED) on every surface and channel -- a site that needs a reviewed entry, never ALLOWED and
+ * never dropped -- and stays PROTECTED when one of the enumerated values is. (Before U30F3 the 17th value and
+ * later were discarded silently: a loop over 17 static tables hid the protected 17th, and the cap hid an
+ * ungated CREATE of env.sgu_well / env.sgu_landslide_feature in scripts/import/import-sgu-risk-layers.ts.)
+ */
+export const FOLD_MAX_TEXTS = 1024;
+const MAX_TEXTS = FOLD_MAX_TEXTS;
 const MAX_DEPTH = 24;
+
+/** The detail (operation) a site gets for values the fold did not enumerate. */
+export const FOLD_CAP_EXCEEDED = "FOLD_CAP_EXCEEDED";
+let foldCapMarkText: string | null = null;
+/** A dynamic placeholder no source expression can produce (a hint never holds '#'). */
+export function foldCapMark(): string {
+  foldCapMarkText ??= `${classificationSpec().dynamic_placeholder_open}:#${FOLD_CAP_EXCEEDED}${classificationSpec().dynamic_placeholder_close}`;
+  return foldCapMarkText;
+}
+function hasFoldCap(text: string): boolean {
+  return text.includes(foldCapMark());
+}
+
+/** Distinct values, at most FOLD_MAX_TEXTS of them; past the cap (or any value already past it) the mark. */
+function capTexts(values: Iterable<string>): string[] {
+  const out = new Set<string>();
+  let exceeded = false;
+  for (const v of values) {
+    if (hasFoldCap(v)) exceeded = true;
+    else if (!out.has(v)) {
+      if (out.size >= MAX_TEXTS) exceeded = true;
+      else out.add(v);
+    }
+  }
+  return exceeded ? [...out, foldCapMark()] : [...out];
+}
 
 /**
  * Folds of a name are memoised per file (per binding map): every literal that interpolates the same variable
@@ -635,10 +703,26 @@ function memoised<T extends Folded | null>(ctx: FoldContext, key: string, cycle:
   }
 }
 
-function product(a: string[], b: string[]): string[] {
+/** Every concatenation x + y (distinct), capped fail-closed: a combination past the cap or with a capped side is the mark. */
+function product(a: readonly string[], b: readonly string[]): string[] {
   const out = new Set<string>();
-  for (const x of a) for (const y of b) if (out.size < MAX_TEXTS) out.add(x + y);
-  return [...out];
+  let exceeded = false;
+  outer: for (const x of a) {
+    for (const y of b) {
+      if (hasFoldCap(x) || hasFoldCap(y)) {
+        exceeded = true;
+        continue;
+      }
+      const v = x + y;
+      if (out.has(v)) continue;
+      if (out.size >= MAX_TEXTS) {
+        exceeded = true;
+        break outer;
+      }
+      out.add(v);
+    }
+  }
+  return exceeded ? [...out, foldCapMark()] : [...out];
 }
 
 function hintOf(toks: readonly Tok[], src: string): string {
@@ -724,7 +808,8 @@ function strTexts(t: Tok, ctx: FoldContext, depth: number): string[] {
       continue;
     }
     const folded = depth < MAX_DEPTH ? foldExpr(part.toks, ctx, depth + 1) : null;
-    const usable = folded !== null && folded.texts.length > 0 && folded.texts.every((x) => !containsDynamic(x) || (x !== dynamicPlaceholder("") && dynamicHint(x) === null && folded.literal));
+    // (U30F3 H-1: values past the fold cap stay as the mark, so the enumerated values are still judged)
+    const usable = folded !== null && folded.texts.length > 0 && folded.texts.every((x) => hasFoldCap(x) || !containsDynamic(x) || (x !== dynamicPlaceholder("") && dynamicHint(x) === null && folded.literal));
     out = product(out, usable ? folded!.texts : [dyn(part.src.replace(/\s+/g, ""))]);
   }
   return out;
@@ -789,7 +874,7 @@ function foldExpr(toksIn: readonly Tok[], ctx: FoldContext, depth = 0): Folded {
 }
 
 function union(a: Folded, b: Folded): Folded {
-  return { texts: [...new Set([...a.texts, ...b.texts])].slice(0, MAX_TEXTS), dynamic: a.dynamic || b.dynamic, literal: a.literal || b.literal };
+  return { texts: capTexts([...a.texts, ...b.texts]), dynamic: a.dynamic || b.dynamic, literal: a.literal || b.literal };
 }
 
 function foldPiece(toksIn: readonly Tok[], ctx: FoldContext, depth: number): Folded {
@@ -949,7 +1034,7 @@ function foldIdentifierUncached(name: string, ctx: FoldContext, depth: number, r
   const all = bound.bindings.map((b) => foldExpr(b, ctx, depth + 1));
   const folded = all.reduce(union);
   // a value that is wholly opaque keeps the variable's own name as its hint (OGRINFO_PATH names its tool)
-  return { ...folded, texts: folded.texts.map((x) => (dynamicHint(x) !== null ? dyn(name) : x)) };
+  return { ...folded, texts: folded.texts.map((x) => (dynamicHint(x) !== null && !hasFoldCap(x) ? dyn(name) : x)) };
 }
 
 /** The element expressions of an iterable: an array literal, or an identifier bound to array literals (with pushes). */
