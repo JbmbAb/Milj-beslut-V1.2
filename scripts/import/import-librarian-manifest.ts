@@ -59,6 +59,7 @@ import {
   REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
   assertFirstImportAdmitted,
   assertStagingImportOverwriteAllowed,
+  assertUngovernedDestructiveWriteAllowed,
   dropStagingRelationGoverned,
   planStagingCleanup,
   quoteStagingRelation,
@@ -517,6 +518,8 @@ async function processManifest(manifestPath: string) {
       }
 
       const promoteStrategy = registryEntry.promote_strategy ?? 'replace';
+      // U30F3 (verifier L-5): only `replace` (retain-before-replace) may change a protected relation; append is refused
+      if (promoteStrategy !== 'replace') assertUngovernedDestructiveWriteAllowed({ caller: 'scripts/import/import-librarian-manifest.ts', operation: 'INSERT', relation: `${target_schema}.${target_table}` });
       const retentionTarget = { schema: target_schema, table: target_table };
       // F4 (U30F): hard precondition for the listed large layers (the property layer), checked before
       // the ledger or the table is touched; retainOutgoingThenReplace checks it again. No override.
