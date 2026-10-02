@@ -322,7 +322,7 @@ async function expectNoMint(expected: object, before: { rows: string; supersessi
   expect(JSON.stringify(state.bindingRows), 'no new binding row').toBe(before.rows);
   expect(JSON.stringify(state.bindingSupersessions)).toBe(before.supersessions);
   expect(casFiles(), 'the stored state is unchanged').toEqual(before.files);
-  const detail = outcome.ok ? '' : outcome.failureDetail;
+  const detail = 'failureDetail' in outcome ? outcome.failureDetail : '';
   expect(detail).not.toMatch(/REJECT_|MIMERS_|EISDIR|Artifact not found|project-context-binding|lu-project-context|[\\/]/);
   expect(detail).not.toContain(root);
 }

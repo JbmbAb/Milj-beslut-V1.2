@@ -319,7 +319,7 @@ describe('W-BOOT: a binding that exists but cannot be resolved is never replaced
     };
     const outcome = await executeProjectContextBootstrap(INPUT);
     expect(outcome.ok).toBe(false);
-    const detail = outcome.ok ? '' : outcome.failureDetail;
+    const detail = 'failureDetail' in outcome ? outcome.failureDetail : '';
     expect(detail).not.toMatch(/REJECT_|MIMERS_|EIO|ECONN|Artifact not found|project-context-binding|[\\/]|f00d/);
   });
 });

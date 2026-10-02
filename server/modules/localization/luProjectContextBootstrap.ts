@@ -46,6 +46,11 @@ import {
   installVerifiedProductLuContext,
 } from './projectContextBindingAuthority';
 import { ProjectContextBindingProvider } from './projectContextBindingRuntime';
+import {
+  assertNoProjectContextBindingRegistered,
+  ProjectContextBootstrapBindingUnresolvedError,
+  type BootstrapBindingFaultReason,
+} from './projectContextBootstrapBindingGate';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import {
   getProjectContextBindingIssuerSigner,
@@ -57,7 +62,18 @@ const PRIVATE_KEY_ENV = 'PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_PEM';
 
 export type BootstrapOutcome =
   | { readonly ok: true; readonly contextBindingArtifactId: string; readonly reused: boolean }
-  | { readonly ok: false; readonly failureCode: string; readonly failureDetail: string };
+  | {
+      readonly ok: false;
+      readonly failureCode: string;
+      readonly failureDetail: string;
+      /**
+       * W-BOOT: present only when the project's existing binding could not be resolved (nothing was
+       * minted): whether a retry can help, the fault class, and the REJECT_* token of a refusal.
+       */
+      readonly retryable?: boolean;
+      readonly reason?: BootstrapBindingFaultReason;
+      readonly refusalCode?: string | null;
+    };
 
 type LookupPayload = {
   designation?: unknown;
@@ -139,6 +155,11 @@ async function runFreshVerifier(bindingId: string, projectId: string): Promise<v
  * ProjectContextBindingProvider.resolveCurrent, which fully re-verifies before trusting anything)
  * or was never observed as complete by any caller, so a retry always starts from either "already
  * genuinely done" or "not done yet", never a silently-accepted partial state.
+ *
+ * W-BOOT (OD-R1/OD-R2): "not done yet" means exactly that no binding is registered for the project
+ * (the index row is the install's last write, so a crash before it leaves none). A registered binding
+ * that cannot be read or verified is NOT "not done yet": the outcome is a typed fail-closed
+ * CURRENT_BINDING_* failure with `retryable`, and nothing is minted over it.
  */
 export async function executeProjectContextBootstrap(input: {
   readonly projectId: string;
@@ -173,9 +194,10 @@ export async function executeProjectContextBootstrap(input: {
     };
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
+    const bindingIndex = new PrismaProjectContextBindingIndex();
     const currentBindingProvider = new ProjectContextBindingProvider(
       mimers.artifactRepository,
-      new PrismaProjectContextBindingIndex(),
+      bindingIndex,
       getProjectContextBindingIssuerVerifier(),
     );
 
@@ -184,8 +206,11 @@ export async function executeProjectContextBootstrap(input: {
     try {
       const existing = await currentBindingProvider.resolveCurrent(project!.id);
       return { ok: true, contextBindingArtifactId: existing.artifact_id, reused: true };
-    } catch {
-      // No verified binding yet -- proceed to issue one. Not itself an error.
+    } catch (resolveCurrentError) {
+      // W-BOOT (OD-R1/OD-R2): proceed to issue a binding ONLY when the project provably has none.
+      // A binding that exists but cannot be read or verified is a typed fail-closed error, never
+      // "no binding yet" -- minting then could give the project a second property root.
+      await assertNoProjectContextBindingRegistered({ resolveCurrentError, projectId: project!.id, index: bindingIndex });
     }
 
     const lookup = (await lookupPropertyByDesignationFromPostgis(
@@ -266,6 +291,9 @@ export async function executeProjectContextBootstrap(input: {
   } catch (error) {
     const failureCode = (error as { failureCode?: string })?.failureCode ?? 'BOOTSTRAP_EXECUTION_ERROR';
     const failureDetail = error instanceof Error ? error.message : String(error);
+    if (error instanceof ProjectContextBootstrapBindingUnresolvedError) {
+      return { ok: false, failureCode, failureDetail, retryable: error.retryable, reason: error.reason, refusalCode: error.refusalCode };
+    }
     return { ok: false, failureCode, failureDetail };
   }
 }
