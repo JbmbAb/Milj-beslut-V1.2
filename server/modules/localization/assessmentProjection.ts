@@ -243,6 +243,7 @@ function candidateIdentityFault(value: unknown, assessmentArtifactId: string): A
       sameHash(assessment.content_hash, recomputed) &&
       assessment.artifact_id === `assessment-${recomputed.value}`;
   } catch {
+    // CATCH-REVIEWED: NOT_A_READ: recomputing the canonical hash of content already read; any failure is TAMPERED (fail closed).
     untampered = false;
   }
   return untampered ? null : { assessmentArtifactId, reason: "TAMPERED", retryable: false };
@@ -410,6 +411,7 @@ export async function resolveCurrentAssessmentProjection(args: {
     try {
       validateLocalizationAssessmentContractVersion(assessment.payload);
     } catch (error) {
+      // CATCH-REVIEWED: DEFERRED_RETHROW: the contract-version refusal is thrown after every candidate was examined (fail closed, order-independent).
       contractVersionRefusal ??= error;
       continue;
     }
@@ -537,6 +539,7 @@ export async function reconcileAssessmentProjection(args: {
   try {
     validateLocalizationAssessmentContractVersion(assessment.payload);
   } catch {
+    // CATCH-REVIEWED: NOT_A_READ: validating the contract version of content already read; a refusal is UNKNOWN_CONTRACT_VERSION, never "missing".
     return { reconciled: false, reason: "UNKNOWN_CONTRACT_VERSION" };
   }
 

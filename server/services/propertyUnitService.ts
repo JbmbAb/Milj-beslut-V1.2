@@ -279,6 +279,7 @@ export async function getPropertyLayer(bbox: {
             },
           };
         } catch (error) {
+          // CATCH-REVIEWED: NOT_A_READ: presenting a row already read (geometry JSON, feature identity); it is left out, counted, typed in meta and logged.
           dropped += 1;
           dropReasons.add(error instanceof SyntaxError ? 'geometry_unparsable' : 'row_unpresentable');
           return null;
@@ -351,7 +352,7 @@ function safeJsonParse(value: string): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    // W-CATCH2 #15: a typed marker, not null -- callers can tell "could not parse" from a JSON null.
+    // CATCH-REVIEWED: NOT_A_READ: parsing a text column already read; a typed marker, not null -- callers can tell "could not parse" from a JSON null (W-CATCH2 #15).
     return UNPARSABLE;
   }
 }

@@ -90,6 +90,7 @@ async function runFreshVerifier(args: {
   try {
     scriptPath = fileURLToPath(new URL('./luViewerCapabilityVerifyCli.ts', import.meta.url));
   } catch {
+    // CATCH-REVIEWED: NOT_A_READ: locating the verifier script when import.meta.url is not a file URL; no CAS, index or database read.
     scriptPath = path.resolve(process.cwd(), 'server/modules/localization/luViewerCapabilityVerifyCli.ts');
   }
   const exitCode = await new Promise<number>((resolve, reject) => {

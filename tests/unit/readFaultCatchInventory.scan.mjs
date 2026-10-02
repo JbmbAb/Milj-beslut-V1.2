@@ -66,9 +66,10 @@ export const CLASSIFIERS = Object.freeze([
   'isPersistentStorageFault',
   'classifyLocalizationGeometryCurrentnessError',
   'isProvablyNotCurrentCapability',
+  'unenqueuedRequest',
 ]);
 const CLASSIFIER_RE = new RegExp(`\\b(${CLASSIFIERS.join('|')})\\b`);
-export const MARKER_RE = /CATCH-REVIEWED:\s*([A-Z][A-Z_]+):\s*\S/;
+export const MARKER_RE = /CATCH-REVIEWED:\s*([A-Z][A-Z0-9_]+):\s*\S/;
 
 /** Blank out comments and string/template contents (same length), so braces inside them never count. */
 export function maskCode(src) {

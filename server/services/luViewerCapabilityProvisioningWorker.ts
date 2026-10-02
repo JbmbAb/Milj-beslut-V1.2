@@ -81,6 +81,7 @@ export async function processViewerCapabilityProvisioningRequestsOnce(): Promise
 export function startViewerCapabilityProvisioningWorker(pollMs: number): NodeJS.Timeout {
   return setInterval(() => {
     void processViewerCapabilityProvisioningRequestsOnce().catch((error) => {
+      // CATCH-REVIEWED: BEST_EFFORT_LOGGED: an unexpected error of one poll is logged; the leased request is reclaimed after its lease (nothing is read as done or absent).
       logger.error(`lu-viewer-capability-worker: unexpected error: ${error instanceof Error ? error.message : String(error)}`);
     });
   }, pollMs);

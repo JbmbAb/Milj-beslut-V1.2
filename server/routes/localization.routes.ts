@@ -229,6 +229,7 @@ router.get(
       const payload = await fetchLocalizationAuditTrail(projectId);
       res.status(200).json(payload);
     } catch (error) {
+      // CATCH-REVIEWED: SANITIZED_500: the audit trail answers a sanitized 500 (no raw text) -- never "missing", never another record.
       res.status(500).json(toSafeErrorResponse(error));
     }
   },
@@ -353,6 +354,7 @@ router.get(
           contextBindingArtifactId: status.contextBindingArtifactId,
           requestedByUserId: req.authUser!.id,
         }).catch((error) => {
+          // CATCH-REVIEWED: BEST_EFFORT_LOGGED: the capability trigger is idempotent and retried on the next status read; its failure is logged and decides nothing.
           logger.warn(
             `viewer-capability trigger: could not enqueue for project ${projectId}: ${error instanceof Error ? error.message : String(error)}`,
           );

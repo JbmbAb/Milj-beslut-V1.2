@@ -20,6 +20,7 @@ export type ReadFaultCatchKind =
   | 'DEFERRED_RETHROW'
   | 'RACE_REREAD'
   | 'FAIL_CLOSED_EXIT'
+  | 'SANITIZED_500'
   | 'OWN_CLASSIFICATION'
   | 'OPEN_NOT_FIXED';
 
@@ -31,6 +32,7 @@ export const READ_FAULT_CATCH_KINDS: Readonly<Record<ReadFaultCatchKind, string>
   DEFERRED_RETHROW: 'The failure is kept and thrown after the remaining candidates were examined (fail closed, order-independent).',
   RACE_REREAD: 'A unique-key race on an insert: the winner is re-read; when there is none, a refusal is thrown (fail closed). A read error of the re-read propagates.',
   FAIL_CLOSED_EXIT: 'A command-line verifier: the failure is printed and the process exits non-zero (the caller treats that as failed verification).',
+  SANITIZED_500: 'The route answers a sanitized 500 (toSafeErrorResponse: no raw text) -- a technical failure, never "missing" and never another record.',
   OWN_CLASSIFICATION: 'A verified lane\'s own value-based classification that already separates proven absence, lasting storage faults and read errors (M1a-F1 verdicts, U20D/U20CDF2/W-APR mappings).',
   OPEN_NOT_FIXED: 'A real finding in a file W-CATCH2 must not change: the note names the class and the owning lane.',
 };

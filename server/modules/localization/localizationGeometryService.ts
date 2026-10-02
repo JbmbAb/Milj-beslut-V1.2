@@ -39,6 +39,8 @@ import {
   type LocalizationGeometryProvenanceRecord,
 } from './localizationGeometryCurrentness';
 import { createLocalizationSpatialRuntime, type LocalizationSpatialRuntime } from './createLocalizationSpatialRuntime';
+import { logger } from '../../logger';
+import { retrySentenceSv } from './storageFaultClassification';
 import {
   classifyReadFault,
   isProvenBindingAbsence,
@@ -89,10 +91,36 @@ export interface LocalizationGeometryView {
   readonly supersessionFailureDetail?: string | null;
 }
 
+/** What the view reads of a request: its record, or (W-CATCH2) a request that could not be enqueued. */
+type RequestStatusView<S> = { readonly status: S; readonly failureDetail?: string | null };
+
+/**
+ * W-CATCH2 (BOOT verifier finding 8, OD-R2): a provisioning or supersession request that could not be
+ * ENQUEUED was shown as status null -- "no request" / "no transition needed" (the UI then showed a saved
+ * point as the current one although its supersession was never requested). It is FAILED instead, with a
+ * neutral Swedish text and the class's retry sentence (the existing retry paths re-enqueue). The point
+ * itself stays saved; the server's current point is unchanged. The fault is logged, never sent.
+ */
+function unenqueuedRequest(error: unknown, what: 'provisioning' | 'supersession'): RequestStatusView<'FAILED'> {
+  const fault = classifyReadFault(error);
+  logger.warn(`localization geometry: the ${what} request could not be enqueued (${fault.faultClass})`, {
+    diagnostic: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+  });
+  const lead =
+    what === 'provisioning'
+      ? 'Förberedelsen av analysen för kontrollpunkten kunde inte begäras'
+      : 'Bytet till den nya kontrollpunkten kunde inte begäras';
+  const unchanged = what === 'supersession' ? ' Projektets aktuella kontrollpunkt är oförändrad.' : '';
+  return {
+    status: 'FAILED',
+    failureDetail: `${lead} (${fault.retryable ? 'tekniskt fel' : 'bestående fel'}).${unchanged} ${retrySentenceSv(fault.retryable)}`,
+  };
+}
+
 function toView(
   geometry: LocalizationGeometryArtifact,
-  provisioning: LocalizationIdentityProvisioningRequestRecord | null,
-  supersession?: LocalizationGeometrySupersessionRequestRecord | null,
+  provisioning: RequestStatusView<LocalizationIdentityProvisioningStatus> | LocalizationIdentityProvisioningRequestRecord | null,
+  supersession?: RequestStatusView<LocalizationGeometrySupersessionStatus> | LocalizationGeometrySupersessionRequestRecord | null,
 ): LocalizationGeometryView {
   return {
     artifact_id: geometry.artifact_id,
@@ -303,9 +331,10 @@ export async function getCurrentLocalizationGeometryForProject(args: {
       projectId,
       geometryArtifactId: geometry.artifact_id,
       requestedByUserId: args.authUser.id,
-    }).catch(() => null);
+    }).catch((error: unknown) => unenqueuedRequest(error, 'provisioning'));
     return { ok: true, data: toView(geometry, provisioning) };
   } finally {
+    // CATCH-REVIEWED: CLEANUP: closing the spatial runtime after the answer is decided; a failure decides nothing.
     if (ownsSpatialRuntime) await spatialRuntime.close().catch(() => undefined);
   }
 }
@@ -408,7 +437,7 @@ export async function saveUserLocalizationGeometry(args: {
     const knownRows = await geometryIndex.listForProject(projectId);
     const alreadyKnown = knownRows.some((row) => row.geometryArtifactId === geometry.artifact_id);
 
-    let supersession: LocalizationGeometrySupersessionRequestRecord | null = null;
+    let supersession: RequestStatusView<LocalizationGeometrySupersessionStatus> | LocalizationGeometrySupersessionRequestRecord | null = null;
     if (alreadyKnown) {
       // Retry of a geometry we've already seen -- whether it's the current one or a past,
       // superseded one, this is a true no-op: do not touch the graph. "Retry old A while B is
@@ -443,7 +472,7 @@ export async function saveUserLocalizationGeometry(args: {
           predecessorGeometryArtifactId: predecessor.artifact_id,
           successorGeometryArtifactId: geometry.artifact_id,
           requestedByUserId: args.authUser.id,
-        }).catch(() => null);
+        }).catch((error: unknown) => unenqueuedRequest(error, 'supersession'));
       }
     }
 
@@ -454,9 +483,10 @@ export async function saveUserLocalizationGeometry(args: {
       projectId,
       geometryArtifactId: geometry.artifact_id,
       requestedByUserId: args.authUser.id,
-    }).catch(() => null);
+    }).catch((error: unknown) => unenqueuedRequest(error, 'provisioning'));
     return { ok: true, data: toView(geometry, provisioning, supersession) };
   } finally {
+    // CATCH-REVIEWED: CLEANUP: closing the spatial runtime after the answer is decided; a failure decides nothing.
     if (ownsSpatialRuntime) await spatialRuntime.close().catch(() => undefined);
   }
 }

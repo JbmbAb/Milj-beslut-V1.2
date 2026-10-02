@@ -55,6 +55,7 @@ export async function processLocalizationIdentityProvisioningRequestsOnce(): Pro
 export function startLocalizationIdentityProvisioningWorker(pollMs: number): NodeJS.Timeout {
   return setInterval(() => {
     void processLocalizationIdentityProvisioningRequestsOnce().catch((error) => {
+      // CATCH-REVIEWED: BEST_EFFORT_LOGGED: an unexpected error of one poll is logged; the leased request is reclaimed after its lease (nothing is read as done or absent).
       logger.error(`lu-identity-v3-worker: unexpected error: ${error instanceof Error ? error.message : String(error)}`);
     });
   }, pollMs);
