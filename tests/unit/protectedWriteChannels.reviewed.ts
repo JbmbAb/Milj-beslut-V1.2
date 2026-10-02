@@ -32,6 +32,26 @@ export interface ReviewedChannels {
   readonly sites: readonly string[];
 }
 
+/**
+ * U30F3 (U30F2-VERIFICATION L-1): what a reviewed entry's marker may be -- a call of one of its policy's own gate
+ * doors, from this closed list (the marker is `<door>` or `<door>\(...`). An arbitrary pattern the file happens to
+ * contain ("pg") whitelists nothing. The list is pinned in the test (LOCKS.markerDoorsSha256). KNOWN LIMIT: a
+ * door's call elsewhere in the file still satisfies a marker; one commit that edits this list, the entry and the
+ * lock together still passes -- a CODEOWNERS / Dev-Gov binding of these files is the owner's decision.
+ */
+export const REVIEW_MARKER_DOORS: Readonly<Record<string, readonly string[]>> = {
+  GATED_VIA: [
+    "gatedSql", "assertSqlWriteAllowed", "assertCommandWriteAllowed", "assertOgr2ogrWriteAllowed", "assertOgr2ogrCommandAllowed",
+    "assertUngovernedDestructiveWriteAllowed", "gated_sql", "assert_command_write_allowed", "assert_ungoverned_write_allowed",
+    "assert_ogr2ogr_write_allowed", "Get-GatedSql", "Assert-CommandWriteAllowed", "Assert-UngovernedWriteAllowed", "Assert-Ogr2ogrWriteAllowed",
+  ],
+  GOVERNED: ["retainOutgoingThenReplace", "assertStagingImportOverwriteAllowed", "planStagingCleanup", "dropStagingRelationGoverned", "assertFirstImportAdmitted"],
+  SANCTIONED_REBUILD: ["assertSanctionedDerivedRebuild"],
+  TEST_DB_GUARD: ["assertDisposableGisTestDatabase"],
+  SEPARATELY_GUARDED: ["assertPendingFilesMayRun"],
+  DYNAMIC_REVIEWED: [],
+};
+
 /** The gate itself, its classifier and its bindings: they hold destructive statements on purpose. */
 export const GATE_IMPLEMENTATION: readonly { readonly file: string; readonly justification: string }[] = [
   { file: "packages/spatial-provider-postgis/src/ProtectedRelationGate.ts", justification: "The protected relation gate (TypeScript)." },

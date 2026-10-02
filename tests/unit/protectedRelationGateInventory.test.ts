@@ -50,6 +50,7 @@ import {
   HISTORICAL_SQL,
   PATH_EXCLUSIONS,
   REVIEWED_CHANNELS,
+  REVIEW_MARKER_DOORS,
   TEST_SOURCES,
   UNSCANNED_EXECUTABLES,
   UNSCANNED_EXECUTABLE_TYPES,
@@ -76,6 +77,8 @@ const LOCKS = {
   // U30F2 LOW (verifier L3): the retired list is pinned by content too -- an entry swapped for another
   // with the same count, or an entry's relations, justification or replacement changed, fails here.
   retiredSha256: '95a7f253f4e39e1c8d3aed638ab5b71abda678a44d4a1f6bfe56c8793381b645',
+  // U30F3 (verifier L-1): the closed list of gate doors a reviewed marker may name
+  markerDoorsSha256: '7f761ea97d935c9a86a0092d5aee243eea9d21c425c3a0f4ad4132a15e2f6d29',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -177,7 +180,12 @@ function evaluateFile(file: string, text: string, scan: FileScan, ctx: Evaluatio
     add(`sites differ from the reviewed entry (${entry.policy}): new ${JSON.stringify(extra)} / gone ${JSON.stringify(missing)}`);
   }
   const text0 = text;
-  for (const m of entry.markers ?? []) if (!new RegExp(m).test(text0)) add(`reviewed as ${entry.policy} but its marker /${m}/ is gone`);
+  for (const m of entry.markers ?? []) {
+    // U30F3 (verifier L-1): a marker is a call of one of the policy's own gate doors, never an arbitrary pattern
+    const doors = REVIEW_MARKER_DOORS[entry.policy] ?? [];
+    if (!doors.some((d) => m === d || m.startsWith(`${d}\\(`))) add(`reviewed as ${entry.policy} but its marker /${m}/ is not a call of one of its gate doors (${doors.join(', ') || 'none'})`);
+    if (!new RegExp(m).test(text0)) add(`reviewed as ${entry.policy} but its marker /${m}/ is gone`);
+  }
   if (entry.callers) {
     const importers = ctx.importersOf(file).filter((f) => !entry.callers!.includes(f));
     if (importers.length) add(`reviewed as caller-guarded (${entry.policy}) but imported by ${importers.join(', ')}`);
@@ -314,6 +322,7 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
     expect(sha256Of(PATH_EXCLUSIONS)).toBe(LOCKS.pathExclusionsSha256);
     expect(sha256Of({ UNSCANNED_EXECUTABLE_TYPES, UNSCANNED_EXECUTABLES })).toBe(LOCKS.unscannedSha256);
     expect(sha256Of(TEST_SOURCES)).toBe(LOCKS.testSourcesSha256);
+    expect(sha256Of(REVIEW_MARKER_DOORS)).toBe(LOCKS.markerDoorsSha256);
     for (const x of [...HISTORICAL_SQL, ...PATH_EXCLUSIONS, ...UNSCANNED_EXECUTABLES]) expect(x.justification.length).toBeGreaterThanOrEqual(20);
   });
 
