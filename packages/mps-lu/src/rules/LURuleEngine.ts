@@ -102,47 +102,59 @@ export function notCheckedLayerExplanation(dataset: string): string {
 const HISTORICAL_NOT_CHECKED_SUFFIX = "). Ej kontrollerbart - underlag saknas.";
 
 /**
- * U30-R3 (a) -- the exact form of the cause the provider embedded before U30-R2. Its one producer was
- * `describeQueryFailure` (SpatialProviderPostGIS.ts, unchanged from d27d240a to c3d06557^):
- * `${error.name or "UnknownError"}: ${message, or its first 200 UTF-16 units + "..." when longer}`.
- * So: an error-class name (an identifier, e.g. pg's DatabaseError name "error", "Error",
- * "AggregateError"), ": ", then a single-line message of at most 200 units, or of exactly 200 units
- * followed by "...". The message is the driver's own text and was never pinned, so it cannot be
- * checked further without turning genuine historical assessments into false tamper findings.
+ * U30-R3 (a), corrected after the U30-R3 verification (F3) -- EXACTLY the set of strings the one
+ * historical producer of the cause could return, and nothing else. That producer was
+ * `describeQueryFailure` (SpatialProviderPostGIS.ts, unchanged from d27d240a to c3d06557^; verbatim at
+ * 34097f2e = aba4305c^, lines 26-31, its only call site lines 211-214):
+ *
+ *   name         = error instanceof Error ? error.name : "UnknownError"
+ *   message      = error instanceof Error ? error.message : String(error)
+ *   shortMessage = message.length > 200 ? `${message.slice(0, 200)}...` : message
+ *   return `${name}: ${shortMessage}`
+ *
+ * Input domain: every value thrown by `pool.query`. An Error's `name` and `message` are strings
+ * (pg's DatabaseError and Node's errors included); `name` is not constrained in any way (empty, with
+ * spaces, line breaks or ": " are all possible) and nothing was ever stripped from either. So the
+ * output set is: some occurrence of ": " followed by a tail the truncation can produce -- at most 200
+ * UTF-16 units, or exactly 200 followed by "..." -- with ANY text, including line breaks and tabs,
+ * before it and inside the tail. Not modelled: an Error whose `message` was replaced by a non-string
+ * object without `length` (it would escape truncation); neither pg nor Node throws one, and admitting
+ * it would make every tail length acceptable.
  */
-const HISTORICAL_PROVIDER_CAUSE = /^[A-Za-z_$][A-Za-z0-9_$]*: ([\s\S]*)$/;
+const HISTORICAL_PROVIDER_SEPARATOR = ": ";
 const HISTORICAL_PROVIDER_MESSAGE_LIMIT = 200;
 const HISTORICAL_PROVIDER_TRUNCATION = "...";
 
-/** No C0/C1 control character and no Unicode line or paragraph separator: one printable line. */
-function isSingleLine(text: string): boolean {
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) return false;
-  }
-  return true;
+/** A `shortMessage` the truncation could return. */
+function isHistoricalProviderMessage(shortMessage: string): boolean {
+  return (
+    shortMessage.length <= HISTORICAL_PROVIDER_MESSAGE_LIMIT ||
+    (shortMessage.length === HISTORICAL_PROVIDER_MESSAGE_LIMIT + HISTORICAL_PROVIDER_TRUNCATION.length &&
+      shortMessage.endsWith(HISTORICAL_PROVIDER_TRUNCATION))
+  );
 }
 
+/** `${name}: ${shortMessage}` for some string `name`: try every ": " as the separator. */
 function isHistoricalProviderCause(cause: string): boolean {
-  const match = HISTORICAL_PROVIDER_CAUSE.exec(cause);
-  if (!match) return false;
-  const message = match[1]!;
-  if (!isSingleLine(message)) return false;
-  return (
-    message.length <= HISTORICAL_PROVIDER_MESSAGE_LIMIT ||
-    (message.length === HISTORICAL_PROVIDER_MESSAGE_LIMIT + HISTORICAL_PROVIDER_TRUNCATION.length &&
-      message.endsWith(HISTORICAL_PROVIDER_TRUNCATION))
-  );
+  for (
+    let at = cause.indexOf(HISTORICAL_PROVIDER_SEPARATOR);
+    at !== -1;
+    at = cause.indexOf(HISTORICAL_PROVIDER_SEPARATOR, at + 1)
+  ) {
+    if (isHistoricalProviderMessage(cause.slice(at + HISTORICAL_PROVIDER_SEPARATOR.length))) return true;
+  }
+  return false;
 }
 
 /**
  * The wording every NOT_CHECKED layer finding was stored with before U30-R2:
  * 'Lagret "<layer>" kunde inte kontrolleras (<provider cause>). Ej kontrollerbart - underlag saknas.'
  * The cause was never pinned anywhere else, so it cannot be reproduced; this recognizes the
- * historical frame AND the exact form its one producer gave the cause (isHistoricalProviderCause),
- * so re-execution can report such a finding honestly (NOT_CHECKED_CAUSE_NOT_PINNED) instead of as
- * tampering. Any other wording -- free text without an error name, an untruncated message over the
- * limit, a line break -- is not recognized.
+ * historical frame AND exactly the output set of its one producer (isHistoricalProviderCause), so
+ * re-execution can report such a finding honestly (NOT_CHECKED_CAUSE_NOT_PINNED) instead of as
+ * tampering. Text that producer could never return -- no ": ", or no ": " followed by a tail its
+ * truncation could produce -- is not recognized. Text it COULD return is indistinguishable from
+ * genuine output: the name was never constrained.
  */
 export function isHistoricalNotCheckedExplanation(explanation: string, dataset: string): boolean {
   const prefix = `Lagret "${dataset}" kunde inte kontrolleras (`;

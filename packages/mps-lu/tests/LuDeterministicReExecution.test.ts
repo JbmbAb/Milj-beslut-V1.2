@@ -18,6 +18,7 @@ import {
 import type { LocalizationAssessmentArtifact, LocalizationAssessmentDraft } from "../src/artifacts/LocalizationAssessmentArtifact";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { executionIdentityCanonicalBody } from "../src/execution/ExecutionIdentityAttestation";
+import { isHistoricalNotCheckedExplanation } from "../src/rules/LURuleEngine";
 import {
   LU_CANONICAL_AUTHORITY_ENV,
   createLuCanonicalAuthority,
@@ -1237,6 +1238,37 @@ describe("U30-R3 (a): a historical NOT_CHECKED explanation is recognized only in
       expect(r.notices.map((n) => n.code)).toEqual(["NOT_CHECKED_CAUSE_NOT_PINNED"]);
     });
   }
+
+  it("19h: a seeded sweep of producer outputs (any name, any message incl. line breaks, tabs, ': ', lone surrogates, lengths around the limit) is recognized; generated non-producible text is not", () => {
+    let seed = 0x5eed2003;
+    const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
+    const ALPHABET = ["a", "Ö", " ", ":", ": ", "\n", "\t", "\r", ".", "...", "\"", "(", ")", "\ud800", "é"];
+    const randomText = (max: number) => {
+      const length = next() % (max + 1);
+      let text = "";
+      while (text.length < length) text += ALPHABET[next() % ALPHABET.length];
+      return text.slice(0, length);
+    };
+    const historical = (cause: string) => legacyNotCheckedExplanation("ebh", cause);
+    for (let i = 0; i < 2000; i += 1) {
+      const name = randomText(12);
+      const message = randomText(i % 2 === 0 ? 40 : 260);
+      const thrown = i % 7 === 0 ? message : Object.assign(new Error(message), { name });
+      const cause = historicalProviderCause(thrown);
+      expect(isHistoricalNotCheckedExplanation(historical(cause), "ebh"), JSON.stringify(cause)).toBe(true);
+    }
+    const NO_SEPARATOR = ["a", "Ö", " ", ":", "\n", "\t", ".", "("];
+    for (let i = 0; i < 500; i += 1) {
+      let text = "";
+      const length = next() % 300;
+      while (text.length < length) text += NO_SEPARATOR[next() % NO_SEPARATOR.length];
+      let withoutSeparator = text;
+      while (withoutSeparator.includes(": ")) withoutSeparator = withoutSeparator.split(": ").join(":");
+      expect(isHistoricalNotCheckedExplanation(historical(withoutSeparator), "ebh"), JSON.stringify(withoutSeparator)).toBe(false);
+      const tail = "x".repeat(201 + (next() % 2)) + (i % 2 === 0 ? "" : "y".repeat(next() % 50));
+      expect(isHistoricalNotCheckedExplanation(historical(`${withoutSeparator}: ${tail}`), "ebh")).toBe(false);
+    }
+  });
 
   // Text the producer could never return: no ": " at all, or no ": " followed by a tail its
   // truncation could produce (at most 200 UTF-16 units, or exactly 200 followed by "...").
