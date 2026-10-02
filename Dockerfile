@@ -43,7 +43,13 @@ RUN npm prune --omit=dev --legacy-peer-deps --ignore-scripts
 
 # Steg 2: Produktionsbas (gemensam för alla slutliga images)
 FROM base AS production-base
-ENV NODE_ENV=production
+# Fem @miljobeslut-specifierare (mps-application, mps-capability,
+# mps-knowledge-corpus, mps-knowledge-index, mps-legal-corpus) finns inte som
+# node_modules-länkar och löses bara via tsconfig-paths. tsx letar annars upp
+# tsconfig.json från arbetskatalogen; den fasta sökvägen gör upplösningen
+# oberoende av working_dir.
+ENV NODE_ENV=production \
+    TSX_TSCONFIG_PATH=/app/tsconfig.json
 
 # Runtime får byggstegets egna bytes. node_modules/@miljobeslut/* är länkar
 # till ../../packages/*, så packages/ måste följa med, och tsconfig.json bär
@@ -71,6 +77,12 @@ USER appuser
 
 # --- Slutsteg: Webbserver (default) ---
 # Cloud Run sätter PORT=8080; lokalt dev använder PORT=8787 via .env
+# LU-arbetarna körs från samma image med ett annat kommando, så att alla
+# processer i en kandidat har en och samma app-digest:
+#   node --import tsx server/workers/lu-project-context-bootstrap-worker.ts
+#   node --import tsx server/workers/lu-execution-identity-v3-worker.ts
+#   node --import tsx server/workers/lu-viewer-capability-worker.ts
+#   node --import tsx server/workers/lu-geometry-supersession-worker.ts
 FROM production-base AS web
 ENV PORT=8080
 EXPOSE 8080
