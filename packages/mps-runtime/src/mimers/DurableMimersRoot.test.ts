@@ -19,6 +19,10 @@ import { MimersIntegration, resetMimersCasCacheForTests } from "./MimersIntegrat
  * it recursively) in which every stored artifact read as "Artifact not found". Both now fail closed
  * with MIMERS_ROOT_REQUIRED; the resolver only stats the path and never creates anything. Every root
  * used here is a fresh temp directory -- never a real CAS root.
+ *
+ * M1a-F1 (3): on Windows the root must also name its volume (drive letter or UNC share). Whether an
+ * existing directory is the RIGHT root is not decided by this resolver (owner decision, see the
+ * M1a-F1 report: root identity marker).
  */
 function expectRootRequired(run: () => unknown, consumer: string, detail: RegExp): MimersRootRequiredError {
   let caught: unknown;
@@ -80,6 +84,38 @@ describe("resolveDurableMimersRoot (PRES-19 shared durable root contract)", () =
       );
     },
   );
+
+  // M1a-F1 (3): on Windows a ROOTED path without a volume ("\x", "/x") passes path.isAbsolute but
+  // resolves against the drive of the process's working directory.
+  it("a root that names no volume fails closed on Windows ('/srv/mimers', platform win32, deterministic on any OS)", () => {
+    expectRootRequired(
+      () => resolveDurableMimersRoot({ MIMERS_ROOT: "/srv/mimers" } as NodeJS.ProcessEnv, "ExecutionKernel CAS", "win32"),
+      "ExecutionKernel CAS",
+      /names no drive letter or UNC share/,
+    );
+  });
+
+  it.runIf(process.platform === "win32").each([
+    ["backslashes", (p: string) => p.slice(2)],
+    ["forward slashes", (p: string) => p.slice(2).split("\\").join("/")],
+  ])(
+    "Windows: an EXISTING directory named without its drive letter (%s) fails closed instead of resolving against the cwd's drive",
+    (_label, dropDrive) => {
+      expect(scratch).toMatch(/^[A-Za-z]:\\/);
+      const driveless = dropDrive(scratch);
+      // the old resolver accepted it, because it exists on the working directory's drive
+      expect(path.isAbsolute(driveless)).toBe(true);
+      expectRootRequired(
+        () => resolveDurableMimersRoot({ MIMERS_ROOT: driveless } as NodeJS.ProcessEnv, "lu workers"),
+        "lu workers",
+        /names no drive letter or UNC share/,
+      );
+    },
+  );
+
+  it.runIf(process.platform === "win32")("Windows: the \\\\?\\ long-path form with a drive letter is accepted (UNC-shaped, names its volume)", () => {
+    expect(resolveDurableMimersRoot({ MIMERS_ROOT: `\\\\?\\${scratch}` } as NodeJS.ProcessEnv)).toBe(path.resolve(`\\\\?\\${scratch}`));
+  });
 
   it("a MISSPELLED (non-existent) absolute root fails closed and is not created", () => {
     const typo = path.join(scratch, "mimer-dmeo", "cas");

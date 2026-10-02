@@ -39,13 +39,30 @@ export class MimersRootRequiredError extends Error {
 }
 
 /**
+ * M1a-F1 (3): on Windows `path.isAbsolute` also accepts a ROOTED path without a volume ("\cas",
+ * "/cas"), which resolves against the drive of the process's working directory -- the same root
+ * string then names different directories for processes started from different drives. A durable root
+ * must name its volume: a drive letter ("D:\..." or "D:/...") or a UNC share ("\\server\share\...").
+ */
+function namesItsVolume(raw: string, platform: NodeJS.Platform): boolean {
+  if (platform !== "win32") return true;
+  return /^[A-Za-z]:[\\/]/.test(raw) || /^[\\/]{2}[^\\/]+[\\/]+[^\\/]+/.test(raw);
+}
+
+/**
  * Resolve the durable Mimers root from `MIMERS_ROOT` (trimmed, normalized).
- * Throws `MimersRootRequiredError` when it is unset or blank, not an absolute path, does not exist,
- * or is not a directory. Only stats the path; never creates anything.
+ * Throws `MimersRootRequiredError` when it is unset or blank, not an absolute path, (on Windows) names
+ * no drive letter or UNC share, does not exist, or is not a directory. Only stats the path; never
+ * creates anything.
+ *
+ * Not decided here: whether an existing directory is the RIGHT root (e.g. its parent, or another
+ * install's root). Nothing in the root identifies it today; see M1A-F1-REPORT.md for the proposed
+ * root identity marker (owner decision).
  */
 export function resolveDurableMimersRoot(
   env: NodeJS.ProcessEnv = process.env,
   consumer = "Mimers CAS",
+  platform: NodeJS.Platform = process.platform,
 ): string {
   const raw = env.MIMERS_ROOT?.trim();
   if (!raw) {
@@ -55,6 +72,12 @@ export function resolveDurableMimersRoot(
     throw new MimersRootRequiredError(
       consumer,
       `MIMERS_ROOT '${raw}' for ${consumer} is not an absolute path (a relative root would resolve against the process's working directory)`,
+    );
+  }
+  if (!namesItsVolume(raw, platform)) {
+    throw new MimersRootRequiredError(
+      consumer,
+      `MIMERS_ROOT '${raw}' for ${consumer} names no drive letter or UNC share (on Windows such a root resolves against the drive of the process's working directory)`,
     );
   }
   const root = path.resolve(raw);
