@@ -78,7 +78,9 @@ export const READ_FAULT_CATCH_REVIEWED: readonly ReviewedCatch[] = [
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '76c1f80445ebfa62', count: 1, kind: 'OWN_CLASSIFICATION', note: 'W-APR/U20CDF2 assessmentResolutionFailure (see above)' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'b9fde1fe58ff150c', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure (see above)' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '4eac7eeebe7aa444', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (#4 class, W-U20CDF4 lane; reported by W-APR): a contract-version refusal is 424 with the RAW error message' },
-  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '78beea267442af8c', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (#7/#14 class, W-U20CDF4 lane; APR F7): authorizeAssessmentPresentation failures -- a typed access denial, a database that cannot answer, a binding that cannot be READ -- all become 424 "not bound"; the binding refusal now keeps its cause (W-CATCH2 #7) for this mapping to classify' },
+  // W-U20CDF5 (B4): the authorizeAssessmentPresentation catch (former OPEN_NOT_FIXED 78beea267442af8c) now
+  // classifies (projectAccessFailure for the access re-check, classifyReadFault for the binding); its inner
+  // access-check catch propagates the failure -- both accepted by the scanner, no longer listed here.
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '054922544981d0f7', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (OD-R2 class, NEW, W-U20CDF4 lane): the PDF export reads the property context; ANY read failure becomes property = null, a "gap" in the PDF -- a read error read as absence' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '37dd1e5d75a57bb2', count: 1, kind: 'OPEN_NOT_FIXED', note: 'OPEN (OD-R2 class, NEW, W-U20CDF4 lane): the PDF export reads the project context; ANY read failure becomes project = null, a "gap" in the PDF -- a read error read as absence' },
 ];

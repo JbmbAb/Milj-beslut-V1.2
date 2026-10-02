@@ -60,7 +60,16 @@ import { governedLayerLabelSv, storedRiskFindingsSv } from './governedCoverageSt
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
-import { projectAccessFailure, readFaultHttpStatus, readFaultOfClass, readFaultSentenceSv, type ReadFaultClass } from './readFaultClassification';
+import {
+  classifyReadFault,
+  projectAccessFailure,
+  readFaultHttpStatus,
+  readFaultOfClass,
+  readFaultSentenceSv,
+  type ReadFault,
+  type ReadFaultClass,
+  type ReadPhase,
+} from './readFaultClassification';
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
@@ -743,7 +752,8 @@ type CurrentAssessmentFailure =
   | LocalizationGeometryCurrentnessFailureResponse
   | AssessmentIdMismatchFailure
   | AssessmentReadFailure
-  | AssessmentSelectionRefusal;
+  | AssessmentSelectionRefusal
+  | AssessmentBindingUnresolved;
 
 /**
  * U20CDF2 (coordinator add-on 2; OD-R2: a CAS/read error is a technical error, never "missing").
@@ -978,6 +988,47 @@ function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: str
   );
 }
 
+/** W-U20CDF5 (B4): the assessment's binding to the project could not be read or verified -- never "not bound". */
+export const ASSESSMENT_BINDING_UNRESOLVED = 'ASSESSMENT_BINDING_UNRESOLVED';
+
+export interface AssessmentBindingUnresolved {
+  readonly ok: false;
+  readonly status: 409 | 503;
+  readonly error: string;
+  readonly code: typeof ASSESSMENT_BINDING_UNRESOLVED;
+  readonly failureClass: ReadFaultClass;
+  readonly reasonCode: string;
+  readonly retryable: boolean;
+}
+
+/** The answer the read-back has always given for an assessment whose context is not bound to the project. */
+const ASSESSMENT_NOT_BOUND_ERROR = 'Governed LU assessment is not bound to this project.';
+
+/**
+ * W-U20CDF5 (B4): ProjectContextBindingProvider.resolve wraps a failed READ (index row, binding object) as
+ * REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE and a failed VERIFICATION of the binding's authority as
+ * REJECT_PROJECT_CONTEXT_BINDING_AUTHORITY_INVALID, the cause kept (W-CATCH2 #7). The stable token of the
+ * outermost refusal names the phase for the shared classification (an unknown cause while reading is a read
+ * error, while verifying a refusal); a read marker anywhere in the cause chain is a read error either way.
+ */
+function bindingFailurePhase(error: unknown): ReadPhase {
+  return error instanceof Error && error.message === 'REJECT_PROJECT_CONTEXT_BINDING_AUTHORITY_INVALID' ? 'verify' : 'read';
+}
+
+/** 424 "not bound" only for a binding refusal; any other class is the typed ASSESSMENT_BINDING_UNRESOLVED. */
+function assessmentBindingFailure(fault: ReadFault): { ok: false; status: 424; error: string } | AssessmentBindingUnresolved {
+  if (fault.faultClass === 'REFUSED') return { ok: false, status: 424, error: ASSESSMENT_NOT_BOUND_ERROR };
+  return {
+    ok: false,
+    status: readFaultHttpStatus(fault),
+    error: `${readFaultSentenceSv(fault, 'Bedömningens koppling till projektet')} Bedömningen visas inte, och ingen annan bedömning visas i dess ställe.`,
+    code: ASSESSMENT_BINDING_UNRESOLVED,
+    failureClass: fault.faultClass,
+    reasonCode: fault.refusalCode ?? fault.faultClass,
+    retryable: fault.retryable,
+  };
+}
+
 /**
  * The identity resolution shared by the read-back, the PDF and verify: project authorization ->
  * current geometry -> current assessment projection -> CAS read -> tamper / contract / binding
@@ -1081,17 +1132,29 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
     };
   }
 
+  // W-U20CDF5 (B4; APR F7, W-CATCH2 #7/#14 class): "not bound" (424) only for a binding REFUSAL. A failed read of
+  // the access facts is the access answer (403 for the typed denial, else 503 PROJECT_ACCESS_UNRESOLVED); a
+  // failed read of the binding index or of the binding in CAS is 503 ASSESSMENT_BINDING_UNRESOLVED in the shared
+  // classes (READ_ERROR retryable; MISSING_FROM_CAS / STORAGE_INTEGRITY_FAULT lasting) -- never "not bound".
+  const accessCheck: { failed: boolean; error: unknown } = { failed: false, error: undefined };
   try {
     await authorizeAssessmentPresentation({
       projectId,
       assessment,
       assertProjectAccess: async () => {
-        await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
+        try {
+          await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
+        } catch (error) {
+          accessCheck.failed = true;
+          accessCheck.error = error;
+          throw error;
+        }
       },
       bindingProvider: currentBindingProvider,
     });
-  } catch {
-    return { ok: false, status: 424, error: 'Governed LU assessment is not bound to this project.' };
+  } catch (error) {
+    if (accessCheck.failed) return projectAccessFailure(accessCheck.error);
+    return assessmentBindingFailure(classifyReadFault(error, bindingFailurePhase(error)));
   }
 
   return { ok: true, assessment, artifactRepository, currentGeometry: currentGeometry.current };
