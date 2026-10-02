@@ -268,6 +268,11 @@ describe('W-BOOT: a binding that exists but cannot be resolved is never replaced
       refused('REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE'),
     ],
     [
+      "another refusal than the provider's own, even with noBindingRegistered and an empty-graph cause",
+      () => Object.assign(new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE', { cause: emptyGraph() }), { noBindingRegistered: true }),
+      refused('REJECT_PROJECT_CONTEXT_BINDING_HEAD'),
+    ],
+    [
       'noBindingRegistered is not strictly true',
       () => Object.assign(new Error('REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE', { cause: emptyGraph() }), { noBindingRegistered: 'true' }),
       refused('REJECT_PROJECT_CONTEXT_BINDING_HEAD'),
