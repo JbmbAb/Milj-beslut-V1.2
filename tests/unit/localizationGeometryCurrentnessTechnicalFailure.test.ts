@@ -13,9 +13,11 @@
  *
  * The frozen reject-and-continue posture (LocalizationGeometryCurrentProvider; LU-PROJECTION-
  * RECONCILIATION-AND-TOTAL-ORDER-V1 Phase B) for candidates whose state WAS determined -- missing
- * from CAS, corrupted bytes, tampered content, forged/invalid signature -- is NOT changed by this
- * unit; the "frozen posture unchanged" block pins that. One consequence of that frozen rule is an
- * OPEN OWNER DECISION and is pinned (not endorsed) by the RESIDUAL test at the end of that block.
+ * from CAS, corrupted bytes, tampered content, forged/invalid signature -- was NOT changed by this
+ * unit. OD-R1 (owner decision 2026-10-02, YES, forward-only) later narrowed it: a determined-bad
+ * geometry that may be the CURRENT point (no verified outgoing edge) now fails closed
+ * (CURRENT_GEOMETRY_UNVERIFIED, 409) instead of letting an older point win; the two tests at the end
+ * of that block were flipped accordingly. See localizationGeometryCurrentnessOdR1.test.ts.
  *
  * Hermetic: both projection repositories and server/db/prisma are mocked (the prisma guard throws
  * and records on any access); CAS is an in-memory repository with the real "Artifact not found"
@@ -363,15 +365,15 @@ describe('Frozen reject-and-continue posture is UNCHANGED for candidates whose s
     expect(e.failureClass).toBe('NO_VERIFIED_GEOMETRY_CANDIDATE');
   });
 
-  it('a tampered geometry (content_hash mismatch) next to a valid root -> tampered one excluded, the valid one CURRENT', async () => {
+  it('OD-R1: a tampered geometry (content_hash mismatch) next to a valid root -> the tampered one may be current -> CURRENT_GEOMETRY_UNVERIFIED 409, never the other root', async () => {
     const repo = new CasRepository();
     const a = userGeometry(6580743.0);
     const tampered = userGeometry(6580843.0);
     await storeAndRegister(repo, a);
     await storeAndRegister(repo, tampered);
     repo.values.set(tampered.artifact_id, { ...tampered, payload: { ...tampered.payload, label: 'edited after the fact' } });
-    const resolved = await derive(repo);
-    expect(resolved.geometry.artifact_id).toBe(a.artifact_id);
+    const e = await refusal(repo);
+    expect({ failureClass: e.failureClass, httpStatus: e.httpStatus }).toEqual({ failureClass: 'CURRENT_GEOMETRY_UNVERIFIED', httpStatus: 409 });
   });
 
   it('a forged edge (signature does not verify) -> edge excluded -> both points are heads -> AMBIGUOUS 409', async () => {
@@ -381,15 +383,13 @@ describe('Frozen reject-and-continue posture is UNCHANGED for candidates whose s
     expect({ failureClass: e.failureClass, httpStatus: e.httpStatus }).toEqual({ failureClass: 'AMBIGUOUS_CURRENT_GEOMETRY', httpStatus: 409 });
   });
 
-  it('RESIDUAL, OPEN OWNER DECISION (pinned, not endorsed): head B MISSING from CAS under a verified A -> B edge still resolves the predecessor A as CURRENT', async () => {
-    // The frozen rule excludes a missing candidate AND every edge that references it, so the
-    // superseded predecessor becomes the only head. Failing closed here instead would change the
-    // frozen semantics -- see M1A-REPAIR-REPORT.md, "Open owner decisions". If the owner decides
-    // to fail closed, this test must flip to a fail-closed expectation.
-    const { repo, a, b } = await movedPoint();
+  it('OD-R1 (decided, flipped from the pinned RESIDUAL): head B MISSING from CAS under a verified A -> B edge -> CURRENT_GEOMETRY_UNVERIFIED 409, never the predecessor A', async () => {
+    const { repo, b } = await movedPoint();
     repo.values.delete(b.artifact_id);
-    const resolved = await derive(repo);
-    expect(resolved.geometry.artifact_id).toBe(a.artifact_id);
+    const e = await refusal(repo);
+    expect({ failureClass: e.failureClass, httpStatus: e.httpStatus }).toEqual({ failureClass: 'CURRENT_GEOMETRY_UNVERIFIED', httpStatus: 409 });
+    expect(e.technicalDetail).toContain(b.artifact_id);
+    expect(state.registerCalls).toBe(0);
   });
 });
 

@@ -18,11 +18,20 @@
  * single candidate (it used to drop the candidate, which could make a superseded point current). It
  * now throws LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE, classified here as the retryable
  * technical class CURRENTNESS_RESOLUTION_ERROR (503), never as a refusal.
+ *
+ * OD-R1 (owner decision 2026-10-02, forward-only): a geometry that may be the CURRENT point (no
+ * verified outgoing supersession edge) but is missing, corrupted, tampered or inconsistent with its
+ * projection row no longer lets an older point win. The provider throws
+ * LOCALIZATION_GEOMETRY_CURRENT_CANDIDATE_UNVERIFIED, classified here as CURRENT_GEOMETRY_UNVERIFIED
+ * (409, a refusal: the state was determined, retrying does not change it).
  */
 import type { ArtifactRepositoryPort } from '@miljobeslut/mps-runtime';
 import type { LocalizationGeometryProvenance } from '@miljobeslut/mps-lu';
 import { resolveCurrentLocalizationGeometry, type CurrentLocalizationGeometry } from './localizationGeometryProjection';
-import { LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX } from './localizationGeometryCurrentProvider';
+import {
+  LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX,
+  LOCALIZATION_GEOMETRY_CURRENT_CANDIDATE_UNVERIFIED_PREFIX,
+} from './localizationGeometryCurrentProvider';
 import type { LocalizationGeometryProjectionIndex } from '../../repositories/localizationGeometryProjectionRepository';
 import type { LocalizationGeometrySupersessionIndex } from '../../repositories/localizationGeometrySupersessionRepository';
 
@@ -34,6 +43,7 @@ export type LocalizationGeometryCurrentnessFailureClass =
   | 'AMBIGUOUS_CURRENT_GEOMETRY'
   | 'INVALID_SUPERSESSION_GRAPH'
   | 'NO_VERIFIED_GEOMETRY_CANDIDATE'
+  | 'CURRENT_GEOMETRY_UNVERIFIED'
   | 'INVALID_GEOMETRY_HEAD'
   | 'VERIFIER_CONFIGURATION'
   | 'DERIVED_GEOMETRY_PERSISTENCE_FAILED'
@@ -63,6 +73,14 @@ const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClas
   NO_VERIFIED_GEOMETRY_CANDIDATE: {
     messageSv:
       'Projektets sparade lokalisering kunde inte verifieras mot arkivet. Ingen punkt härleds automatiskt och ingen bedömning görs.',
+    httpStatus: 409,
+    kind: 'REFUSED',
+  },
+  CURRENT_GEOMETRY_UNVERIFIED: {
+    messageSv:
+      'Projektets aktuella lokaliseringspunkt kunde inte verifieras: den saknas eller är skadad i arkivet, har ändrats i ' +
+      'efterhand eller stämmer inte med projektets fastighet. En äldre punkt används aldrig i stället och ingen punkt ' +
+      'härleds automatiskt. Ingen bedömning görs.',
     httpStatus: 409,
     kind: 'REFUSED',
   },
@@ -133,6 +151,8 @@ export function classifyLocalizationGeometryCurrentnessError(
   // retryable technical failure -- never a refusal, never NOT_FOUND. Explicit so that a later change
   // to the default below cannot silently move it.
   if (message.startsWith(LOCALIZATION_GEOMETRY_CANDIDATE_UNRESOLVABLE_PREFIX)) return 'CURRENTNESS_RESOLUTION_ERROR';
+  // OD-R1: the possibly-current geometry was determined bad -- a refusal, never an older point.
+  if (message.startsWith(LOCALIZATION_GEOMETRY_CURRENT_CANDIDATE_UNVERIFIED_PREFIX)) return 'CURRENT_GEOMETRY_UNVERIFIED';
   if (message.startsWith('AMBIGUOUS_CURRENT_GEOMETRY')) return 'AMBIGUOUS_CURRENT_GEOMETRY';
   if (message.startsWith('INVALID_SUPERSESSION_GRAPH')) return 'INVALID_SUPERSESSION_GRAPH';
   // Same NOT_FOUND prefix, but candidates DO exist and none survived CAS re-verification: that is
