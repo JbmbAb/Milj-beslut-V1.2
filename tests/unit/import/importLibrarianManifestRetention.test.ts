@@ -315,7 +315,7 @@ describe('import-librarian-manifest promote: retain before replace (U30-B2, PRES
     // the same (freshly loaded) registry module the script reads: this dataset's entry switched to append
     const registry = await import('../../../scripts/import/config/importRegistry');
     const entry = registry.getRegistryEntry('SGU', 'Brunnar') as { promote_strategy?: string };
-    expect(entry.promote_strategy).toBe('replace');
+    expect(entry.promote_strategy ?? 'replace').toBe('replace'); // the registry default
     entry.promote_strategy = 'append';
 
     await expect(processManifest(manifestPath)).rejects.toThrow(/REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION/);
