@@ -138,6 +138,7 @@ import request from 'supertest';
 import { createTokenPair } from '../../server/security/auth';
 import localizationRoutes from '../../server/routes/localization.routes';
 import { logger } from '../../server/logger';
+import { auditTrail } from '../../server/services/auditTrailService';
 import { redactInternalDiagnostic } from '../../src/application/generate-localization-report.usecase';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
@@ -322,5 +323,114 @@ describe('U20CDF4 (U20CDF3 verification L3): a semicolon inside an unquoted secr
     'statement timeout; query canceled after 5000 ms',
   ])('ordinary diagnostics with semicolons stay as they are: %j', (text) => {
     expect(redactInternalDiagnostic(text)).toBe(text);
+  });
+});
+
+describe('U20CDF4 (owner decisions (4) points 1 and 3; coordinator clarification 5): a fresh site whose record is not established is never ranked, carries no verdict, and says why', () => {
+  const EBH_HIT = spatialEvidence('ebh', true);
+  const WITH_EBH_HIT = LAYERS.map((layer) => (layer === 'ebh' ? EBH_HIT : spatialEvidence(layer)));
+  const ebhHigh = { finding_id: 'finding-ebh-high', rule_id: RULE.ebh, rule_version: '2.0', risk_level: 'HIGH', explanation: 'x', evidence_refs: [refOf(EBH_HIT)] };
+  const waterCritical = { finding_id: 'finding-water-critical', rule_id: RULE.water, rule_version: '2.0', risk_level: 'CRITICAL', explanation: 'x', evidence_refs: [] };
+  const INTEGRITY_SV =
+    'Integritetsfel: bedömningens lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet. ' +
+    'Täckningsgrad och samlad risknivå kan därför inte fastställas.';
+  const integritySentence = (label: string, summary: string) =>
+    `${label} har en sparad styrd bedömning men rangordnas inte: bedömningens lagrade post har ett integritetsfel ` +
+    '(underlaget är motsägelsefullt eller ligger utanför det styrda formatet), så ingen risknivå och ingen sannolikhet anges ' +
+    `för den och den jämförs inte med de rangordnade alternativen. Bedömningens sammanfattning: ${summary}`;
+
+  it('a record with an unknown severity next to a stored HIGH -> status RECORD_INTEGRITY_ERROR, no verdict, the artifact kept, the HIGH named, never ranked', async () => {
+    queryMock.mockResolvedValue({ evidence: WITH_EBH_HIT, unavailable_layers: [] });
+    kernelMock.mockResolvedValue(admitted('assessment-integrity', [ebhHigh, waterCritical], WITH_EBH_HIT));
+    const res = await post('/api/localization/generate-report');
+    expect(res.status).toBe(200);
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor).toMatchObject({
+      admitted: true, assessment_status: 'RECORD_INTEGRITY_ERROR', assessment_artifact_id: 'assessment-integrity',
+      governed_coverage_state: 'RECORD_INTEGRITY_ERROR', governed_coverage_basis: ['UNKNOWN_SEVERITY:finding-water-critical'],
+    });
+    const summary = `${INTEGRITY_SV} Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Potentiellt förorenade områden (EBH); okänd allvarlighetsgrad – Brunnar.`;
+    expect(site.complianceAnalysis).toEqual({ restrictions: [], rules: [], summary, assessment_status: 'RECORD_INTEGRITY_ERROR' });
+    for (const key of ['overallRisk', 'permitProbability', 'unresolvedChecks']) expect(site.complianceAnalysis).not.toHaveProperty(key);
+    expect(site.warnings).toEqual([
+      'Integritetsfel: den styrda bedömning som körningen sparade (assessment-integrity) har ett lagrat underlag som är motsägelsefullt ' +
+        'eller ligger utanför det styrda formatet (RECORD_INTEGRITY_ERROR). Ingen risknivå och ingen sannolikhet anges, och alternativet rangordnas inte.',
+    ]);
+    expect(res.body.summary.bestAlternativeId).toBeUndefined();
+    expect(res.body.summary.comparison_status).toBe('UNAVAILABLE');
+    expect(res.body.summary.assessed_site_ids).toEqual([]);
+    expect(res.body.summary.reasoning).toBe(
+      `Ingen rangordning tillgänglig: inget av 1 alternativ kan rangordnas. ${integritySentence('Alternativ ALT-A (Plats A)', summary)}`,
+    );
+    expect(JSON.stringify([site.complianceAnalysis, res.body.summary])).not.toMatch(/låg risk|\b\d+ av \d+ kontroller/i);
+  });
+
+  it('coordinator clarification 5: an integrity error never becomes the best site -- not even when its machine probability (0.95) beats every other site', async () => {
+    // ALT-A: only a finding of unknown severity -> the machine derivation would say LOW / 0.95, the
+    // highest possible. ALT-B: a valid MEDIUM record -> 0.5. Before U20CDF4 ALT-A was ranked first.
+    const WATER_HIT = spatialEvidence('water', true);
+    const WITH_WATER_HIT = LAYERS.map((layer) => (layer === 'water' ? WATER_HIT : spatialEvidence(layer)));
+    const NEGATIVES_ONLY = LAYERS.map((layer) => spatialEvidence(layer));
+    const waterMedium = { finding_id: 'finding-water-medium', rule_id: RULE.water, rule_version: '2.0', risk_level: 'MEDIUM', explanation: 'x', evidence_refs: [refOf(WATER_HIT)] };
+    queryMock
+      .mockResolvedValueOnce({ evidence: NEGATIVES_ONLY, unavailable_layers: [] })
+      .mockResolvedValueOnce({ evidence: WITH_WATER_HIT, unavailable_layers: [] });
+    kernelMock.mockImplementation(async (input: { assessment_draft: { site_id: string } }) =>
+      input.assessment_draft.site_id === 'ALT-A'
+        ? admitted('assessment-a', [{ ...waterCritical, risk_level: 'high' }], NEGATIVES_ONLY)
+        : admitted('assessment-b', [waterMedium], WITH_WATER_HIT),
+    );
+    const res = await post('/api/localization/generate-report', [SITE_A, SITE_B]);
+    const [a, b] = res.body.siteAnalyses;
+    expect(a.executionMotor.assessment_status).toBe('RECORD_INTEGRITY_ERROR');
+    expect(a.complianceAnalysis).not.toHaveProperty('permitProbability');
+    expect(b.executionMotor.assessment_status).toBe('ASSESSED');
+    expect(b.complianceAnalysis).toMatchObject({ overallRisk: 'MEDIUM', permitProbability: 0.5 });
+    expect(res.body.summary.bestAlternativeId).toBe('ALT-B');
+    expect(res.body.summary.assessed_site_ids).toEqual(['ALT-B']);
+    expect(res.body.summary.comparison_status).toBe('PARTIAL');
+    expect(res.body.summary.reasoning).toBe(
+      'Alternativ ALT-B (Plats B) rangordnas först bland de rangordnade alternativen enligt de styrda fynden. ' +
+        `${b.complianceAnalysis.summary} Jämförelsen är partiell: 1 av 2 alternativ ingår i rangordningen. ` +
+        integritySentence('Alternativ ALT-A (Plats A)', a.complianceAnalysis.summary),
+    );
+    const details = (vi.mocked(auditTrail.logAction).mock.calls.at(-1)![6] as { details: Record<string, unknown> }).details;
+    expect(details).toMatchObject({ bestAlternativeId: 'ALT-B', bestAssessmentArtifactId: 'assessment-b', bestPermitProbability: 0.5, overallRisk: 'MEDIUM' });
+  });
+
+  it('a fresh record of a shape no current producer writes (a hit without its finding) is an integrity error of THIS run -- never "historisk", never ranked', async () => {
+    queryMock.mockResolvedValue({ evidence: WITH_EBH_HIT, unavailable_layers: [] });
+    kernelMock.mockResolvedValue(admitted('assessment-hit-no-finding', [], WITH_EBH_HIT));
+    const res = await post('/api/localization/generate-report');
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor).toMatchObject({
+      assessment_status: 'RECORD_INTEGRITY_ERROR', governed_coverage_state: 'RECORD_INTEGRITY_ERROR', governed_coverage_basis: ['HIT_WITHOUT_FINDING:ebh'],
+    });
+    expect(site.complianceAnalysis.summary).toBe(INTEGRITY_SV);
+    expect(res.body.summary.bestAlternativeId).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toMatch(/historisk|Låg risk|\b\d+ av \d+ kontroller/i);
+  });
+
+  it('generate-pdf-data: the integrity site carries no verdict keys, but its status, coverage state and the statement naming the stored findings', async () => {
+    queryMock.mockResolvedValue({ evidence: WITH_EBH_HIT, unavailable_layers: [] });
+    kernelMock.mockResolvedValue(admitted('assessment-integrity', [ebhHigh, waterCritical], WITH_EBH_HIT));
+    const res = await post('/api/localization/generate-pdf-data');
+    expect(res.status).toBe(200);
+    const site = res.body.pdfData.sites[0];
+    expect(site).toMatchObject({
+      assessment_status: 'RECORD_INTEGRITY_ERROR', assessment_artifact_id: 'assessment-integrity', overall_coverage_state: 'RECORD_INTEGRITY_ERROR',
+    });
+    expect(site.overall_statement_sv).toContain('risknivå hög – Potentiellt förorenade områden (EBH); okänd allvarlighetsgrad – Brunnar');
+    for (const key of ['overallRisk', 'permitProbability', 'permitProbabilityStatus', 'unresolvedChecks']) expect(site).not.toHaveProperty(key);
+    expect(res.body.pdfData.summary.bestAlternativeId).toBeUndefined();
+  });
+
+  it('control: a valid fresh record is still ASSESSED, DETERMINED, ranked and carries its verdict', async () => {
+    const res = await post('/api/localization/generate-report');
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor).toMatchObject({ assessment_status: 'ASSESSED', governed_coverage_state: 'DETERMINED' });
+    expect(site.complianceAnalysis).toMatchObject({ overallRisk: 'LOW', permitProbability: 0.95 });
+    expect(res.body.summary.bestAlternativeId).toBe('ALT-A');
+    expect(res.body.summary.comparison_status).toBe('COMPLETE');
   });
 });

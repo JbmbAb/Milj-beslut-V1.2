@@ -109,7 +109,15 @@ export type LuAssessmentStatus =
   | 'ASSESSED'
   | 'NOT_ASSESSED'
   | 'GOVERNANCE_DENIED'
-  | 'EXECUTION_FAILED';
+  | 'EXECUTION_FAILED'
+  /**
+   * U20CDF4 (owner decisions 2026-10-03 (4) points 1 and 3): the run admitted and persisted a governed
+   * LocalizationAssessmentArtifact (assessment_artifact_id is set), but the record it holds is not
+   * established -- a combination the current producer contract never writes (governed_coverage_state
+   * RECORD_INTEGRITY_ERROR). No verdict is exposed, the site is never ranked, and the read-back of the
+   * same record answers 424 ASSESSMENT_RECORD_INTEGRITY_ERROR.
+   */
+  | 'RECORD_INTEGRITY_ERROR';
 
 export interface ExecutionMotorMeta {
   admitted: boolean;
@@ -119,7 +127,11 @@ export interface ExecutionMotorMeta {
   manifest_id: string | null;
   ticket_id: string | null;
   finding_ids: string[];
-  /** CAS LocalizationAssessmentArtifact id. Null iff assessment_status !== 'ASSESSED'. */
+  /**
+   * CAS LocalizationAssessmentArtifact id. Null iff no assessment artifact was produced: set for
+   * 'ASSESSED' and (U20CDF4) for 'RECORD_INTEGRITY_ERROR' -- the artifact exists and is registered, but
+   * its record is not established and carries no verdict.
+   */
   assessment_artifact_id: string | null;
   /**
    * P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01. `null` iff assessment_artifact_id is null (no
@@ -974,7 +986,8 @@ function freshGovernedCoverage(
   checks: readonly GovernedLayerCheck[],
   findings: readonly AssessmentFinding[],
 ): Pick<ExecutionMotorMeta, 'governed_layer_checks' | 'governed_coverage_state' | 'governed_coverage_basis'> {
-  const assessed = assessGovernedCoverage(checks, { findings });
+  // U20CDF4: the record of THIS run -- anything not DETERMINED is RECORD_INTEGRITY_ERROR, never historical.
+  const assessed = assessGovernedCoverage(checks, { findings, freshRun: true });
   return {
     governed_layer_checks: checks,
     governed_coverage_state: assessed.coverage_state,
@@ -1282,6 +1295,31 @@ async function analyzeSite(
       warnings.push(`ExecutionKernel denied: ${kernelResult.reason_codes.join(', ') || 'unknown'}`);
     }
 
+    // U20-D: the same function the read-back and the PDF use, over the same inputs -- the spatial
+    // evidence and findings this run persisted, and (K0) the PERSISTED assessment's pinned
+    // evidence_refs for the document check. A layer whose query failed shows through its NOT_CHECKED
+    // finding (coverage_state SOURCE_UNAVAILABLE), not through the provider's raw error text.
+    const freshCoverage =
+      kernelResult.admitted && assessment_artifact_id
+        ? freshGovernedCoverage(
+            presentedGovernedLayerChecks({
+              spatialEvidence: mpsEvidence,
+              findings: mpsFindings,
+              pinnedEvidenceRefs: kernelResult.assessment?.payload?.evidence_refs,
+            }),
+            mpsFindings,
+          )
+        : null;
+    // U20CDF4 (owner decisions 2026-10-03 (4) points 1 and 3): an artifact whose record is not
+    // established carries no verdict and is never ranked -- its own status, never ASSESSED.
+    const recordIntegrityError = freshCoverage?.governed_coverage_state === 'RECORD_INTEGRITY_ERROR';
+    if (recordIntegrityError) {
+      warnings.push(
+        `Integritetsfel: den styrda bedömning som körningen sparade (${assessment_artifact_id}) har ett lagrat underlag som är ` +
+          'motsägelsefullt eller ligger utanför det styrda formatet (RECORD_INTEGRITY_ERROR). Ingen risknivå och ingen sannolikhet ' +
+          'anges, och alternativet rangordnas inte.',
+      );
+    }
     executionMotor = {
       admitted: kernelResult.admitted,
       reason_codes: [...kernelResult.reason_codes],
@@ -1298,27 +1336,13 @@ async function analyzeSite(
       assessment_status: !kernelResult.admitted
         ? 'GOVERNANCE_DENIED'
         : assessment_artifact_id
-          ? 'ASSESSED'
+          ? recordIntegrityError
+            ? 'RECORD_INTEGRITY_ERROR'
+            : 'ASSESSED'
           : 'NOT_ASSESSED',
       findings: [...mpsFindings],
       localization_geometry: geometryProvenance,
-      ...(kernelResult.admitted && assessment_artifact_id
-        ? {
-            // U20-D: the same function the read-back and the PDF use, over the same inputs -- the
-            // spatial evidence and findings this run persisted, and (K0) the PERSISTED assessment's
-            // pinned evidence_refs for the document check. A layer whose query failed shows through
-            // its NOT_CHECKED finding (coverage_state SOURCE_UNAVAILABLE), not through the
-            // provider's raw error text.
-            ...freshGovernedCoverage(
-              presentedGovernedLayerChecks({
-                spatialEvidence: mpsEvidence,
-                findings: mpsFindings,
-                pinnedEvidenceRefs: kernelResult.assessment?.payload?.evidence_refs,
-              }),
-              mpsFindings,
-            ),
-          }
-        : {}),
+      ...(freshCoverage ?? {}),
     };
 
     // U20-D: evidence and property-root details of the persisted assessment, read back from CAS by
@@ -1434,7 +1458,9 @@ async function analyzeSite(
   // LU_VERDICT_AUTHORITY_V1 — the single point where a verdict is either bound to a governed
   // assessment or removed. Stripping here rather than at each failure branch means a future
   // branch that forgets to fail closed still cannot leak a verdict.
-  const hasGovernedAssessment = executionMotor?.assessment_artifact_id != null;
+  // U20CDF4: the verdict belongs to ASSESSED only -- an artifact whose record is not established
+  // (RECORD_INTEGRITY_ERROR) carries none.
+  const hasGovernedAssessment = executionMotor?.assessment_artifact_id != null && executionMotor?.assessment_status === 'ASSESSED';
 
   // U20-C: the verdict projection is built from the governed findings only -- never from the legacy
   // engine (its restrictions/rules live in `legacyObservations`). The summary text states the risk
@@ -1450,9 +1476,26 @@ async function analyzeSite(
       // U20CDF2 (G1): coverage and risk from the same record -- the run's checks and its findings.
       summary: governedOverallStatementSv(verdict.overallRisk, executionMotor?.governed_layer_checks, {
         findings: executionMotor?.findings ?? [],
+        freshRun: true,
       }),
       assessment_status: 'ASSESSED',
     };
+  } else if (executionMotor?.assessment_status === 'RECORD_INTEGRITY_ERROR') {
+    // U20CDF4 (owner decision (4) point 1): not returned as an assessment -- no overallRisk, no
+    // permitProbability (withoutVerdict, under the record's own status, never ASSESSED). The summary is
+    // the integrity statement, which names every stored finding: a known risk never disappears.
+    complianceAnalysis = withoutVerdict(
+      {
+        restrictions: [],
+        rules: [],
+        summary: governedOverallStatementSv(
+          governedVerdictFromFindings(executionMotor.findings).overallRisk,
+          executionMotor.governed_layer_checks,
+          { findings: executionMotor.findings, freshRun: true },
+        ),
+      },
+      'RECORD_INTEGRITY_ERROR',
+    );
   } else {
     complianceAnalysis = withoutVerdict(
       { restrictions: [], rules: [], summary: nonVerdictSummarySv(executionMotor?.assessment_status) },
@@ -1529,6 +1572,10 @@ function isAssessed(
   return (
     analysis.executionMotor?.assessment_status === 'ASSESSED' &&
     analysis.executionMotor?.assessment_artifact_id != null &&
+    // U20CDF4 (owner decision 2026-10-03 (4) point 3; coordinator clarification 5): only a record whose
+    // coverage is established may compete with other sites -- never one that is not, whatever its
+    // machine probability says.
+    analysis.executionMotor?.governed_coverage_state === 'DETERMINED' &&
     isGovernedVerdict(analysis.complianceAnalysis) &&
     analysis.complianceAnalysis.permitProbability !== null
   );
@@ -1538,14 +1585,46 @@ function isAssessed(
  * U20CDF3 (U20CDF2 verification H2): a site that HAS a governed assessment (status ASSESSED, an
  * artifact) but is outside the ranking population because its permitProbability is withheld
  * (SEM-1: a NOT_CHECKED finding and no HIGH/MEDIUM one). It is assessed -- never described as
- * "ej bedömd" or as lacking a LocalizationAssessmentArtifact.
+ * "ej bedömd" or as lacking a LocalizationAssessmentArtifact. U20CDF4: its record is established
+ * (DETERMINED), so its sentence ("ofullständig ... ingen sannolikhet") is true.
  */
 function isAssessedButUnranked(analysis: SiteAnalysisResult): boolean {
   return (
     analysis.executionMotor?.assessment_status === 'ASSESSED' &&
     analysis.executionMotor?.assessment_artifact_id != null &&
+    analysis.executionMotor?.governed_coverage_state === 'DETERMINED' &&
     isGovernedVerdict(analysis.complianceAnalysis) &&
     analysis.complianceAnalysis.permitProbability === null
+  );
+}
+
+/**
+ * U20CDF4 (owner decisions 2026-10-03 (4) points 1 and 3): a site whose run persisted a governed
+ * assessment artifact but whose record is not established -- status RECORD_INTEGRITY_ERROR (no
+ * verdict), or (defensively) ASSESSED without an established coverage. Never ranked, never described as
+ * lacking an assessment, and its own sentence says why it is not ranked.
+ */
+function hasUnestablishedRecord(analysis: SiteAnalysisResult): boolean {
+  const motor = analysis.executionMotor;
+  return (
+    motor?.assessment_artifact_id != null &&
+    (motor.assessment_status === 'RECORD_INTEGRITY_ERROR' ||
+      (motor.assessment_status === 'ASSESSED' && motor.governed_coverage_state !== 'DETERMINED'))
+  );
+}
+
+function unestablishedRecordSentenceSv(analysis: SiteAnalysisResult): string {
+  const label = siteLabelSv(analysis.site);
+  if (analysis.executionMotor?.assessment_status === 'RECORD_INTEGRITY_ERROR') {
+    return (
+      `${label} har en sparad styrd bedömning men rangordnas inte: bedömningens lagrade post har ett integritetsfel ` +
+      '(underlaget är motsägelsefullt eller ligger utanför det styrda formatet), så ingen risknivå och ingen sannolikhet anges ' +
+      `för den och den jämförs inte med de rangordnade alternativen. Bedömningens sammanfattning: ${analysis.complianceAnalysis.summary}`
+    );
+  }
+  return (
+    `${label} har en styrd bedömning men rangordnas inte: täckningsgraden för bedömningens lagrade post kunde inte fastställas, ` +
+    `så den jämförs inte med de rangordnade alternativen. Bedömningens sammanfattning: ${analysis.complianceAnalysis.summary}`
   );
 }
 
@@ -1590,7 +1669,11 @@ function comparisonReasoningSv(
         `Bedömningens sammanfattning: ${analysis.complianceAnalysis.summary}`,
     );
   }
-  const withoutAssessment = analyses.filter((analysis) => !isAssessed(analysis) && !isAssessedButUnranked(analysis));
+  // U20CDF4 (owner decision (4) point 3): a site whose record is not established, with its own true sentence.
+  for (const analysis of analyses.filter(hasUnestablishedRecord)) sentences.push(unestablishedRecordSentenceSv(analysis));
+  const withoutAssessment = analyses.filter(
+    (analysis) => !isAssessed(analysis) && !isAssessedButUnranked(analysis) && !hasUnestablishedRecord(analysis),
+  );
   if (withoutAssessment.length > 0) {
     sentences.push(
       `Alternativ utan styrd bedömning ingår inte i rangordningen: ${withoutAssessment.map((a) => a.site.id).join(', ')}.`,
@@ -1698,7 +1781,7 @@ export class GenerateLocalizationReportUseCase {
     const bestAlternative = sortedByPermit.length > 0 ? sortedByPermit[0] : null;
 
     const comparisonStatus: LuComparisonStatus =
-      assessed.length === 0 ? 'UNAVAILABLE' : unassessed.length === 0 ? 'COMPLETE' : 'PARTIAL';
+      assessed.length === 0 ? 'UNAVAILABLE' : assessed.length === analyses.length ? 'COMPLETE' : 'PARTIAL';
 
     // U20-C / DP-10: no "tillståndssannolikhet (NN%)" and no count from an unbound read (RAÄ, SLU):
     // the reasoning names the ranked alternative and repeats its governed, qualified statement.

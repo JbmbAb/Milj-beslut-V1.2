@@ -116,7 +116,8 @@ export interface LocalizationPdfData {
     /**
      * U20-C / OD-K0-1: the governed risk level in words, never alone: always with how many
      * governed checks were completed ("… underlaget är ofullständigt: 5 av 6 kontroller
-     * genomförda."). Present IFF the site carries a governed verdict.
+     * genomförda."). Present IFF the site carries a governed verdict, or (U20CDF4) its run's record is a
+     * RECORD_INTEGRITY_ERROR -- then without any level, naming every stored finding.
      */
     overall_statement_sv?: string;
     /**
@@ -287,7 +288,10 @@ export function buildLocalizationPdfData(report: LocalizationReport): Localizati
               }
           : {}),
         // U20-C / OD-K0-1: the qualified statement travels with the verdict, never the bare level.
-        ...(isGovernedVerdict(analysis.complianceAnalysis)
+        // U20CDF4 (owner decision 2026-10-03 (4) point 1): a site whose record is a RECORD_INTEGRITY_ERROR
+        // has no verdict, but its statement (no level; every stored finding named) and state still print.
+        ...(isGovernedVerdict(analysis.complianceAnalysis) ||
+        analysis.executionMotor?.assessment_status === 'RECORD_INTEGRITY_ERROR'
           ? {
               overall_statement_sv: analysis.complianceAnalysis.summary,
               ...(analysis.executionMotor?.governed_coverage_state

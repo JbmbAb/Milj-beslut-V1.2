@@ -194,6 +194,14 @@ export interface GovernedStatementContext {
   readonly findings: readonly { readonly rule_id: string; readonly risk_level: string }[];
   /** Read-back only (U20CDF2 G2): what could not be read among the pinned evidence refs. */
   readonly pinnedEvidence?: PinnedEvidenceReadability;
+  /**
+   * U20CDF4 (owner decisions 2026-10-03 (4) points 1-3): the record was written by THIS run, i.e. by the
+   * current producer. "Historical" means written by an older producer that never promised the
+   * metadata; for a fresh record the actual contract is the current one, so whatever a current run
+   * never writes (a silent layer, a hit without its finding, ...) is a break of that contract:
+   * RECORD_INTEGRITY_ERROR with the same basis codes -- never "denna historiska bedömning".
+   */
+  readonly freshRun?: boolean;
 }
 
 export interface GovernedCoverageAssessment {
@@ -225,7 +233,10 @@ export interface GovernedCoverageAssessment {
  */
 export function assessGovernedCoverage(checks: unknown, context: GovernedStatementContext): GovernedCoverageAssessment {
   if (!Array.isArray(checks) || checks.length === 0) {
-    return { coverage_state: 'CHECKS_UNAVAILABLE', coverage_basis: [], coverage: null };
+    // U20CDF4: a fresh run always writes its checks; without them its record is not established.
+    return context?.freshRun
+      ? { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: ['CHECKS_UNAVAILABLE'], coverage: null }
+      : { coverage_state: 'CHECKS_UNAVAILABLE', coverage_basis: [], coverage: null };
   }
   // U20CDF2 (G2): bound to evidence that cannot be read -- an integrity/technical error first of all.
   const pinned = context?.pinnedEvidence;
@@ -329,7 +340,10 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   if (riskRules.has(GOVERNED_DOCUMENT_CHECK_RULE_ID) && documentCheck?.status !== 'CHECKED_HIT') {
     basis.push('DOCUMENT_FINDING_WITHOUT_PINNED_DOCUMENTS');
   }
-  if (basis.length > 0) return { coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', coverage_basis: basis, coverage: null };
+  if (basis.length > 0) {
+    // U20CDF4: only a record from an older producer is historical; a fresh one breaks the current contract.
+    return { coverage_state: context?.freshRun ? 'RECORD_INTEGRITY_ERROR' : 'HISTORICAL_COVERAGE_UNKNOWN', coverage_basis: basis, coverage: null };
+  }
   return { coverage_state: 'DETERMINED', coverage_basis: [], coverage: summarizeGovernedCheckCoverage(checks) };
 }
 
