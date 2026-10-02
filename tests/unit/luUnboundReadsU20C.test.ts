@@ -411,11 +411,79 @@ describe('U20CDF (U30-R2 follow-up): the raw diagnostic of a failed layer query 
     ['CLI flags', 'psql --password hemligt6 --token=t6x -h x', ['hemligt6', 't6x'], ['-h x']],
     ['query string key', 'GET https://api.example/x?api_key=k123&x=1', ['k123'], ['https://api.example/x?']],
     ['PEM private key', 'key -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY----- end', ['MIIEvQIBADANBg'], ['end']],
+    // U20CDF3 (U20CDF2 verification H3 / low 1): the forms probe D found passing, and relatives.
+    ['Proxy-Authorization: Digest (probe D: the response value)', 'Proxy-Authorization: Digest username="mimer", realm="r", nonce="n0nce4", uri="/x", response="6629fae49393a05397450978507c4ef1", opaque="op4que" next', ['6629fae4', 'n0nce4', 'op4que'], ['next']],
+    ['WWW-Authenticate / bare Digest parameters', 'got Digest realm="r", nonce="n0nce5", qop="auth", response="0123abcd0123abcd" end', ['n0nce5', '0123abcd0123abcd'], ['got', 'end']],
+    ['CLI -p<password> (mysql, no space)', 'mysql -uroot -phemligt8 -h db.local', ['hemligt8'], ['-uroot', '-h db.local']],
+    ['CLI -p <password> (with a space)', 'mysql -u root -p hemligt9 -h db.local', ['hemligt9'], ['-u root', '-h db.local']],
+    ['an sk- API key', 'provider error: key sk-proj-AbCdEf0123456789xyz rejected', ['AbCdEf0123456789xyz', 'sk-proj-AbCd'], ['provider error', 'rejected']],
+    ['a bare ghp_ token', 'push ghp_AbCdEfGhIjKlMnOpQrStUv0123456789 invalid', ['ghp_AbCd', 'MnOpQrStUv0123456789'], ['push', 'invalid']],
+    ['other provider token shapes', 'a github_pat_11ABCDEFG0123456789_xyzXYZ b glpat-AbCdEf0123456789xyz c xoxb-1234567890-abcdefghij d AKIAIOSFODNN7EXAMPLE e AIzaSyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStU f sk_live_51AbCdEf0123456789 g npm_AbCdEf0123456789AbCdEf0123456789AbCd h',
+      ['11ABCDEFG0123456789', 'AbCdEf0123456789xyz', '1234567890-abcdefghij', 'IOSFODNN7EXAMPLE', 'SyA1b2C3d4E5f6G7', '51AbCdEf0123456789', 'AbCdEf0123456789AbCdEf'], ['a ', ' b ', ' c ', ' d ', ' e ', ' f ', ' g ', ' h']],
+    ['a Cookie header', 'request cookie: session=s3ss10nv4lue; theme=dark next=1', ['s3ss10nv4lue', 'theme=dark'], ['request', 'next=1']],
+    ['a Set-Cookie header', 'Set-Cookie: sid=s1dv4lue; Path=/; HttpOnly then', ['s1dv4lue'], ['then']],
+    ['a JSON set-cookie field', '{"set-cookie":"sid=abc123x; Path=/","host":"h"}', ['abc123x'], ['"host":"h"']],
+    ['pass= (the key does not contain "password")', 'connect pass=hemligt10 host=db', ['hemligt10'], ['connect', 'host=db']],
+    ['PGPASS=', 'env PGPASS=hemligt11 psql -h x', ['hemligt11'], ['psql -h x']],
+    ['passwd <value> without = or :', 'passwd hemligt12 for user mimer', ['hemligt12'], ['for user mimer']],
+    ['password <value> without = or :', 'login password hemligt13 rejected', ['hemligt13'], ['login', 'rejected']],
+    ['passphrase:', 'key passphrase: hemligt14 end', ['hemligt14'], ['end']],
+    ['a SAS sig= query parameter', 'GET https://x.blob.core.windows.net/c/b?sv=2020&sig=S1gn4tur3v4lue&se=1', ['S1gn4tur3v4lue'], ['x.blob.core.windows.net']],
+    ['session / sid / auth keys', 'session=abcSESSION1 sid=abcSID2 ?auth=4uthv4lue&x=1', ['abcSESSION1', 'abcSID2', '4uthv4lue'], ['session=', 'sid=', '?auth=']],
   ])('redactInternalDiagnostic: %s', (_label, text, secrets, kept) => {
     const redacted = redactInternalDiagnostic(text)!;
     for (const secret of secrets) expect(redacted, redacted).not.toContain(secret);
     for (const fragment of kept) expect(redacted, redacted).toContain(fragment);
     expect(redacted).toContain('***');
+  });
+
+  // U20CDF3 (low 1): the internal log stays useful -- ordinary diagnostic text is not masked.
+  it.each([
+    'password authentication failed for user "postgres"',
+    'relation "env.protected_area" does not exist (42P01) at 10.0.0.5:5432',
+    'the governed query failed: passed 3 of 5 checks, design flaw, outside the budget',
+  ])('redactInternalDiagnostic keeps ordinary diagnostics: %j', (text) => {
+    expect(redactInternalDiagnostic(text)).toBe(text);
+  });
+
+  it('U20CDF3 (low 1): a diagnostic full of secret forms reaches neither generate-report, generate-pdf-data, the kernel input nor the log unmasked', async () => {
+    const SECRETS = ['6629fae49393a05397450978507c4ef1', 'hemligt8', 'AbCdEf0123456789xyz', 's3ss10nv4lue', 'hemligt11', 'hemligt12', 'ghp_AbCdEfGh'];
+    const diagnostic =
+      'ECONNREFUSED Proxy-Authorization: Digest username="m", response="6629fae49393a05397450978507c4ef1" ' +
+      'mysql -phemligt8 key sk-proj-AbCdEf0123456789xyz cookie: session=s3ss10nv4lue PGPASS=hemligt11 passwd hemligt12 ' +
+      'push ghp_AbCdEfGhIjKlMnOpQrStUv0123456789 relation "env.protected_area" does not exist';
+    queryMock.mockResolvedValue({
+      evidence: LAYERS.filter((l) => l !== 'protected_area').map(spatialEvidence),
+      unavailable_layers: [{ dataset: 'protected_area', reason: 'SOURCE_UNAVAILABLE', diagnostic }],
+    });
+    const report = await post('/api/localization/generate-report');
+    const pdf = await post('/api/localization/generate-pdf-data');
+    for (const res of [report, pdf]) {
+      expect(res.status).toBe(200);
+      const body = JSON.stringify(res.body);
+      for (const fragment of [...SECRETS, 'ECONNREFUSED', 'does not exist', 'Digest', 'PGPASS']) expect(body).not.toContain(fragment);
+    }
+    for (const call of kernelMock.mock.calls) {
+      expect(JSON.stringify(call[0])).not.toMatch(/ECONNREFUSED|hemligt|Digest|does not exist/);
+    }
+    const logged = vi.mocked(logger.warn).mock.calls.filter((c) => c[0] === 'Governed LU layer query failed (internal diagnostic)');
+    expect(logged.length).toBe(2);
+    for (const call of logged) {
+      const text = String((call[1] as Record<string, unknown>).diagnostic);
+      expect(text).toContain('ECONNREFUSED');
+      expect(text).toContain('relation "env.protected_area" does not exist');
+      for (const secret of SECRETS) expect(text, text).not.toContain(secret);
+    }
+  });
+
+  it('U20CDF3 (low 1): the kernel-failure log line is redacted the same way; the response still carries only the generic class', async () => {
+    kernelMock.mockRejectedValueOnce(new Error('connect postgresql://mimer:hemligt15@10.0.0.5:5432/lu failed; PGPASS=hemligt16'));
+    const res = await post('/api/localization/generate-report');
+    expect(res.body.siteAnalyses[0].warnings).toEqual(['ExecutionKernel error: tekniskt fel (detaljer finns i serverloggen)']);
+    const call = vi.mocked(logger.warn).mock.calls.find((c) => c[0] === 'ExecutionKernel LU assessment failed')!;
+    const err = String((call[1] as Record<string, unknown>).err);
+    expect(err).toContain('10.0.0.5:5432/lu failed');
+    expect(err).not.toMatch(/hemligt15|hemligt16/);
   });
 });
 

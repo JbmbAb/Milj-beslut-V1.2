@@ -898,25 +898,54 @@ export function sanitizeGovernedErrorMessage(message: string): string {
  *    private key / access key -- env forms (PGPASSWORD=, DB_PASSWORD:, MIMERS_API_TOKEN=,
  *    AWS_SECRET_ACCESS_KEY=), JSON and single-quoted fields ("password":"...", 'secret': '...'),
  *    libpq (password='...') and query strings (?api_key=...) -- with a quoted or bare value.
+ * U20CDF3 (U20CDF2 verification H3 / low 1; probe D found these passing), also masked:
+ *  - Digest parameter lists (Authorization / Proxy-Authorization / WWW-Authenticate: response=,
+ *    nonce=, cnonce=, opaque=, ...);
+ *  - provider token shapes without a key: sk-..., sk_live_/sk_test_, rk_..., ghp_/gho_/ghu_/ghs_/ghr_,
+ *    github_pat_, glpat-, xox?-, AKIA/ASIA access key ids, AIza..., npm_...;
+ *  - Cookie / Set-Cookie values (every name=value; attribute up to the first unrelated word);
+ *  - the short CLI flag -p<value> / -p <value> (mysql password; over-masks a psql port);
+ *  - keys that END in or are pass, passphrase, auth, sig, session, sid, cookie (pass=, PGPASS=,
+ *    ?sig=, ?auth=) next to the earlier list;
+ *  - "password <value>" / "passwd <value>" / "pwd <value>" without = or : -- except when the next word
+ *    is ordinary error text ("password authentication failed ...").
  * Over-masking is accepted; codes, hosts and relation names stay for diagnosis.
  */
 const DIAGNOSTIC_MAX_LENGTH = 1000;
 const SECRET_KEY =
-  /[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|credential|private[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*/
+  /[A-Za-z0-9_.-]*(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|credential|private[_-]?key|access[_-]?key|(?:pass|auth|sig|session|sid|cookie)(?![a-z]))[A-Za-z0-9_.-]*/
     .source;
 const SECRET_VALUE = /(?:"[^"]*"|'[^']*'|[^\s,;}"']+)/.source;
 const SECRET_KEY_VALUE = new RegExp(`(${SECRET_KEY})(["']?)(\\s*[=:]\\s*)${SECRET_VALUE}`, 'gi');
+/** U20CDF3 (low 1): a Digest parameter list (all of it -- response, nonce, cnonce, opaque, ...). */
+const DIGEST_PARAMS =
+  /\b(Digest)\s+[A-Za-z][A-Za-z0-9_-]*\s*=\s*(?:"[^"]*"|[^\s,"]+)(?:\s*,\s*[A-Za-z][A-Za-z0-9_-]*\s*=\s*(?:"[^"]*"|[^\s,"]+))*/gi;
+/** U20CDF3 (low 1): provider tokens recognisable by their own shape, with no key in front. */
+const PROVIDER_TOKEN =
+  /\b(?:sk-(?:proj-|ant-|live-|test-)?[A-Za-z0-9_-]{8,}|[sr]k_(?:live|test)_[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|glpat-[A-Za-z0-9_-]{8,}|xox[abposr]-[A-Za-z0-9-]{8,}|A(?:KI|SI)A[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|npm_[A-Za-z0-9]{20,})/g;
+/** U20CDF3 (low 1): a Cookie / Set-Cookie value -- name=value pairs and attributes joined by ";". */
+const COOKIE_VALUE = /\b((?:set-)?cookie2?)(["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s;,"']+(?:\s*;\s*[^\s;,"']+)*)/gi;
+/** U20CDF3 (low 1): mysql-style -p<password> / -p <password>. */
+const SHORT_PASSWORD_FLAG = /(^|[\s'"(=])(-p)(\s*)(?![-\s])([^\s'"]+)/g;
+/** U20CDF3 (low 1): "passwd <value>" -- not when the next word is ordinary error text. */
+const PASSWORD_WORD_VALUE =
+  /\b(password|passwd|passphrase|pwd)(\s+)(?!(?:authentication|auth|for|is|was|were|must|required|missing|not|expired|incorrect|invalid|too|has|have|cannot|can|should|failed|mismatch|changed|reset|and|or|of|the|to|policy|length|field|hash|\*\*\*)\b)(?![=:"'*])[^\s,;]+/gi;
 
 export function redactInternalDiagnostic(text: unknown): string | null {
   if (typeof text !== 'string' || text.length === 0) return null;
   return text
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '-----BEGIN PRIVATE KEY----- *** -----END PRIVATE KEY-----')
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s'"<>]*@/gi, '$1***@')
+    .replace(DIGEST_PARAMS, '$1 ***')
     .replace(/\b((?:proxy-)?authorization)(["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|(?:basic|bearer|digest|token|negotiate|ntlm)\s+\S+|\S+)/gi, '$1$2***')
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, '$1 ***')
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, '***')
+    .replace(PROVIDER_TOKEN, '***')
+    .replace(COOKIE_VALUE, '$1$2***')
     .replace(/(--?(?:password|passwd|pwd|token|secret|api[_-]?key)\b)(\s+)(?!-)\S+/gi, '$1$2***')
+    .replace(SHORT_PASSWORD_FLAG, '$1$2$3***')
     .replace(SECRET_KEY_VALUE, '$1$2$3***')
+    .replace(PASSWORD_WORD_VALUE, '$1$2***')
     .slice(0, DIAGNOSTIC_MAX_LENGTH);
 }
 
@@ -1216,7 +1245,7 @@ async function analyzeSite(
           assessment_projection_registered = true;
         } catch (err) {
           assessment_projection_registered = false;
-          logger.warn('Failed to register assessment projection -- assessment remains CAS-valid; reconcile separately', { site: site.id, err: String(err) });
+          logger.warn('Failed to register assessment projection -- assessment remains CAS-valid; reconcile separately', { site: site.id, err: redactInternalDiagnostic(String(err)) });
         }
       }
     } else {
@@ -1282,7 +1311,7 @@ async function analyzeSite(
           evidence_integrity: details.integrity,
         };
       } catch (err) {
-        logger.warn('Governed evidence details could not be resolved for the fresh run', { site: site.id, err: String(err) });
+        logger.warn('Governed evidence details could not be resolved for the fresh run', { site: site.id, err: redactInternalDiagnostic(String(err)) });
         executionMotor = { ...executionMotor, evidence_details: null, evidence_details_error: 'EVIDENCE_DETAILS_UNAVAILABLE' };
       }
     }
@@ -1296,7 +1325,8 @@ async function analyzeSite(
       logger.warn('LU localization geometry currentness failed closed', {
         site: site.id,
         failureClass: err.failureClass,
-        detail: err.technicalDetail,
+        // U20CDF3 (low 1): rich internal detail, never a leaked secret.
+        detail: redactInternalDiagnostic(err.technicalDetail),
       });
       warnings.push(`Lokalisering: ${err.userMessage}`);
       executionMotor = {
@@ -1350,7 +1380,8 @@ async function analyzeSite(
       };
     } else {
       const msg = err?.message || String(err);
-      logger.warn('ExecutionKernel LU assessment failed', { err: msg, site: site.id });
+      // U20CDF3 (low 1): the raw text stays in the internal log, redacted like every other diagnostic.
+      logger.warn('ExecutionKernel LU assessment failed', { err: redactInternalDiagnostic(msg), site: site.id });
       // U20-C: never the raw database/provider text in the HTTP body (it stays in the log above).
       warnings.push(`ExecutionKernel error: ${sanitizeGovernedErrorMessage(msg)}`);
       executionMotor = {
@@ -1709,7 +1740,7 @@ export class GenerateLocalizationReportUseCase {
         },
       );
     } catch (auditErr) {
-      logger.warn('Audit trail logging failed for localization report', { err: String(auditErr) });
+      logger.warn('Audit trail logging failed for localization report', { err: redactInternalDiagnostic(String(auditErr)) });
     }
 
     return report;
