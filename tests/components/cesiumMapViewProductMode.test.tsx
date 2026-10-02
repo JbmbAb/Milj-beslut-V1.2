@@ -99,6 +99,21 @@ describe('DEMO M2a item 4 / M2b: CesiumMapView in product mode', () => {
     expect(await screen.findByTestId('cesium-geometryless-note')).toBeInTheDocument();
   });
 
+  it('M2c item 2: when the workspace withholds the ring (assessment made for another point) the legend says why', async () => {
+    render(
+      <CesiumMapView
+        {...baseProps}
+        productEvidence={LOADED}
+        searchRadiusMeters={null}
+        searchRadiusWithheldNote="Sökradien visas inte: bedömningen gjordes för en annan kontrollpunkt än den som visas."
+      />,
+    );
+    expect(await screen.findByTestId('cesium-search-radius-withheld')).toHaveTextContent(
+      'Sökradien visas inte: bedömningen gjordes för en annan kontrollpunkt än den som visas.',
+    );
+    expect(screen.queryByTestId('cesium-search-radius-legend')).not.toBeInTheDocument();
+  });
+
   it('M2b items 1+3: an evidence error shows the workspace\'s Swedish text, offers retry through the workspace, never the fixture fallback', async () => {
     const user = userEvent.setup();
     const onRetry = vi.fn();

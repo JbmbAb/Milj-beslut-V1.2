@@ -749,6 +749,8 @@ describe('LuWorkspace', () => {
               findings: GOVERNED_FINDINGS,
               evidenceRefs: opts.evidenceRefs ?? FIVE_LAYER_REFS,
               systemSummary: 's',
+              // DEMO M2c item 2: the point this assessment was made for (= the displayed one here).
+              localizationGeometry: { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', provenance_label_sv: 'x' },
             })
           : Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
       }
@@ -1084,12 +1086,20 @@ function mockM2b(opts: M2bOptions) {
   });
 }
 
+/** The read-back's own bound point (server: localizationOrchestrator resolveCurrentLuAssessmentSummary). */
+const assessedPoint = (artifactId: string) => ({
+  artifact_id: artifactId,
+  provenance: 'derived_from_property_boundary',
+  provenance_label_sv: 'Härledd från fastighetens centrumpunkt (ingen lokaliseringspunkt har angetts för projektet)',
+});
+
 const persisted = (id: string, findings: unknown[] = FIVE_FINDINGS, evidenceRefs: unknown[] = FIVE_SPATIAL_REFS) => ({
   ok: true,
   assessmentArtifactId: id,
   findings,
   evidenceRefs,
   systemSummary: 's',
+  localizationGeometry: assessedPoint('loc-geom-1'),
 });
 
 const runReport = (motor: Record<string, unknown>) => ({
@@ -1469,6 +1479,81 @@ describe('LuWorkspace DEMO M2b', () => {
     await openM2b(user);
     expect(await screen.findByTestId('lu-control-note')).toHaveTextContent('Uppgift om dokumentkontrollen saknas i svaret för den här bedömningen.');
     expect(screen.queryByTestId('lu-check-extra-document')).not.toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // DEMO M2c item 2 (M2b verifier finding 2, Medium): the control point, the search ring and the
+  // property row are bound to the point the DISPLAYED assessment was made for
+  // (current-assessment localizationGeometry.artifact_id), not to a separate GET geometry.
+  // -----------------------------------------------------------------------------------------------
+  it('M2c item 2: a point changed outside the view (e.g. the supersession worker) is said so honestly; no ring is drawn around the other point', async () => {
+    const user = userEvent.setup();
+    let serverPoint = 'loc-geom-1';
+    mockM2b({
+      currentAssessment: (_call, ran) =>
+        ran ? { ...persisted('assessment-run-X'), localizationGeometry: assessedPoint('loc-geom-2') } : 'missing',
+      run: () => runReport({ assessment_artifact_id: 'assessment-run-X', assessment_projection_registered: true }),
+    });
+    const base = callApi.getMockImplementation()!;
+    callApi.mockImplementation((url: string, o: unknown) => {
+      if (url.endsWith('/geometry')) {
+        return Promise.resolve({
+          ok: true,
+          geometry: {
+            artifact_id: serverPoint,
+            provenance: 'derived_from_property_boundary',
+            wgs84LngLat: serverPoint === 'loc-geom-1' ? [17.74, 59.87] : [17.75, 59.88],
+            provisioningStatus: 'COMPLETED',
+          },
+        });
+      }
+      return base(url, o);
+    });
+    await openM2b(user);
+    expect(await screen.findByTestId('lu-geometry-current')).toBeInTheDocument();
+    serverPoint = 'loc-geom-2'; // the project's current point moves while the view still shows loc-geom-1
+    await user.click(await screen.findByTestId('lu-run'));
+    expect(await screen.findByTestId('lu-results')).toBeInTheDocument();
+    const notice = await screen.findByTestId('lu-point-binding');
+    expect(notice).toHaveAttribute('data-binding', 'changed');
+    expect(notice).toHaveTextContent('Kontrollpunkten har ändrats sedan bedömningen gjordes');
+    expect(notice).toHaveTextContent('bedömningen gjordes för en annan kontrollpunkt än den som visas');
+    expect(screen.getByTestId('lu-point-binding-technical')).toHaveTextContent('loc-geom-2');
+    expect(screen.getByTestId('lu-point-binding-technical')).toHaveTextContent('loc-geom-1');
+    // The ring says "where the check searched" -- never drawn around a point the assessment was not made for.
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    expect(lastCesiumMapViewProps.searchRadiusMeters).toBeNull();
+    expect(lastCesiumMapViewProps.searchRadiusWithheldNote).toContain('annan kontrollpunkt');
+    expect(screen.getByTestId('lu-check-property')).toHaveTextContent('Den visade bedömningen gjordes för en annan kontrollpunkt än den som visas här.');
+
+    // "Läs in på nytt" re-reads the project's current point; now point and assessment agree again.
+    await user.click(screen.getByTestId('lu-point-binding-reload'));
+    await waitFor(() => expect(screen.queryByTestId('lu-point-binding')).not.toBeInTheDocument());
+    await waitFor(() => expect(lastCesiumMapViewProps.searchRadiusMeters).toBe(500));
+    expect(lastCesiumMapViewProps.searchRadiusWithheldNote ?? null).toBeNull();
+    expect(lastCesiumMapViewProps.currentLocationPoint).toEqual({ lat: 59.88, lng: 17.75 });
+  });
+
+  it('M2c item 2: when the assessment was made for the displayed point, the ring is drawn and nothing is flagged', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => persisted('assessment-shown') });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    expect(screen.queryByTestId('lu-point-binding')).not.toBeInTheDocument();
+    expect(lastCesiumMapViewProps.searchRadiusMeters).toBe(500);
+    expect(screen.getByTestId('lu-check-property')).toHaveTextContent('Kontrollerna utgår från en beräknad mittpunkt av fastigheten (ej inmätt).');
+  });
+
+  it('M2c item 2: an answer that does not state the assessed point never gets a ring it cannot vouch for', async () => {
+    const user = userEvent.setup();
+    const { localizationGeometry: _omitted, ...withoutPoint } = persisted('assessment-shown');
+    mockM2b({ currentAssessment: () => withoutPoint });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    const notice = screen.getByTestId('lu-point-binding');
+    expect(notice).toHaveAttribute('data-binding', 'unknown');
+    expect(notice).toHaveTextContent('Det går inte att bekräfta att bedömningen gjordes för den kontrollpunkt som visas');
+    expect(lastCesiumMapViewProps.searchRadiusMeters).toBeNull();
   });
 
   it('item 2: "Kör bedömning" is disabled while the saved assessment is still being read', async () => {

@@ -63,6 +63,11 @@ interface CesiumMapViewProps {
   onProductEvidenceRetry?: () => void;
   /** The governed search radius (distance_meters) drawn as a ring around the current point. */
   searchRadiusMeters?: number | null;
+  /**
+   * productMode only (DEMO M2c item 2): why no ring is drawn although the assessment has a search
+   * radius -- e.g. the assessment was made for another point than the one shown. Legend text.
+   */
+  searchRadiusWithheldNote?: string | null;
   /** How the current point was made, e.g. 'Beräknad mittpunkt (ej inmätt)'. */
   currentLocationLabel?: string;
 }
@@ -81,6 +86,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   productEvidence,
   onProductEvidenceRetry,
   searchRadiusMeters = null,
+  searchRadiusWithheldNote = null,
   currentLocationLabel,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -410,6 +416,11 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
             <p data-testid="cesium-search-radius-legend" className="text-slate-300">
               <span style={{ color: '#FFFFFF' }}>◯</span> Sökradie {searchRadiusMeters} m – visar var kontrollen sökte, inte var
               några objekt ligger.
+            </p>
+          ) : null}
+          {searchRadiusWithheldNote ? (
+            <p data-testid="cesium-search-radius-withheld" className="text-amber-300">
+              {searchRadiusWithheldNote}
             </p>
           ) : null}
           {geometrylessEvidence ? (

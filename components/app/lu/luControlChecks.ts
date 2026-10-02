@@ -166,6 +166,13 @@ export interface LuPropertyInput {
     readonly wgs84LngLat: readonly [number, number];
     readonly provisioningStatus?: string | null;
   } | null;
+  /**
+   * DEMO M2c item 2: is the shown point the one the displayed assessment was made for (by
+   * LocalizationGeometry artifact id)? 'none' when no assessment is shown.
+   */
+  readonly assessedPoint?: 'none' | 'bound' | 'changed' | 'unknown';
+  /** The point id the displayed assessment states (technical section only). */
+  readonly assessedGeometryId?: string | null;
 }
 
 export interface LuCheckDetailRow {
@@ -579,12 +586,27 @@ function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckV
     { label: 'Kontrollpunkt', value: pointText },
     { label: 'Koordinater (WGS84)', value: `${lat.toFixed(6)}, ${lng.toFixed(6)}` },
   ];
+  const binding = input.assessedPoint ?? 'none';
   const technical: LuCheckDetailRow[] = [
     { label: 'Lokaliserings-id', value: input.geometry.artifact_id },
     { label: 'Ursprungskod', value: input.geometry.provenance },
+    ...(binding === 'none' ? [] : [{ label: 'Bedömningens lokaliserings-id', value: input.assessedGeometryId ?? 'anges inte i svaret' }]),
   ];
   if (input.geometry.provisioningStatus === 'FAILED') {
     return make('TECHNICAL_ERROR', 'Lokaliseringspunkten är sparad men analysen kunde inte förberedas.', details, technical);
+  }
+  // DEMO M2c item 2: the row only says the checks start from THIS point when the shown assessment
+  // was made for it.
+  if (binding === 'changed') {
+    return make('HIT', 'Fastigheten hittades. Den visade bedömningen gjordes för en annan kontrollpunkt än den som visas här.', details, technical);
+  }
+  if (binding === 'unknown') {
+    return make(
+      'HIT',
+      'Fastigheten hittades. Det går inte att bekräfta att den visade bedömningen gjordes för den här kontrollpunkten.',
+      details,
+      technical,
+    );
   }
   return make('HIT', `Fastigheten hittades. Kontrollerna utgår från en ${pointText.replace('angiven', 'punkt angiven')}.`, details, technical);
 }

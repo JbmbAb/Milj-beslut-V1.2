@@ -102,6 +102,11 @@ type CurrentAssessmentResponse = {
   systemSummary?: string;
   /** K0b: the server's governed document check, derived from the assessment's pinned refs. */
   documentCheck?: unknown;
+  /**
+   * DEMO M1a / D9(a): the point THIS assessment was made for ({ artifact_id, provenance,
+   * provenance_label_sv }; artifact_id is the assessment's own localization_geometry_ref).
+   */
+  localizationGeometry?: unknown;
 };
 
 /**
@@ -123,7 +128,29 @@ type GovernedResult = {
    * documentCheck (fresh run and reopen alike), plus any other extra layer only a run reports.
    */
   serverLayerChecks: readonly unknown[] | null;
+  /**
+   * DEMO M2c item 2: the LocalizationGeometry artifact id this assessment was made for, from the
+   * read-back; null when the answer does not state it.
+   */
+  assessedGeometryId: string | null;
 };
+
+/** DEMO M2c item 2: the read-back's own bound point id, or null when the answer does not state one. */
+function assessedGeometryIdOf(result: CurrentAssessmentResponse): string | null {
+  const g = result.localizationGeometry;
+  const id = g && typeof g === 'object' ? (g as { artifact_id?: unknown }).artifact_id : null;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/**
+ * DEMO M2c item 2: is the displayed control point the one the displayed assessment was made for?
+ *   none     -- no assessment (or no point) is shown, nothing to bind
+ *   bound    -- same LocalizationGeometry artifact id
+ *   changed  -- different ids: the point changed outside this view (another tab/session, or the
+ *               lu-geometry-supersession worker) after the assessment was made or read
+ *   unknown  -- the answer does not say which point the assessment was made for
+ */
+type PointBinding = 'none' | 'bound' | 'changed' | 'unknown';
 
 function layerOf(entry: unknown): string | null {
   const layer = entry && typeof entry === 'object' ? (entry as { layer?: unknown }).layer : null;
@@ -177,6 +204,7 @@ function governedFromCurrentAssessment(result: CurrentAssessmentResponse, assess
     statusMessage: null,
     spatialEvidenceRefs: spatialRefsOf(result.evidenceRefs),
     serverLayerChecks: mergeServerChecks(result.documentCheck, serverLayerChecks),
+    assessedGeometryId: assessedGeometryIdOf(result),
   };
 }
 
@@ -310,9 +338,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   }, []);
 
   // The current LocalizationGeometry is always re-read from the server, never invented locally.
-  const loadCurrentGeometry = async () => {
+  const loadCurrentGeometry = async (): Promise<LocalizationGeometryView | null> => {
     const projectId = getActiveProjectId();
-    if (!projectId) return;
+    if (!projectId) return null;
     setGeometryError(null);
     setGeometryLoading(true);
     try {
@@ -321,8 +349,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         { method: 'GET' },
       );
       setLocalizationGeometry(result.geometry);
+      return result.geometry;
     } catch (err) {
       setGeometryError(presentLuError(err, 'geometry-load'));
+      return null;
     } finally {
       setGeometryLoading(false);
     }
@@ -552,6 +582,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           statusMessage: motor.localization_geometry?.message_sv ?? null,
           spatialEvidenceRefs: [],
           serverLayerChecks: null,
+          assessedGeometryId: null,
         });
       }
     } catch (err) {
@@ -675,6 +706,21 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     return { status: 'loading' };
   }, [persistedAssessmentLoading, incoherencePresentation, governed, persistedAssessmentError, persistedAssessmentNotFound, site, projectReady]);
 
+  // DEMO M2c item 2: the displayed point is bound to the displayed assessment by artifact id.
+  const pointBinding: PointBinding = useMemo(() => {
+    if (assessmentPresence.status !== 'present' || !governed || !localizationGeometry) return 'none';
+    if (!governed.assessedGeometryId) return 'unknown';
+    return governed.assessedGeometryId === localizationGeometry.artifact_id ? 'bound' : 'changed';
+  }, [assessmentPresence.status, governed, localizationGeometry]);
+
+  // Re-reads the project's current point; a changed point re-reads the assessment through the
+  // effect above, an unchanged one is re-read here -- so point and assessment are read together.
+  const reloadPointAndAssessment = async () => {
+    const before = localizationGeometry?.artifact_id ?? null;
+    const next = await loadCurrentGeometry();
+    if (next && next.artifact_id === before) void loadCurrentAssessment();
+  };
+
   const checks = useMemo(
     () =>
       deriveLuControlChecks({
@@ -684,13 +730,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           geometryLoading,
           geometryError,
           geometry: localizationGeometry,
+          assessedPoint: pointBinding,
+          assessedGeometryId: governed?.assessedGeometryId ?? null,
         },
         assessment: assessmentPresence,
         evidence: evidence.load,
         findings: governed?.findings ?? [],
         serverLayerChecks: governed?.serverLayerChecks ?? null,
       }),
-    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, evidence.load, governed],
+    [site, lookupError, geometryLoading, geometryError, localizationGeometry, assessmentPresence, evidence.load, governed, pointBinding],
   );
 
   // DEMO M2b item 1: one "Försök igen" for whatever failed technically.
@@ -866,8 +914,19 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   }, [checks]);
 
   // Item 4: one ring only when every checked layer used the same governed search radius.
+  // DEMO M2c item 2: and only around the point the displayed assessment was made for -- the ring
+  // says "where the check searched", so it is never drawn around another point.
   const distinctRadii = [...new Set(checks.map((c) => c.searchRadiusMeters).filter((r): r is number => r !== null))];
-  const searchRadiusMeters = distinctRadii.length === 1 ? distinctRadii[0]! : null;
+  const governedRadius = distinctRadii.length === 1 ? distinctRadii[0]! : null;
+  const searchRadiusMeters = pointBinding === 'bound' ? governedRadius : null;
+  const searchRadiusWithheldNote =
+    governedRadius === null
+      ? null
+      : pointBinding === 'changed'
+        ? 'Sökradien visas inte: bedömningen gjordes för en annan kontrollpunkt än den som visas.'
+        : pointBinding === 'unknown'
+          ? 'Sökradien visas inte: det går inte att bekräfta vilken kontrollpunkt bedömningen gjordes för.'
+          : null;
 
   const verifyMismatchCount = verifyResult?.mismatches.length ?? 0;
 
@@ -1243,6 +1302,38 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             </p>
           ) : null}
 
+          {pointBinding === 'changed' || pointBinding === 'unknown' ? (
+            <div
+              data-testid="lu-point-binding"
+              data-binding={pointBinding}
+              className="text-sm space-y-2 border p-3"
+              style={{ borderColor: '#F97316', color: '#FDBA74' }}
+            >
+              <p>
+                {pointBinding === 'changed'
+                  ? 'Kontrollpunkten har ändrats sedan bedömningen gjordes: bedömningen gjordes för en annan kontrollpunkt än den som visas. Sökradien ritas därför inte på kartan. Läs in på nytt för att visa projektets aktuella kontrollpunkt och bedömning tillsammans.'
+                  : 'Det går inte att bekräfta att bedömningen gjordes för den kontrollpunkt som visas – svaret anger inte bedömningens kontrollpunkt. Sökradien ritas därför inte på kartan.'}
+              </p>
+              {pointBinding === 'changed' ? (
+                <button
+                  type="button"
+                  data-testid="lu-point-binding-reload"
+                  disabled={geometryLoading || persistedAssessmentLoading}
+                  onClick={() => void reloadPointAndAssessment()}
+                  className="px-3 py-1.5 text-xs font-semibold border disabled:opacity-40"
+                  style={{ borderColor: '#F97316' }}
+                >
+                  Läs in på nytt
+                </button>
+              ) : null}
+              <details data-testid="lu-point-binding-technical" className="text-xs opacity-80">
+                <summary className="cursor-pointer">Teknisk information</summary>
+                <p className="font-mono break-all">Bedömningens kontrollpunkt: {governed.assessedGeometryId ?? 'anges inte i svaret'}</p>
+                <p className="font-mono break-all">Visad kontrollpunkt: {localizationGeometry?.artifact_id ?? 'ingen'}</p>
+              </details>
+            </div>
+          ) : null}
+
           {governed.findings.length > 0 ? (
             <div data-testid="lu-findings">
               <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2" style={{ color: 'inherit' }}>Fynd</h3>
@@ -1336,6 +1427,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               productEvidence={productEvidence}
               onProductEvidenceRetry={retryChecks}
               searchRadiusMeters={searchRadiusMeters}
+              searchRadiusWithheldNote={searchRadiusWithheldNote}
               currentLocationLabel={
                 localizationGeometry?.provenance === 'user_defined'
                   ? 'Kontrollpunkt: angiven av användaren'
