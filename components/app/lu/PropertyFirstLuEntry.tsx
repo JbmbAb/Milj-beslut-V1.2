@@ -10,6 +10,25 @@ import {
 } from '../../../src/ui/api-client/localizationProjects.client';
 import { setActiveProjectId } from '../../../services/coreApiClient';
 import { LuWorkspace } from './LuWorkspace';
+import { LuProgressSteps } from './LuProgressSteps';
+
+/**
+ * DEMO M2a items 6+7: plain-Swedish bootstrap status. Every step state comes from the durable
+ * bootstrap queue status the screen already polls (PENDING / LEASED / COMPLETED / FAILED); raw codes
+ * stay in a collapsed technical section.
+ */
+const BOOTSTRAP_STATUS_SV: Record<string, string> = {
+  PENDING: 'i kö',
+  LEASED: 'pågår',
+  COMPLETED: 'klart',
+  FAILED: 'misslyckades',
+};
+
+function describeBootstrapFailure(failureCode: string | null): string {
+  if (failureCode === 'PROPERTY_CENTROID_UNAVAILABLE') return 'Fastighetens mittpunkt kunde inte beräknas.';
+  if (failureCode && /NOT_FOUND/i.test(failureCode)) return 'Fastigheten hittades inte.';
+  return 'Fastigheten kunde inte verifieras.';
+}
 
 /**
  * PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B (UI wiring).
@@ -232,7 +251,10 @@ export const PropertyFirstLuEntry: React.FC = () => {
                 {phase.projects.map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
                     <span>
-                      {p.name || p.id} <span className="opacity-50">({p.status})</span>
+                      {p.name || 'Lokalisering utan namn'}{' '}
+                      {p.createdAt ? (
+                        <span className="opacity-50">skapad {new Date(p.createdAt).toLocaleDateString('sv-SE')}</span>
+                      ) : null}
                     </span>
                     <button
                       type="button"
@@ -280,13 +302,18 @@ export const PropertyFirstLuEntry: React.FC = () => {
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10" style={{ borderTopColor: colors.coreTurquoise.hex }} />
             <p className="text-sm font-semibold">Skapar lokalisering…</p>
           </div>
-          <ul className="text-xs opacity-70 space-y-1 pl-8">
-            <li>Etablerar projekt{phase.kind === 'bootstrapping' ? ' ✓' : '…'}</li>
-            <li>
-              Verifierar fastighet och etablerar governad projektkontext
-              {phase.kind === 'bootstrapping' ? ` (${phase.status.toLowerCase()})` : '…'}
-            </li>
-          </ul>
+          <LuProgressSteps
+            testId="pf-progress"
+            steps={[
+              { key: 'create', label: 'Lokaliseringen skapas', state: phase.kind === 'bootstrapping' ? 'done' : 'active' },
+              {
+                key: 'verify',
+                label: 'Fastigheten verifieras och utredningen förbereds',
+                state: phase.kind === 'bootstrapping' ? (phase.status === 'COMPLETED' ? 'done' : 'active') : 'pending',
+                detail: phase.kind === 'bootstrapping' ? BOOTSTRAP_STATUS_SV[phase.status] ?? undefined : undefined,
+              },
+            ]}
+          />
         </section>
       )}
 
@@ -295,14 +322,18 @@ export const PropertyFirstLuEntry: React.FC = () => {
           <p className="text-sm font-semibold" style={{ color: '#F87171' }}>
             Lokaliseringen kunde inte etableras.
           </p>
-          <p className="text-xs opacity-70">
-            {phase.failureCode ? `${phase.failureCode}: ` : ''}
-            {phase.failureDetail || 'Okänt fel.'}
-          </p>
+          <p data-testid="pf-bootstrap-failure-reason" className="text-sm">{describeBootstrapFailure(phase.failureCode)}</p>
           <p className="text-xs opacity-60">
-            Projektet är skapat men har ingen verifierad projektkontext ännu — det kan inte
-            användas för bedömning förrän detta lyckas.
+            Lokaliseringen är skapad men fastigheten är inte verifierad ännu. Ingen bedömning kan göras förrän
+            detta lyckas.
           </p>
+          <details className="text-xs opacity-70">
+            <summary className="cursor-pointer">Teknisk information</summary>
+            <p className="mt-1 font-mono break-all">
+              {phase.failureCode ? `${phase.failureCode}: ` : ''}
+              {phase.failureDetail || 'Ingen detalj.'}
+            </p>
+          </details>
           <button
             type="button"
             data-testid="pf-retry"

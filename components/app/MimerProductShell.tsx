@@ -127,8 +127,7 @@ export const MimerProductShell: React.FC<MimerProductShellProps> = ({
             <section className="max-w-3xl px-8 py-10" data-testid="product-home">
               <h1 className="text-3xl font-bold tracking-tight mb-3">Arbetsyta</h1>
               <p className="text-sm opacity-70 leading-relaxed mb-8">
-                Aktiv scope: lokaliseringsutredning och admin-konsol. Övriga legacy-moduler är
-                avstängda från produktmenyn.
+                Välj Lokalisering för att utreda en fastighet.
               </p>
               <ul className="space-y-3 text-sm">
                 {NAV.filter((n) => n.id !== 'home').map((item) => (
