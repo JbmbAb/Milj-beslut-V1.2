@@ -672,16 +672,24 @@ function extraServerRows(checks: readonly unknown[]): LuCheckView[] {
       state = 'UNCERTAIN';
       summary = 'Servern redovisar ett okänt kontrolltillstånd.';
     }
+    // DEMO M2c item 3 (M2b verifier finding 5): a checked document result covers only the document
+    // evidence pinned to the assessment -- the server itself says "Övriga dokument för fastigheten
+    // är inte kontrollerade" (governedLayerChecks.ts) -- so it is never shown as complete.
+    const documentLimited = layer === 'document' && (state === 'HIT' || state === 'NO_HIT');
     rows.push({
       key,
       label,
       state,
-      stateLabel: LU_KNOWLEDGE_STATE_LABEL[state],
+      stateLabel: `${LU_KNOWLEDGE_STATE_LABEL[state]}${documentLimited ? LU_LIMITED_COVERAGE_SUFFIX : ''}`,
       summary,
       registerNote: null,
-      coverageNote: null,
-      coverageLimited: false,
-      limitedCoverageShort: null,
+      coverageNote: documentLimited
+        ? 'Täckning: endast dokumentbevis som är knutet till bedömningen. Övriga dokument för fastigheten är inte kontrollerade.'
+        : null,
+      coverageLimited: documentLimited,
+      limitedCoverageShort: documentLimited
+        ? 'endast dokumentbevis knutet till bedömningen; övriga dokument för fastigheten är inte kontrollerade'
+        : null,
       serverNote,
       ruleId: e ? str(e.rule_id) : null,
       details: [],

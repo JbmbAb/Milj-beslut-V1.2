@@ -1473,6 +1473,20 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(screen.getByTestId('lu-assessment-summary')).toHaveStyle({ borderLeft: '3px solid #F97316' });
   });
 
+  it('M2c item 3: a document check with a hit is counted as carried out but named as limited -- the server says other documents are not checked', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-x', []), documentCheck: DOCUMENT_CHECK_HIT }), evidence: () => FIVE_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
+    expect(screen.getByTestId('lu-check-extra-document')).toHaveAttribute('data-coverage', 'limited');
+    expect(screen.getByTestId('lu-check-state-extra-document')).toHaveTextContent('Kontrollerat – träff · begränsad täckning');
+    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent('6 av 6 kontroller genomförda.');
+    expect(screen.getByTestId('lu-assessment-coverage')).toHaveAttribute('data-complete', 'false');
+    expect(screen.getByTestId('lu-assessment-coverage-limited')).toHaveTextContent(
+      'Dokumentbevis – endast dokumentbevis knutet till bedömningen; övriga dokument för fastigheten är inte kontrollerade',
+    );
+  });
+
   it('item 5: when neither the read-back nor a run carries the document check, the panel says the answer lacks it', async () => {
     const user = userEvent.setup();
     mockM2b({ currentAssessment: () => persisted('assessment-shown') });

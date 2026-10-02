@@ -481,6 +481,47 @@ describe('DEMO M2a/M2b luControlChecks', () => {
     expect(c['extra-okand-3'].state).toBe('UNCERTAIN');
   });
 
+  it('M2c item 3: a document check with a hit covers only the pinned document evidence -- shown as limited, never as complete', () => {
+    const c = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: [] },
+        findings: [],
+        serverLayerChecks: [
+          {
+            layer: 'document',
+            rule_id: 'LU-DOC-BESLUT-001',
+            status: 'CHECKED_HIT',
+            evidence_artifact_id: 'doc-evidence-1',
+            reason: null,
+            message_sv: 'Dokument och tidigare beslut: kontrollerat – träff. Bedömningen innehåller verifierat dokumentbevis (se fynd). Övriga dokument för fastigheten är inte kontrollerade.',
+          },
+        ],
+      }),
+    );
+    const doc = c['extra-document'];
+    expect(doc.state).toBe('HIT'); // the server's state, unchanged
+    expect(doc.coverageLimited).toBe(true);
+    expect(doc.stateLabel).toBe('Kontrollerat – träff · begränsad täckning');
+    expect(doc.coverageNote).toBe(
+      'Täckning: endast dokumentbevis som är knutet till bedömningen. Övriga dokument för fastigheten är inte kontrollerade.',
+    );
+    expect(doc.limitedCoverageShort).toBe('endast dokumentbevis knutet till bedömningen; övriga dokument för fastigheten är inte kontrollerade');
+    // NOT_CHECKED stays what it is -- a limitation is only stated for a checked result.
+    const notChecked = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: [] },
+        findings: [],
+        serverLayerChecks: [{ layer: 'document', status: 'NOT_CHECKED', reason: 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED' }],
+      }),
+    )['extra-document'];
+    expect(notChecked.coverageLimited).toBe(false);
+    expect(notChecked.stateLabel).toBe('Inte kontrollerat');
+  });
+
   it('M2b item 5: extra rows appear only for a present assessment and never without a server list', () => {
     const list = [{ layer: 'document', status: 'NOT_CHECKED' }];
     expect(deriveLuControlChecks({ property, assessment: NONE, evidence: { status: 'idle' }, findings: [], serverLayerChecks: list })).toHaveLength(6);
