@@ -1,12 +1,28 @@
+import { existsSync, readFileSync } from "node:fs";
 import {
   PROTECTED_RELATIONS,
   classifyRelation,
   classifySchema,
-  parseRelationName,
   type ProtectedRelationClass,
   type ProtectedRelationsDefinition,
   type RelationClassification,
 } from "./ProtectedRelations";
+import { classificationSpec } from "./ProtectedRelationSpec";
+import {
+  analyzeCommandArgv,
+  analyzeCommandLine,
+  analyzeOgr2ogrArgs,
+  analyzeSql,
+  judgeWrites,
+  normalizedVerdict,
+  splitCommandLine,
+  targetText,
+  type ClassifierOptions,
+  type Ogr2ogrWriteMode,
+  type WriteAnalysis,
+  type WriteOperation,
+  type WriteVerdict,
+} from "./ProtectedWriteClassifier";
 
 /**
  * MIMER-PROTECTED-RELATION-GATE-V1 -- U30F F1 (PRES-05): ONE gate for every destructive operation
@@ -17,9 +33,10 @@ import {
  * rename or redefine such a relation goes through this module:
  *
  *   - Ungoverned paths (legacy importers, maintenance scripts): `assertSqlWriteAllowed` /
- *     `gatedSql`, `assertOgr2ogrWriteAllowed` / `assertOgr2ogrCommandAllowed` and
- *     `assertUngovernedDestructiveWriteAllowed` refuse a protected target with
- *     REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION, and an unparseable target with
+ *     `gatedSql`, `assertOgr2ogrWriteAllowed` / `assertOgr2ogrCommandAllowed`,
+ *     `assertCommandWriteAllowed` (psql, ogrinfo -sql, pg_restore, shp2pgsql, ... and shell
+ *     wrappers) and `assertUngovernedDestructiveWriteAllowed` refuse a protected target with
+ *     REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION, and a target that is not static with
  *     REJECT_DESTRUCTIVE_WRITE_TARGET_UNRESOLVABLE (fail-closed). Non-protected targets pass.
  *   - Retired scripts (cannot be made safe without a rewrite): `refuseRetiredDestructiveScript`
  *     refuses before any connection, with the justification recorded in RETIRED_DESTRUCTIVE_SCRIPTS.
@@ -31,8 +48,11 @@ import {
  * protected or retired is a reviewed code change (protected-relations.v1.json,
  * RETIRED_DESTRUCTIVE_SCRIPTS), checked by tests/unit/protectedRelationGateInventory.test.ts.
  *
- * Bindings: scripts/data-pipeline/protected_relation_gate.py and scripts/lib/ProtectedRelationGate.ps1
- * read the same JSON definition and implement the same classification.
+ * U30F2 M1/M2: SQL, ogr2ogr arguments and command lines are classified by ProtectedWriteClassifier
+ * (a tokenizer, not keyword patterns) from the shared specification protected-relation-
+ * classification.v1.json. The bindings scripts/data-pipeline/protected_relation_gate.py and
+ * scripts/lib/ProtectedRelationGate.ps1 read the same two JSON files and implement the same
+ * algorithm; tests/unit/protectedRelationGateBindings.test.ts holds all three to identical verdicts.
  */
 
 export const REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION = "REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION" as const;
@@ -40,20 +60,7 @@ export const REJECT_DESTRUCTIVE_WRITE_TARGET_UNRESOLVABLE = "REJECT_DESTRUCTIVE_
 export const REJECT_RETIRED_DESTRUCTIVE_SCRIPT = "REJECT_RETIRED_DESTRUCTIVE_SCRIPT" as const;
 export const REJECT_UNSANCTIONED_DERIVED_REBUILD = "REJECT_UNSANCTIONED_DERIVED_REBUILD" as const;
 
-export type DestructiveOperation =
-  | "DROP"
-  | "DROP_SCHEMA"
-  | "TRUNCATE"
-  | "DELETE"
-  | "INSERT"
-  | "UPDATE"
-  | "MERGE"
-  | "COPY_FROM"
-  | "ALTER"
-  | "RENAME"
-  | "CREATE_OR_REPLACE"
-  | "OGR2OGR_WRITE"
-  | "RUN_RETIRED_SCRIPT";
+export type DestructiveOperation = WriteOperation | "RUN_RETIRED_SCRIPT";
 
 export type ProtectedRelationGateCode =
   | typeof REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION
@@ -86,6 +93,11 @@ export class ProtectedRelationGateError extends Error {
   }
 }
 
+const GOVERNED_DOORS =
+  "Only the governed paths may change it: the retain-before-replace promote " +
+  "(scripts/import/import-librarian-manifest.ts --mode promote) and, for lm_staging, import-staging/cleanup-staging " +
+  "with their per-relation protection decision. There is no override.";
+
 function refuseClassification(caller: string, operation: DestructiveOperation, c: RelationClassification): void {
   if (c.kind === "UNPROTECTED") return;
   if (c.kind === "UNRESOLVABLE") {
@@ -103,14 +115,16 @@ function refuseClassification(caller: string, operation: DestructiveOperation, c
     operation,
     relation: c.relation,
     relation_class: c.class,
-    detail:
-      `${c.class} (${c.reason}). Only the governed paths may change it: the retain-before-replace promote ` +
-      "(scripts/import/import-librarian-manifest.ts --mode promote) and, for lm_staging, import-staging/cleanup-staging " +
-      "with their per-relation protection decision. There is no override.",
+    detail: `${c.class} (${c.reason}). ${GOVERNED_DOORS}`,
   });
 }
 
-/** Ungoverned path, one named relation: refuse if protected (or unresolvable). */
+/** Operations whose target is a schema (protected-relation-classification.v1.json `schema_operations`). */
+export function isSchemaOperation(operation: string): boolean {
+  return classificationSpec().schema_operations.includes(operation);
+}
+
+/** Ungoverned path, one named relation (or schema for a schema operation): refuse if protected or unresolvable. */
 export function assertUngovernedDestructiveWriteAllowed(input: {
   readonly caller: string;
   readonly operation: DestructiveOperation;
@@ -118,9 +132,45 @@ export function assertUngovernedDestructiveWriteAllowed(input: {
   readonly definition?: ProtectedRelationsDefinition;
 }): void {
   const definition = input.definition ?? PROTECTED_RELATIONS;
-  const c = input.operation === "DROP_SCHEMA" ? classifySchema(input.relation, definition) : classifyRelation(input.relation, definition);
+  const c = isSchemaOperation(input.operation) ? classifySchema(input.relation, definition) : classifyRelation(input.relation, definition);
   refuseClassification(input.caller, input.operation, c);
 }
+
+/** Refuse a judged analysis: protected first, then anything that could not be resolved. */
+function refuseVerdict(caller: string, verdict: WriteVerdict, what: string): void {
+  const hit = verdict.protectedWrites[0];
+  if (hit) {
+    throw new ProtectedRelationGateError({
+      code: REJECT_DESTRUCTIVE_WRITE_PROTECTED_RELATION,
+      caller,
+      operation: hit.operation,
+      relation: hit.relation,
+      relation_class: hit.class,
+      detail: `${hit.class} (${hit.reason}). ${GOVERNED_DOORS}`,
+    });
+  }
+  const open = verdict.unresolved[0];
+  if (open) {
+    throw new ProtectedRelationGateError({
+      code: REJECT_DESTRUCTIVE_WRITE_TARGET_UNRESOLVABLE,
+      caller,
+      operation: open.operation,
+      relation: "(unresolved)",
+      detail: `${open.reason}; ${what}: ${verdict.unresolved.length} write(s) whose target is not static cannot be shown not to be protected`,
+    });
+  }
+}
+
+/** The SQL file a psql -f / prisma db execute --file would run, read for classification (never executed). */
+function readSqlFileForGate(path: string): string | null {
+  try {
+    return existsSync(path) ? readFileSync(path, "utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
+const GATE_OPTIONS: ClassifierOptions = { readSqlFile: readSqlFileForGate };
 
 // ---------------------------------------------------------------------------------------------
 // SQL
@@ -128,142 +178,29 @@ export function assertUngovernedDestructiveWriteAllowed(input: {
 
 export interface SqlWriteTarget {
   readonly operation: DestructiveOperation;
-  /** A relation, or a schema for DROP_SCHEMA. */
+  /** A relation, or `schema:<name>` for a schema-level operation (canonical SQL text). */
   readonly relation: string;
-}
-
-// A statement keyword is never read as the target name ("DROP TABLE IF EXISTS $1" must not
-// resolve to a table called IF): unquoted IF/ONLY/TABLE are reserved where they appear here.
-const NOT_KEYWORD = String.raw`(?!(?:IF|ONLY|TABLE)\b)`;
-const IDENT = String.raw`(?:"(?:[^"]|"")+"|${NOT_KEYWORD}[A-Za-z_][A-Za-z0-9_$]*)`;
-const QNAME = String.raw`${IDENT}(?:\s*\.\s*${IDENT}){0,2}`;
-const QITEM = String.raw`(?:ONLY\s+)?${QNAME}(?:\s*\*)?`;
-const QLIST = String.raw`${QITEM}(?:\s*,\s*${QITEM})*`;
-
-interface SqlPattern {
-  readonly operation: DestructiveOperation;
-  /** Counts occurrences of the statement keyword; more keywords than targets = unresolvable. */
-  readonly keyword: RegExp | null;
-  readonly full: RegExp;
-  readonly list?: boolean;
-}
-
-const SQL_PATTERNS: readonly SqlPattern[] = [
-  { operation: "TRUNCATE", keyword: /\bTRUNCATE\b/gi, full: new RegExp(String.raw`\bTRUNCATE\s+(?:TABLE\s+)?(${QLIST})`, "gi"), list: true },
-  {
-    operation: "DROP",
-    keyword: /\bDROP\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)\b/gi,
-    full: new RegExp(String.raw`\bDROP\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)\s+(?:IF\s+EXISTS\s+)?(${QLIST})`, "gi"),
-    list: true,
-  },
-  {
-    operation: "DROP_SCHEMA",
-    keyword: /\bDROP\s+SCHEMA\b/gi,
-    full: new RegExp(String.raw`\bDROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?(${IDENT}(?:\s*,\s*${IDENT})*)`, "gi"),
-    list: true,
-  },
-  { operation: "DELETE", keyword: /\bDELETE\s+FROM\b/gi, full: new RegExp(String.raw`\bDELETE\s+FROM\s+(?:ONLY\s+)?(${QNAME})`, "gi") },
-  { operation: "INSERT", keyword: /\bINSERT\s+INTO\b/gi, full: new RegExp(String.raw`\bINSERT\s+INTO\s+(${QNAME})`, "gi") },
-  { operation: "MERGE", keyword: /\bMERGE\s+INTO\b/gi, full: new RegExp(String.raw`\bMERGE\s+INTO\s+(?:ONLY\s+)?(${QNAME})`, "gi") },
-  // UPDATE is only matched with its SET (never "DO UPDATE SET", "FOR UPDATE", "ON UPDATE").
-  {
-    operation: "UPDATE",
-    keyword: null,
-    full: new RegExp(String.raw`(?<!\bDO\s+)\bUPDATE\s+(?:ONLY\s+)?(${QNAME})(?:\s*\*)?\s+(?:(?:AS\s+)?${IDENT}\s+)?SET\b`, "gi"),
-  },
-  { operation: "COPY_FROM", keyword: null, full: new RegExp(String.raw`\bCOPY\s+(${QNAME})\s*(?:\([^)]*\))?\s+FROM\b`, "gi") },
-  {
-    operation: "CREATE_OR_REPLACE",
-    keyword: /\bCREATE\s+OR\s+REPLACE\s+(?:TEMP(?:ORARY)?\s+)?(?:RECURSIVE\s+)?VIEW\b/gi,
-    full: new RegExp(String.raw`\bCREATE\s+OR\s+REPLACE\s+(?:TEMP(?:ORARY)?\s+)?(?:RECURSIVE\s+)?VIEW\s+(${QNAME})`, "gi"),
-  },
-];
-
-const ALTER_KEYWORD = /\bALTER\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)\b/gi;
-const ALTER_FULL = new RegExp(
-  String.raw`\bALTER\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|FOREIGN\s+TABLE)\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${QNAME})(?:\s*\*)?([^;]*)`,
-  "gi",
-);
-const RENAME_TO = new RegExp(String.raw`^\s*RENAME\s+TO\s+(${IDENT})`, "i");
-
-function stripSqlComments(sql: string): string {
-  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
-}
-
-function splitList(list: string): string[] {
-  const items: string[] = [];
-  let current = "";
-  let quoted = false;
-  for (const ch of list) {
-    if (ch === '"') quoted = !quoted;
-    if (ch === "," && !quoted) {
-      items.push(current);
-      current = "";
-    } else current += ch;
-  }
-  items.push(current);
-  return items.map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 export interface SqlWriteTargets {
   readonly targets: readonly SqlWriteTarget[];
-  /** Statement keywords whose target could not be parsed. */
+  /** Operations whose target is not a static name (dynamic, parameter, unparseable). */
   readonly unresolved: readonly DestructiveOperation[];
 }
 
-/** Every relation (or schema) a SQL text writes destructively. Regex-based, conservative. */
+/** Every relation (or schema) a SQL text writes destructively (ProtectedWriteClassifier.analyzeSql). */
 export function extractSqlWriteTargets(sql: string): SqlWriteTargets {
-  const text = stripSqlComments(sql);
-  const targets: SqlWriteTarget[] = [];
-  const unresolved: DestructiveOperation[] = [];
-  for (const p of SQL_PATTERNS) {
-    let found = 0;
-    for (const m of text.matchAll(p.full)) {
-      found += 1;
-      for (const item of p.list ? splitList(m[1]!) : [m[1]!]) targets.push({ operation: p.operation, relation: item });
-    }
-    const keywords = p.keyword ? [...text.matchAll(p.keyword)].length : 0;
-    if (keywords > found) unresolved.push(p.operation);
-  }
-  let altered = 0;
-  for (const m of text.matchAll(ALTER_FULL)) {
-    altered += 1;
-    const source = m[1]!;
-    const rename = (m[2] ?? "").match(RENAME_TO);
-    if (rename) {
-      targets.push({ operation: "RENAME", relation: source });
-      const parsed = parseRelationName(source);
-      const renamed = parseRelationName(rename[1]!);
-      if (parsed && renamed) {
-        targets.push({ operation: "RENAME", relation: parsed.schema ? `${parsed.schema}.${renamed.table}` : renamed.table });
-      } else unresolved.push("RENAME");
-    } else {
-      targets.push({ operation: "ALTER", relation: source });
-    }
-  }
-  if ([...text.matchAll(ALTER_KEYWORD)].length > altered) unresolved.push("ALTER");
-  return { targets, unresolved };
+  const a = analyzeSql(sql);
+  return { targets: a.targets.map((t) => ({ operation: t.operation, relation: targetText(t) })), unresolved: a.unresolved.map((u) => u.operation) };
 }
 
-/** Ungoverned path, one SQL text: refuse when any write target is protected or unparseable. */
+/** Ungoverned path, one SQL text: refuse when any write target is protected or not static. */
 export function assertSqlWriteAllowed(input: {
   readonly caller: string;
   readonly sql: string;
   readonly definition?: ProtectedRelationsDefinition;
 }): void {
-  const { targets, unresolved } = extractSqlWriteTargets(input.sql);
-  if (unresolved.length > 0) {
-    throw new ProtectedRelationGateError({
-      code: REJECT_DESTRUCTIVE_WRITE_TARGET_UNRESOLVABLE,
-      caller: input.caller,
-      operation: unresolved[0]!,
-      relation: "(unparsed)",
-      detail: `the statement's ${unresolved.join(", ")} target could not be parsed: ${input.sql.replace(/\s+/g, " ").trim().slice(0, 160)}`,
-    });
-  }
-  for (const t of targets) {
-    assertUngovernedDestructiveWriteAllowed({ caller: input.caller, operation: t.operation, relation: t.relation, definition: input.definition });
-  }
+  refuseVerdict(input.caller, judgeWrites(analyzeSql(input.sql), input.definition), `SQL ${input.sql.replace(/\s+/g, " ").trim().slice(0, 160)}`);
 }
 
 /** `assertSqlWriteAllowed`, returning the SQL unchanged so a call site can wrap its statement. */
@@ -273,115 +210,114 @@ export function gatedSql(caller: string, sql: string): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// ogr2ogr
+// ogr2ogr and other commands
 // ---------------------------------------------------------------------------------------------
 
-export type Ogr2ogrWriteMode = "OVERWRITE" | "APPEND" | "UPSERT" | "UPDATE" | "CREATE";
+export type { Ogr2ogrWriteMode };
 
 export type Ogr2ogrTarget =
   | { readonly kind: "NOT_DATABASE"; readonly format: string | null }
   | { readonly kind: "DATABASE"; readonly relation: string | null; readonly mode: Ogr2ogrWriteMode };
 
-function valueAfter(args: readonly string[], flags: readonly string[]): string[] {
-  const values: string[] = [];
-  for (let i = 0; i < args.length - 1; i += 1) {
-    if (flags.includes(args[i]!.toLowerCase())) values.push(args[i + 1]!);
-  }
-  return values;
-}
-
 /**
- * The PostgreSQL relation an ogr2ogr invocation writes, or NOT_DATABASE for a file output (GPKG,
- * GeoJSON, ...). PostgreSQL output is recognised by `-f/-of PostgreSQL|PG|PostGIS`, or -- without a
- * format -- by a `PG:` datasource. The relation is `-nln`, qualified by `-lco SCHEMA=` or the
- * connection's `active_schema`; without `-nln` it is unresolvable (ogr2ogr would use the source
- * layer name).
+ * The PostgreSQL relation an ogr2ogr invocation writes (the first schema-qualified target), or
+ * NOT_DATABASE for a file output. Kept for callers that log the target; the gate itself judges every
+ * target (`analyzeOgr2ogrArgs`): every -nln, every -lco SCHEMA= / active_schema, PGDump, -sql.
  */
 export function ogr2ogrDatabaseWriteTarget(args: readonly string[]): Ogr2ogrTarget {
-  const format = valueAfter(args, ["-f", "-of"])[0] ?? null;
-  const pgDatasource = args.find((a) => /^PG:/i.test(a.trim()));
-  const isDatabase = format ? /^(postgresql|pg|postgis)$/i.test(format.trim()) : pgDatasource !== undefined;
-  if (!isDatabase) return { kind: "NOT_DATABASE", format };
-
-  const lower = args.map((a) => a.toLowerCase());
-  const lco = valueAfter(args, ["-lco"]);
-  const mode: Ogr2ogrWriteMode =
-    lower.includes("-overwrite") || lco.some((v) => /^OVERWRITE=YES$/i.test(v.trim()))
-      ? "OVERWRITE"
-      : lower.includes("-upsert")
-        ? "UPSERT"
-        : lower.includes("-append")
-          ? "APPEND"
-          : lower.includes("-update")
-            ? "UPDATE"
-            : "CREATE";
-
-  const nln = valueAfter(args, ["-nln"])[0];
-  if (!nln) return { kind: "DATABASE", relation: null, mode };
-  const parsed = parseRelationName(nln);
-  if (!parsed) return { kind: "DATABASE", relation: nln, mode };
-  if (parsed.schema !== null) return { kind: "DATABASE", relation: `${parsed.schema}.${parsed.table}`, mode };
-  const lcoSchema = lco.map((v) => v.trim().match(/^SCHEMA=(.+)$/i)?.[1]).find((v) => v !== undefined);
-  const activeSchema = pgDatasource?.match(/\b(?:active_schema|schemas)\s*=\s*'?([A-Za-z_][A-Za-z0-9_$]*)/i)?.[1];
-  const schema = lcoSchema ?? activeSchema;
-  return { kind: "DATABASE", relation: schema ? `${schema}.${parsed.table}` : parsed.table, mode };
+  const a = analyzeOgr2ogrArgs(args);
+  if (!a.database) {
+    const lowerFlags = classificationSpec().ogr2ogr.format_flags;
+    const at = args.findIndex((x) => lowerFlags.includes(x.trim().toLowerCase()));
+    return { kind: "NOT_DATABASE", format: at >= 0 && at + 1 < args.length ? args[at + 1]! : null };
+  }
+  const writes = a.targets.filter((t) => t.operation === "OGR2OGR_WRITE");
+  const pick = writes.find((t) => t.name.schema !== null) ?? writes[0];
+  return { kind: "DATABASE", relation: pick ? targetText(pick) : null, mode: a.mode };
 }
 
-/** Ungoverned ogr2ogr: refuse a PostgreSQL write to a protected (or unresolvable) relation. Returns the args. */
+/** Ungoverned ogr2ogr: refuse a PostgreSQL write (or -sql) to a protected or unresolvable relation. Returns the args. */
 export function assertOgr2ogrWriteAllowed<T extends readonly string[]>(input: {
   readonly caller: string;
   readonly args: T;
   readonly definition?: ProtectedRelationsDefinition;
 }): T {
-  const target = ogr2ogrDatabaseWriteTarget(input.args);
-  if (target.kind === "NOT_DATABASE") return input.args;
-  if (target.relation === null) {
-    throw new ProtectedRelationGateError({
-      code: REJECT_DESTRUCTIVE_WRITE_TARGET_UNRESOLVABLE,
-      caller: input.caller,
-      operation: "OGR2OGR_WRITE",
-      relation: "(no -nln)",
-      detail: "a PostgreSQL ogr2ogr write without -nln takes its table name from the source and cannot be checked",
-    });
-  }
-  assertUngovernedDestructiveWriteAllowed({ caller: input.caller, operation: "OGR2OGR_WRITE", relation: target.relation, definition: input.definition });
+  refuseVerdict(input.caller, judgeWrites(analyzeOgr2ogrArgs(input.args), input.definition), `ogr2ogr ${input.args.join(" ").slice(0, 160)}`);
   return input.args;
 }
 
-/** Split a shell command line into arguments (double and single quotes; no expansion). */
+/** Split a command line into the arguments of its first command (quotes removed; no expansion). */
 export function tokenizeCommandLine(command: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  let started = false;
-  for (const ch of command) {
-    if (quote) {
-      if (ch === quote) quote = null;
-      else current += ch;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      started = true;
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      if (started) tokens.push(current);
-      current = "";
-      started = false;
-      continue;
-    }
-    current += ch;
-    started = true;
-  }
-  if (started) tokens.push(current);
-  return tokens;
+  return splitCommandLine(command)[0]?.[0]?.argv ?? [];
 }
 
-/** `assertOgr2ogrWriteAllowed` for a command line string (execSync callers). Returns the command. */
+/** `assertCommandWriteAllowed` for an ogr2ogr command line string (execSync callers). Returns the command. */
 export function assertOgr2ogrCommandAllowed(input: { readonly caller: string; readonly command: string }): string {
-  assertOgr2ogrWriteAllowed({ caller: input.caller, args: tokenizeCommandLine(input.command) });
-  return input.command;
+  return assertCommandWriteAllowed({ caller: input.caller, command: input.command });
+}
+
+/**
+ * Ungoverned process: refuse a command line or argument vector that writes a protected relation or
+ * a relation it does not name statically -- ogr2ogr, ogrinfo -sql, psql -c/-f/stdin, pg_restore,
+ * pg_dump | psql, shp2pgsql/raster2pgsql, GDAL tools on PG:, prisma db push/migrate reset, and shell
+ * wrappers (bash -c, cmd /c, pwsh -Command) around them. Returns its input.
+ */
+export function assertCommandWriteAllowed(input: { readonly caller: string; readonly command: string; readonly definition?: ProtectedRelationsDefinition }): string;
+export function assertCommandWriteAllowed<T extends readonly string[]>(input: { readonly caller: string; readonly argv: T; readonly definition?: ProtectedRelationsDefinition }): T;
+export function assertCommandWriteAllowed(input: {
+  readonly caller: string;
+  readonly command?: string;
+  readonly argv?: readonly string[];
+  readonly definition?: ProtectedRelationsDefinition;
+}): string | readonly string[] {
+  const analysis: WriteAnalysis =
+    input.argv !== undefined ? analyzeCommandArgv(input.argv, GATE_OPTIONS) : analyzeCommandLine(input.command ?? "", GATE_OPTIONS);
+  const shown = input.argv !== undefined ? input.argv.join(" ") : (input.command ?? "");
+  refuseVerdict(input.caller, judgeWrites(analysis, input.definition), `command ${shown.slice(0, 160)}`);
+  return input.argv !== undefined ? input.argv : (input.command ?? "");
+}
+
+// ---------------------------------------------------------------------------------------------
+// One entry for the bindings' parity corpus
+// ---------------------------------------------------------------------------------------------
+
+export type GateClassificationInput =
+  | { readonly kind: "sql"; readonly text: string }
+  | { readonly kind: "ogr2ogr"; readonly args: readonly string[] }
+  | { readonly kind: "argv"; readonly args: readonly string[] }
+  | { readonly kind: "command"; readonly text: string }
+  | { readonly kind: "relation"; readonly text: string }
+  | { readonly kind: "schema"; readonly text: string }
+  | { readonly kind: "operation"; readonly operation: string; readonly text: string };
+
+/**
+ * The normalized verdict for one input, exactly as the Python (`--corpus`) and PowerShell
+ * (`Invoke-ProtectedWriteCorpus`) bindings compute it. Files are never read here (psql -f is unresolved).
+ */
+export function classifyProtectedWrite(
+  input: GateClassificationInput,
+  definition: ProtectedRelationsDefinition = PROTECTED_RELATIONS,
+): { verdict: "ALLOWED" | "PROTECTED" | "UNRESOLVABLE"; protected: string[]; unresolved: string[] } {
+  switch (input.kind) {
+    case "sql":
+      return normalizedVerdict(judgeWrites(analyzeSql(input.text), definition));
+    case "ogr2ogr":
+      return normalizedVerdict(judgeWrites(analyzeOgr2ogrArgs(input.args), definition));
+    case "argv":
+      return normalizedVerdict(judgeWrites(analyzeCommandArgv(input.args), definition));
+    case "command":
+      return normalizedVerdict(judgeWrites(analyzeCommandLine(input.text), definition));
+    case "relation":
+    case "schema":
+    case "operation": {
+      const schemaLevel = input.kind === "schema" || (input.kind === "operation" && isSchemaOperation(input.operation));
+      const c = schemaLevel ? classifySchema(input.text, definition) : classifyRelation(input.text, definition);
+      const op = input.kind === "operation" ? input.operation : input.kind.toUpperCase();
+      if (c.kind === "PROTECTED") return { verdict: "PROTECTED", protected: [`${op} ${c.relation}`], unresolved: [] };
+      if (c.kind === "UNRESOLVABLE") return { verdict: "UNRESOLVABLE", protected: [], unresolved: [op] };
+      return { verdict: "ALLOWED", protected: [], unresolved: [] };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

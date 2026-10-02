@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { classificationSpec, isRetainedRelationDigestSuffix } from "./ProtectedRelationSpec";
 
 /**
  * MIMER-PROTECTED-RELATIONS-V1 -- U30F F1 (PRES-05): which relations are protected.
@@ -17,9 +18,14 @@ import { fileURLToPath } from "node:url";
  *   - RETAINED_STAGING every relation in a retained-staging schema (lm_staging): the retained
  *                      materialisation of a bound dataset version may live there under any name.
  *
- * Name resolution is conservative: an unqualified name that equals a protected table name (or has
- * the retained-relation shape `<protected table>_<8 hex>`) is treated as protected, because the
- * search_path that would resolve it is not known here.
+ * Name resolution is conservative: an unqualified name that equals a protected table name, is a
+ * partition of one, or has the retained-relation shape `<identifier>_<hex>` (any digest length a
+ * naming scheme in protected-relation-classification.v1.json uses) is treated as protected, because
+ * the search_path that would resolve it is not known here.
+ *
+ * U30F2 M1/M2: the rules (partition suffix, retained-relation shapes) come from the shared
+ * classification specification (ProtectedRelationSpec.ts) that the Python and PowerShell bindings
+ * read as well.
  */
 
 export const PROTECTED_RELATIONS_CONTRACT_V1 = "mimer-protected-relations-v1" as const;
@@ -148,6 +154,15 @@ export function formatRelationName(name: RelationName): string {
   return name.schema === null ? name.table : `${name.schema}.${name.table}`;
 }
 
+function canonicalPart(part: string): string {
+  return /^[a-z_][a-z0-9_$]*$/.test(part) ? part : `"${part.replace(/"/g, '""')}"`;
+}
+
+/** The name as SQL text that parses back to exactly this name (plain parts bare, others quoted). */
+export function canonicalRelationText(name: RelationName): string {
+  return name.schema === null ? canonicalPart(name.table) : `${canonicalPart(name.schema)}.${canonicalPart(name.table)}`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Classification
 // ---------------------------------------------------------------------------------------------
@@ -164,11 +179,17 @@ export type RelationClassification =
   | { readonly kind: "UNRESOLVABLE"; readonly relation: string; readonly reason: string };
 
 function partitionOf(entry: ProtectedRelationEntry, table: string): boolean {
-  return table.startsWith(`${entry.table}_`) && /^(g\d+|default)$/.test(table.slice(entry.table.length + 1));
+  return table.startsWith(`${entry.table}_`) && new RegExp(classificationSpec().partition_suffix_pattern).test(table.slice(entry.table.length + 1));
 }
 
 function retainedShapeOf(entry: ProtectedRelationEntry, table: string): boolean {
-  return table.startsWith(`${entry.table}_`) && /^[0-9a-f]{8}$/.test(table.slice(entry.table.length + 1));
+  return table.startsWith(`${entry.table}_`) && isRetainedRelationDigestSuffix(table.slice(entry.table.length + 1));
+}
+
+/** `<plain identifier>_<hex of a naming-scheme length>`: the shape of every retained relation name. */
+export function hasRetainedRelationShape(table: string): boolean {
+  const m = /^([a-z_][a-z0-9_]*)_([0-9a-f]+)$/.exec(table);
+  return m !== null && isRetainedRelationDigestSuffix(m[2]!);
 }
 
 export function classifyRelation(
@@ -210,9 +231,18 @@ export function classifyRelation(
         relation,
         class: "RETAINED_STAGING",
         entry: null,
-        reason: `unqualified name has the retained-relation shape of ${entry.relation} (<table>_<8 hex>)`,
+        reason: `unqualified name has the retained-relation shape of ${entry.relation} (<table>_<hex>)`,
       };
     }
+  }
+  if (classificationSpec().unqualified_names.retained_shape_any_prefix && hasRetainedRelationShape(parsed.table)) {
+    return {
+      kind: "PROTECTED",
+      relation,
+      class: "RETAINED_STAGING",
+      entry: null,
+      reason: `unqualified name has the retained-relation shape <identifier>_<hex> and may resolve to ${definition.retained_staging_schemas.join("/")} through the search_path`,
+    };
   }
   return { kind: "UNPROTECTED", relation };
 }

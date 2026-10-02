@@ -50,6 +50,9 @@ const TEST_SOURCE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 const GATE_IMPLEMENTATION: readonly string[] = [
   'packages/spatial-provider-postgis/src/ProtectedRelationGate.ts',
   'packages/spatial-provider-postgis/src/ProtectedRelations.ts',
+  // U30F2 M1/M2: the shared classifier and its specification loader.
+  'packages/spatial-provider-postgis/src/ProtectedWriteClassifier.ts',
+  'packages/spatial-provider-postgis/src/ProtectedRelationSpec.ts',
   'packages/spatial-provider-postgis/src/SpatialDatasetRetention.ts',
   'packages/spatial-provider-postgis/src/StagingCleanupProtection.ts',
 ];

@@ -1,0 +1,115 @@
+{
+  "contract": "mimer-protected-relation-classification-v1",
+  "purpose": "U30F2 M1/M2 (PRES-05): the ONE classification specification of the protected relation gate. protected-relations.v1.json says WHICH relations are protected; this file says HOW a name, a schema, a SQL text, an ogr2ogr argument vector and a command line are read. The TypeScript gate (ProtectedWriteClassifier.ts), the Python binding (scripts/data-pipeline/protected_relation_gate.py) and the PowerShell binding (scripts/lib/ProtectedRelationGate.ps1) all read this file, and tests/unit/protectedRelationGateBindings.test.ts holds the three to identical verdicts over one corpus (every verifier canary) plus generated variations. Changing a rule here is a reviewed code change; there is no runtime override.",
+  "dynamic_placeholder_open": "⟦DYN",
+  "dynamic_placeholder_close": "⟧",
+  "relation_naming": {
+    "purpose": "Retained relations in the retained-staging schema are named <target_table>_<first N hex of the version's content_bundle_sha256>. A name that does not fit within max_identifier_bytes is refused, never truncated or suffixed.",
+    "current": { "scheme": "RETAINED_RELATION_NAME_V1_8HEX", "digest_hex_length": 8 },
+    "legacy": [],
+    "max_identifier_bytes": 63
+  },
+  "partition_suffix_pattern": "^(g[0-9]+|default)$",
+  "unqualified_names": {
+    "purpose": "An unqualified name resolves through a search_path the gate cannot see: it is treated as protected when it equals a protected table name, is a partition of one, or has the retained-relation shape <identifier>_<hex of any naming scheme length> (every relation in a retained-staging schema is protected).",
+    "retained_shape_any_prefix": true
+  },
+  "schema_operations": ["DROP_SCHEMA", "ALTER_SCHEMA", "RENAME_SCHEMA", "IMPORT_FOREIGN_SCHEMA", "RESTORE_SCHEMA"],
+  "sql": {
+    "trigger_words": [
+      "truncate", "drop", "delete", "insert", "update", "merge", "copy", "alter", "create", "refresh", "reassign", "import",
+      "execute", "into", "rename", "search_path", "set_config", "dropgeometrytable", "dropgeometrycolumn", "updategeometrysrid",
+      "addgeometrycolumn", "populate_geometry_columns", "dblink_exec", "dblink", "dblink_send_query", "gexec"
+    ],
+    "max_nesting": 4,
+    "reserved_at_name_position": [
+      "if", "only", "table", "exists", "not", "cascade", "restrict", "restart", "continue", "identity", "set", "where", "using", "as",
+      "on", "to", "from", "select", "values", "default", "all", "with", "returning", "in", "and", "or", "when", "then", "into", "by"
+    ],
+    "relation_object_kinds": [["table"], ["view"], ["materialized", "view"], ["foreign", "table"]],
+    "drop_unresolvable_object_kinds": [["owned"], ["database"], ["extension"]],
+    "drop_on_object_kinds": ["trigger", "rule", "policy"],
+    "create_modifiers": ["temp", "temporary", "unlogged", "global", "local", "recursive"],
+    "statement_start_after": ["as", "instead", "also", "do", "then", "else", "loop", "begin", "explain", "analyze", "verbose", "(", ")", "DYN"],
+    "truncate_not_after": ["grant", "revoke", ",", "before", "after", "or", "on", "of"],
+    "update_not_after": ["for", "on", "of", "before", "after", "or", "key", "no", "grant", "revoke", ","],
+    "execute_not_after": ["grant", "revoke", ",", "on"],
+    "execute_not_before": ["function", "procedure"],
+    "postgis_functions": {
+      "dropgeometrytable": "DROP",
+      "dropgeometrycolumn": "ALTER",
+      "updategeometrysrid": "ALTER",
+      "addgeometrycolumn": "ALTER",
+      "populate_geometry_columns": "ALTER"
+    },
+    "dynamic_exec_functions": ["dblink_exec", "dblink", "dblink_send_query"],
+    "psql_meta_copy": ["copy"],
+    "psql_meta_unresolvable": ["i", "ir", "include", "include_relative", "gexec", "!", "o", "out"]
+  },
+  "ogr2ogr": {
+    "format_flags": ["-f", "-of"],
+    "database_formats": ["postgresql", "pg", "postgis"],
+    "sql_dump_formats": ["pgdump"],
+    "layer_name_flags": ["-nln"],
+    "layer_creation_flags": ["-lco"],
+    "destination_open_flags": ["-doo"],
+    "sql_flags": ["-sql"],
+    "write_mode_flags": { "-overwrite": "OVERWRITE", "-upsert": "UPSERT", "-append": "APPEND", "-update": "UPDATE" },
+    "database_datasource_prefixes": ["pg:", "postgresql://", "postgres://"],
+    "schema_options": ["schema"],
+    "active_schema_options": ["active_schema", "schemas"]
+  },
+  "commands": {
+    "tool_suffixes": [".exe", ".cmd", ".bat", ".ps1", ".sh"],
+    "tools": {
+      "ogr2ogr": "OGR2OGR",
+      "ogrinfo": "OGRINFO",
+      "psql": "PSQL",
+      "pg_restore": "PG_RESTORE",
+      "pg_dump": "PG_DUMP",
+      "pg_dumpall": "PG_DUMP",
+      "shp2pgsql": "SHP2PGSQL",
+      "raster2pgsql": "SHP2PGSQL",
+      "gdal_translate": "GDAL",
+      "gdalwarp": "GDAL",
+      "gdal_rasterize": "GDAL",
+      "gdal_grid": "GDAL",
+      "gdal_contour": "GDAL",
+      "gdal_polygonize": "GDAL",
+      "gdal_polygonize.py": "GDAL",
+      "gdal_merge.py": "GDAL",
+      "gdal": "GDAL",
+      "prisma": "PRISMA"
+    },
+    "shell_wrappers": {
+      "bash": ["-c"],
+      "sh": ["-c"],
+      "zsh": ["-c"],
+      "cmd": ["/c", "/k"],
+      "powershell": ["-command", "-c"],
+      "pwsh": ["-command", "-c"]
+    },
+    "shell_wrappers_rest_of_line": ["cmd"],
+    "psql": {
+      "command_flags": ["-c", "--command"],
+      "file_flags": ["-f", "--file"],
+      "value_flags": ["-v", "--set", "--variable", "-d", "--dbname", "-h", "--host", "-p", "--port", "-U", "--username", "-o", "--output", "-P", "--pset", "-L", "--log-file", "-F", "--field-separator", "-R", "--record-separator", "-T", "--table-attr"]
+    },
+    "ogrinfo": { "sql_flags": ["-sql"] },
+    "pg_restore": {
+      "table_flags": ["-t", "--table"],
+      "schema_flags": ["-n", "--schema"],
+      "list_only_flags": ["-l", "--list"],
+      "list_file_flags": ["-L", "--use-list"]
+    },
+    "shp2pgsql": {
+      "value_flags": ["-s", "-g", "-W", "-N", "-T", "-X", "-m", "-t", "-f", "-F", "-l", "-r", "-b"]
+    },
+    "prisma": {
+      "unresolvable_subcommands": [["migrate", "reset"], ["migrate", "dev"], ["db", "push"]],
+      "file_executing_subcommands": [["db", "execute"]],
+      "file_flags": ["--file"],
+      "stdin_flags": ["--stdin"]
+    }
+  }
+}

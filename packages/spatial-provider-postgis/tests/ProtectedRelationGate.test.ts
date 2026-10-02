@@ -156,11 +156,12 @@ describe("SQL write targets", () => {
       DROP SCHEMA IF EXISTS stage, lm_staging CASCADE;
     `);
     expect(unresolved).toEqual([]);
+    // U30F2 M1: targets are the canonical SQL text of the name PostgreSQL resolves (quotes only where needed).
     expect(targets).toEqual(
       expect.arrayContaining([
         { operation: "TRUNCATE", relation: "env.sgu_well" },
-        { operation: "TRUNCATE", relation: 'ONLY "lm_staging"."x_1"' },
-        { operation: "DROP", relation: '"lm_staging"."ebh_potentiellt_fororenade_omraden_02fccffc"' },
+        { operation: "TRUNCATE", relation: "lm_staging.x_1" },
+        { operation: "DROP", relation: "lm_staging.ebh_potentiellt_fororenade_omraden_02fccffc" },
         { operation: "DROP", relation: "core.property_unit" },
         { operation: "CREATE_OR_REPLACE", relation: "core.property_unit" },
         { operation: "RENAME", relation: "env.protected_area" },
@@ -171,8 +172,8 @@ describe("SQL write targets", () => {
         { operation: "UPDATE", relation: "env.sgu_well" },
         { operation: "MERGE", relation: "env.sgu_well" },
         { operation: "COPY_FROM", relation: "env.ebh_potentiellt_fororenade_omraden" },
-        { operation: "DROP_SCHEMA", relation: "stage" },
-        { operation: "DROP_SCHEMA", relation: "lm_staging" },
+        { operation: "DROP_SCHEMA", relation: "schema:stage" },
+        { operation: "DROP_SCHEMA", relation: "schema:lm_staging" },
       ]),
     );
     expect(targets.filter((t) => t.operation === "UPDATE")).toHaveLength(1);
@@ -297,6 +298,110 @@ describe("derived rebuild and retired scripts", () => {
 
   it("a script calling the retirement refusal is refused even when it is not registered", () => {
     expect(refusal(() => refuseRetiredDestructiveScript("scripts/not-registered.ts")).code).toBe(REJECT_RETIRED_DESTRUCTIVE_SCRIPT);
+  });
+});
+
+/**
+ * U30F2 M1: every runtime probe of the independent verification (v30f-gate.test.ts, 48 cases), now
+ * with the owner's expectation: a probe that got past the gate (ALLOWED) must be REFUSED, except the
+ * ones that are genuinely not protected (a rename that stays in public, the quoted schema "Env", a
+ * GPKG output). Only APIs that existed before the fix are used, so this block is the RED evidence.
+ */
+describe("U30F2 M1: the verifier's runtime probes", () => {
+  const outcome = (fn: () => unknown): "ALLOWED" | "REFUSED" => {
+    try {
+      fn();
+      return "ALLOWED";
+    } catch {
+      return "REFUSED";
+    }
+  };
+  const sqlOutcome = (sql: string) => outcome(() => assertSqlWriteAllowed({ caller: CALLER, sql }));
+  const ogrOutcome = (args: string[]) => outcome(() => assertOgr2ogrWriteAllowed({ caller: CALLER, args }));
+
+  it.each([
+    ["TRUNCATE env.sgu_well", "REFUSED"],
+    ['truncate table only "env"."sgu_well" restart identity', "REFUSED"],
+    ["TRUNCATE ENV.SGU_WELL", "REFUSED"],
+    ["DELETE FROM core.property_unit WHERE id > 0", "REFUSED"],
+    ["WITH d AS (DELETE FROM env.natura2000_area RETURNING 1) SELECT 1", "REFUSED"],
+    ["INSERT INTO env.protected_area SELECT * FROM x", "REFUSED"],
+    ["UPDATE env.sgu_well AS w\n  SET geom = NULL", "REFUSED"],
+    ["MERGE INTO env.sgu_well t USING s ON true WHEN MATCHED THEN DELETE", "REFUSED"],
+    ["COPY env.sgu_well (a) FROM STDIN", "REFUSED"],
+    ["DROP TABLE IF EXISTS lm_staging.anything_at_all CASCADE", "REFUSED"],
+    ["DROP SCHEMA IF EXISTS lm_staging CASCADE", "REFUSED"],
+    ["DROP SCHEMA env CASCADE", "REFUSED"],
+    ["ALTER TABLE env.sgu_well SET SCHEMA archive", "REFUSED"],
+    ["ALTER TABLE public.x RENAME TO y; ALTER TABLE env.sgu_well RENAME TO sgu_well_old", "REFUSED"],
+    ["CREATE OR REPLACE VIEW core.property_unit AS SELECT 1", "REFUSED"],
+    ["DO $$ BEGIN EXECUTE 'TRUNCATE env.sgu_well'; END $$", "REFUSED"],
+    ["EXECUTE format('TRUNCATE %I.%I', 'env', 'sgu_well')", "REFUSED"],
+    ["DROP TABLE env.sgu_well_g12", "REFUSED"],
+    ["TRUNCATE sgu_well", "REFUSED"],
+    ["DROP TABLE natura2000_area_a5d665ae", "REFUSED"],
+    // were ALLOWED before U30F2:
+    ["ALTER SCHEMA lm_staging RENAME TO v30f_x", "REFUSED"],
+    ["ALTER SCHEMA env RENAME TO env_old", "REFUSED"],
+    ["DROP OWNED BY miljobeslut CASCADE", "REFUSED"],
+    ["SELECT DropGeometryTable('env', 'sgu_well')", "REFUSED"],
+    ["INSERT INTO public.t VALUES ('--'); TRUNCATE env.sgu_well", "REFUSED"],
+    ["INSERT INTO public.t VALUES ('/*'); TRUNCATE env.sgu_well; SELECT '*/'", "REFUSED"],
+    ["EXECUTE format('TRUNC' || 'ATE %I.%I', 'env', 'sgu_well')", "REFUSED"],
+    ['DROP TABLE U&"env".sgu_well', "REFUSED"],
+    ["SET search_path = lm_staging; DROP TABLE marktacke_07497f79", "REFUSED"],
+    ["CREATE RULE v30f AS ON INSERT TO env.sgu_well DO INSTEAD NOTHING", "REFUSED"],
+    ["CREATE TRIGGER v30f BEFORE INSERT ON env.sgu_well FOR EACH ROW EXECUTE FUNCTION f()", "REFUSED"],
+    // genuinely not protected (the renamed table stays in public):
+    ["ALTER TABLE public.tmp RENAME TO sgu_well", "ALLOWED"],
+  ])("SQL %j -> %s", (sql, expected) => {
+    expect(sqlOutcome(sql)).toBe(expected);
+  });
+
+  const base = ["-f", "PostgreSQL", "PG:dbname=x", "a.gpkg"];
+  it.each([
+    ["protected -nln, overwrite", [...base, "-nln", "env.sgu_well", "-overwrite"], "REFUSED"],
+    ["unqualified -nln + -lco SCHEMA=env", [...base, "-nln", "sgu_well", "-lco", "SCHEMA=env", "-append"], "REFUSED"],
+    ["PG: without -f + active_schema", ["PG:dbname=x active_schema=lm_staging", "a.gpkg", "-nln", "foo_12345678", "-append"], "REFUSED"],
+    ["no -nln", [...base, "-append"], "REFUSED"],
+    ["-nln with $VAR", [...base, "-nln", "$TABLE", "-overwrite"], "REFUSED"],
+    ["GPKG output", ["-f", "GPKG", "out.gpkg", "a.shp", "-nln", "sgu_well", "-overwrite"], "ALLOWED"],
+    // were ALLOWED before U30F2:
+    ["-f PGDump writes SQL that psql later runs", ["-f", "PGDump", "out.sql", "a.gpkg", "-nln", "env.sgu_well", "-lco", "DROP_TABLE=IF_EXISTS"], "REFUSED"],
+    ["two -nln: GDAL uses the last", [...base, "-nln", "public.x", "-nln", "env.sgu_well", "-overwrite"], "REFUSED"],
+    ["-sql DELETE executed on a PG source, file output", ["-f", "GPKG", "out.gpkg", "PG:dbname=x", "-sql", "DELETE FROM env.sgu_well"], "REFUSED"],
+    ["-lco SCHEMA given twice", [...base, "-nln", "sgu_well_actual", "-lco", "SCHEMA=public", "-lco", "SCHEMA=lm_staging", "-overwrite"], "REFUSED"],
+  ])("ogr2ogr %s -> %s", (_label, args, expected) => {
+    expect(ogrOutcome(args as string[])).toBe(expected);
+  });
+
+  it.each([
+    ["DROP_SCHEMA", "climate", "REFUSED"],
+    ["DROP_SCHEMA", "hydro", "REFUSED"],
+    ["DROP_SCHEMA", "Env", "REFUSED"],
+    ["DROP_SCHEMA", '"Env"', "ALLOWED"],
+    ["DROP", '"env"."sgu_well"', "REFUSED"],
+    ["DROP", "mimer.env.sgu_well", "REFUSED"],
+    ["RENAME_SCHEMA", "lm_staging", "REFUSED"],
+  ])("named %s %s -> %s", (operation, relation, expected) => {
+    expect(outcome(() => assertUngovernedDestructiveWriteAllowed({ caller: CALLER, operation: operation as never, relation }))).toBe(expected);
+  });
+
+  it("command lines: psql, ogrinfo -sql, shp2pgsql, pg_restore and shell wrappers go through the same gate", async () => {
+    const g = (await import("../src/ProtectedRelationGate")) as Record<string, unknown>;
+    const assertCommand = g.assertCommandWriteAllowed as ((input: { caller: string; command: string }) => string) | undefined;
+    expect(typeof assertCommand).toBe("function");
+    for (const command of [
+      'psql -c "TRUNCATE env.sgu_well"',
+      'ogrinfo PG:dbname=x -sql "DROP TABLE env.sgu_well"',
+      'shp2pgsql -d -s 3006 a.shp env.sgu_well | psql "$DATABASE_URL"',
+      "pg_restore --clean --if-exists -n env -t sgu_well dump.backup",
+      `bash -c "psql -c 'TRUNCATE env.sgu_well'"`,
+      "psql -f does-not-exist-wu30f2.sql",
+    ]) {
+      expect(outcome(() => assertCommand!({ caller: CALLER, command })), command).toBe("REFUSED");
+    }
+    expect(assertCommand!({ caller: CALLER, command: 'psql -c "SELECT 1"' })).toBe('psql -c "SELECT 1"');
   });
 });
 
