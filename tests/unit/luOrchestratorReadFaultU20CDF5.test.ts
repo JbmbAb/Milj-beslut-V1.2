@@ -35,6 +35,8 @@ const faults = vi.hoisted(() => ({
   access: [] as Array<(() => unknown) | undefined>,
   /** When set, the (mocked) ViewerKernel presentation throws what this returns. */
   presentation: null as null | (() => unknown),
+  /** W-U20CDF5-add: the (mocked) presentation reports this assessment id instead of the requested one. */
+  presentationReturnsId: null as null | string,
   /** validateLocalizationAssessmentContractVersion throws on exactly this call number (0 = never). */
   contractRefuseOnCall: 0,
   contractCalls: 0,
@@ -124,7 +126,7 @@ vi.mock('../../server/modules/localization/resolveGovernedLocalizationPresentati
   resolveGovernedLocalizationPresentation: vi.fn(async (args: { assessmentArtifactId: string }) => {
     spies.present(args);
     if (faults.presentation) throw faults.presentation();
-    return { geojson: { type: 'FeatureCollection', features: [] }, assessmentArtifactId: args.assessmentArtifactId, capabilityArtifactId: 'capability-u20cdf5' };
+    return { geojson: { type: 'FeatureCollection', features: [] }, assessmentArtifactId: faults.presentationReturnsId ?? args.assessmentArtifactId, capabilityArtifactId: 'capability-u20cdf5' };
   }),
 }));
 vi.mock('../../server/services/auditTrailService', () => ({ auditTrail: { logAction: vi.fn(async () => undefined) }, getAuditTrail: vi.fn(async () => []) }));
@@ -167,6 +169,12 @@ class FaultyMemoryRepository {
   failFirstRead(id: string, error: () => unknown, times = 1): void {
     this.failures.set(id, { remaining: times, error });
   }
+  /** W-U20CDF5-add: the `onRead`-th read of `id` returns the stored body of `toId` (a misdirected index entry). */
+  readonly misdirections = new Map<string, { onRead: number; toId: string }>();
+  readonly readCounts = new Map<string, number>();
+  misdirectRead(id: string, onRead: number, toId: string): void {
+    this.misdirections.set(id, { onRead, toId });
+  }
   async resolve<T>(reference: ArtifactReference): Promise<T> {
     this.reads.push(reference.artifact_id);
     const failure = this.failures.get(reference.artifact_id);
@@ -174,7 +182,10 @@ class FaultyMemoryRepository {
       failure.remaining -= 1;
       throw failure.error();
     }
-    const value = this.values.get(reference.artifact_id);
+    const count = (this.readCounts.get(reference.artifact_id) ?? 0) + 1;
+    this.readCounts.set(reference.artifact_id, count);
+    const misdirection = this.misdirections.get(reference.artifact_id);
+    const value = this.values.get(misdirection && misdirection.onRead === count ? misdirection.toId : reference.artifact_id);
     if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
     return structuredClone(value) as T;
   }
@@ -380,6 +391,7 @@ beforeEach(() => {
   hermeticPrismaTouches.length = 0;
   faults.access = [];
   faults.presentation = null;
+  faults.presentationReturnsId = null;
   faults.contractRefuseOnCall = 0;
   faults.contractCalls = 0;
   faults.bindingResolve = null;
@@ -629,5 +641,90 @@ describe('W-U20CDF5 B5: the PDF\'s property and project context -- a read fault 
       property: { note: 'Fastighetskontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Fastighetens beteckning, namn och kommun anges därför inte.' },
       project: { note: 'Projektkontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Projektets namn och beskrivning anges därför inte.' },
     });
+  });
+});
+
+/** W-U20CDF5-add: a second VALID, self-consistent V3 assessment of the same project, context and property (all five layers answered). */
+async function storeOtherValidAssessment(repository: FaultyMemoryRepository) {
+  const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `u20cdf5-add-${Math.random()}` });
+  security.bindPrincipal('lu.site_assessment.actor');
+  const outcome = {
+    outcome_id: `outcome-u20cdf5-add-${Math.random()}`, artifact_type: 'execution_outcome' as const,
+    attempt_ref: { artifact_id: 'attempt-u20cdf5-add', artifact_type: 'execution_attempt' },
+    result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
+  };
+  const other = createGovernedLocalizationAssessment({
+    draft: { site_id: 'site-u20cdf5-other', project_context_ref: CONTEXT, property_ref: PROPERTY_REF, evidence_refs: ALL.map((l) => ref(layerEvidence(l, false))), system_summary: 'U20CDF5-add: ANOTHER valid assessment' },
+    findings: [], outcome, attestation: security.attestOutcome(outcome.content_hash),
+  });
+  await repository.put({ artifact_id: other.artifact_id, body: other });
+  return other;
+}
+
+const MISDIRECTED = { code: 'ASSESSMENT_READ_ERROR', failureClass: 'ASSESSMENT_STORAGE_INTEGRITY_FAULT', reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT', retryable: false };
+
+describe('W-U20CDF5-add: the assessment read under the selected id must BE that assessment -- a misdirected index entry never yields another, self-consistent assessment', () => {
+  it.each(['readBack', 'pdf', 'verify'] as const)('%s: the read of the current assessment returns ANOTHER valid assessment -> 503 ASSESSMENT_READ_ERROR / ASSESSMENT_STORAGE_INTEGRITY_FAULT, not retryable; the other assessment is never presented, replayed or exported', async (path) => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const other = await storeOtherValidAssessment(repository);
+    // Read 1 is the selection (resolveCurrentAssessmentProjection); read 2 is the point of use.
+    repository.misdirectRead(assessment.artifact_id, 2, other.artifact_id);
+    const res = await PATHS[path]();
+    expect(repository.readCounts.get(assessment.artifact_id)).toBeGreaterThanOrEqual(2);
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, ...MISDIRECTED });
+    expect(JSON.stringify(res.body)).not.toContain(other.artifact_id);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('map: the presentation reports ANOTHER assessment than the selected one -> the same typed 503, never 200', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const other = await storeOtherValidAssessment(repository);
+    faults.presentationReturnsId = other.artifact_id;
+    const res = await PATHS.map();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject(MISDIRECTED);
+  });
+
+  it('map: the presentation is right but the own re-read of the map returns ANOTHER valid assessment -> the same typed 503 (it was an untyped "tamper" 424)', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const other = await storeOtherValidAssessment(repository);
+    repository.misdirectRead(assessment.artifact_id, 2, other.artifact_id);
+    const res = await PATHS.map();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject(MISDIRECTED);
+  });
+
+  it('control (no over-closing): a legitimate read -> 200 on read-back, verify and map', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await storeOtherValidAssessment(repository);
+    const readBack = await PATHS.readBack();
+    expect(readBack.status).toBe(200);
+    expect(readBack.body.assessmentArtifactId).toBe(assessment.artifact_id);
+    expect((await PATHS.verify()).status).toBe(200);
+    expect((await PATHS.map()).status).toBe(200);
+  });
+
+  it('control (no over-closing): a PROVEN absence at the point of use is still 404 "no current assessment"', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    // Read 1 (the selection) sees it; read 2 gets the repository's exact "never stored" for exactly that id.
+    repository.misdirectRead(assessment.artifact_id, 2, 'id-that-was-never-stored');
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ ok: false, error: 'No current governed LU assessment is available for this project.' });
+  });
+
+  it('control (no over-closing): two valid current assessments for the same binding and point stay 409 ASSESSMENT_CURRENT_AMBIGUOUS', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const other = await storeOtherValidAssessment(repository);
+    const [bindingRef] = await (state.bindingIndex as MemoryBindingIndex).listBindingRefs(PROJECT_ID);
+    await registerAssessmentProjection({
+      projectId: PROJECT_ID, assessment: other, contextBindingRef: { artifact_id: bindingRef!.artifact_id, artifact_type: bindingRef!.artifact_type },
+      releaseRef: RELEASE_REF, index: state.projectionIndex as MemoryProjectionIndex,
+    });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_CURRENT_UNRESOLVED', failureClass: 'ASSESSMENT_CURRENT_AMBIGUOUS' });
   });
 });
