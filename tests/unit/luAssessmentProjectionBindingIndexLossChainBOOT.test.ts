@@ -114,6 +114,7 @@ import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../
 import type { ProjectContextBindingIndex } from '../../server/repositories/projectContextBindingRepository';
 import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
 import type { LocalizationGeometryProjectionIndex } from '../../server/repositories/localizationGeometryProjectionRepository';
+import { evidenceRefsOf, negativeLayerEvidence } from '../helpers/luGovernedLayerEvidenceU20CDF5';
 
 const PROJECT_ID = 'project-binding-index-loss-chain-boot';
 const USER = { id: 'user-boot-chain', organisationId: 'org-boot-chain', bankidId: 'bankid:boot-chain', role: 'ADMIN' as const };
@@ -258,6 +259,10 @@ async function fixture() {
   const relation = { ...bareRelation, attestation: await attestProjectContextBindingSupersessionArtifact({ artifact: bareRelation, issuer: supersessionIssuer, signing: supersessionKey.provider }) };
   await installOwnerIssuedProjectContextBindingSupersession({ artifactRepository: repo, index: bindingIndex, supersession: relation, verification });
 
+  // W-U20CDF5 (L2, owner decision 2026-10-02): a V3 record that reads back as a valid assessment pins every
+  // governed layer (here one negative evidence per layer); a silent layer in a V3 record is an integrity error.
+  const layerEvidence = negativeLayerEvidence(propertyContextRef);
+  for (const e of layerEvidence) await repo.put({ artifact_id: e.artifact_id, content_hash: e.content_hash, body: e });
   async function persistAssessment(label: string, contextRef: ArtifactReference, bindingRef: ArtifactReference): Promise<string> {
     const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `boot-chain-${label}` });
     security.bindPrincipal('lu.site_assessment.actor');
@@ -267,7 +272,7 @@ async function fixture() {
       result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', label }),
     };
     const assessment = createGovernedLocalizationAssessment({
-      draft: { site_id: 'site-boot-chain', project_context_ref: contextRef, property_ref: propertyContextRef, evidence_refs: [], system_summary: `assessment ${label}` },
+      draft: { site_id: 'site-boot-chain', project_context_ref: contextRef, property_ref: propertyContextRef, evidence_refs: evidenceRefsOf(layerEvidence), system_summary: `assessment ${label}` },
       findings: [], outcome, attestation: security.attestOutcome(outcome.content_hash),
     });
     await repo.put({ artifact_id: assessment.artifact_id, content_hash: assessment.content_hash, body: assessment });

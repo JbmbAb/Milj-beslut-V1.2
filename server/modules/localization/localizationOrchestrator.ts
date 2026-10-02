@@ -632,7 +632,7 @@ function recordIntegrityFailure(
  * W-U20CDF5: the statement context of a STORED record, the same on every path that reads one back (the
  * read-back, the PDF, verify and the map): its findings, what the read could not read among its pinned
  * evidence, and the record facts the findings list alone cannot carry (L3: whether it has a findings field
- * at all).
+ * at all; L2: its own contract version, the epoch marker for a silent layer).
  */
 function storedRecordStatementContext(
   assessment: LocalizationAssessmentArtifact,
@@ -641,7 +641,11 @@ function storedRecordStatementContext(
   return {
     findings: assessment.payload.findings,
     pinnedEvidence: details.pinnedEvidence,
-    storedRecord: { hasFindingsField: (assessment.payload as { findings?: unknown }).findings !== undefined },
+    storedRecord: {
+      hasFindingsField: (assessment.payload as { findings?: unknown }).findings !== undefined,
+      // L2 (owner decision 2026-10-02): the record's own contract version is the epoch marker.
+      contractVersion: (assessment.payload as { assessment_contract_version?: unknown }).assessment_contract_version,
+    },
   };
 }
 

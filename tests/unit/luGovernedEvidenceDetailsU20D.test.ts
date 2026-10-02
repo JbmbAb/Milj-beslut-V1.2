@@ -460,10 +460,17 @@ async function setup(options: {
       attempt_ref: { artifact_id: 'attempt-u20d', artifact_type: 'execution_attempt' },
       result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
     };
-    const assessment = createGovernedLocalizationAssessment({
+    const created = createGovernedLocalizationAssessment({
       draft: { site_id: 'site-u20d-old', project_context_ref: projectContextRef, property_ref: propertyContextRef, evidence_refs: [], system_summary: 'older assessment' },
       findings: findings as never, outcome, attestation: security.attestOutcome(outcome.content_hash),
     });
+    // W-U20CDF5 (L2, owner decision 2026-10-02: assessment_contract_version is the epoch marker): an OLDER
+    // assessment -- one written before any declared contract -- is a V1 record (no assessment_contract_version,
+    // re-identified so its own hash still matches). A V3 record without pinned evidence is not "older": its
+    // silent layers break its contract (RECORD_INTEGRITY_ERROR).
+    const { assessment_contract_version: _version, canonicalizer_id: _canonicalizer, ...v1Payload } = created.payload;
+    const v1Hash = sha256ContentHash({ artifact_type: created.artifact_type, references: created.references, payload: v1Payload });
+    const assessment = { ...created, payload: v1Payload, content_hash: v1Hash, artifact_id: `assessment-${v1Hash.value}` } as typeof created;
     await repository.put({ artifact_id: assessment.artifact_id, body: assessment });
     await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: bindingRef, releaseRef: { artifact_id: 'r', artifact_type: 'product_release' }, index: projectionIndex });
     return assessment;

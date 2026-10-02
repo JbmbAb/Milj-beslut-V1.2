@@ -192,7 +192,7 @@ const issuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: issuer
 const stored = (id: string, rule: string, level: unknown, explanation = 'Lagrad förklaring: SELECT * FROM env.secret_table; password=hemligtU20CDF4') =>
   ({ finding_id: id, rule_id: rule, rule_version: '2.0', risk_level: level, explanation, evidence_refs: [] }) as unknown as AssessmentFinding;
 
-async function provision(findings: readonly AssessmentFinding[]) {
+async function provision(findings: readonly AssessmentFinding[], options: { readonly legacyV1?: boolean } = {}) {
   const repository = new MemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
   const projectionIndex = new MemoryProjectionIndex();
@@ -212,7 +212,7 @@ async function provision(findings: readonly AssessmentFinding[]) {
     attempt_ref: { artifact_id: 'attempt-u20cdf4', artifact_type: 'execution_attempt' },
     result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
   };
-  const assessment = createGovernedLocalizationAssessment({
+  const created = createGovernedLocalizationAssessment({
     draft: {
       site_id: 'site-u20cdf4', project_context_ref: CONTEXT,
       property_ref: { artifact_id: 'property-u20cdf4', artifact_type: 'LU_PROPERTY_CONTEXT' },
@@ -220,6 +220,15 @@ async function provision(findings: readonly AssessmentFinding[]) {
     },
     findings, outcome, attestation: security.attestOutcome(outcome.content_hash),
   });
+  // W-U20CDF5 (L2, owner decision 2026-10-02: assessment_contract_version is the epoch marker): a HISTORICAL
+  // record is a V1 record (no declared contract), re-identified so its own hash still matches. A V3 record
+  // without pinned evidence breaks its own contract (silent layers -> RECORD_INTEGRITY_ERROR).
+  let assessment = created;
+  if (options.legacyV1) {
+    const { assessment_contract_version: _version, canonicalizer_id: _canonicalizer, ...v1Payload } = created.payload;
+    const v1Hash = sha256ContentHash({ artifact_type: created.artifact_type, references: created.references, payload: v1Payload });
+    assessment = { ...created, payload: v1Payload, content_hash: v1Hash, artifact_id: `assessment-${v1Hash.value}` } as typeof created;
+  }
   await repository.put({ artifact_id: assessment.artifact_id, body: assessment });
   await registerAssessmentProjection({
     projectId: PROJECT_ID, assessment, contextBindingRef: { artifact_id: binding.artifact_id, artifact_type: binding.artifact_type },
@@ -324,8 +333,8 @@ describe('U20CDF4 (owner decision (4) point 1): a current record with an integri
     expectRecordIntegrity424(res, assessment.artifact_id);
   });
 
-  it('control: a HISTORICAL record (a stored MEDIUM without the evidence a current run pins) is NOT an integrity error -- 200 on read-back, map and verify', async () => {
-    const assessment = await provision([stored('finding-water-medium', 'LU-WATER-001', 'MEDIUM')]);
+  it('control: a HISTORICAL record (a V1 record: a stored MEDIUM without the evidence a current run pins) is NOT an integrity error -- 200 on read-back, map and verify', async () => {
+    const assessment = await provision([stored('finding-water-medium', 'LU-WATER-001', 'MEDIUM')], { legacyV1: true });
     const readBack = await get(`/api/localization/${PROJECT_ID}/current-assessment`);
     expect(readBack.status).toBe(200);
     expect(readBack.body.overallStatement).toMatchObject({ coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', risk_level: 'MEDIUM' });

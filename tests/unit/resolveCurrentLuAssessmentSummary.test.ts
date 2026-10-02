@@ -53,6 +53,7 @@ import type { ProjectContextBindingIndex } from '../../server/repositories/proje
 import type { ProjectAssessmentProjectionIndex, ProjectAssessmentProjectionRow } from '../../server/repositories/projectAssessmentProjectionRepository';
 import { registerAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { resolveCurrentLuAssessmentSummary } from '../../server/modules/localization/localizationOrchestrator';
+import { evidenceRefsOf, negativeLayerEvidence } from '../helpers/luGovernedLayerEvidenceU20CDF5';
 import type { AuthUser } from '../../server/security/types';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
@@ -180,6 +181,10 @@ async function setup() {
   await installOwnerIssuedProjectContextBinding({ artifactRepository: repository, index: bindingIndex, binding: newBinding, verification: pcbVerification });
   const newBindingRef = { artifact_id: newBinding.artifact_id, artifact_type: newBinding.artifact_type } as const;
 
+  // W-U20CDF5 (L2, owner decision 2026-10-02): a V3 record that reads back as a valid assessment pins every
+  // governed layer (here one negative evidence per layer); a silent layer in a V3 record is an integrity error.
+  const layerEvidence = negativeLayerEvidence({ artifact_id: 'property-assessment-read', artifact_type: 'PROPERTY' });
+  for (const e of layerEvidence) await repository.put({ artifact_id: e.artifact_id, body: e });
   async function buildAndPersistAssessment(projectContextRef: ArtifactReference, findings: readonly AssessmentFinding[] = []) {
     const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `assessment-read-${Date.now()}-${Math.random()}` });
     security.bindPrincipal('lu.site_assessment.actor');
@@ -193,7 +198,7 @@ async function setup() {
       draft: {
         site_id: 'site-assessment-read', project_context_ref: projectContextRef,
         property_ref: { artifact_id: 'property-assessment-read', artifact_type: 'PROPERTY' },
-        evidence_refs: [], system_summary: `assessment read test ${Math.random()}`,
+        evidence_refs: evidenceRefsOf(layerEvidence), system_summary: `assessment read test ${Math.random()}`,
       },
       findings, outcome, attestation,
     });
@@ -229,7 +234,9 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
     expect(result.assessmentArtifactId).toBe(assessment.artifact_id);
     expect(result.findings).toEqual([waterFinding]);
     expect(result.ruleRefs).toEqual([{ rule_id: 'LU-WATER-001', rule_version: '1.0' }]);
-    expect(result.evidenceRefs).toEqual([]);
+    // W-U20CDF5 (L2): the record's own pinned refs -- one negative evidence per governed layer.
+    expect(result.evidenceRefs).toEqual(assessment.payload.evidence_refs);
+    expect(result.evidenceRefs).toHaveLength(5);
     expect(typeof result.systemSummary).toBe('string');
   });
 

@@ -41,6 +41,7 @@ import {
   type LocalizationAssessmentArtifact,
 } from '@miljobeslut/mps-lu';
 import { runLuAssessmentViaKernel } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
+import { evidenceRefsOf, negativeLayerEvidence } from '../helpers/luGovernedLayerEvidenceU20CDF5';
 import {
   installOwnerIssuedProjectContextBinding,
   installOwnerIssuedProjectContextBindingSupersession,
@@ -203,16 +204,21 @@ async function setup() {
   async function buildAndPersistAssessment(siteId = `site-verify-${Date.now()}-${Math.random()}`) {
     const evidence = spatialEvidence(`spatial-verify-${siteId}`, siteId);
     await repository.put({ artifact_id: evidence.artifact_id, content_hash: evidence.content_hash, body: evidence });
+    // W-U20CDF5 (L2, owner decision 2026-10-02): a V3 record that reads back as a valid assessment answers every
+    // governed layer -- the water hit above plus one negative evidence for each other layer; a silent layer in
+    // a V3 record is an integrity error (verify then answers 424 and never replays it).
+    const otherLayers = negativeLayerEvidence({ artifact_id: 'prop-verify', artifact_type: 'PROPERTY' }, ['ebh', 'protected_area', 'natura2000', 'water_protection_area']);
+    for (const e of otherLayers) await repository.put({ artifact_id: e.artifact_id, content_hash: e.content_hash, body: e });
     const kernelResult = await runLuAssessmentViaKernel({
       site_id: siteId,
       deterministic_seed: `seed:${siteId}`,
-      evidence: [evidence],
+      evidence: [evidence, ...(otherLayers as unknown as SpatialEvidenceArtifact[])],
       artifact_repository: repository,
       assessment_draft: {
         site_id: siteId,
         project_context_ref: contextNew,
         property_ref: { artifact_id: 'property-verify', artifact_type: 'PROPERTY' },
-        evidence_refs: [{ artifact_id: evidence.artifact_id, artifact_type: evidence.artifact_type }],
+        evidence_refs: [{ artifact_id: evidence.artifact_id, artifact_type: evidence.artifact_type }, ...evidenceRefsOf(otherLayers)],
         system_summary: `verify test summary ${siteId}`,
       },
     });

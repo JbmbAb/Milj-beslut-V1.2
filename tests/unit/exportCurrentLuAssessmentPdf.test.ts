@@ -69,6 +69,7 @@ import {
   resolveLuViewerPresentation,
   verifyCurrentLuAssessment,
 } from '../../server/modules/localization/localizationOrchestrator';
+import { evidenceRefsOf, negativeLayerEvidence } from '../helpers/luGovernedLayerEvidenceU20CDF5';
 import { createLocalizationGeometryArtifactV2 } from '@miljobeslut/mps-lu';
 import type { LocalizationGeometryProjectionIndex, LocalizationGeometryProjectionRow } from '../../server/repositories/localizationGeometryProjectionRepository';
 import type { AuthUser } from '../../server/security/types';
@@ -218,6 +219,10 @@ async function setup() {
   await installOwnerIssuedProjectContextBinding({ artifactRepository: repository, index: bindingIndex, binding: newBinding, verification: pcbVerification });
   const newBindingRef = { artifact_id: newBinding.artifact_id, artifact_type: newBinding.artifact_type } as const;
 
+  // W-U20CDF5 (L2, owner decision 2026-10-02): a V3 record that reads back as a valid assessment pins every
+  // governed layer (here one negative evidence per layer); a silent layer in a V3 record is an integrity error.
+  const layerEvidence = negativeLayerEvidence(propertyContextRef);
+  for (const e of layerEvidence) await repository.put({ artifact_id: e.artifact_id, body: e });
   async function buildAndPersistAssessment(findings: readonly AssessmentFinding[] = [], localizationGeometryRef?: ArtifactReference) {
     const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `export-pdf-${Date.now()}-${Math.random()}` });
     security.bindPrincipal('lu.site_assessment.actor');
@@ -231,7 +236,7 @@ async function setup() {
       draft: {
         site_id: 'site-export-pdf', project_context_ref: contextNew,
         property_ref: propertyContextRef,
-        evidence_refs: [], system_summary: `export pdf test summary ${Math.random()}`,
+        evidence_refs: evidenceRefsOf(layerEvidence), system_summary: `export pdf test summary ${Math.random()}`,
         ...(localizationGeometryRef ? { localization_geometry_ref: localizationGeometryRef } : {}),
       },
       findings, outcome, attestation,

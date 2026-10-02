@@ -218,9 +218,22 @@ export interface GovernedStatementContext {
    *    `findings` has been in the assessment type since 61063241 (2026-08-04) and in every producer since
    *    9c200a78 (2026-08-08), so its absence breaks the finding contract (MALFORMED_RECORD_ENTRY:findings),
    *    exactly like a field that is not a list.
+   *  - contractVersion (U20CDF4 verification L2; OWNER DECISION 2026-10-02: the epoch marker is
+   *    assessment_contract_version -- deterministic and bound to the artifact's semantics, never a date or a
+   *    creation time): the record's own `assessment_contract_version`; undefined = V1, no declared contract.
+   *    Every V2+ record (29f83705, 2026-08-23 on) was written by a producer that queried all five layers
+   *    (e0b63cf9), persisted negative answers (e045be3b) and used the result contract (b2f7ea9b) -- all
+   *    ancestors of 29f83705 -- and before SEM-1 (d27d240a) a failed layer query failed the whole run. So a
+   *    SILENT layer (LAYER_NOT_RECORDED) in a record that declares a contract breaks that contract:
+   *    RECORD_INTEGRITY_ERROR. In a V1 record (truly historical, pre-contract) it stays
+   *    HISTORICAL_COVERAGE_UNKNOWN. Nothing else is promoted by the version: HIT_WITHOUT_FINDING stays
+   *    historical (the natura2000 / water_protection_area rules, b673a5e8 2026-08-24, postdate V2), and
+   *    FINDING_WITHOUT_CONSISTENT_EVIDENCE / DOCUMENT_FINDING_WITHOUT_PINNED_DOCUMENTS are not shown to be
+   *    promised per version.
    */
   readonly storedRecord?: {
     readonly hasFindingsField: boolean;
+    readonly contractVersion?: unknown;
   };
 }
 
@@ -375,7 +388,17 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   }
   if (basis.length > 0) {
     // U20CDF4: only a record from an older producer is historical; a fresh one breaks the current contract.
-    return { coverage_state: context?.freshRun ? 'RECORD_INTEGRITY_ERROR' : 'HISTORICAL_COVERAGE_UNKNOWN', coverage_basis: basis, coverage: null };
+    // W-U20CDF5 (L2, owner decision 2026-10-02): so does a stored record whose OWN contract version promised
+    // every layer, when one of them is silent (see GovernedStatementContext.storedRecord.contractVersion).
+    const silentUnderDeclaredContract =
+      context?.storedRecord !== undefined &&
+      context.storedRecord.contractVersion !== undefined &&
+      basis.some((entry) => entry.startsWith('LAYER_NOT_RECORDED:'));
+    return {
+      coverage_state: context?.freshRun || silentUnderDeclaredContract ? 'RECORD_INTEGRITY_ERROR' : 'HISTORICAL_COVERAGE_UNKNOWN',
+      coverage_basis: basis,
+      coverage: null,
+    };
   }
   return { coverage_state: 'DETERMINED', coverage_basis: [], coverage: summarizeGovernedCheckCoverage(checks) };
 }

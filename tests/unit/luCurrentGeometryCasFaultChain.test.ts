@@ -234,6 +234,7 @@ import {
   resolveLocalizationGeometryCurrentness,
 } from '../../server/modules/localization/localizationGeometryCurrentness';
 import localizationRoutes from '../../server/routes/localization.routes';
+import { evidenceRefsOf, negativeLayerEvidence } from '../helpers/luGovernedLayerEvidenceU20CDF5';
 
 const PROJECT_ID = 'project-cas-fault-chain';
 const USER = { id: 'user-cas-fault-chain', organisationId: 'org-cas-fault-chain', bankidId: 'bankid:cas-fault-chain', role: 'ADMIN' as const };
@@ -379,6 +380,10 @@ async function buildFixture(): Promise<Fixture> {
   const { registerAssessmentProjection } = await vi.importActual<typeof import('../../server/modules/localization/assessmentProjection')>(
     '../../server/modules/localization/assessmentProjection',
   );
+  // W-U20CDF5 (L2, owner decision 2026-10-02): a V3 record that reads back as a valid assessment pins every
+  // governed layer (here one negative evidence per layer); a silent layer in a V3 record is an integrity error.
+  const layerEvidence = negativeLayerEvidence(propertyContextRef);
+  for (const e of layerEvidence) await repo.put({ artifact_id: e.artifact_id, content_hash: e.content_hash, body: e });
   const persistAssessment = async (g: LocalizationGeometryArtifact, label: string) => {
     const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: `cas-fault-chain-${label}` });
     security.bindPrincipal('lu.site_assessment.actor');
@@ -389,7 +394,7 @@ async function buildFixture(): Promise<Fixture> {
     };
     const assessment = createGovernedLocalizationAssessment({
       draft: {
-        site_id: 'site-a', project_context_ref: projectContextRef, property_ref: propertyContextRef, evidence_refs: [],
+        site_id: 'site-a', project_context_ref: projectContextRef, property_ref: propertyContextRef, evidence_refs: evidenceRefsOf(layerEvidence),
         system_summary: `assessment for point ${label}`,
         localization_geometry_ref: { artifact_id: g.artifact_id, artifact_type: g.artifact_type },
       },
