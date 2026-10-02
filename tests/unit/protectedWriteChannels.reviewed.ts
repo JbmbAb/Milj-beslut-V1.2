@@ -14,12 +14,15 @@
  *   SANCTIONED_REBUILD  the definition's sanctioned rebuilder; PROTECTED sites only on `relation`;
  *   TEST_DB_GUARD       writes the disposable test database behind TEST-DB-GUARD (marker or callers);
  *   GATED_VIA           PROTECTED literals that reach a channel only through the named gate call (marker);
- *   SEPARATELY_GUARDED  guarded by its own protected-relation check (marker).
+ *   SEPARATELY_GUARDED  guarded by its own protected-relation check (marker);
+ *   TEST_HARNESS        a file in a test tree that only the test runner reaches (U30F3 M-2): every file that imports
+ *                       or names it is itself in a test tree and reached the same way, or is a runner configuration
+ *                       (checked recursively); no marker.
  * A `markers` entry is a regular expression the file must match; `callers` lists the only non-test files
  * that may import the module (the test checks every importer).
  */
 
-export type ReviewedPolicy = "DYNAMIC_REVIEWED" | "GOVERNED" | "SANCTIONED_REBUILD" | "TEST_DB_GUARD" | "GATED_VIA" | "SEPARATELY_GUARDED";
+export type ReviewedPolicy = "DYNAMIC_REVIEWED" | "GOVERNED" | "SANCTIONED_REBUILD" | "TEST_DB_GUARD" | "GATED_VIA" | "SEPARATELY_GUARDED" | "TEST_HARNESS";
 
 export interface ReviewedChannels {
   readonly file: string;
@@ -47,9 +50,10 @@ export const REVIEW_MARKER_DOORS: Readonly<Record<string, readonly string[]>> = 
   ],
   GOVERNED: ["retainOutgoingThenReplace", "assertStagingImportOverwriteAllowed", "planStagingCleanup", "dropStagingRelationGoverned", "assertFirstImportAdmitted"],
   SANCTIONED_REBUILD: ["assertSanctionedDerivedRebuild"],
-  TEST_DB_GUARD: ["assertDisposableGisTestDatabase"],
+  TEST_DB_GUARD: ["assertDisposableGisTestDatabase", "admitDisposableGisTestDatabase"],
   SEPARATELY_GUARDED: ["assertPendingFilesMayRun"],
   DYNAMIC_REVIEWED: [],
+  TEST_HARNESS: [],
 };
 
 /** The gate itself, its classifier and its bindings: they hold destructive statements on purpose. */
@@ -63,6 +67,7 @@ export const GATE_IMPLEMENTATION: readonly { readonly file: string; readonly jus
   { file: "packages/spatial-provider-postgis/src/FirstImportAdmission.ts", justification: "The committed first-import admissions (H3)." },
   { file: "scripts/data-pipeline/protected_relation_gate.py", justification: "The protected relation gate (Python binding)." },
   { file: "scripts/lib/ProtectedRelationGate.ps1", justification: "The protected relation gate (PowerShell binding)." },
+  { file: "tests/unit/protectedWriteChannels.ts", justification: "The channel inventory scanner itself (U30F3 M-2: scanned now that a test tree no longer exempts it): pure, it reads files and runs nothing; its synthetic statements render asyncpg COPY and pandas to_sql calls for classification." },
 ];
 
 /**
@@ -70,16 +75,36 @@ export const GATE_IMPLEMENTATION: readonly { readonly file: string; readonly jus
  * database by TEST-DB-GUARD (W-TDG). One rule, never per file. A script in a directory that merely has a
  * test-like name (scripts/test/) is NOT a test source.
  *
- * U30F3 M-2 (U30F2-VERIFICATION V72, V73): a name an author can choose anywhere no longer exempts a file. *.spec.*
- * outside the test trees (no vitest project runs them; playwright runs tests/e2e) and directories named __tests__/
- * are scanned. KNOWN LIMIT (owner decision): the test trees and *.test.* files stay exempt -- an operator script
- * named *.test.ts or put under tests/ and run with tsx is not scanned (V74); the database-level protection is the
- * layer that holds there.
+ * U30F3 M-2 (U30F2-VERIFICATION V72-V74; owner decision 2026-10-02: no general residual risk): a name or a directory
+ * an author can choose never exempts a file. A file is a test source only when a configured test runner RUNS it: it
+ * matches one of the include globs below (each copied from its runner configuration -- the test checks that every
+ * `literal` still stands in its `config`) and is not on `excluded`. Everything else -- an operator script named
+ * *.test.ts outside every runner glob, a helper or script in a test tree without a test name (tests/ops/purge.ts),
+ * *.spec.* outside tests/e2e, __tests__/ helpers -- is scanned like any other file.
  */
 export const TEST_SOURCES = {
-  pattern: String.raw`^(tests|packages/[^/]+/tests)/|\.test\.[cm]?[jt]sx?$`,
+  runners: [
+    { config: "vitest.config.ts", literal: "'**/unit/**/*.test.ts'", globs: ["**/unit/**/*.test.ts"] },
+    { config: "vitest.config.ts", literal: "'**/unit/**/*.test.tsx'", globs: ["**/unit/**/*.test.tsx"] },
+    { config: "vitest.config.ts", literal: "'tests/components/**/*.test.tsx'", globs: ["tests/components/**/*.test.tsx"] },
+    { config: "vitest.config.ts", literal: "'tests/integration/**/*.test.ts'", globs: ["tests/integration/**/*.test.ts"] },
+    { config: "vitest.config.ts", literal: "'tests/smoke/**/*.test.ts'", globs: ["tests/smoke/**/*.test.ts"] },
+    ...[
+      "mps-compliance", "mps-runtime", "mps-artifact-store", "mps-lu", "mps-data-governance", "mps-decision-governance", "mps-materialization",
+      "mps-diagnostics", "mps-retrieval-governance", "mps-query-budget", "mps-retrieval-trace", "mps-runtime-snapshot", "mps-cas-boundary",
+      "mps-governance-runtime", "mps-chunking", "mps-text-projection", "mps-legal-corpus", "mps-embedding-identity", "mps-legal-retrieval-contract",
+      "mps-legal-answer-contract", "spatial-provider-postgis", "mps-knowledge-corpus", "mps-knowledge-index", "mps-knowledge-eval", "mps-pattern-proof",
+    ].map((p) => ({ config: "vitest.config.ts", literal: `'packages/${p}/**/*.test.ts'`, globs: [`packages/${p}/**/*.test.ts`] })),
+    { config: "vitest.config.ts", literal: "'scripts/audit/**/*.test.ts'", globs: ["scripts/audit/**/*.test.ts"] },
+    { config: "packages/alpha-runtime/vitest.config.ts", literal: "'src/**/*.test.ts'", globs: ["packages/alpha-runtime/src/**/*.test.ts"] },
+    { config: "scripts/devgov/vitest.config.mjs", literal: "'scripts/audit/devgov*.test.ts'", globs: ["scripts/audit/devgov*.test.ts"] },
+    { config: "playwright.config.ts", literal: "testDir: 'tests/e2e'", globs: ["tests/e2e/**/*.spec.ts", "tests/e2e/**/*.test.ts"] },
+  ],
+  excluded: [
+    { file: "tests/unit/server.services.bankIdService.test.ts", config: "vitest.config.ts", literal: "'tests/unit/server.services.bankIdService.test.ts'" },
+  ],
   justification:
-    "The repository test trees and *.test files run under vitest/playwright with TEST-DB-GUARD; their protected writes (fixtures, setup) hit the disposable test database. *.spec.* outside tests/ and __tests__/ directories are scanned (U30F3 M-2).",
+    "A test source is a file a configured runner (vitest projects, playwright) runs, under TEST-DB-GUARD; its protected writes (fixtures, setup) hit the disposable test database. Nothing is exempt by its name or directory alone (U30F3 M-2).",
 } as const;
 
 /** Paths the walk does not enter. Generated, vendored, or other checkouts of this repository. */
@@ -173,6 +198,15 @@ export const HISTORICAL_SQL: readonly { readonly file: string; readonly sha256: 
 /** Every channel site that is neither gated nor statically ALLOWED, per file, with its review. */
 export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
+    file: "benchmarks/alpha_evolve_bibbi_harvest/evaluator.py",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F3 M-2 (exec now fails closed): the AlphaEvolve benchmark evaluator exec()s a candidate program (generated code) into a namespace and calls its evaluate(); a developer experiment harness, on no product, CI or release path. What a candidate could do against a database is not constrained here -- the database-level protection is the layer for that.",
+    sites: [
+      "DYNAMIC PROCESS exec | exec(code, namespace)",
+    ],
+  },
+  {
     file: "deploy/onprem/image-smoke/smoke.mjs",
     policy: "DYNAMIC_REVIEWED",
     justification:
@@ -218,6 +252,24 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     sites: [
       "DYNAMIC PROCESS spawn | spawn(command, [...args], { cwd: options.cwd, env: options.env, detached: options.detached, stdio: ['ignore', 'pipe', 'pipe'], })",
       "DYNAMIC PROCESS spawnSync | spawnSync(command, [...args], { encoding: 'utf8', env, timeout: 20_000 })",
+    ],
+  },
+  {
+    file: "prompt_optimizer/manifest.py",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F3 M-2 (__import__ now fails closed): _optional_pkg_version(module_name) imports httpx, tenacity and diskcache (the only in-file callers) to read their __version__ for a run manifest; no database or process client.",
+    sites: [
+      "DYNAMIC PROCESS __import__ | __import__(module_name)",
+    ],
+  },
+  {
+    file: "scripts/alphaevolve/experiments/legal_search_params/src/evaluate.py",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F3 M-2 (exec now fails closed): the AlphaEvolve legal-search experiment exec()s a candidate program (generated code) with an injected evaluation set and calls its evaluate(); a developer experiment harness, on no product, CI or release path. What a candidate could do against a database is not constrained here -- the database-level protection is the layer for that.",
+    sites: [
+      "DYNAMIC PROCESS exec | exec(code, exec_namespace)",
     ],
   },
   {
@@ -326,7 +378,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/lib/applyRc6VersionedSpatialDdl.ts",
     policy: "TEST_DB_GUARD",
-    callers: ["scripts/db/provision-spatial-test-db.ts"],
+    callers: ["scripts/db/provision-spatial-test-db.ts", "tests/setup/seedGisStubs.ts"],
     justification:
       "Runs prisma/spatial/005 and 006 (which DROP and recreate env.ebh_potentiellt_fororenade_omraden and env.protected_area) on the client it is given. Its only non-test caller is provision-spatial-test-db.ts behind assertDisposableGisTestDatabase (checked); tests/setup uses it under the vitest TEST-DB-GUARD.",
     sites: [
@@ -456,12 +508,22 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     ],
   },
   {
+    file: "scripts/import/geo.spec.ts",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F3 M-2: a vitest spec that no configured runner includes (scripts/import is in no include glob), so it is scanned. It vi.mock()s server/db/prisma; `prisma.$queryRaw` is used as a mock handle (mockResolvedValue), never called against a database.",
+    sites: [
+      "DYNAMIC SQL_CALL $queryRaw | $queryRaw",
+    ],
+  },
+  {
     file: "scripts/import/import-librarian-manifest.ts",
     policy: "GOVERNED",
     markers: ["retainOutgoingThenReplace\\(", "assertStagingImportOverwriteAllowed\\("],
     justification:
-      "The governed Mimers Brunn import (import-staging / promote / bootstrap). It writes a NEW lm_staging relation (assertStagingImportOverwriteAllowed refuses an existing or retained one), loads it with ogr2ogr / raster2pgsql (docker), sets its SRID, and promotes only through retainOutgoingThenReplace (retention record, CAS claim, F4 precondition, first-import admission); the bootstrap CREATE TABLE AS runs only after assertFirstImportAdmitted. client.$executeRawUnsafe(sql, ...params) is the executor of statements built by SpatialDatasetRetention.",
+      "The governed Mimers Brunn import (import-staging / promote / bootstrap). It writes a NEW lm_staging relation (assertStagingImportOverwriteAllowed refuses an existing or retained one), loads it with ogr2ogr / raster2pgsql (docker), sets its SRID, and promotes only through retainOutgoingThenReplace (retention record, CAS claim, F4 precondition, first-import admission); the bootstrap CREATE TABLE AS runs only after assertFirstImportAdmitted. client.$executeRawUnsafe(sql, ...params) is the executor of statements built by SpatialDatasetRetention; client.$queryRawUnsafe<T[]>(sql, ...params) is its query port (seen since U30F3 M-2 reads calls with type arguments).",
     sites: [
+      "DYNAMIC SQL_CALL client.$queryRawUnsafe | client.$queryRawUnsafe<T[]>(sql, ...params)",
       "DYNAMIC SQL_CALL client.$executeRawUnsafe | client.$executeRawUnsafe(sql, ...params)",
       "UNRESOLVABLE PROCESS spawnSync | spawnSync('docker', rasterArgs, { encoding: 'utf-8', maxBuffer: 1024 * 1024 * 50 })",
       "DYNAMIC SQL_CALL prisma.$executeRawUnsafe | prisma.$executeRawUnsafe(stmt + ';')",
@@ -685,6 +747,68 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     sites: [
       "UNRESOLVABLE SQL_TEXT literal | ` <g id=\"layer-${layer.layerName}\" fill=\"${layer.color}\" fill-opacity=\"${layer.fillOpacity}\" stroke=\"${layer.strokeColor}\" stroke-width=\"${layer.strokeWidth}\">\\n`",
       "UNRESOLVABLE SQL_TEXT literal | `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?> <svg width=\"${width}\" height=\"${height}\" viewBox=\"0 0 ${width} ${height}\" xmlns=\"http://www.w3.org/2000/svg\"> <!-- Bakgrund --> <rect width=\"10…",
+    ],
+  },
+  {
+    file: "tests/fixtures/postgis/registerenhets-seed.sql",
+    policy: "TEST_HARNESS",
+    justification:
+      "U30F3 M-2 (a test tree no longer exempts a file): a reference seed (INSERT into env.registerenhetsomradesytor) whose header says tests/setup/database.ts applies it; no code file reads or names it any more (checked: nothing outside the test trees reaches it) -- an orphaned fixture, run by nothing; a hand-run psql -f of it is not an operator path.",
+    sites: [
+      "PROTECTED SQL_FILE sql file | (whole file)",
+    ],
+  },
+  {
+    file: "tests/helpers/postgisSeed.ts",
+    policy: "TEST_HARNESS",
+    justification:
+      "U30F3 M-2: integration-test seed helpers ($executeRaw INSERTs into core.property_unit, env.protected_area, env.sgu_well, env.sgu_soil_type_25k_100k) on the PrismaClient a test hands them; imported only from tests/integration (checked recursively), where the vitest connection guard (TEST-DB-GUARD) holds every client to the disposable test database.",
+    sites: [
+      "PROTECTED SQL_TEXT literal | ` INSERT INTO core.property_unit ( source_key, designation, designation_norm, municipality_name, source_dataset, geom ) VALUES ( ${params.sourceKey}, ${params.designation}, core.normalize_designation…",
+      "PROTECTED SQL_CALL $executeRaw | $executeRaw` INSERT INTO core.property_unit ( source_key, designation, designation_norm, municipality_name, source_dataset, geom ) VALUES ( ${params.sourceKey}, ${params.designation}, core.normalize_…",
+      "PROTECTED SQL_TEXT literal | ` INSERT INTO env.protected_area (nvr_id, name, protection_type, geom) VALUES ( ${params.nvrId}, ${params.name}, ${params.protectionType}, ST_Multi(ST_Transform( ST_SetSRID(ST_GeomFromText('POLYGON((…",
+      "PROTECTED SQL_CALL $executeRaw | $executeRaw` INSERT INTO env.protected_area (nvr_id, name, protection_type, geom) VALUES ( ${params.nvrId}, ${params.name}, ${params.protectionType}, ST_Multi(ST_Transform( ST_SetSRID(ST_GeomFromText…",
+      "PROTECTED SQL_TEXT literal | ` INSERT INTO env.sgu_well (geom) VALUES (ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)); `",
+      "PROTECTED SQL_CALL $executeRaw | $executeRaw` INSERT INTO env.sgu_well (geom) VALUES (ST_Transform(ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), 3006)); `",
+      "PROTECTED SQL_TEXT literal | ` INSERT INTO env.sgu_soil_type_25k_100k (id, jordart, jg2_tx, jy1, jy1_tx, karttyp, geom) VALUES ( ${id}, 'Morän', 'Medel permeabilitet', ${jy1}, ${jy1Tx}, ${karttyp}, ST_Multi(ST_Transform( ST_SetS…",
+      "PROTECTED SQL_CALL $executeRaw | $executeRaw` INSERT INTO env.sgu_soil_type_25k_100k (id, jordart, jg2_tx, jy1, jy1_tx, karttyp, geom) VALUES ( ${id}, 'Morän', 'Medel permeabilitet', ${jy1}, ${jy1Tx}, ${karttyp}, ST_Multi(ST_Transfo…",
+    ],
+  },
+  {
+    file: "tests/setup/database.ts",
+    policy: "TEST_DB_GUARD",
+    markers: ["admitDisposableGisTestDatabase"],
+    justification:
+      "U30F3 M-2: the vitest integration globalSetup (vitest.config.ts globalSetup): it installs the TEST-DB-GUARD connection guard and admits its target with admitDisposableGisTestDatabase before it drops the public tables and the env/core/climate/lm_staging/hydro schemas of the disposable test database and truncates its Prisma tables (TEST-DB-GUARD lane W-TDG).",
+    sites: [
+      "UNRESOLVABLE SQL_TEXT literal | `DROP TABLE IF EXISTS \"public\".\"${row.tablename}\" CASCADE`",
+      "UNRESOLVABLE SQL_CALL preClient.query | preClient.query(`DROP TABLE IF EXISTS \"public\".\"${row.tablename}\" CASCADE`)",
+      "PROTECTED SQL_TEXT literal | 'DROP SCHEMA IF EXISTS \"env\" CASCADE'",
+      "PROTECTED SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"env\" CASCADE')",
+      "PROTECTED SQL_TEXT literal | 'DROP SCHEMA IF EXISTS \"core\" CASCADE'",
+      "PROTECTED SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"core\" CASCADE')",
+      "PROTECTED SQL_TEXT literal | 'DROP SCHEMA IF EXISTS \"climate\" CASCADE'",
+      "PROTECTED SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"climate\" CASCADE')",
+      "PROTECTED SQL_TEXT literal | 'DROP SCHEMA IF EXISTS \"lm_staging\" CASCADE'",
+      "PROTECTED SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"lm_staging\" CASCADE')",
+      "PROTECTED SQL_TEXT literal | 'DROP SCHEMA IF EXISTS \"hydro\" CASCADE'",
+      "PROTECTED SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"hydro\" CASCADE')",
+      "UNRESOLVABLE SQL_TEXT literal | `TRUNCATE TABLE ${tablesToTruncate .map((name) => `\"public\".\"${name}\"`) .join(', ')} RESTART IDENTITY CASCADE;`",
+      "UNRESOLVABLE SQL_CALL prisma.$executeRawUnsafe | prisma.$executeRawUnsafe(truncateQuery)",
+    ],
+  },
+  {
+    file: "tests/setup/seedGisStubs.ts",
+    policy: "TEST_DB_GUARD",
+    markers: ["admitDisposableGisTestDatabase"],
+    callers: ["scripts/db/seed-gis-for-e2e.ts", "tests/setup/database.ts"],
+    justification:
+      "U30F3 M-2: the GIS test stubs (DROP/CREATE of the env/core stub tables, core.normalize_designation) applied only after admitDisposableGisTestDatabase admits the disposable test database; its only importers are tests/setup/database.ts and scripts/db/seed-gis-for-e2e.ts (npm db:test:seed:gis with .env.test), both checked.",
+    sites: [
+      "PROTECTED SQL_TEXT literal | ` DROP TABLE IF EXISTS env.registerenhetsomradesytor CASCADE; DROP TABLE IF EXISTS env.registerenhetsomradeslinjer CASCADE; DROP TABLE IF EXISTS env.protected_area CASCADE; DROP TABLE IF EXISTS env.n…",
+      "PROTECTED SQL_CALL client.query | client.query(` DROP TABLE IF EXISTS env.registerenhetsomradesytor CASCADE; DROP TABLE IF EXISTS env.registerenhetsomradeslinjer CASCADE; DROP TABLE IF EXISTS env.protected_area CASCADE; DROP TABLE IF…",
+      "PROTECTED SQL_TEXT literal | ` CREATE OR REPLACE FUNCTION core.normalize_designation(input_text text) RETURNS text AS $$ BEGIN -- Convert to uppercase, unaccent, and replace non-alphanumeric with spaces RETURN trim(regexp_replac…",
+      "PROTECTED SQL_CALL client.query | client.query(` CREATE OR REPLACE FUNCTION core.normalize_designation(input_text text) RETURNS text AS $$ BEGIN -- Convert to uppercase, unaccent, and replace non-alphanumeric with spaces RETURN trim(…",
     ],
   },
 ];

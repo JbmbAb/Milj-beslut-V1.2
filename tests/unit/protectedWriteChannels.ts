@@ -233,7 +233,8 @@ function sqlShaped(text: string): boolean {
     return m !== null && SQL_VERBS.has(m[1]!.toLowerCase());
   }
   let at = 0;
-  while (tokens[at]?.t === "DYN") at += 1;
+  // (U30F3 M-2, V28: a statement after a leading `;` is still a statement)
+  while (tokens[at]?.t === "DYN" || tokens[at]?.t === "SEMI") at += 1;
   const first = tokens[at];
   if (!first) return false;
   if (first.t === "META") return true;
@@ -280,7 +281,32 @@ function classifyCommandText(text: string, def: ProtectedRelationsDefinition, re
   return withFoldCap([text], ([t]) => classifyCommandTextUncapped(t!, def, readSqlFile));
 }
 
+/**
+ * U30F3 M-2 (V64): a container command that destroys a volume -- `docker|podman compose ... down -v|--volumes`,
+ * `docker volume rm|prune`, `docker system prune --volumes`, `docker [container] rm -v` -- removes every relation
+ * the database volume holds. No SQL and no database tool is involved, so the gate never sees it: the inventory
+ * judges it UNRESOLVABLE (VOLUME_DESTROY).
+ */
+function destroysVolume(argv: readonly string[]): boolean {
+  const p = argv.findIndex((a) => /^(docker|podman|docker-compose|podman-compose)$/.test(programBase(a)));
+  if (p < 0) return false;
+  const rest = argv.slice(p + 1).map((a) => a.toLowerCase());
+  const has = (...xs: string[]) => xs.some((x) => rest.includes(x));
+  const volumesFlag = rest.some((a) => a === "-v" || a === "--volumes" || a.startsWith("--volumes="));
+  const compose = /-compose$/.test(programBase(argv[p]!)) || has("compose");
+  if (compose && has("down") && volumesFlag) return true;
+  const vi = rest.indexOf("volume");
+  if (vi >= 0 && ["rm", "remove", "prune"].includes(rest[vi + 1] ?? "")) return true;
+  const si = rest.indexOf("system");
+  if (si >= 0 && rest[si + 1] === "prune" && volumesFlag) return true;
+  const ri = rest.findIndex((a) => a === "rm");
+  return ri >= 0 && (ri === 0 || rest[ri - 1] === "container") && volumesFlag;
+}
+
+const VOLUME_DESTROY: TextVerdict = { verdict: "UNRESOLVABLE", detail: "VOLUME_DESTROY" };
+
 function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  if (/\b(docker|podman)/i.test(text) && splitCommandLine(text).flat().some((seg) => destroysVolume(seg.argv))) return VOLUME_DESTROY;
   if (!mentionsTool(text)) return null;
   const v = verdictOf(judgeWrites(analyzeCommandLine(text, { readSqlFile }), def));
   if (v.verdict === "ALLOWED") return v;
@@ -291,7 +317,7 @@ function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefini
 }
 
 function classifyArgv(argv: readonly string[], def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict {
-  return withFoldCap(argv, (a) => (lookupOnly(a) ? ALLOWED : verdictOf(judgeWrites(analyzeCommandArgv(a, { readSqlFile }), def)))) ?? ALLOWED;
+  return withFoldCap(argv, (a) => (destroysVolume(a) ? VOLUME_DESTROY : lookupOnly(a) ? ALLOWED : verdictOf(judgeWrites(analyzeCommandArgv(a, { readSqlFile }), def)))) ?? ALLOWED;
 }
 
 /** The argv only looks a tool up (which/where/command -v/Get-Command), also inside `docker exec <container>`. */
@@ -1738,6 +1764,227 @@ function excerptOf(src: string, from: number, to: number): string {
   return norm(src.slice(from, to));
 }
 
+// =============================================================================================
+// U30F3 M-2 (owner decision 2026-10-02): a channel is recognised by its MODULE, and what the scan does not
+// follow fails closed. Unknown or dynamic write channels never pass silently: they are DYNAMIC sites that need
+// a reviewed entry (or a gate, or retirement).
+// =============================================================================================
+
+/** JS/TS database and process clients whose calls the scan does not read: any import/require of one is DYNAMIC. */
+const JS_UNREAD_MODULES = new Set([
+  "knex", "pg-promise", "postgres", "slonik", "sequelize", "typeorm", "kysely", "drizzle-orm", "objection", "massive", "pg-native",
+  "pg-cursor", "pg-query-stream", "mysql", "mysql2", "postgrator", "node-pg-migrate", "db-migrate", "umzug", "@databases/pg",
+  "shelljs", "cross-spawn", "node-pty", "tinyexec", "nano-spawn", "@npmcli/promise-spawn", "child-process-promise", "await-spawn", "spawn-sync",
+]);
+const JS_UNREAD_MODULE_SCOPES = ["@slonik/", "@mikro-orm/", "@databases/"];
+/** Modules whose process functions the scan reads -- but only in the forms it follows. */
+const JS_PROCESS_MODULES = new Set(["child_process"]);
+/** Prisma raw SQL functions: never used as a value (a call or a tagged template only). */
+const JS_RAW_SQL_FUNCTIONS = new Set(["$executeRawUnsafe", "$queryRawUnsafe", "$executeRaw", "$queryRaw"]);
+
+/**
+ * U30F3 M-2: the index after a TypeScript type-argument list starting at `at` (`$queryRawUnsafe<Row[]>(...)`,
+ * `pool.query<T>(...)`), or -1 when `at` does not open one. A call with type arguments is the same channel.
+ */
+function skipTypeArgs(list: readonly Tok[], at: number): number {
+  if (list[at]?.v !== "<") return -1;
+  let depth = 0;
+  for (let k = at; k < list.length && k < at + 400; k += 1) {
+    const v = list[k]!.v;
+    if (list[k]!.k === "p") {
+      if (v === "<") depth += 1;
+      else if (v === ">") depth -= 1;
+      else if (v === ">>") depth -= 2;
+      else if (v === ">>>") depth -= 3;
+      else if (v === "&&" || v === "||") return -1;
+    }
+    if (depth <= 0) return k + 1;
+  }
+  return -1;
+}
+
+/** The index of the `(` (or template) that calls the identifier at k, type arguments skipped, or -1. */
+function callOpenAt(list: readonly Tok[], k: number): number {
+  const next = list[k + 1];
+  if (next?.v === "(" || (next?.k === "str" && next.template && !next.nl)) return k + 1;
+  const after = skipTypeArgs(list, k + 1);
+  const n = after > 0 ? list[after] : undefined;
+  return n && (n.v === "(" || (n.k === "str" && n.template && !n.nl)) ? after : -1;
+}
+
+/** The package a module specifier names (`node:` dropped, `@scope/name`, no subpath). */
+function moduleBase(spec: string): string {
+  const s = spec.replace(/^node:/, "");
+  const parts = s.split("/");
+  return s.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+}
+
+function unreadJsModule(mod: string): boolean {
+  return JS_UNREAD_MODULES.has(mod) || JS_UNREAD_MODULE_SCOPES.some((p) => mod.startsWith(p));
+}
+
+interface JsModuleSurface {
+  /** Identifiers bound to the child_process module itself (default / namespace import, `= require(...)`). */
+  readonly processBindings: ReadonlySet<string>;
+  /** Renamed process functions (`execSync as run`, `{ execSync: run }`): local name -> function. */
+  readonly aliases: ReadonlyMap<string, string>;
+}
+
+/**
+ * U30F3 M-2: every module reference of a JS/TS file. A database/process client the scan does not read, a module
+ * named at run time, child_process loaded or bound in a form the scan does not follow, re-exported, its module object used other
+ * than `X.<process function>(...)`, a process function used as a value, eval / new Function / vm over code the
+ * source does not hold, and a Prisma raw SQL function used as a value are DYNAMIC sites. Returns what the channel
+ * loop must follow: the bindings of the child_process module and the renamed process functions.
+ */
+function jsModuleSurface(lists: readonly Tok[][], src: string, sink: SiteSink, foldStatic: (arg: readonly Tok[]) => string | null): JsModuleSurface {
+  const processBindings = new Set<string>();
+  const aliases = new Map<string, string>();
+  const processNames = new Set<string>(); // process functions imported by their own name
+  const declared = new Set<number>(); // positions of the binding names themselves
+  const site = (from: number, to: number, line: number, kind: SiteKind, channel: string, detail: string) =>
+    sink.add({ line, kind, channel, excerpt: excerptOf(src, from, to), verdict: "DYNAMIC", detail });
+  const unread = (mod: string) => `${mod}: a database or process client whose calls the scan does not read (U30F3 M-2: fail-closed)`;
+  const staticLiteral = (arg: readonly Tok[] | undefined) => arg !== undefined && arg.length === 1 && arg[0]!.k === "str" && !arg[0]!.parts;
+
+  for (const list of lists) {
+    for (let k = 0; k < list.length; k += 1) {
+      const t = list[k]!;
+      // require(<x>) / import(<x>)
+      if (t.k === "id" && (t.v === "require" || (t.v === "import" && list[k - 1]?.v !== ".")) && list[k + 1]?.v === "(") {
+        const close = matchClose(list, k + 1);
+        const arg = argsOf(list, k + 1)[0];
+        // a module name in a same-file constant is as static as a literal
+        const spec = arg === undefined ? null : staticLiteral(arg) ? arg[0]!.v : foldStatic(arg);
+        if (spec === null) {
+          site(t.pos, list[close]!.end, t.line, "PROCESS", `${t.v}()`, "loads a module named at run time: the channels it opens are not in the source");
+          continue;
+        }
+        const mod = moduleBase(spec);
+        if (unreadJsModule(mod)) {
+          site(t.pos, list[close]!.end, t.line, "PROCESS", `${t.v} ${mod}`, unread(mod));
+          continue;
+        }
+        if (!JS_PROCESS_MODULES.has(mod)) continue;
+        // require('child_process').fn(...) is judged by the channel loop
+        if (t.v === "require" && list[close + 1]?.v === "." && list[close + 2]?.k === "id" && list[close + 3]?.v === "(" && own(JS_PROCESS, list[close + 2]!.v)) continue;
+        // const X = require(...) / const { a, b: c } = [await] require(...) | await import(...)
+        let eq = list[k - 1]?.v === "await" ? k - 2 : k - 1;
+        if (list[eq]?.v !== "=") eq = -1;
+        if (eq > 0 && list[eq - 1]?.k === "id" && /^(const|let|var)$/.test(list[eq - 2]?.v ?? "")) {
+          processBindings.add(list[eq - 1]!.v);
+          declared.add(list[eq - 1]!.pos);
+          continue;
+        }
+        if (eq > 0 && list[eq - 1]?.v === "}") {
+          let open = eq - 1;
+          let depth = 0;
+          for (; open >= 0; open -= 1) {
+            if (list[open]!.v === "}") depth += 1;
+            else if (list[open]!.v === "{") {
+              depth -= 1;
+              if (depth === 0) break;
+            }
+          }
+          for (const spec of splitTop(list.slice(open + 1, eq - 1), (x) => x.k === "p" && x.v === ",")) {
+            const s = spec.filter((x) => x.k !== "nl");
+            if (s.length === 1 && s[0]!.k === "id") {
+              if (own(JS_PROCESS, s[0]!.v)) processNames.add(s[0]!.v);
+              declared.add(s[0]!.pos);
+            } else if (s.length === 3 && s[0]!.k === "id" && s[1]!.v === ":" && s[2]!.k === "id") {
+              if (own(JS_PROCESS, s[0]!.v)) aliases.set(s[2]!.v, s[0]!.v);
+              declared.add(s[2]!.pos);
+            } else site(t.pos, list[close]!.end, t.line, "PROCESS", `${t.v} ${mod}`, "child_process destructured in a way the scan does not follow");
+          }
+          continue;
+        }
+        site(t.pos, list[close]!.end, t.line, "PROCESS", `${t.v} ${mod}`, "child_process bound in a way the scan does not follow");
+        continue;
+      }
+      // import ... from 'm' / export ... from 'm' / import 'm'
+      if (t.k !== "str" || t.parts) continue;
+      const prev = list[k - 1];
+      if (!(prev?.k === "id" && (prev.v === "from" || prev.v === "import"))) continue;
+      let s = k - 1;
+      if (prev.v === "from") while (s >= 0 && !(list[s]!.k === "id" && (list[s]!.v === "import" || list[s]!.v === "export"))) s -= 1;
+      if (s < 0) continue;
+      const head = list[s]!;
+      const clause = prev.v === "from" ? list.slice(s + 1, k - 1) : [];
+      const typeOnly = clause[0]?.k === "id" && clause[0]!.v === "type";
+      const mod = moduleBase(t.v);
+      if (unreadJsModule(mod)) {
+        if (!typeOnly) site(head.pos, t.end, head.line, "PROCESS", `import ${mod}`, unread(mod));
+        continue;
+      }
+      if (!JS_PROCESS_MODULES.has(mod) || typeOnly) continue;
+      if (head.v === "export") {
+        site(head.pos, t.end, head.line, "PROCESS", `export ${mod}`, "child_process re-exported: its functions are called under another module's name");
+        continue;
+      }
+      for (let c = 0; c < clause.length; c += 1) {
+        const x = clause[c]!;
+        if (x.k === "p" && x.v === "*" && clause[c + 1]?.v === "as" && clause[c + 2]?.k === "id") {
+          processBindings.add(clause[c + 2]!.v);
+          declared.add(clause[c + 2]!.pos);
+          c += 2;
+        } else if (x.k === "p" && x.v === "{") {
+          const close = matchClose(clause, c);
+          for (const spec of splitTop(clause.slice(c + 1, close), (y) => y.k === "p" && y.v === ",")) {
+            const sp = spec.filter((y) => y.k !== "nl" && !(y.k === "id" && y.v === "type"));
+            if (sp.length === 1 && sp[0]!.k === "id") {
+              if (own(JS_PROCESS, sp[0]!.v)) processNames.add(sp[0]!.v);
+              declared.add(sp[0]!.pos);
+            } else if (sp.length === 3 && sp[1]!.v === "as" && sp[2]!.k === "id") {
+              if (own(JS_PROCESS, sp[0]!.v)) aliases.set(sp[2]!.v, sp[0]!.v);
+              declared.add(sp[2]!.pos);
+            }
+          }
+          c = close;
+        } else if (x.k === "id" && x.v !== "type" && (clause[c + 1] === undefined || clause[c + 1]!.v === ",")) {
+          processBindings.add(x.v); // default import
+          declared.add(x.pos);
+        }
+      }
+    }
+  }
+
+  // uses: the module object only as `X.<process function>(` (or a Capitalised type), a process function only called
+  for (const list of lists) {
+    for (let k = 0; k < list.length; k += 1) {
+      const t = list[k]!;
+      if (t.k !== "id" || declared.has(t.pos)) continue;
+      const prev = list[k - 1];
+      const afterDot = prev?.k === "p" && (prev.v === "." || prev.v === "?.");
+      if (!afterDot && processBindings.has(t.v) && !(prev?.k === "id" && prev.v === "typeof")) {
+        const dot = list[k + 1];
+        const member = list[k + 2];
+        const followed = dot?.v === "." && member?.k === "id" && (/^[A-Z]/.test(member.v) || (own(JS_PROCESS, member.v) !== undefined && list[k + 3]?.v === "("));
+        if (!followed) site(t.pos, (member ?? t).end, t.line, "PROCESS", `child_process ${t.v}`, "the child_process module used other than X.<process function>(...): its calls are not followed");
+        continue;
+      }
+      if (!afterDot && (processNames.has(t.v) || aliases.has(t.v)) && list[k + 1]?.v !== "(") {
+        // promisify(exec) is followed through its alias binding (jsBindings)
+        const call = list[k - 1]?.v === "(" && /^(promisify|util)$/.test(list[k - 2]?.v ?? "");
+        if (!call) site(t.pos, t.end, t.line, "PROCESS", t.v, "a process function used as a value: where it is called is not followed");
+        continue;
+      }
+      // eval / Function / new Function / vm.* over code the source does not hold
+      const evalLike = (!afterDot && (t.v === "eval" || t.v === "Function")) || (afterDot && list[k - 2]?.v === "vm" && /^(runInNewContext|runInThisContext|runInContext|compileFunction|Script)$/.test(t.v));
+      if (evalLike && list[k + 1]?.v === "(") {
+        const close = matchClose(list, k + 1);
+        const args = argsOf(list, k + 1);
+        if (!(args.length > 0 && args.every((a) => staticLiteral(a)))) site(t.pos, list[close]!.end, t.line, "PROCESS", t.v, "evaluates code the source does not hold");
+        continue;
+      }
+      // prisma.$executeRawUnsafe used as a value (bound, passed, assigned) is a channel the loop does not see
+      if (afterDot && JS_RAW_SQL_FUNCTIONS.has(t.v) && callOpenAt(list, k) < 0 && list[k - 3]?.v !== "typeof") {
+        site(t.pos, t.end, t.line, "SQL_CALL", t.v, "a raw SQL function used as a value: where it is called is not followed");
+      }
+    }
+  }
+  return { processBindings, aliases };
+}
+
 function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null, readRepo?: (p: string) => string | null): void {
   const toks = lexJs(src);
   const lists = allLists(toks);
@@ -1745,6 +1992,10 @@ function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
   const gating = jsGating(lists, src);
   const ctx: FoldContext = { src, bindings, lang: "js", readRepoFile: readRepo, scopes: jsScopes(lists) };
   const classifySql = (t: string) => classifySqlText(t, def);
+  const surface = jsModuleSurface(lists, src, sink, (arg) => {
+    const f = foldExpr(arg, ctx, 0);
+    return !f.dynamic && f.texts.length === 1 && !containsDynamic(f.texts[0]!) ? f.texts[0]! : null;
+  });
 
   const calls = callIndex(lists, src);
   const gatedParams = jsGatedParameters(lists, gating);
@@ -1803,7 +2054,10 @@ function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
     for (let k = 0; k < list.length; k += 1) {
       const t = list[k]!;
       if (t.k !== "id") continue;
-      const next = list[k + 1];
+      // (U30F3 M-2: `$queryRawUnsafe<Row[]>(sql)` / `pool.query<T>(sql)` -- type arguments skipped -- is the same channel)
+      const open = callOpenAt(list, k);
+      if (open < 0) continue;
+      const next = list[open];
       const receiver = receiverOf(list, k);
       // tagged templates: $queryRaw`...`, sql`...`, $`...` (zx)
       if (next?.k === "str" && next.template && !next.nl) {
@@ -1826,9 +2080,9 @@ function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       if (next?.k !== "p" || next.v !== "(") continue;
       const prevTok = list[k - 1];
       if (prevTok?.k === "id" && ["function", "async", "get", "set", "static", "public", "private", "protected"].includes(prevTok.v)) continue; // a declaration
-      const closeIdx = matchClose(list, k + 1);
+      const closeIdx = matchClose(list, open);
       const after = list[closeIdx + 1];
-      const args = argsOf(list, k + 1);
+      const args = argsOf(list, open);
       // a declaration: `query(sql: string): Promise<T> {`, an interface member, an object method shorthand
       if (receiver === null && (after?.v === "{" || after?.v === ":" || args.some((a) => a.length >= 2 && a[0]!.k === "id" && (a[1]!.v === ":" || a[1]!.v === "?")))) continue;
       const callStart = receiver ? (list[k - 2]?.pos ?? t.pos) : t.pos;
@@ -1842,10 +2096,12 @@ function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         judgeSqlPayload(args[0] ?? [], t.line, channel, excerpt, t.v === "$queryRaw" || t.v === "$executeRaw", t.pos);
         continue;
       }
-      const procName = own(JS_PROCESS, t.v) ? t.v : aliasOf(t.v);
+      // (U30F3 M-2: a renamed import is followed, and a binding of the child_process module is a process receiver)
+      const procName = own(JS_PROCESS, t.v) ? t.v : (aliasOf(t.v) ?? (receiver === null ? (surface.aliases.get(t.v) ?? null) : null));
       if (procName && own(JS_PROCESS, procName)) {
-        if (procName === "exec" && receiver !== null && !/^(child_process|childProcess|cp|proc|child)$/.test(receiver)) continue;
-        if (receiver !== null && procName !== "exec" && !/^(child_process|childProcess|cp|proc|child|execa)$/.test(receiver) && receiver !== "") continue;
+        const moduleReceiver = receiver !== null && surface.processBindings.has(receiver);
+        if (procName === "exec" && receiver !== null && !moduleReceiver && !/^(child_process|childProcess|cp|proc|child)$/.test(receiver)) continue;
+        if (receiver !== null && procName !== "exec" && !moduleReceiver && !/^(child_process|childProcess|cp|proc|child|execa)$/.test(receiver) && receiver !== "") continue;
         sink.counts.channels += 1;
         const channel = `${receiver ? `${receiver}.` : ""}${t.v}`;
         if (own(JS_PROCESS, procName) === "cmd") judgeCmdPayload(args, t.line, channel, excerpt, t.pos);
@@ -2182,8 +2438,100 @@ function pyStatementEnd(list: readonly Tok[], start: number): number {
 
 const PY_GATES = new Set(["gated_sql", "assert_command_write_allowed", "assert_ogr2ogr_write_allowed"]);
 const PY_RELATION_GATES = new Set(["assert_ungoverned_write_allowed"]);
-const PY_SQL_METHODS = new Set(["execute", "executemany", "executescript", "copy_expert", "copy_from", "copy"]);
+const PY_SQL_METHODS = new Set(["execute", "executemany", "executescript", "copy_expert", "copy_from", "copy", "exec_driver_sql"]);
 const PY_PROCESS: Record<string, "auto"> = { run: "auto", call: "auto", check_call: "auto", check_output: "auto", Popen: "auto", getoutput: "auto", getstatusoutput: "auto", system: "auto", popen: "auto" };
+
+/** U30F3 M-2: Python database and process clients whose calls the scan does not read: any import of one is DYNAMIC. */
+const PY_UNREAD_MODULES = new Set([
+  "pg8000", "postgresql", "aiopg", "databases", "records", "dataset", "peewee", "pony", "duckdb", "sqlmodel", "tortoise",
+  "sh", "plumbum", "pexpect", "ptyprocess", "pty", "fabric", "invoke", "paramiko", "asyncssh", "commands", "popen2",
+]);
+/** Modules whose channels the scan reads (by method or function name): followed through `as` renames; `*` is not followed. */
+const PY_READ_MODULES = new Set(["subprocess", "os", "psycopg2", "psycopg", "asyncpg", "sqlalchemy", "asyncio", "importlib"]);
+/** `.copy(x)` receivers that copy files or objects, not SQL. */
+const PY_COPY_NOT_SQL = /^(shutil|copy|np|numpy|torch|tf|pd|pandas|deepcopy)$/;
+
+interface PyModuleSurface {
+  /** `import subprocess as sp`: sp -> subprocess. */
+  readonly moduleAliases: ReadonlyMap<string, string>;
+  /** `from subprocess import run as r`: r -> { module: subprocess, fn: run } (also unrenamed names). */
+  readonly fnImports: ReadonlyMap<string, { readonly module: string; readonly fn: string }>;
+}
+
+/**
+ * U30F3 M-2: every import of a Python file. A database/process client the scan does not read and a `*` import of a
+ * read module are DYNAMIC sites; `as` renames of read modules and their functions are returned for the channel loop.
+ */
+function pyModuleSurface(toks: readonly Tok[], src: string, sink: SiteSink): PyModuleSurface {
+  const moduleAliases = new Map<string, string>();
+  const fnImports = new Map<string, { module: string; fn: string }>();
+  /** `a.b.c` (or a relative `.a`) starting at `from`: identifiers joined by dots, never two identifiers in a row. */
+  const dotted = (from: number): { name: string; end: number } => {
+    let k = from;
+    let name = "";
+    let wantId = true;
+    while (toks[k]) {
+      const x = toks[k]!;
+      if (x.k === "p" && x.v === ".") wantId = true;
+      else if (x.k === "id" && wantId) wantId = false;
+      else break;
+      name += x.v;
+      k += 1;
+    }
+    return { name, end: k };
+  };
+  const statementEnd = (from: number): number => {
+    let k = from;
+    let depth = 0;
+    for (; k < toks.length; k += 1) {
+      const x = toks[k]!;
+      if (isOpen(x)) depth += 1;
+      else if (isClose(x)) depth -= 1;
+      else if (depth <= 0 && (x.k === "nl" || (x.k === "p" && x.v === ";"))) break;
+    }
+    return k;
+  };
+  const top = (m: string) => m.split(".")[0]!;
+  for (let k = 0; k < toks.length; k += 1) {
+    const t = toks[k]!;
+    const prev = toks[k - 1];
+    if (t.k !== "id" || !(t.v === "import" || t.v === "from") || !(!prev || prev.k === "nl" || (prev.k === "p" && prev.v === ";"))) continue;
+    const end = statementEnd(k);
+    const stmt = toks.slice(k, end);
+    const excerpt = excerptOf(src, t.pos, toks[end - 1]!.end);
+    const flag = (m: string, why: string) => sink.add({ line: t.line, kind: "PROCESS", channel: `import ${m}`, excerpt, verdict: "DYNAMIC", detail: why });
+    if (t.v === "import") {
+      for (const part of splitTop(stmt.slice(1), (x) => x.k === "p" && x.v === ",")) {
+        const d = dotted(k + 1 + stmt.slice(1).indexOf(part[0]!));
+        const m = d.name;
+        if (PY_UNREAD_MODULES.has(top(m))) flag(m, `${m}: a database or process client whose calls the scan does not read (U30F3 M-2: fail-closed)`);
+        const asAt = part.findIndex((x) => x.k === "id" && x.v === "as");
+        if (asAt >= 0 && part[asAt + 1]?.k === "id" && PY_READ_MODULES.has(top(m))) moduleAliases.set(part[asAt + 1]!.v, m);
+      }
+      continue;
+    }
+    // from <module> import <names> | *
+    const d = dotted(k + 1);
+    const m = d.name;
+    if (toks[d.end]?.v !== "import") continue;
+    if (PY_UNREAD_MODULES.has(top(m))) {
+      flag(m, `${m}: a database or process client whose calls the scan does not read (U30F3 M-2: fail-closed)`);
+      continue;
+    }
+    if (!PY_READ_MODULES.has(top(m))) continue;
+    const names = stmt.slice(d.end - k + 1).filter((x) => !(x.k === "p" && (x.v === "(" || x.v === ")")));
+    if (names.some((x) => x.k === "p" && x.v === "*")) {
+      flag(m, `from ${m} import *: the names it brings in are not followed`);
+      continue;
+    }
+    for (const part of splitTop(names, (x) => x.k === "p" && x.v === ",")) {
+      const p = part.filter((x) => x.k !== "nl");
+      if (p.length === 1 && p[0]!.k === "id") fnImports.set(p[0]!.v, { module: m, fn: p[0]!.v });
+      else if (p.length === 3 && p[1]!.v === "as" && p[0]!.k === "id" && p[2]!.k === "id") fnImports.set(p[2]!.v, { module: m, fn: p[0]!.v });
+    }
+  }
+  return { moduleAliases, fnImports };
+}
 
 function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null, readRepo?: (p: string) => string | null): void {
   const toks = lexPy(src);
@@ -2296,6 +2644,41 @@ function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
 
   // channels
   const checkedBefore = (pos: number): string[] => relations.filter((r) => r.pos < pos).map((r) => (containsDynamic(r.expr) ? r.expr : dyn(r.expr)));
+  const pySurface = pyModuleSurface(toks, src, sink);
+  const SENSITIVE_PY = /^(subprocess|os|psycopg2|psycopg|asyncpg|sqlalchemy|asyncio|importlib)$/;
+
+  /** One SQL payload (a SQL channel's argument), judged as the gate judges it. */
+  function judgePySql(arg: readonly Tok[], line: number, channel: string, excerpt: string, pos: number): void {
+    sink.counts.channels += 1;
+    if (inRanges(arg[0]?.pos ?? -1, ranges) || (arg.length >= 1 && arg[0]!.k === "id" && PY_GATES.has(arg[0]!.v)) || (arg.length === 1 && gatedIds.has(arg[0]!.v))) {
+      sink.counts.gated += 1;
+      return;
+    }
+    // text('...') (SQLAlchemy)
+    const inner = arg.length >= 3 && arg[0]!.v === "text" && arg[1]!.v === "(" ? arg.slice(2, -1) : arg;
+    const folded = foldExpr(inner, ctx, 0);
+    if (!folded.literal || folded.texts.some((x) => sqlVerbDynamic(x))) {
+      sink.add({ line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "the SQL text (or its verb) is not in the source" });
+      return;
+    }
+    let v: TextVerdict = ALLOWED;
+    let gatedHit = false;
+    for (const text of folded.texts) {
+      const c = classifySqlText(text, def) ?? ALLOWED;
+      if (c.verdict === "UNRESOLVABLE") {
+        const s = substituteGated(text, checkedBefore(pos));
+        if (s !== text && (classifySqlText(s, def) ?? ALLOWED).verdict === "ALLOWED") {
+          gatedHit = true;
+          continue;
+        }
+      }
+      v = worst(v, c);
+    }
+    if (v.verdict !== "ALLOWED") sink.add({ line, kind: "SQL_CALL", channel, excerpt, verdict: v.verdict, detail: v.detail });
+    else if (gatedHit) sink.counts.gated += 1;
+    else sink.counts.allowed += 1;
+  }
+
   for (let k = 0; k < toks.length; k += 1) {
     const t = toks[k]!;
     if (t.k !== "id" || toks[k + 1]?.v !== "(") continue;
@@ -2306,36 +2689,53 @@ function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
     const args = argsOf(toks, k + 1);
     const kw = (name: string) => args.find((a) => a[0]?.k === "id" && a[0].v === name && a[1]?.v === "=")?.slice(2) ?? null;
     const channel = `${receiver ? `${receiver}.` : ""}${t.v}`;
-    if (PY_SQL_METHODS.has(t.v) && receiver !== null && receiver !== "" && (t.v !== "copy" || /cur/i.test(receiver))) {
+    // U30F3 M-2: what module a receiver or a bare function name comes from (`as` renames followed)
+    const recvModule = receiver !== null && receiver !== "" ? (pySurface.moduleAliases.get(receiver) ?? receiver) : null;
+    const imp = receiver === null ? (pySurface.fnImports.get(t.v) ?? null) : null;
+    const fnName = imp ? imp.fn : t.v;
+    const staticArg = (a: readonly Tok[] | undefined) => a !== undefined && a.length === 1 && a[0]!.k === "str" && !a[0]!.parts;
+    const dynamicSite = (detail: string) => sink.add({ line: t.line, kind: "PROCESS", channel, excerpt, verdict: "DYNAMIC", detail });
+    // eval / exec / compile of code the source does not hold; __import__ / import_module / getattr on a client module
+    if (receiver === null && !imp && /^(exec|eval|compile)$/.test(t.v)) {
+      if (!staticArg(args[0])) dynamicSite("evaluates code the source does not hold");
+      continue;
+    }
+    if ((receiver === null && t.v === "__import__") || (t.v === "import_module" && (recvModule === "importlib" || imp?.module === "importlib"))) {
+      const a = args[0];
+      if (!staticArg(a) || SENSITIVE_PY.test(a![0]!.v.split(".")[0]!) || PY_UNREAD_MODULES.has(a![0]!.v.split(".")[0]!)) dynamicSite("imports a database or process module (or one named at run time) in a way the scan does not follow");
+      continue;
+    }
+    if (receiver === null && t.v === "getattr") {
+      const a = args[0];
+      const target = a && a.length === 1 && a[0]!.k === "id" ? (pySurface.moduleAliases.get(a[0]!.v) ?? a[0]!.v) : null;
+      if (target !== null && SENSITIVE_PY.test(target.split(".")[0]!)) dynamicSite("a function of a database or process module chosen at run time");
+      continue;
+    }
+    // psycopg2.extras.execute_values / execute_batch(cur, sql, ...): the SQL is the second argument
+    if ((fnName === "execute_values" || fnName === "execute_batch") && (imp?.module.startsWith("psycopg2") || /^(extras|psycopg2\.extras)$/.test(recvModule ?? "") || receiver === "")) {
+      judgePySql(args[1] ?? [], t.line, channel, excerpt, t.pos);
+      continue;
+    }
+    // asyncpg copy_records_to_table / copy_to_table: rows into <schema_name>.<table_name>
+    if ((t.v === "copy_records_to_table" || t.v === "copy_to_table") && receiver !== null) {
       sink.counts.channels += 1;
-      const arg = args[0] ?? [];
-      if (inRanges(arg[0]?.pos ?? -1, ranges) || (arg.length >= 1 && arg[0]!.k === "id" && PY_GATES.has(arg[0]!.v)) || (arg.length === 1 && gatedIds.has(arg[0]!.v))) {
-        sink.counts.gated += 1;
-        continue;
-      }
-      // text('...') (SQLAlchemy)
-      const inner = arg.length >= 3 && arg[0]!.v === "text" && arg[1]!.v === "(" ? arg.slice(2, -1) : arg;
-      const folded = foldExpr(inner, ctx, 0);
-      if (!folded.literal || folded.texts.some((x) => sqlVerbDynamic(x))) {
-        sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "the SQL text (or its verb) is not in the source" });
-        continue;
-      }
+      const name = foldExpr(args[0] && args[0][1]?.v !== "=" ? args[0] : (kw("table_name") ?? []), ctx, 0).texts;
+      const schema = kw("schema_name") ? foldExpr(kw("schema_name")!, ctx, 0).texts : [null];
       let v: TextVerdict = ALLOWED;
-      let gatedHit = false;
-      for (const text of folded.texts) {
-        const c = classifySqlText(text, def) ?? ALLOWED;
-        if (c.verdict === "UNRESOLVABLE") {
-          const s = substituteGated(text, checkedBefore(t.pos));
-          if (s !== text && (classifySqlText(s, def) ?? ALLOWED).verdict === "ALLOWED") {
-            gatedHit = true;
-            continue;
-          }
+      for (const n of name) {
+        for (const s of schema) {
+          const sql = `COPY ${s === null ? `"${n}"` : `"${s}"."${n}"`} FROM STDIN`;
+          v = worst(v, containsDynamic(sql) ? { verdict: "UNRESOLVABLE", detail: "COPY_FROM" } : (classifySqlText(sql, def) ?? ALLOWED));
         }
-        v = worst(v, c);
       }
-      if (v.verdict !== "ALLOWED") sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: v.verdict, detail: v.detail });
-      else if (gatedHit) sink.counts.gated += 1;
-      else sink.counts.allowed += 1;
+      if (v.verdict === "ALLOWED") sink.counts.allowed += 1;
+      else sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: v.verdict, detail: v.detail });
+      continue;
+    }
+    const copyLike = t.v !== "copy" || (receiver !== null && !PY_COPY_NOT_SQL.test(receiver) && args.length >= 1 && args[0]![1]?.v !== "=");
+    if (PY_SQL_METHODS.has(t.v) && receiver !== null && copyLike) {
+      // (U30F3 M-2: a chained receiver -- conn.cursor().execute(...) -- is a channel too)
+      judgePySql(args[0] ?? [], t.line, channel, excerpt, t.pos);
       continue;
     }
     if ((t.v === "to_sql" || t.v === "to_postgis") && receiver !== null) {
@@ -2357,9 +2757,33 @@ function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       else sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: v.verdict, detail: v.detail });
       continue;
     }
-    const imported = receiver === null && new RegExp(`from\\s+subprocess\\s+import[^\\n]*\\b${t.v}\\b`).test(src);
-    const isProcess = own(PY_PROCESS, t.v) !== undefined && (receiver === "subprocess" || receiver === "os" || imported);
-    if (isProcess || (receiver === "os" && /^(exec[lv]p?e?|spawn[lv]p?e?)$/.test(t.v))) {
+    // asyncio.create_subprocess_shell(cmd) / create_subprocess_exec(program, *args)
+    if ((fnName === "create_subprocess_shell" || fnName === "create_subprocess_exec") && (recvModule === "asyncio" || recvModule === "asyncio.subprocess" || imp?.module.startsWith("asyncio"))) {
+      sink.counts.channels += 1;
+      if (fnName === "create_subprocess_exec") {
+        const positional = args.filter((a) => a[1]?.v !== "=");
+        if (positional.some((a) => a[0]?.k === "p" && a[0]!.v === "*")) {
+          sink.add({ line: t.line, kind: "PROCESS", channel, excerpt, verdict: "DYNAMIC", detail: "arguments spread from a value the source does not hold" });
+          continue;
+        }
+        judgeArgvPy(argvCombos(positional.map((a) => foldExpr(a, ctx, 0).texts)), t.line, channel, excerpt, t.pos, null);
+        continue;
+      }
+      const folded = foldExpr(args[0] ?? [], ctx, 0);
+      let v: TextVerdict = ALLOWED;
+      let dynamicWhy: string | null = folded.literal ? null : "the command is not in the source";
+      for (const text of folded.texts) {
+        v = worst(v, classifyCommandText(text, def, readSqlFile) ?? ALLOWED);
+        dynamicWhy ??= commandDynamic(text);
+      }
+      if (v.verdict !== "ALLOWED") sink.add({ line: t.line, kind: "PROCESS", channel, excerpt, verdict: v.verdict, detail: v.detail });
+      else if (dynamicWhy) sink.add({ line: t.line, kind: "PROCESS", channel, excerpt, verdict: "DYNAMIC", detail: dynamicWhy });
+      else sink.counts.allowed += 1;
+      continue;
+    }
+    const imported = receiver === null && (imp ? imp.module === "subprocess" || imp.module === "os" : new RegExp(`from\\s+subprocess\\s+import[^\\n]*\\b${t.v}\\b`).test(src));
+    const isProcess = own(PY_PROCESS, fnName) !== undefined && (recvModule === "subprocess" || recvModule === "os" || imported);
+    if (isProcess || (recvModule === "os" && /^(exec[lv]p?e?|spawn[lv]p?e?)$/.test(t.v))) {
       sink.counts.channels += 1;
       const arg = args[0] ?? [];
       if ((arg.length >= 1 && arg[0]!.k === "id" && PY_GATES.has(arg[0]!.v)) || (arg.length === 1 && gatedIds.has(arg[0]!.v))) {
@@ -2367,7 +2791,7 @@ function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         continue;
       }
       const shellKw = kw("shell");
-      const shell = receiver === "os" || (shellKw !== null && shellKw[0]?.v === "True") || t.v === "getoutput" || t.v === "getstatusoutput";
+      const shell = recvModule === "os" || imp?.module === "os" || (shellKw !== null && shellKw[0]?.v === "True") || fnName === "getoutput" || fnName === "getstatusoutput";
       const inputKw = kw("input");
       const stdin = inputKw ? foldExpr(inputKw, ctx, 0).texts : null;
       const alts = arrayAlternatives(arg, ctx, 0);
@@ -3066,7 +3490,7 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
     // [[ a && b ]]: a test expression, not two commands
     const forSplit = lang === "sh" ? text.replace(/\[\[[\s\S]*?\]\]/g, "[[ test ]]") : text;
     const segments = splitCommandLine(forSplit).flat();
-    const touchesTool = segments.some((s) => s.argv.some((a) => toolOf(a) || programKind(a) === "SHELL"));
+    const touchesTool = segments.some((s) => s.argv.some((a) => toolOf(a) || programKind(a) === "SHELL") || destroysVolume(s.argv));
     const dynamicWhy = commandContext ? commandDynamic(forSplit) : null;
     const evalLike = commandContext && segments.some((seg) => /^(eval|source|\.)$/.test(seg.argv[programIndex(seg.argv)] ?? "") && seg.argv.some((a) => dynamicHint(a) !== null));
     if (!touchesTool && !dynamicWhy && !evalLike) continue;

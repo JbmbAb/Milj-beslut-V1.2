@@ -64,21 +64,21 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 52,
-  reviewedSites: 91,
-  reviewedSha256: '63ac6c0791f1c5e19faaeca3c3ed547e62dd7a9b7058e1f631a9b10cb7c328fd',
+  reviewedEntries: 60,
+  reviewedSites: 123,
+  reviewedSha256: 'ca4a2ff9bbc11c7a25008b35286fb7fe0974095c30745199e00c3cebffb084a6',
   historicalFiles: 9,
   historicalSha256: '7fdf49331e9dac4955408d0eb3a830eaabcceaf9e0aba7d6ba306a50e8cb4918',
-  gateImplementationSha256: 'e80cfdb8d646983e6dc0b04cd6b370d775969a5c0e5e3cae6abf2576d119063d',
+  gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
   pathExclusionsSha256: '4becd2b0307d48979f6cd9428aa35b4fff76df21c9bcd571effefaf2a67583f7',
   unscannedSha256: 'aed544c662b858165e67e296b7c2fad17250d2dc1dc766b9409058498c2eb438',
-  testSourcesSha256: 'b3924ebbf6bd8a6ea250420c30faa11f4be09877f1e89a94b4dac080f521ac68',
+  testSourcesSha256: '42f868346e882e2a4a9cc20db07e20782b24e553633d550933d1aeff815a67d5',
   retiredCount: 18,
   // U30F2 LOW (verifier L3): the retired list is pinned by content too -- an entry swapped for another
   // with the same count, or an entry's relations, justification or replacement changed, fails here.
   retiredSha256: '95a7f253f4e39e1c8d3aed638ab5b71abda678a44d4a1f6bfe56c8793381b645',
   // U30F3 (verifier L-1): the closed list of gate doors a reviewed marker may name
-  markerDoorsSha256: '7f761ea97d935c9a86a0092d5aee243eea9d21c425c3a0f4ad4132a15e2f6d29',
+  markerDoorsSha256: '806f99ebb2450096d501ba639356a17768d989e541c3a630c98d7ca04bab32a6',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -89,7 +89,22 @@ function sha256Of(value: unknown): string {
 // Repository walk and evaluation
 // ---------------------------------------------------------------------------------------------
 
-const TEST_SOURCE = new RegExp(TEST_SOURCES.pattern);
+// A runner include glob as a regular expression: a double-star segment is any directories, `*` stays within one segment.
+function globToRegExp(glob: string): RegExp {
+  let out = '';
+  for (let i = 0; i < glob.length; i += 1) {
+    if (glob.startsWith('**/', i)) {
+      out += '(?:.*/)?';
+      i += 2;
+    } else if (glob[i] === '*') out += '[^/]*';
+    else out += glob[i]!.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+// U30F3 M-2: a test source is a file a configured runner runs (its include globs), not a name or a directory
+const TEST_RUNNER_GLOBS = TEST_SOURCES.runners.flatMap((r) => r.globs.map(globToRegExp));
+const TEST_RUNNER_EXCLUDED = new Set<string>(TEST_SOURCES.excluded.map((e) => e.file));
+const TEST_SOURCE = { test: (rel: string): boolean => !TEST_RUNNER_EXCLUDED.has(rel) && TEST_RUNNER_GLOBS.some((re) => re.test(rel)) };
 const EXCLUDED = PATH_EXCLUSIONS.map((e) => new RegExp(e.pattern));
 const GATE_FILES = new Set(GATE_IMPLEMENTATION.map((g) => g.file));
 
@@ -123,6 +138,28 @@ interface EvaluationContext {
   readonly definition: ProtectedRelationsDefinition;
   /** Non-test files that import each module basename (for `callers` entries). */
   readonly importersOf: (file: string) => string[];
+  /** U30F3 M-2: scanned files that import the file by a relative path that resolves to it, or name its path or file name. */
+  readonly reachersOf: (file: string) => string[];
+}
+
+const TEST_TREE = /^(tests|packages\/[^/]+\/tests)\//;
+const RUNNER_CONFIGS = new Set<string>([...TEST_SOURCES.runners, ...TEST_SOURCES.excluded].map((r) => r.config));
+
+/**
+ * U30F3 M-2 (TEST_HARNESS): why a file in a test tree is reached from outside the test trees, or null. Every scanned
+ * file that imports or names it must itself be in a test tree and reached the same way (recursively), or be a test
+ * runner configuration; test sources are run by their runner and are not scanned, so they never appear here.
+ */
+function testHarnessReach(file: string, ctx: EvaluationContext, seen: Set<string> = new Set()): string | null {
+  if (seen.has(file)) return null;
+  seen.add(file);
+  for (const r of ctx.reachersOf(file)) {
+    if (RUNNER_CONFIGS.has(r)) continue;
+    if (!TEST_TREE.test(r)) return `reached from ${r}, outside the test trees`;
+    const deeper = testHarnessReach(r, ctx, seen);
+    if (deeper) return `${deeper} (via ${r})`;
+  }
+  return null;
 }
 
 interface Problem {
@@ -192,6 +229,11 @@ function evaluateFile(file: string, text: string, scan: FileScan, ctx: Evaluatio
   }
   const protectedSites = scan.sites.filter((s) => s.verdict === 'PROTECTED');
   if (entry.policy === 'DYNAMIC_REVIEWED' && protectedSites.length) add('a DYNAMIC_REVIEWED entry may not hold a PROTECTED site: gate it or retire the file');
+  if (entry.policy === 'TEST_HARNESS') {
+    if (!TEST_TREE.test(file)) add('reviewed as TEST_HARNESS but not in a test tree');
+    const reach = testHarnessReach(file, ctx);
+    if (reach) add(`reviewed as TEST_HARNESS but ${reach}`);
+  }
   if (entry.policy === 'SANCTIONED_REBUILD') {
     const sanctioned = ctx.definition.relations.find((r) => r.relation === entry.relation);
     if (!sanctioned || sanctioned.sanctioned_rebuild !== file) add(`not the definition's sanctioned rebuilder of ${entry.relation}`);
@@ -235,12 +277,33 @@ function contextFor(repo: RepositoryScan, overrides: { retired?: readonly string
     }
     return out.sort();
   };
+  const reachers = (file: string): string[] => {
+    const target = file.replace(/\.[cm]?[jt]sx?$/, '');
+    const base = path.posix.basename(file);
+    const out: string[] = [];
+    for (const [f, text] of repo.texts) {
+      if (f === file) continue;
+      let hit = text.includes(file) || (!/\.[cm]?[jt]sx?$/.test(file) && text.includes(base));
+      if (!hit) {
+        for (const m of text.matchAll(/(?:from|import\(|require\()\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+          const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]!)).replace(/\.[cm]?[jt]sx?$/, '');
+          if (resolved === target) {
+            hit = true;
+            break;
+          }
+        }
+      }
+      if (hit) out.push(f);
+    }
+    return out.sort();
+  };
   return {
     retired: new Set(overrides.retired ?? RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script)),
     reviewed: new Map(REVIEWED_CHANNELS.map((e) => [e.file, e])),
     historical: new Map(HISTORICAL_SQL.map((h) => [h.file, h])),
     definition: overrides.definition ?? PROTECTED_RELATIONS,
     importersOf: importers,
+    reachersOf: reachers,
   };
 }
 
@@ -324,6 +387,14 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
     expect(sha256Of(TEST_SOURCES)).toBe(LOCKS.testSourcesSha256);
     expect(sha256Of(REVIEW_MARKER_DOORS)).toBe(LOCKS.markerDoorsSha256);
     for (const x of [...HISTORICAL_SQL, ...PATH_EXCLUSIONS, ...UNSCANNED_EXECUTABLES]) expect(x.justification.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('every test-runner include glob (and exclusion) of TEST_SOURCES still stands in its runner configuration (U30F3 M-2)', () => {
+    for (const r of [...TEST_SOURCES.runners, ...TEST_SOURCES.excluded]) {
+      const config = fs.readFileSync(path.join(REPO_ROOT, r.config), 'utf8');
+      expect(config.includes(r.literal), `${r.config}: ${r.literal}`).toBe(true);
+    }
+    expect(TEST_SOURCES.runners.length).toBeGreaterThanOrEqual(30);
   });
 
   it('every repository file of an executable type the scan does not read is listed (no new language slips past)', () => {
@@ -687,6 +758,15 @@ describe('canaries: destructive CLI entry points and attacker-chosen test names 
       expect(isScannedPath(file), file).toBe(true);
       expect(problemsOf(file, `${PG_POOL}await pool.query('TRUNCATE env.sgu_well');\n`).length, file).toBeGreaterThan(0);
     }
+  });
+
+  it('a TEST_HARNESS helper (test-tree only) reached from a script outside the test trees is a problem', () => {
+    const file = 'tests/helpers/postgisSeed.ts';
+    const scan = REPO.scans.get(file)!;
+    expect(REVIEWED_CHANNELS.find((e) => e.file === file)?.policy).toBe('TEST_HARNESS');
+    expect(evaluateFile(file, REPO.texts.get(file)!, scan, CONTEXT)).toEqual([]);
+    const rogue: EvaluationContext = { ...CONTEXT, reachersOf: (f) => (f === file ? ['scripts/rogue/seed-live.ts', ...CONTEXT.reachersOf(f)] : CONTEXT.reachersOf(f)) };
+    expect(evaluateFile(file, REPO.texts.get(file)!, scan, rogue).map((p) => p.problem).join('\n')).toContain('reached from scripts/rogue/seed-live.ts');
   });
 
   it('control: files a configured runner runs stay test sources', () => {
