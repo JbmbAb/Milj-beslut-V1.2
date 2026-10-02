@@ -35,6 +35,12 @@ import {
   NOT_CHECKED_FINDING_ID_PREFIX,
   isHistoricalNotCheckedExplanation,
 } from "../rules/LURuleEngine.js";
+import {
+  LuReExecutionStorageError,
+  isArtifactNotFound,
+  readPinnedArtifact,
+  type LuReExecutionStage,
+} from "./LuReExecutionStorageError.js";
 
 /**
  * LU-DETERMINISTIC-REEXECUTION-V1.
@@ -89,6 +95,15 @@ import {
  * still mismatches. A historical NOT_CHECKED finding whose explanation embeds the provider's
  * never-pinned free text is reproduced in every semantic field; its wording difference is reported
  * as the machine-readable notice NOT_CHECKED_CAUSE_NOT_PINNED, not as a mismatch.
+ *
+ * U30-R3 K1 (OD-R2). Every CAS read and write on the replay chain -- the assessment, its outcome, the
+ * category-A replay's attempt/manifest/v2-outcome locator and REPLAY record, the pinned evidence, the
+ * attested execution and its capability definition -- separates two things: a genuine absence (the
+ * repository's exact "Artifact not found: <id>") of a PINNED artifact is an integrity/binding failure
+ * and becomes a DENY; any other failure is a storage fault and rejects with the typed technical error
+ * LuReExecutionStorageError (code LU_REEXECUTION_STORAGE_FAULT, the stage, the original fault as
+ * cause) -- never a DENY and never a silent fallback. The assessment itself is the caller's input,
+ * not a pinned artifact: its absence keeps the repository's own not-found error.
  */
 
 export type LuReExecutionMismatchCode =
@@ -152,7 +167,9 @@ function canonicalRuleRefsKey(
 /**
  * Resolves EVERY ref in `evidence_refs` from CAS. Never throws for a missing/tampered ref --
  * collects a mismatch per ref instead, so a caller gets the full picture, not just the first
- * failure.
+ * failure. U30-R3 K1 (OD-R2): "missing" means the repository's exact never-stored signal; any
+ * other read failure is a storage fault and rejects with LuReExecutionStorageError (stage
+ * `pinned_evidence`) instead of being reported as MISSING_PINNED_EVIDENCE.
  *
  * Exported (H15-DOCUMENT-EVIDENCE-REHASH-COLD-REPLAY-V1) so real cold-replay proofs can exercise
  * evidence resolution directly against real CAS state without needing a full
@@ -173,16 +190,15 @@ export async function resolveEvidence(args: {
   const mismatches: LuReExecutionMismatch[] = [];
 
   for (const ref of args.evidenceRefs) {
-    let resolved: unknown;
-    try {
-      resolved = await args.artifactRepository.resolve(ref);
-    } catch {
+    const read = await readPinnedArtifact<unknown>(args.artifactRepository, ref, "pinned_evidence");
+    if (!read.found) {
       mismatches.push({
         code: "MISSING_PINNED_EVIDENCE",
-        detail: `${ref.artifact_type}:${ref.artifact_id} is pinned in evidence_refs but could not be resolved from CAS`,
+        detail: `${ref.artifact_type}:${ref.artifact_id} is pinned in evidence_refs but is not in CAS`,
       });
       continue;
     }
+    const resolved = read.value;
 
     const artifact = resolved as { artifact_type?: string; artifact_id?: string; content_hash?: { algorithm: string; value: string }; payload?: unknown };
     if (ref.artifact_type === "SPATIAL_EVIDENCE") {
@@ -255,9 +271,22 @@ export async function reExecuteLocalizationAssessment(args: {
   readonly assessmentArtifactId: string;
   readonly artifactRepository: ArtifactRepositoryPort;
 }): Promise<LuReExecutionResult> {
-  const assessment = await args.artifactRepository.resolve<LocalizationAssessmentArtifact>({
-    artifact_id: args.assessmentArtifactId,
-    artifact_type: "LOCALIZATION_ASSESSMENT",
+  // The caller's input, not a pinned artifact: a genuine absence keeps the repository's own
+  // not-found error; a storage fault is the typed technical error (OD-R2).
+  const assessmentRead = await readPinnedArtifact<LocalizationAssessmentArtifact>(
+    args.artifactRepository,
+    { artifact_id: args.assessmentArtifactId, artifact_type: "LOCALIZATION_ASSESSMENT" },
+    "assessment",
+  );
+  if (assessmentRead.found === false) throw assessmentRead.error;
+  const assessment = assessmentRead.value;
+  const denied = (mismatch: LuReExecutionMismatch): LuReExecutionResult => ({
+    outcome: "DENY",
+    assessment_artifact_id: args.assessmentArtifactId,
+    mismatches: [mismatch],
+    fresh_findings: [],
+    fresh_rule_refs: [],
+    notices: [],
   });
 
   // Self-consistency first, before trusting ANY field on the resolved assessment (including
@@ -304,9 +333,18 @@ export async function reExecuteLocalizationAssessment(args: {
   // Category A first: the outcome/attempt/manifest identity chain must independently check out
   // before category B ever runs. This is deliberate composition, not scope creep -- re-executing
   // an assessment whose own execution identity doesn't verify would prove nothing.
-  const outcome = await args.artifactRepository.resolve<FrozenExecutionOutcomeIdentity>(
+  const outcomeRead = await readPinnedArtifact<FrozenExecutionOutcomeIdentity>(
+    args.artifactRepository,
     assessment.payload.execution_outcome_ref,
+    "execution_outcome",
   );
+  if (!outcomeRead.found) {
+    return denied({
+      code: "MANIFEST_ATTEMPT_MISMATCH",
+      detail: `execution outcome ${assessment.payload.execution_outcome_ref.artifact_id} pinned by the assessment is not in CAS`,
+    });
+  }
+  const outcome = outcomeRead.value;
   try {
     validateFrozenExecutionOutcomeIdentity(outcome);
   } catch (error) {
@@ -323,10 +361,15 @@ export async function reExecuteLocalizationAssessment(args: {
     };
   }
   const manifestIdFromAttemptRef = deriveManifestIdFromAttemptId(outcome.attempt_ref.artifact_id);
-  const replayEngine = new DefaultReplayEngine(args.artifactRepository);
+  // OD-R2 inside category A: DefaultReplayEngine reads through a classifying view of the repository,
+  // so a storage fault there is never mistaken for a broken chain -- including the v2-outcome locator
+  // read it swallows on purpose (an absent locator means a historical V1 execution) and the REPLAY
+  // record it writes. A genuine absence still reaches the engine as the repository's own not-found.
+  const replayView = classifyingReplayRepository(args.artifactRepository);
   try {
-    await replayEngine.replayFromManifestId(manifestIdFromAttemptRef);
+    await new DefaultReplayEngine(replayView.repository).replayFromManifestId(manifestIdFromAttemptRef);
   } catch (error) {
+    if (replayView.faults.length > 0) throw replayView.faults[0];
     return {
       outcome: "DENY",
       assessment_artifact_id: args.assessmentArtifactId,
@@ -339,7 +382,19 @@ export async function reExecuteLocalizationAssessment(args: {
       notices: [],
     };
   }
-  const attempt = await args.artifactRepository.resolve<{ manifest_ref: ArtifactReference }>(outcome.attempt_ref);
+  if (replayView.faults.length > 0) throw replayView.faults[0];
+  const attemptRead = await readPinnedArtifact<{ manifest_ref: ArtifactReference }>(
+    args.artifactRepository,
+    outcome.attempt_ref,
+    "execution_attempt",
+  );
+  if (!attemptRead.found) {
+    return denied({
+      code: "MANIFEST_ATTEMPT_MISMATCH",
+      detail: `execution attempt ${outcome.attempt_ref.artifact_id} pinned by the outcome is not in CAS`,
+    });
+  }
+  const attempt = attemptRead.value;
   if (attempt.manifest_ref.artifact_id !== manifestIdFromAttemptRef) {
     return {
       outcome: "DENY",
@@ -480,15 +535,13 @@ async function attestedNotCheckedLayers(
   });
   const executionRef = outcome.capability_execution_ref;
 
-  let execution: FrozenCapabilityExecutionArtifact;
-  try {
-    execution = await repository.resolve<FrozenCapabilityExecutionArtifact>(executionRef);
-  } catch (error) {
-    // OD-R2: only "never stored" is a verdict about the lineage; a storage/index fault is a
-    // technical error and propagates instead of becoming a DENY.
-    if (!isArtifactNotFound(error, executionRef.artifact_id)) throw error;
+  // OD-R2: only "never stored" is a verdict about the lineage; a storage/index fault is the typed
+  // technical error (LuReExecutionStorageError) instead of a DENY.
+  const executionRead = await readPinnedArtifact<FrozenCapabilityExecutionArtifact>(repository, executionRef, "capability_execution");
+  if (!executionRead.found) {
     return untrusted(`CAPABILITY_EXECUTION ${executionRef.artifact_id} pinned by the outcome is not in CAS`);
   }
+  const execution = executionRead.value;
   if (
     !execution ||
     execution.artifact_type !== "CAPABILITY_EXECUTION" ||
@@ -499,13 +552,14 @@ async function attestedNotCheckedLayers(
     return untrusted(`${executionRef.artifact_id} is not the CAPABILITY_EXECUTION the outcome pins`);
   }
 
-  let capability: { readonly artifact_id?: unknown; readonly implementation_ref?: { readonly artifact_id?: unknown } };
-  try {
-    capability = await repository.resolve(execution.capability_ref);
-  } catch (error) {
-    if (!isArtifactNotFound(error, execution.capability_ref.artifact_id)) throw error;
+  const capabilityRead = await readPinnedArtifact<{
+    readonly artifact_id?: unknown;
+    readonly implementation_ref?: { readonly artifact_id?: unknown };
+  }>(repository, execution.capability_ref, "capability_definition");
+  if (!capabilityRead.found) {
     return untrusted(`capability definition ${execution.capability_ref.artifact_id} is not in CAS`);
   }
+  const capability = capabilityRead.value;
   const implementationId = capability?.implementation_ref?.artifact_id;
   if (capability?.artifact_id !== execution.capability_ref.artifact_id || typeof implementationId !== "string" || implementationId.length === 0) {
     return untrusted(`capability definition ${execution.capability_ref.artifact_id} does not name an implementation`);
@@ -535,12 +589,60 @@ async function attestedNotCheckedLayers(
 }
 
 /**
- * The repositories' "never stored" signal (CasArtifactResolver, InMemoryArtifactRepository) -- the
- * same exact-message classification the localization read model uses. Anything else, e.g.
- * MimersArtifactObjectMissingError or MimersArtifactIndexReadError, is a storage fault (OD-R2).
+ * U30-R3 K1 (OD-R2) -- the repository DefaultReplayEngine reads through during category A. A genuine
+ * absence passes through unchanged (the engine's own verdict on a broken chain); every other read or
+ * write failure becomes LuReExecutionStorageError and is RECORDED, because the engine deliberately
+ * swallows one read (the v2-outcome locator: absent means a historical V1 execution) and must not be
+ * able to swallow a storage fault with it. The caller rethrows the first recorded fault.
  */
-function isArtifactNotFound(error: unknown, artifactId: string): boolean {
-  return error instanceof Error && error.message === `Artifact not found: ${artifactId}`;
+function classifyingReplayRepository(inner: ArtifactRepositoryPort): {
+  readonly repository: ArtifactRepositoryPort;
+  readonly faults: LuReExecutionStorageError[];
+} {
+  const faults: LuReExecutionStorageError[] = [];
+  const stageOf = (artifactType: string): LuReExecutionStage =>
+    artifactType === "execution_attempt"
+      ? "execution_attempt"
+      : artifactType === "execution_manifest"
+      ? "execution_manifest"
+      : artifactType === "execution_outcome"
+      ? "execution_outcome"
+      : "replay_chain";
+  return {
+    faults,
+    repository: {
+      async resolve<T>(ref: ArtifactReference): Promise<T> {
+        try {
+          return await inner.resolve<T>(ref);
+        } catch (error) {
+          if (isArtifactNotFound(error, ref.artifact_id)) throw error;
+          const fault =
+            error instanceof LuReExecutionStorageError
+              ? error
+              : new LuReExecutionStorageError(stageOf(ref.artifact_type), ref, "resolve", { cause: error });
+          faults.push(fault);
+          throw fault;
+        }
+      },
+      async put(artifact) {
+        try {
+          await inner.put(artifact);
+        } catch (error) {
+          const fault =
+            error instanceof LuReExecutionStorageError
+              ? error
+              : new LuReExecutionStorageError(
+                  "replay_record",
+                  { artifact_id: artifact.artifact_id, artifact_type: "REPLAY" },
+                  "put",
+                  { cause: error },
+                );
+          faults.push(fault);
+          throw fault;
+        }
+      },
+    },
+  };
 }
 
 /**
