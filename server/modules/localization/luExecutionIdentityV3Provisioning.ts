@@ -56,6 +56,7 @@ import { assertProjectAccess } from '../../security/projectAccess';
 import { resolveCanonicalProjectContext } from '../../../src/application/resolveCanonicalProjectContext';
 import { resolveCanonicalProductRelease } from '../release/productReleaseRuntime';
 import {
+  assertReadUnderItsOwnId,
   isProjectAccessDenied,
   isProvenBindingAbsence,
   LuReadFaultError,
@@ -161,6 +162,10 @@ async function ensureTemporalAuthorization(args: {
   const read = await readExistingOrProvenAbsent<LuSourceAuthorityTemporalStatusArtifact>(args.repo, expectedRef, 'temporal-authorization');
   if (read.found) {
     const existing = read.value;
+    // W-CATCH3 (owner decision: provisioning bound to exactly the requested id and content): the object
+    // under the deterministic id must BE that status -- another (even valid) status under a misdirected
+    // index entry is a lasting integrity fault, never reused.
+    assertReadUnderItsOwnId('temporal-authorization', existing, expectedRef.artifact_id);
     try {
       await verifyLuSourceAuthorityTemporalStatus({
         status: existing,
@@ -331,6 +336,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
         artifact_id: reuseOutcome,
         artifact_type: 'execution_identity',
       });
+      assertReadUnderItsOwnId('execution-identity', identity, reuseOutcome); // W-CATCH3: the same binding on the re-read
       await ensureTemporalAuthorization({ repo, identity, issuerRef, subject });
       return { ok: true, executionIdentityArtifactId: reuseOutcome, reused: true };
     }
@@ -377,6 +383,11 @@ async function tryReuseExistingIdentity(args: {
   );
   if (!identityRead.found) return null; // proven absence: proceed to issue.
   const existing = identityRead.value;
+  // W-CATCH3 (owner decision: provisioning bound to exactly the requested id and content): the object
+  // under the deterministic id must BE that identity -- another (even valid) identity under a
+  // misdirected index entry is a lasting integrity fault; its content is bound below by the attestation
+  // and the expected predicate/subject.
+  assertReadUnderItsOwnId('execution-identity', existing, args.expectedIdentityId);
   const envelopeRef = existing?.signature_envelope_ref;
   if (!envelopeRef?.artifact_id || !envelopeRef.artifact_type) {
     throw new LuReadFaultError('execution-identity', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored identity names no attestation'));
