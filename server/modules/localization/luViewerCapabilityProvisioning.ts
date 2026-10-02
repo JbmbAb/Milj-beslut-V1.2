@@ -122,7 +122,7 @@ async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<ViewerCapa
     const existing = read.value;
     // W-CATCH3 (CATCH2 verifier finding 2): the object under the issuer's id must BE the issuer -- an index
     // entry pointing at another object is a lasting integrity fault, never a refusal of "this issuer".
-    assertReadUnderItsOwnId('viewer-capability-issuer', existing, bareIssuer.artifact_id);
+    assertReadUnderItsOwnId('viewer-capability-issuer', existing, bareIssuer.artifact_id, bareIssuer.artifact_type);
     // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
     // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
     if (!isExactlyTheDeterministicArtifact(existing, bareIssuer)) {
@@ -339,7 +339,7 @@ async function tryReuseExistingCapability(args: {
   // capability -- an index entry pointing at another (even valid) capability is a lasting integrity
   // fault, never a COMPLETED request with another capability -- and exactly the capability this request
   // names, field for field (the same discipline as the issuers); its attestation is verified below.
-  assertReadUnderItsOwnId('viewer-capability', existing, expectedCapabilityId);
+  assertReadUnderItsOwnId('viewer-capability', existing, expectedCapabilityId, args.bareCapability.artifact_type);
   if (!isExactlyTheDeterministicArtifact(existing, args.bareCapability)) {
     throw new LuReadFaultError('viewer-capability', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored capability is not the capability its id names'));
   }

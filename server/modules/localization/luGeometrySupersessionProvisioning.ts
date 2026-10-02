@@ -77,6 +77,20 @@ function fail(code: string, detail: string): never {
   throw error;
 }
 
+/**
+ * W-CATCH3-R2 (CATCH3 verifier finding 1, HIGH): a pinned point read under its id must BE that point
+ * before anything uses it -- validateLocalizationGeometryArtifact only proves the object is
+ * self-consistent. Otherwise a misdirected index entry (B -> C) made the request A->B COMPLETED with a
+ * signed relation A->C and C -- a point the user never chose -- current. A mismatch is a lasting
+ * integrity fault (the caller's PREDECESSOR_/SUCCESSOR_GEOMETRY_UNAVAILABLE, class
+ * STORAGE_INTEGRITY_FAULT); nothing is minted or written.
+ */
+async function readPinnedGeometry(repo: ArtifactRepositoryPort, artifactId: string, subject: string): Promise<LocalizationGeometryArtifact> {
+  const read = await repo.resolve<unknown>({ artifact_id: artifactId, artifact_type: 'localization_geometry' });
+  assertReadUnderItsOwnId(subject, read, artifactId, 'localization_geometry');
+  return validateLocalizationGeometryArtifact(read as LocalizationGeometryArtifact);
+}
+
 async function getOrMintIssuer(
   repo: ArtifactRepositoryPort,
   verification: Parameters<typeof verifyLocalizationGeometrySupersessionIssuerArtifact>[0]['verification'],
@@ -97,7 +111,7 @@ async function getOrMintIssuer(
     const existing = read.value;
     // W-CATCH3 (CATCH2 verifier finding 2): the object under the issuer's id must BE the issuer -- an index
     // entry pointing at another object is a lasting integrity fault, never a refusal of "this issuer".
-    assertReadUnderItsOwnId('geometry-supersession-issuer', existing, bareIssuer.artifact_id);
+    assertReadUnderItsOwnId('geometry-supersession-issuer', existing, bareIssuer.artifact_id, bareIssuer.artifact_type);
     // Same deterministic identity, so it must be exactly this issuer, field for field (before: anything
     // else fell through to a re-mint; an edit that kept id, content_hash and key id was accepted).
     if (!isExactlyTheDeterministicArtifact(existing, bareIssuer)) {
@@ -171,12 +185,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
 
     let predecessor: LocalizationGeometryArtifact;
     try {
-      predecessor = validateLocalizationGeometryArtifact(
-        await repo.resolve<LocalizationGeometryArtifact>({
-          artifact_id: input.predecessorGeometryArtifactId,
-          artifact_type: 'localization_geometry',
-        }),
-      );
+      predecessor = await readPinnedGeometry(repo, input.predecessorGeometryArtifactId, 'pinned-predecessor-geometry');
     } catch (error) {
       // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
       fail('PREDECESSOR_GEOMETRY_UNAVAILABLE', provisioningReadFaultDetailSv(error, 'Den tidigare kontrollpunkten'));
@@ -185,12 +194,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
 
     let successor: LocalizationGeometryArtifact;
     try {
-      successor = validateLocalizationGeometryArtifact(
-        await repo.resolve<LocalizationGeometryArtifact>({
-          artifact_id: input.successorGeometryArtifactId,
-          artifact_type: 'localization_geometry',
-        }),
-      );
+      successor = await readPinnedGeometry(repo, input.successorGeometryArtifactId, 'pinned-successor-geometry');
     } catch (error) {
       // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
       fail('SUCCESSOR_GEOMETRY_UNAVAILABLE', provisioningReadFaultDetailSv(error, 'Den nya kontrollpunkten'));
@@ -303,7 +307,7 @@ async function tryReuseExistingSupersession(args: {
   // relation -- an index entry pointing at another (even valid) relation is a lasting integrity fault,
   // never a COMPLETED request with another relation -- and exactly the relation this request names,
   // field for field (the same discipline as the issuers); its attestation is verified below.
-  assertReadUnderItsOwnId('geometry-supersession', existing, expectedId);
+  assertReadUnderItsOwnId('geometry-supersession', existing, expectedId, args.bareArtifact.artifact_type);
   if (!isExactlyTheDeterministicArtifact(existing, args.bareArtifact)) {
     throw new LuReadFaultError('geometry-supersession', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored relation is not the relation its id names'));
   }
@@ -330,9 +334,8 @@ export async function mintLegacyBackfillSupersession(args: {
   const verification = getLocalizationGeometrySupersessionVerifier();
   const issuer = await getOrMintIssuer(args.repo, verification);
   const signing = getLocalizationGeometrySupersessionSigningProvider();
-  const successor = validateLocalizationGeometryArtifact(
-    await args.repo.resolve<LocalizationGeometryArtifact>({ artifact_id: args.successorGeometryArtifactId, artifact_type: 'localization_geometry' }),
-  );
+  // W-CATCH3-R2: bound to the requested id like the live path (a mismatch throws the typed integrity fault).
+  const successor = await readPinnedGeometry(args.repo, args.successorGeometryArtifactId, 'pinned-successor-geometry');
   const bareArtifact = createLocalizationGeometrySupersessionArtifact({
     project_id: args.projectId,
     predecessor_geometry_ref: { artifact_id: args.predecessorGeometryArtifactId, artifact_type: 'localization_geometry' },

@@ -214,7 +214,7 @@ export async function resolveLocalizationViewerRuntimeConfigForProject(
       throw toReadFaultError("viewer-capability", error, "read");
     }
     // W-CATCH3: the object read under the requested id must BE that capability (never another one).
-    assertReadUnderItsOwnId("viewer-capability", read, capabilityArtifactId);
+    assertReadUnderItsOwnId("viewer-capability", read, capabilityArtifactId, "viewer_capability");
     const capability = read as ProductViewerCapabilityArtifact;
     try {
       await verifyProductViewerCapability({
@@ -300,7 +300,7 @@ export class LocalizationViewerCapabilityProvider {
     try {
       // W-CATCH3 (CATCH2 verifier finding 1): the object read under the configured id must BE that
       // capability -- another valid capability of the same subject would pass every check below.
-      assertReadUnderItsOwnId("viewer-capability", capability, this.config.capabilityArtifactId);
+      assertReadUnderItsOwnId("viewer-capability", capability, this.config.capabilityArtifactId, "viewer_capability");
     } catch (error) {
       const fault = classifyReadFault(error);
       throw Object.assign(new Error(`REJECT_LU_VIEWER_CAPABILITY_UNAVAILABLE: ${this.config.capabilityArtifactId}`, { cause: error }), {

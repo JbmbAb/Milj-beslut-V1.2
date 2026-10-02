@@ -127,15 +127,21 @@ async function ensureTemporalAuthorization(args: {
     rootVerification,
     issuerVerification,
   });
-  const verifiedRoot = validateLuExecutionAuthorityRootArtifact(
-    await args.repo.resolve<LuExecutionAuthorityRootArtifact>(verifiedIssuer.payload.root_ref),
-  );
+  // W-CATCH3-R2 (CATCH3 verifier finding 3): the configured authority read under its ids must BE that
+  // authority -- the chain's trust is key-bound, so another valid issuer or root of the same key, or the
+  // OLDER (non-revoked) lifecycle behind a revoked configured one's index entry, would otherwise be used:
+  // a revocation bypassed by repointing an entry. A mismatch is a lasting integrity fault; nothing minted.
+  assertReadUnderItsOwnId('execution-authority-issuer', verifiedIssuer, args.issuerRef.artifact_id, args.issuerRef.artifact_type);
+  const rootRead = await args.repo.resolve<LuExecutionAuthorityRootArtifact>(verifiedIssuer.payload.root_ref);
+  assertReadUnderItsOwnId('execution-authority-root', rootRead, verifiedIssuer.payload.root_ref.artifact_id, verifiedIssuer.payload.root_ref.artifact_type);
+  const verifiedRoot = validateLuExecutionAuthorityRootArtifact(rootRead);
 
   const lifecycleId = requiredEnv(LU_EXECUTION_AUTHORITY_LIFECYCLE_ID_ENV);
   const lifecycle = await args.repo.resolve<LuExecutionAuthorityLifecycleArtifact>({
     artifact_id: lifecycleId,
     artifact_type: LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE,
   });
+  assertReadUnderItsOwnId('execution-authority-lifecycle', lifecycle, lifecycleId, LU_EXECUTION_AUTHORITY_LIFECYCLE_TYPE);
   await verifyLuExecutionAuthorityLifecycle({
     lifecycle,
     root: verifiedRoot,
@@ -165,7 +171,7 @@ async function ensureTemporalAuthorization(args: {
     // W-CATCH3 (owner decision: provisioning bound to exactly the requested id and content): the object
     // under the deterministic id must BE that status -- another (even valid) status under a misdirected
     // index entry is a lasting integrity fault, never reused.
-    assertReadUnderItsOwnId('temporal-authorization', existing, expectedRef.artifact_id);
+    assertReadUnderItsOwnId('temporal-authorization', existing, expectedRef.artifact_id, expectedRef.artifact_type);
     try {
       await verifyLuSourceAuthorityTemporalStatus({
         status: existing,
@@ -260,6 +266,10 @@ export async function executeLocalizationIdentityProvisioning(input: {
         artifact_id: input.geometryArtifactId,
         artifact_type: 'localization_geometry',
       });
+      // W-CATCH3-R2 (CATCH3 verifier finding 2): the requested point must BE the point read under its id
+      // -- otherwise a request for P is COMPLETED with Q's identity, or one is minted for Q. A mismatch is
+      // a lasting integrity fault (GEOMETRY_UNAVAILABLE_OR_TAMPERED, class STORAGE_INTEGRITY_FAULT).
+      assertReadUnderItsOwnId('requested-geometry', geometry, input.geometryArtifactId, 'localization_geometry');
       validateLocalizationGeometryArtifact(geometry);
     } catch (error) {
       // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
@@ -387,7 +397,7 @@ async function tryReuseExistingIdentity(args: {
   // under the deterministic id must BE that identity -- another (even valid) identity under a
   // misdirected index entry is a lasting integrity fault; its content is bound below by the attestation
   // and the expected predicate/subject.
-  assertReadUnderItsOwnId('execution-identity', existing, args.expectedIdentityId);
+  assertReadUnderItsOwnId('execution-identity', existing, args.expectedIdentityId, 'execution_identity');
   const envelopeRef = existing?.signature_envelope_ref;
   if (!envelopeRef?.artifact_id || !envelopeRef.artifact_type) {
     throw new LuReadFaultError('execution-identity', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error('the stored identity names no attestation'));

@@ -289,11 +289,20 @@ export async function readExistingOrProvenAbsent<T>(
  * that other object. A reader that turns "the object under id X" into a decision (select, reuse,
  * present) checks this first: a mismatch is a lasting integrity fault of the storage (a misdirected index
  * entry or a misfiled object) -- never absence, never "not current" and never the other object.
+ *
+ * W-CATCH3-R2 (CATCH3 verifier findings 1-3): also every INPUT a worker reads under a requested id (the
+ * pinned predecessor/successor point, the requested point, the configured lifecycle, root and issuer),
+ * and -- when the caller names it -- the requested artifact_type. What is compared is the object's own
+ * `artifact_id`/`artifact_type` (the body the repository returns; validation then binds its content to
+ * that id). The same check inside CasArtifactResolver.resolveEnvelope (packages/mps-runtime) would close
+ * the class for every caller at once; that is an owner decision (OD-C3R2-1) and not made here.
  */
-export function assertReadUnderItsOwnId(subject: string, value: unknown, requestedId: string): void {
-  const id = typeof value === 'object' && value !== null ? (value as { artifact_id?: unknown }).artifact_id : undefined;
-  if (typeof id === 'string' && id.length > 0 && id === requestedId) return;
-  throw new LuReadFaultError(subject, fault('STORAGE_INTEGRITY_FAULT'), new Error('the object read under an artifact id names another artifact id'));
+export function assertReadUnderItsOwnId(subject: string, value: unknown, requestedId: string, requestedType?: string): void {
+  const read = typeof value === 'object' && value !== null ? (value as { artifact_id?: unknown; artifact_type?: unknown }) : undefined;
+  const id = read?.artifact_id;
+  const typeMatches = requestedType === undefined || read?.artifact_type === requestedType;
+  if (typeof id === 'string' && id.length > 0 && id === requestedId && typeMatches) return;
+  throw new LuReadFaultError(subject, fault('STORAGE_INTEGRITY_FAULT'), new Error('the object read under an artifact id names another artifact id or type'));
 }
 
 /**
