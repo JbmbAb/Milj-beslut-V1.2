@@ -28,13 +28,15 @@ const PROPERTY_FOUND_STYLE = { color: '#A5F3FC', border: '#22D3EE', background: 
  */
 const LIMITED_NO_HIT_STYLE = { color: '#6EE7B7', border: '#F97316', background: 'rgba(249,115,22,0.08)' };
 
-export const LuStateChip: React.FC<{ check: Pick<LuCheckView, 'key' | 'state' | 'stateLabel'> & { coverageLimited?: boolean } }> = ({
-  check,
-}) => {
+export const LuStateChip: React.FC<{
+  check: Pick<LuCheckView, 'key' | 'state' | 'stateLabel'> & { coverageLimited?: boolean; datasetVersionUnknown?: boolean };
+}> = ({ check }) => {
+  // W-M2d item 3: a checked result on a limited basis or an unknown dataset version is never plain green.
+  const qualified = check.datasetVersionUnknown ? 'unknown-version' : check.coverageLimited ? 'limited' : undefined;
   const style =
     check.key === 'property' && check.state === 'HIT'
       ? PROPERTY_FOUND_STYLE
-      : check.state === 'NO_HIT' && check.coverageLimited
+      : check.state === 'NO_HIT' && qualified
         ? LIMITED_NO_HIT_STYLE
         : STATE_STYLE[check.state];
   return (
@@ -42,6 +44,7 @@ export const LuStateChip: React.FC<{ check: Pick<LuCheckView, 'key' | 'state' | 
       data-testid={`lu-check-state-${check.key}`}
       data-state={check.state}
       data-coverage={check.coverageLimited ? 'limited' : undefined}
+      data-qualified={qualified}
       className="inline-block whitespace-nowrap px-2 py-0.5 text-[11px] font-bold"
       style={{
         color: style.color,
@@ -159,6 +162,7 @@ export const LuControlPanel: React.FC<{
             data-testid={`lu-check-${check.key}`}
             data-state={check.state}
             data-coverage={check.coverageLimited ? 'limited' : undefined}
+            data-known-gaps={check.knownGaps.length > 0 ? check.knownGaps.map((gap) => gap.id).join(' ') : undefined}
           >
             <button
               type="button"
@@ -170,11 +174,26 @@ export const LuControlPanel: React.FC<{
               <span className="font-semibold min-w-[14rem]">{check.label}</span>
               <LuStateChip check={check} />
               <span className="text-sm opacity-80">{check.summary}</span>
-              {check.coverageNote ? (
+              {check.knownGaps.length > 0 ? (
+                // W-M2d item 3: the server's known gaps, each with its kind and date, next to the state.
+                <span data-testid={`lu-check-gaps-${check.key}`} className="basis-full text-xs space-y-0.5" style={{ color: '#FDBA74' }}>
+                  {check.knownGaps.map((gap) => (
+                    <span
+                      key={gap.id}
+                      data-testid={`lu-check-gap-${check.key}-${gap.id}`}
+                      data-gap-kind={gap.kind}
+                      data-rechecked={gap.rechecked ? 'true' : 'false'}
+                      className="block"
+                    >
+                      {gap.text}
+                    </span>
+                  ))}
+                </span>
+              ) : check.coverageNote ? (
                 <span
                   data-testid={`lu-check-coverage-note-${check.key}`}
                   className="basis-full text-xs"
-                  style={check.coverageLimited ? { color: '#FDBA74' } : { opacity: 0.7 }}
+                  style={check.coverageLimited || check.datasetVersionUnknown ? { color: '#FDBA74' } : { opacity: 0.7 }}
                 >
                   {check.coverageNote}
                 </span>

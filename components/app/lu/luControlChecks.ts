@@ -189,6 +189,23 @@ export interface LuCheckDetailRow {
   readonly value: string;
 }
 
+/**
+ * W-M2d item 3: one of the server's machine-readable `known_coverage_gaps` entries
+ * (server/modules/localization/knownCoverageGaps.ts), shown next to the check's state.
+ */
+export interface LuKnownGapView {
+  readonly id: string;
+  /** CONTRACT_SCOPE | KNOWN_INCOMPLETE_DATA (or whatever the server sends). */
+  readonly kind: string;
+  /** Swedish line: kind label, date for a data gap, the server's own statement. */
+  readonly text: string;
+  readonly asOf: string | null;
+  readonly basis: string | null;
+  /** The server's `rechecked_against_current_table`; false = "ej omkontrollerad". */
+  readonly rechecked: boolean;
+  readonly sources: readonly string[];
+}
+
 export interface LuCheckView {
   readonly key: LuCheckRowKey;
   readonly label: string;
@@ -201,6 +218,13 @@ export interface LuCheckView {
   readonly coverageNote: string | null;
   /** True when the SERVER marks this checked result as resting on a limited basis. */
   readonly coverageLimited: boolean;
+  /** W-M2d item 3: the server's known coverage gaps for this check's dataset version, in its order. */
+  readonly knownGaps: readonly LuKnownGapView[];
+  /**
+   * W-M2d item 3: the evidence's dataset version is not in the ADMIT v1 import contracts (server:
+   * contract null / HASH_BOUND_CONTRACT_UNKNOWN) -- a checked result on it is never shown as plain green.
+   */
+  readonly datasetVersionUnknown: boolean;
   /** Rule that fires on this check, when there is one (for "Fynd i bedömningen"). */
   readonly ruleId: string | null;
   /** Rows for the evidence panel (result, count, radius, method, source, version, coverage, time ...). */
@@ -232,6 +256,42 @@ const NEGATIVE_UNKNOWN_LAYER_LIMIT = 'Servern redovisar inget registrerat objekt
 
 /** Suffix on the HIT/NO_HIT chip of a check the server marks as limited (state itself unchanged). */
 export const LU_LIMITED_COVERAGE_SUFFIX = ' · begränsad täckning';
+/** W-M2d item 3: suffix when the server states a KNOWN gap in the data itself (not only the contract's scope). */
+export const LU_KNOWN_GAP_SUFFIX = ' · känd lucka i underlaget';
+/** W-M2d item 3: suffix when the evidence's dataset version is outside the import contracts. */
+export const LU_UNKNOWN_VERSION_SUFFIX = ' · okänd datasetversion';
+export const LU_UNKNOWN_VERSION_NOTE =
+  'Datasetversionen finns inte i importkontrakten (ADMIT v1): källa, källversion och täckning kan inte anges (Saknas i underlaget).';
+
+/** Swedish label per server gap kind (knownCoverageGaps.ts); an unknown kind is still shown. */
+const GAP_KIND_LABEL_SV: Readonly<Record<string, string>> = {
+  CONTRACT_SCOPE: 'Avgränsning enligt importkontraktet',
+  KNOWN_INCOMPLETE_DATA: 'Känd lucka i underlaget',
+};
+
+function knownGapViews(raw: unknown): LuKnownGapView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry, index): LuKnownGapView[] => {
+    const gap = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+    if (!gap) return [];
+    const kind = str(gap.kind) ?? 'OKÄND';
+    const asOf = str(gap.as_of);
+    const statement = str(gap.text_sv) ?? MISSING;
+    const label = GAP_KIND_LABEL_SV[kind] ?? 'Annan känd begränsning';
+    return [
+      {
+        id: str(gap.gap_id) ?? `gap-${index}`,
+        kind,
+        // A data gap carries its date in the line itself; a contract scope is the contract's statement.
+        text: `${label}${kind === 'KNOWN_INCOMPLETE_DATA' && asOf ? ` (${asOf})` : ''}: ${statement}.`,
+        asOf,
+        basis: str(gap.basis_sv),
+        rechecked: gap.rechecked_against_current_table === true,
+        sources: Array.isArray(gap.sources) ? gap.sources.filter((s): s is string => typeof s === 'string') : [],
+      },
+    ];
+  });
+}
 
 const STATE_BY_COVERAGE: Readonly<Record<string, LuKnowledgeState>> = {
   CHECKED_HIT: 'HIT',
@@ -308,6 +368,8 @@ function baseView(
     registerNote: null,
     coverageNote: null,
     coverageLimited: false,
+    knownGaps: [],
+    datasetVersionUnknown: false,
     ruleId,
     details: [],
     technical: [],
@@ -467,17 +529,30 @@ function serverRow(
     : contradictory
       ? 'Kontrollposten från servern är motsägelsefull och visas därför inte som kontrollerad.'
       : (str(entry.message_sv) ?? `${MISSING}: servern skickade ingen beskrivning av kontrollen.`);
-  const gaps = Array.isArray(entry.known_coverage_gaps) ? entry.known_coverage_gaps : [];
+  const knownGaps = knownGapViews(entry.known_coverage_gaps);
   const checked = state === 'HIT' || state === 'NO_HIT';
-  const limited = checked && (gaps.length > 0 || (layer !== null && limitedLayers.has(layer)));
+  const limited = checked && (knownGaps.length > 0 || (layer !== null && limitedLayers.has(layer)));
+  const knownDataGap = checked && knownGaps.some((gap) => gap.kind === 'KNOWN_INCOMPLETE_DATA');
   const coverageText = str(entry.coverage_limitation_sv);
   const evidenceId = str(entry.evidence_artifact_id);
   const detail = evidenceId ? (evidenceById.get(evidenceId) ?? null) : null;
+  // W-M2d item 3: the server says the dataset version is outside the import contracts.
+  const versionUnknown =
+    checked &&
+    detail !== null &&
+    str(detail.artifact_type) === 'SPATIAL_EVIDENCE' &&
+    !str(detail.technical_error_class) &&
+    (detail.contract === null || detail.binding_assurance === 'HASH_BOUND_CONTRACT_UNKNOWN');
   const rows = evidenceRows(detail, label);
-  const details =
-    rows.details.length > 0
+  const details = [
+    ...(rows.details.length > 0
       ? rows.details
-      : [state === 'NOT_CHECKED' || state === 'SOURCE_UNAVAILABLE' ? NOT_CHECKED_RESULT : checked ? { label: 'Resultat', value: LU_KNOWLEDGE_STATE_LABEL[state] } : NO_RESULT];
+      : [state === 'NOT_CHECKED' || state === 'SOURCE_UNAVAILABLE' ? NOT_CHECKED_RESULT : checked ? { label: 'Resultat', value: LU_KNOWLEDGE_STATE_LABEL[state] } : NO_RESULT]),
+    ...knownGaps.map((gap, index) => ({
+      label: `Känd lucka ${index + 1}`,
+      value: `${gap.text}${gap.basis ? ` Grund: ${gap.basis}.` : ''}${gap.rechecked ? '' : ' Ej omkontrollerad mot nuvarande tabell.'}`,
+    })),
+  ];
   const technical: LuCheckDetailRow[] = [
     { label: 'Lager', value: layer ?? 'saknas' },
     ...(str(entry.rule_id) ? [{ label: 'Regel', value: String(entry.rule_id) }] : []),
@@ -486,15 +561,22 @@ function serverRow(
     ...(str(entry.reason) ? [{ label: 'Orsakskod', value: String(entry.reason) }] : []),
     ...(evidenceId && !detail ? [{ label: 'Underlags-id', value: evidenceId }] : []),
     ...rows.technical,
+    ...knownGaps.flatMap((gap, index) => [
+      { label: `Känd lucka ${index + 1} – id`, value: `${gap.id} (${gap.kind})` },
+      { label: `Känd lucka ${index + 1} – källor`, value: gap.sources.length > 0 ? gap.sources.join('; ') : MISSING },
+    ]),
   ];
+  const suffix = `${limited ? LU_LIMITED_COVERAGE_SUFFIX : ''}${knownDataGap ? LU_KNOWN_GAP_SUFFIX : ''}${versionUnknown ? LU_UNKNOWN_VERSION_SUFFIX : ''}`;
   return baseView(key, label, str(entry.rule_id), state, summary, {
-    stateLabel: `${LU_KNOWLEDGE_STATE_LABEL[state]}${limited ? LU_LIMITED_COVERAGE_SUFFIX : ''}`,
+    stateLabel: `${LU_KNOWLEDGE_STATE_LABEL[state]}${suffix}`,
     registerNote:
       state === 'NO_HIT' && layer !== 'document'
         ? (knownLayer ? NEGATIVE_REGISTER_LIMIT[knownLayer] : undefined) ?? NEGATIVE_UNKNOWN_LAYER_LIMIT
         : null,
-    coverageNote: coverageText && coverageText !== MISSING ? coverageText : null,
+    coverageNote: versionUnknown ? LU_UNKNOWN_VERSION_NOTE : coverageText && coverageText !== MISSING ? coverageText : null,
     coverageLimited: limited,
+    knownGaps,
+    datasetVersionUnknown: versionUnknown,
     details,
     technical,
     searchRadiusMeters: rows.radius,

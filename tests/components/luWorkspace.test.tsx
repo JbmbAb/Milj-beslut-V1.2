@@ -1430,10 +1430,13 @@ describe('LuWorkspace DEMO M2b', () => {
     for (const layer of ['natura2000', 'protected_area', 'water_protection_area']) {
       expect(screen.getByTestId(`lu-check-${layer}`)).toHaveAttribute('data-coverage', 'limited');
       expect(screen.getByTestId(`lu-check-state-${layer}`)).toHaveTextContent('Kontrollerat – ingen registrerad träff · begränsad täckning');
+      // W-M2d item 3: each of the server's known gaps is shown in the same box, in the server's words.
       const serverCheck = readBack.governedLayerChecks.find((c) => c.layer === layer)!;
-      expect(screen.getByTestId(`lu-check-coverage-note-${layer}`)).toHaveTextContent(serverCheck.coverage_limitation_sv);
+      for (const gap of serverCheck.known_coverage_gaps) {
+        expect(screen.getByTestId(`lu-check-gaps-${layer}`)).toHaveTextContent(gap.text_sv);
+      }
     }
-    expect(screen.getByTestId('lu-check-coverage-note-natura2000')).toHaveTextContent('kontrollen avser endast inläst SPA-underlag');
+    expect(screen.getByTestId('lu-check-gaps-natura2000')).toHaveTextContent('kontrollen avser endast inläst SPA-underlag');
     expect(screen.getByTestId('lu-check-ebh')).not.toHaveAttribute('data-coverage', 'limited');
     expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/utpekade|beslutade|rikstäckande/);
   });
@@ -1884,6 +1887,36 @@ describe('LuWorkspace W-M2d', () => {
     expect(row).toHaveTextContent('Dokument och tidigare beslut');
     expect(row).toHaveTextContent(checkOf(readBack, 'document').message_sv);
     expect(row.textContent).toBe(freshRow);
+  });
+
+  it('item 3: the known gaps sit in the row next to the state, machine-readable on the row -- and no "rikstäckande" anywhere', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-gaps' }), evidence: () => FIVE_NO_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
+    const row = screen.getByTestId('lu-check-natura2000');
+    expect(row).toHaveAttribute('data-known-gaps', 'NATURA2000_SPA_ONLY NATURA2000_SPA_103_OF_558_ABSENT');
+    const gap = screen.getByTestId('lu-check-gap-natura2000-NATURA2000_SPA_103_OF_558_ABSENT');
+    expect(gap).toHaveAttribute('data-gap-kind', 'KNOWN_INCOMPLETE_DATA');
+    expect(gap).toHaveAttribute('data-rechecked', 'false');
+    expect(gap).toHaveTextContent('103 av 558 SPA-områden saknas');
+    expect(row).toContainElement(gap);
+    expect(screen.getByTestId('lu-check-state-natura2000')).toHaveTextContent('känd lucka i underlaget');
+    expect(screen.getByTestId('lu-check-water_protection_area')).toHaveAttribute('data-coverage', 'limited');
+    expect(screen.getByTestId('lu-workspace')).not.toHaveTextContent(/rikstäckande/i);
+  });
+
+  it('item 3: a dataset version outside the import contracts is marked on the chip, never plain green', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => governedReadBack({ id: 'assessment-unknown-version', layers: { natura2000: { kind: 'no_hit', version: 'f'.repeat(64) } } }),
+      evidence: () => FIVE_NO_HIT,
+    });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
+    expect(screen.getByTestId('lu-check-state-natura2000')).toHaveTextContent('Kontrollerat – ingen registrerad träff · okänd datasetversion');
+    expect(screen.getByTestId('lu-check-state-natura2000')).toHaveAttribute('data-qualified', 'unknown-version');
+    expect(screen.getByTestId('lu-check-coverage-note-natura2000')).toHaveTextContent('Datasetversionen finns inte i importkontrakten');
   });
 
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {

@@ -179,7 +179,7 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
       expect(server.known_coverage_gaps.length).toBeGreaterThan(0);
       expect(c[layer]!.state).toBe('NO_HIT');
       expect(c[layer]!.coverageLimited).toBe(true);
-      expect(c[layer]!.stateLabel).toBe('Kontrollerat – ingen registrerad träff · begränsad täckning');
+      expect(c[layer]!.stateLabel).toMatch(/^Kontrollerat – ingen registrerad träff · begränsad täckning/);
       expect(c[layer]!.coverageNote).toBe(server.coverage_limitation_sv);
       expect(rowsOf(c[layer]!).Täckning).toBe(server.coverage_limitation_sv);
     }
@@ -192,7 +192,47 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
     // A hit in a limited register is still a hit, with the limit stated.
     const hit = present({ layers: { natura2000: { kind: 'hit', risk: 'HIGH' } } }).c.natura2000!;
     expect(hit.state).toBe('HIT');
-    expect(hit.stateLabel).toBe('Kontrollerat – träff · begränsad täckning');
+    expect(hit.stateLabel).toBe('Kontrollerat – träff · begränsad täckning · känd lucka i underlaget');
+  });
+
+  it('W-M2d item 3: Natura 2000 carries its known gaps as state-near metadata -- kind, date, "ej omkontrollerad" -- not only a footnote', () => {
+    const { readBack, c } = present();
+    const server = readBack.governedLayerChecks.find((check) => check.layer === 'natura2000')!;
+    const natura = c.natura2000!;
+    expect(natura.knownGaps.map((gap) => gap.id)).toEqual(server.known_coverage_gaps.map((gap) => gap.gap_id));
+    expect(natura.knownGaps.map((gap) => gap.id)).toEqual(['NATURA2000_SPA_ONLY', 'NATURA2000_SPA_103_OF_558_ABSENT']);
+    const [scope, incomplete] = natura.knownGaps;
+    expect(scope!.text).toBe(
+      'Avgränsning enligt importkontraktet: kontrollen avser endast inläst SPA-underlag (fågelskyddsområden), inte fullständig Natura 2000-täckning; särskilda bevarandeområden (SCI/SAC) ingår inte.',
+    );
+    expect(incomplete!.kind).toBe('KNOWN_INCOMPLETE_DATA');
+    expect(incomplete!.text).toBe(
+      'Känd lucka i underlaget (2026-09-25): underlaget är känt ofullständigt (103 av 558 SPA-områden saknas enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell).',
+    );
+    expect(incomplete!.rechecked).toBe(false);
+    // The known incompleteness travels in the state chip itself.
+    expect(natura.stateLabel).toBe('Kontrollerat – ingen registrerad träff · begränsad täckning · känd lucka i underlaget');
+    // Basis and sources are reachable in the evidence panel / technical section.
+    expect(rowsOf(natura)['Känd lucka 2']).toContain('enligt avstämning 2026-09-25, ej omkontrollerad mot nuvarande tabell');
+    expect(natura.technical.find((row) => row.label === 'Känd lucka 2 – källor')?.value).toContain('KNOWN-COVERAGE-GAPS.md');
+    // Water protection: the server's NV-only scope is in the chip (never plain green).
+    expect(c.water_protection_area!.stateLabel).toBe('Kontrollerat – ingen registrerad träff · begränsad täckning');
+    expect(c.water_protection_area!.knownGaps.map((gap) => gap.id)).toEqual(['WATER_PROTECTION_NV_ONLY']);
+  });
+
+  it('W-M2d item 3: a dataset version the import contracts do not know never gives an unexplained "ingen registrerad träff"', () => {
+    const { readBack, c } = present({ layers: { natura2000: { kind: 'no_hit', version: 'f'.repeat(64) } } });
+    const detail = readBack.evidenceDetails.find((d) => d.layer === 'natura2000')!;
+    expect(detail.binding_assurance).toBe('HASH_BOUND_CONTRACT_UNKNOWN');
+    const natura = c.natura2000!;
+    expect(natura.state).toBe('NO_HIT'); // the server's state, unchanged
+    expect(natura.datasetVersionUnknown).toBe(true);
+    expect(natura.stateLabel).toBe('Kontrollerat – ingen registrerad träff · okänd datasetversion');
+    expect(natura.coverageNote).toBe(
+      'Datasetversionen finns inte i importkontrakten (ADMIT v1): källa, källversion och täckning kan inte anges (Saknas i underlaget).',
+    );
+    expect(c.ebh!.datasetVersionUnknown).toBe(false);
+    expect(c.ebh!.stateLabel).toBe('Kontrollerat – ingen registrerad träff');
   });
 
   it('the document check is the server\'s row; "limited" only because the server lists it as such', () => {
