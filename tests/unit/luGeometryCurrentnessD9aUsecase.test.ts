@@ -214,3 +214,61 @@ describe('U12 computeGovernedLayerChecks (pure)', () => {
     expect(check).toMatchObject({ status: 'NOT_CHECKED', reason: 'UNRECOGNIZED_RESULT' });
   });
 });
+
+/**
+ * M1a verification F4: when the run fails AFTER the geometry step (release, provider, kernel...),
+ * the generic failure branch must still report which localization geometry this request resolved
+ * or derived -- in particular a centroid derived in this very request. A failure BEFORE the
+ * geometry step reports none (nothing is invented).
+ */
+describe('F4: a failure after the geometry step keeps localization_geometry', () => {
+  it('centroid derived in this request, then the kernel throws -> EXECUTION_FAILED that still reports the derived point', async () => {
+    resolveOrDeriveMock.mockResolvedValue({
+      geometry: { artifact_id: 'localization-geometry-derived', artifact_type: 'localization_geometry', payload: { provenance: 'derived_from_property_boundary' } },
+      wasDerived: true,
+      provenanceRecord: resolvedGeometryProvenanceRecord({
+        artifactId: 'localization-geometry-derived', provenance: 'derived_from_property_boundary', derivedInThisRequest: true,
+      }),
+    });
+    kernelMock.mockRejectedValue(new Error('kernel exploded'));
+    const analysis = (await runReport()).siteAnalyses[0]!;
+
+    expect(analysis.executionMotor).toMatchObject({
+      admitted: false,
+      assessment_status: 'EXECUTION_FAILED',
+      reason_codes: ['EXECUTION_KERNEL_ERROR'],
+      assessment_artifact_id: null,
+      localization_geometry: {
+        status: 'RESOLVED', artifact_id: 'localization-geometry-derived',
+        provenance: 'derived_from_property_boundary', derived_in_this_request: true, failure_class: null,
+      },
+    });
+    expect('overallRisk' in analysis.complianceAnalysis).toBe(false);
+  });
+
+  it('existing current point, then the spatial provider throws -> the resolved point is still reported (not derived)', async () => {
+    resolveOrDeriveMock.mockResolvedValue({
+      geometry: { artifact_id: 'localization-geometry-user', artifact_type: 'localization_geometry', payload: { provenance: 'user_defined' } },
+      wasDerived: false,
+    });
+    queryMock.mockRejectedValue(new Error('provider down'));
+    const analysis = (await runReport()).siteAnalyses[0]!;
+
+    expect(kernelMock).not.toHaveBeenCalled();
+    expect(analysis.executionMotor).toMatchObject({
+      assessment_status: 'EXECUTION_FAILED',
+      reason_codes: ['EXECUTION_KERNEL_ERROR'],
+      localization_geometry: { status: 'RESOLVED', artifact_id: 'localization-geometry-user', provenance: 'user_defined', derived_in_this_request: false },
+    });
+  });
+
+  it('a failure before the geometry step reports no geometry at all', async () => {
+    const { resolveCanonicalProjectContext } = await import('../../src/application/resolveCanonicalProjectContext');
+    vi.mocked(resolveCanonicalProjectContext).mockRejectedValueOnce(new Error('context unavailable'));
+    const analysis = (await runReport()).siteAnalyses[0]!;
+
+    expect(resolveOrDeriveMock).not.toHaveBeenCalled();
+    expect(analysis.executionMotor?.assessment_status).toBe('EXECUTION_FAILED');
+    expect(analysis.executionMotor?.localization_geometry).toBeUndefined();
+  });
+});

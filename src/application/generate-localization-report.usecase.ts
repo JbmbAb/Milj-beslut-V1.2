@@ -732,6 +732,10 @@ async function analyzeSite(
   let spatialRuntime: LocalizationSpatialRuntime | undefined;
   // K0: only governed DocumentEvidence resolved from explicit refs; never a provider sweep.
   let documentEvidence: DocumentEvidenceArtifact[] = [];
+  // M1a verification F4: set as soon as the geometry step has resolved (or derived) the point, so
+  // the generic failure branch below can still report it -- e.g. a centroid derived in THIS request
+  // when the release, provider or kernel fails afterwards. Undefined iff the step was not reached.
+  let geometryProvenance: LocalizationGeometryProvenanceRecord | undefined;
   try {
     spatialRuntime = await createSpatialRuntime();
     const repo = spatialRuntime.artifactRepository;
@@ -768,7 +772,7 @@ async function analyzeSite(
       createdBy: ctx.user?.id ?? 'system',
     });
     const currentLocalizationGeometry = resolvedGeometry.geometry;
-    const geometryProvenance: LocalizationGeometryProvenanceRecord =
+    geometryProvenance =
       resolvedGeometry.provenanceRecord ??
       resolvedGeometryProvenanceRecord({
         artifactId: currentLocalizationGeometry.artifact_id,
@@ -1050,6 +1054,8 @@ async function analyzeSite(
         property_context_id: null,
         assessment_status: 'EXECUTION_FAILED',
         findings: [],
+        // F4: the geometry this request resolved/derived before failing (absent if not reached).
+        ...(geometryProvenance ? { localization_geometry: geometryProvenance } : {}),
       };
     }
   } finally {
