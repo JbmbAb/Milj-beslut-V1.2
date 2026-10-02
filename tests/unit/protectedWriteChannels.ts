@@ -2163,8 +2163,34 @@ function scanJs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
     // node-postgres QueryConfig { text, values } / { sql }; any other object is a query API, not SQL
     if (a[0]?.v === "{") {
       const at = a.findIndex((x, n) => x.k === "id" && (x.v === "text" || x.v === "sql") && a[n + 1]?.v === ":");
-      if (at < 0) return;
-      a = a.slice(at + 2, jsExprEnd(a, at + 2));
+      if (at >= 0) a = a.slice(at + 2, jsExprEnd(a, at + 2));
+      else {
+        // U30F4 (B2): a shorthand { text } is that binding; a spread or a computed key is a config the source does not hold
+        let depth = 0;
+        let shorthand: Tok | null = null;
+        let unheld = false;
+        for (let n = 0; n < a.length; n++) {
+          const x = a[n]!;
+          if (x.v === "{" || x.v === "(" || x.v === "[") {
+            if (depth === 1 && x.v === "[" && (a[n - 1]?.v === "{" || a[n - 1]?.v === ",")) unheld = true;
+            depth += 1;
+            continue;
+          }
+          if (x.v === "}" || x.v === ")" || x.v === "]") {
+            depth -= 1;
+            continue;
+          }
+          if (depth !== 1) continue;
+          if (x.v === "...") unheld = true;
+          if (x.k === "id" && (x.v === "text" || x.v === "sql") && (a[n - 1]?.v === "{" || a[n - 1]?.v === ",") && (a[n + 1]?.v === "," || a[n + 1]?.v === "}")) shorthand = x;
+        }
+        if (shorthand) a = [shorthand];
+        else if (unheld) {
+          sink.counts.channels += 1;
+          sink.add({ line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "a query config the source does not hold (a spread or a computed key)" });
+          return;
+        } else return;
+      }
     }
     sink.counts.channels += 1;
     if (payloadGated(a)) {
@@ -2785,7 +2811,7 @@ function scanPy(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       const chain = toks.slice(Math.max(0, k - 60), k);
       const lastNl = chain.map((x) => x.k).lastIndexOf("nl");
       const onQuery = chain.slice(lastNl + 1).some((x, n, a) => x.k === "id" && x.v === "query" && a[n + 1]?.v === "(");
-      if (t.v === "drop_all" || t.v === "create_all" || (t.v === "drop" && args.length >= 1) || ((t.v === "delete" || t.v === "update") && onQuery)) {
+      if (t.v === "drop_all" || t.v === "create_all" || ((t.v === "drop" || t.v === "create") && args.length >= 1) || ((t.v === "delete" || t.v === "update") && onQuery)) {
         sink.counts.channels += 1;
         sink.add({ line: t.line, kind: "SQL_CALL", channel, excerpt, verdict: "DYNAMIC", detail: "a SQLAlchemy write whose tables the scan does not resolve" });
         continue;
@@ -3288,9 +3314,10 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         sink.counts.gated += 1;
         return;
       }
-      if (/\.Execute(NonQuery|Reader|Scalar)\s*\(/.test(elSrc)) {
+      // (U30F4 B2: in any case -- PowerShell is case-insensitive -- the Async twins, and Npgsql COPY)
+      if (/\.(Execute(NonQuery|Reader|Scalar)(Async)?|Begin(Binary|Text)(Import|Export)|BeginRawBinaryCopy)\s*\(/i.test(elSrc)) {
         sink.counts.channels += 1;
-        sink.add({ line, kind: "SQL_CALL", channel: "ado.net", excerpt, verdict: "DYNAMIC", detail: "an ADO.NET command whose CommandText is set at run time" });
+        sink.add({ line, kind: "SQL_CALL", channel: "ado.net", excerpt, verdict: "DYNAMIC", detail: "an ADO.NET command or Npgsql COPY whose SQL is set at run time" });
         return;
       }
       if (/Diagnostics\.Process\]::Start\s*\(|ProcessStartInfo/i.test(elSrc)) {
