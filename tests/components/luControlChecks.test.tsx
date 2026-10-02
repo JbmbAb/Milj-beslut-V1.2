@@ -375,6 +375,32 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
     expect(withRoot.technical).toContainEqual({ label: 'Rotens säkerhet', value: 'UNKNOWN' });
   });
 
+  it('W-M2e item 3 (M2d verification finding 6): the property chip never says plain "Hittad" when the server states a lower assurance of the property root', () => {
+    const { readBack } = present();
+    const rowWith = (root: Record<string, unknown>) =>
+      presentLuControlChecks({ property: { ...property, propertyRoot: { ...readBack.propertyRoot, ...root } }, assessment: PRESENT, server: serverOf(readBack) })[0]!;
+    const lower = 'Fastighetsunderlaget har lägre säkerhet (rotens datasetbindning saknas).';
+    for (const root of [{ status: 'RESOLVED', assurance: 'UNBOUND_METADATA' }, { status: 'NOT_RECORDED', assurance: 'UNKNOWN' }]) {
+      const row = rowWith(root);
+      expect(row.state).toBe('HIT');
+      expect(row.stateLabel).toBe('Hittad · lägre säkerhet i fastighetsunderlaget');
+      expect(row.rootAssuranceQualified).toBe(true);
+      expect(row.summary).toContain(lower);
+    }
+    const unreadable = rowWith({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR', assurance: 'UNKNOWN' });
+    expect(unreadable.stateLabel).toBe('Hittad · fastighetsunderlagets ursprung kunde inte läsas');
+    expect(unreadable.summary).not.toMatch(/ROOT_READ_ERROR/);
+    expect(rowWith({ status: 'TAMPERED', assurance: 'UNKNOWN' }).stateLabel).toBe('Hittad · fastighetsunderlagets ursprung klarade inte kontrollen');
+    // A status or assurance this UI does not know is never shown as stronger than the server says.
+    for (const root of [{ status: 'RESOLVED', assurance: 'SOMETHING_NEW' }, { status: 'BRAND_NEW', assurance: 'UNBOUND_METADATA' }, { status: 'constructor' }]) {
+      expect(rowWith(root).stateLabel).toBe('Hittad · okänd säkerhet i fastighetsunderlaget');
+    }
+    // Without a displayed assessment there is no root statement: the lookup result alone is "Hittad".
+    const noAssessment = presentLuControlChecks({ property, assessment: NONE, server: null })[0]!;
+    expect(noAssessment.stateLabel).toBe('Hittad');
+    expect(noAssessment.rootAssuranceQualified).toBe(false);
+  });
+
   it('M2b item 2 (map only): viewer evidence is accepted only when its ids are exactly the displayed assessment\'s spatial evidence refs', () => {
     const feature = (layer: string): LuViewerEvidenceProps => ({ cas_artifact_id: `evidence-${layer}-abc`, layer_id: layer, dataset: layer });
     const features = [feature('water'), feature('ebh')];

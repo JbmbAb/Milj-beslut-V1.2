@@ -53,6 +53,7 @@ import {
   LU_CHECK_COVERAGE_STATES,
   LU_EVIDENCE_INTEGRITY_TEXTS,
   LU_KNOWN_GAP_KIND_TEXTS,
+  LU_PROPERTY_ROOT_TEXTS,
   presentLuControlChecks,
 } from '../../components/app/lu/luControlChecks';
 import { LU_VERIFY_NOTICE_TEXTS, LU_VERIFY_NOTICE_UNKNOWN_SV, presentLuVerifyNotice } from '../../components/app/lu/luVerifyNotice';
@@ -83,6 +84,7 @@ const OWN_TEXT: ReadonlyMap<string, string> = (() => {
   for (const t of LU_EVIDENCE_INTEGRITY_TEXTS) put(t, 'evidence integrity value');
   for (const t of LU_KNOWN_GAP_KIND_TEXTS) put(t, 'known coverage gap kind');
   for (const t of LU_BINDING_ASSURANCE_TEXTS) put(t, 'evidence binding assurance');
+  for (const t of LU_PROPERTY_ROOT_TEXTS) put(t, 'property root status/assurance');
   return own;
 })();
 
@@ -196,6 +198,16 @@ describe('W-M2e item 2: exhaustive inventory of server error codes against the L
     for (const value of LU_EVIDENCE_INTEGRITY_TEXTS) expect(integrityOf(value), value).not.toBe(integrityOf(UNKNOWN));
     const gapText = (kind: string) => waterRow({ known_coverage_gaps: [{ gap_id: 'g', kind, text_sv: 't' }] }).knownGaps[0]!.text;
     for (const kind of LU_KNOWN_GAP_KIND_TEXTS) expect(gapText(kind), kind).not.toBe(gapText(UNKNOWN));
+    const propertyChip = (propertyRoot: Record<string, unknown>) =>
+      presentLuControlChecks({
+        property: { lookedUp: true, geometry: { artifact_id: 'g', provenance: 'user_defined', wgs84LngLat: [17, 59] }, propertyRoot },
+        assessment: { status: 'present' },
+        server: { layerChecks: [], evidenceDetails: [], limitedCoverageLayers: [] },
+      })[0]!.stateLabel;
+    for (const token of LU_PROPERTY_ROOT_TEXTS) {
+      const root = token === 'UNBOUND_METADATA' ? { status: 'RESOLVED', assurance: token } : { status: token, assurance: 'UNBOUND_METADATA' };
+      expect(propertyChip(root), token).not.toBe(propertyChip({ status: UNKNOWN }));
+    }
     for (const assurance of LU_BINDING_ASSURANCE_TEXTS) {
       expect(waterRow({}, { binding_assurance: assurance }).datasetVersionUnknown, assurance).toBe(true);
       expect(waterRow({}, { binding_assurance: UNKNOWN }).datasetVersionUnknown).toBe(false);

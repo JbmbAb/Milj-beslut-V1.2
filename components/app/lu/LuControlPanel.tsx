@@ -31,13 +31,22 @@ const PROPERTY_FOUND_STYLE = { color: '#A5F3FC', border: '#22D3EE', background: 
 const LIMITED_NO_HIT_STYLE = { color: '#FDBA74', border: '#F97316', background: 'rgba(249,115,22,0.08)' };
 
 export const LuStateChip: React.FC<{
-  check: Pick<LuCheckView, 'key' | 'state' | 'stateLabel'> & { coverageLimited?: boolean; datasetVersionUnknown?: boolean };
+  check: Pick<LuCheckView, 'key' | 'state' | 'stateLabel'> & { coverageLimited?: boolean; datasetVersionUnknown?: boolean; rootAssuranceQualified?: boolean };
 }> = ({ check }) => {
   // W-M2d item 3: a checked result on a limited basis or an unknown dataset version is never plain green.
-  const qualified = check.datasetVersionUnknown ? 'unknown-version' : check.coverageLimited ? 'limited' : undefined;
+  // W-M2e item 3: a found property whose root the server states with lower assurance is qualified too.
+  const qualified = check.rootAssuranceQualified
+    ? 'root-assurance'
+    : check.datasetVersionUnknown
+      ? 'unknown-version'
+      : check.coverageLimited
+        ? 'limited'
+        : undefined;
   const style =
     check.key === 'property' && check.state === 'HIT'
-      ? PROPERTY_FOUND_STYLE
+      ? check.rootAssuranceQualified
+        ? LIMITED_NO_HIT_STYLE
+        : PROPERTY_FOUND_STYLE
       : check.state === 'NO_HIT' && qualified
         ? LIMITED_NO_HIT_STYLE
         : STATE_STYLE[check.state];

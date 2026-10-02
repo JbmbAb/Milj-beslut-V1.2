@@ -2213,6 +2213,17 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-check-state-water')).toHaveStyle({ color: '#6EE7B7' });
   });
 
+  it('W-M2e item 3: the property chip shows the lower assurance the server states for the property root, in the warning colour', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-root' }) });
+    await openM2b(user);
+    const chip = await screen.findByTestId('lu-check-state-property');
+    await waitFor(() => expect(chip).toHaveTextContent('Hittad · lägre säkerhet i fastighetsunderlaget'));
+    expect(chip).toHaveAttribute('data-qualified', 'root-assurance');
+    expect(chip).toHaveStyle({ color: '#FDBA74' });
+    expect(screen.getByTestId('lu-check-property')).toHaveTextContent('Fastighetsunderlaget har lägre säkerhet (rotens datasetbindning saknas).');
+  });
+
   it('item 9: export and the reproducibility check name the DISPLAYED assessment; a server "not current" answer is said plainly', async () => {
     const user = userEvent.setup();
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake-url'), revokeObjectURL: vi.fn() });

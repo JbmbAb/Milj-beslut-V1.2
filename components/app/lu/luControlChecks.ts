@@ -235,6 +235,11 @@ export interface LuCheckView {
   readonly searchRadiusMeters: number | null;
   /** The governed evidence artifact id this check rests on, when there is one. */
   readonly evidenceArtifactId: string | null;
+  /**
+   * W-M2e item 3: property row only -- the server states a lower (or unknown) assurance of the property
+   * root for the displayed assessment, so "Hittad" is qualified and never plainly shown.
+   */
+  readonly rootAssuranceQualified: boolean;
 }
 
 export const MISSING = 'Saknas i underlaget';
@@ -389,6 +394,7 @@ function baseView(
     technical: [],
     searchRadiusMeters: null,
     evidenceArtifactId: null,
+    rootAssuranceQualified: false,
     ...extra,
   };
 }
@@ -599,11 +605,52 @@ function serverRow(
   });
 }
 
+/**
+ * W-M2e item 3 (M2d verification finding 6): the property root's assurance as the SERVER states it for
+ * the displayed assessment (propertyRoot; governedEvidenceDetails.ts resolvePropertyRoot). Every root
+ * the server sends today carries "Rotens datasetbindning saknas (lägre säkerhet)": a RESOLVED root is
+ * UNBOUND_METADATA, a NOT_RECORDED root has no recorded provenance, a TECHNICAL_ERROR/TAMPERED root
+ * could not be read or verified. The property chip says so next to "Hittad"; a status or assurance
+ * this UI does not know reads "okänd säkerhet" -- never stronger than the server's own statement.
+ */
+const ROOT_LOWER_ASSURANCE = { suffix: ' · lägre säkerhet i fastighetsunderlaget', noteSv: 'Fastighetsunderlaget har lägre säkerhet (rotens datasetbindning saknas).' };
+const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string; readonly noteSv: string }>> = {
+  'RESOLVED/UNBOUND_METADATA': ROOT_LOWER_ASSURANCE,
+  NOT_RECORDED: ROOT_LOWER_ASSURANCE,
+  TECHNICAL_ERROR: {
+    suffix: ' · fastighetsunderlagets ursprung kunde inte läsas',
+    noteSv: 'Fastighetsrotens ursprung kunde inte läsas för den här bedömningen; fastigheten hittades vid uppslaget.',
+  },
+  TAMPERED: {
+    suffix: ' · fastighetsunderlagets ursprung klarade inte kontrollen',
+    noteSv: 'Fastighetsrotens ursprung klarade inte integritetskontrollen.',
+  },
+};
+const ROOT_UNKNOWN_ASSURANCE = {
+  suffix: ' · okänd säkerhet i fastighetsunderlaget',
+  noteSv: 'Servern anger en säkerhet för fastighetsunderlaget som inte kan visas här – se teknisk information.',
+};
+
+/** W-M2e item 2/3 (inventory): the property-root statuses and assurances with a text of their own. */
+export const LU_PROPERTY_ROOT_TEXTS: readonly string[] = Object.freeze(['RESOLVED', 'UNBOUND_METADATA', 'NOT_RECORDED', 'TECHNICAL_ERROR', 'TAMPERED']);
+
+function propertyRootQualifier(root: Record<string, unknown> | null): { readonly suffix: string; readonly noteSv: string } | null {
+  if (!root) return null;
+  const status = str(root.status);
+  const key = status === 'RESOLVED' ? `RESOLVED/${str(root.assurance) ?? ''}` : (status ?? '');
+  return Object.prototype.hasOwnProperty.call(PROPERTY_ROOT_QUALIFIER, key) ? PROPERTY_ROOT_QUALIFIER[key]! : ROOT_UNKNOWN_ASSURANCE;
+}
+
 function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckView {
-  const make = (state: LuKnowledgeState, summary: string, details: LuCheckDetailRow[] = [], technical: LuCheckDetailRow[] = []): LuCheckView => ({
-    ...baseView(def.key, def.label, null, state, summary, { details, technical }),
-    stateLabel: state === 'HIT' ? LU_PROPERTY_FOUND_LABEL : LU_KNOWLEDGE_STATE_LABEL[state],
-  });
+  const qualifier = propertyRootQualifier(obj(input.propertyRoot));
+  const make = (state: LuKnowledgeState, summary: string, details: LuCheckDetailRow[] = [], technical: LuCheckDetailRow[] = []): LuCheckView => {
+    const found = state === 'HIT';
+    return {
+      ...baseView(def.key, def.label, null, state, found && qualifier ? `${summary} ${qualifier.noteSv}` : summary, { details, technical }),
+      stateLabel: found ? `${LU_PROPERTY_FOUND_LABEL}${qualifier ? qualifier.suffix : ''}` : LU_KNOWLEDGE_STATE_LABEL[state],
+      rootAssuranceQualified: found && qualifier !== null,
+    };
+  };
   if (input.lookupError) {
     const e = input.lookupError;
     const state: LuKnowledgeState = e.kind === 'NOT_FOUND' || e.kind === 'REFUSED' ? 'NOT_CHECKED' : 'TECHNICAL_ERROR';
