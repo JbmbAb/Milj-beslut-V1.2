@@ -210,6 +210,18 @@ export interface GovernedStatementContext {
    * RECORD_INTEGRITY_ERROR with the same basis codes -- never "denna historiska bedömning".
    */
   readonly freshRun?: boolean;
+  /**
+   * W-U20CDF5: facts about the STORED record being read back that the findings list alone cannot carry
+   * (passed by the read-back, the PDF, verify and the map; absent for a fresh run and for callers that
+   * only hold checks + findings).
+   *  - hasFindingsField (U20CDF4 verification L3): false when the record has no `findings` field at all.
+   *    `findings` has been in the assessment type since 61063241 (2026-08-04) and in every producer since
+   *    9c200a78 (2026-08-08), so its absence breaks the finding contract (MALFORMED_RECORD_ENTRY:findings),
+   *    exactly like a field that is not a list.
+   */
+  readonly storedRecord?: {
+    readonly hasFindingsField: boolean;
+  };
 }
 
 export interface GovernedCoverageAssessment {
@@ -259,10 +271,13 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   // U20CDF4 (U20CDF3 verification L6.2/L6.3; owner decision 2): entries that break the record's own
   // contract -- a malformed evidence ref (used to be dropped silently, the layer then read "historical"),
   // a findings field that is present but not a list, or a finding that is not one (used to throw: a
-  // generic 500). An ABSENT findings field (the oldest records) is no stored finding, not a break.
+  // generic 500). W-U20CDF5 (U20CDF4 verification L3): a stored record WITHOUT a findings field breaks the
+  // same contract (every producer since 9c200a78 writes it; it used to be read as "no finding", then 500).
   for (const index of pinned?.malformed_evidence_ref_indexes ?? []) integrity.push(`MALFORMED_RECORD_ENTRY:evidence_refs#${index}`);
   const rawFindings = (context as { findings?: unknown } | undefined)?.findings;
-  if (rawFindings !== undefined && !Array.isArray(rawFindings)) integrity.push('MALFORMED_RECORD_ENTRY:findings');
+  if (context?.storedRecord?.hasFindingsField === false || (rawFindings !== undefined && !Array.isArray(rawFindings))) {
+    integrity.push('MALFORMED_RECORD_ENTRY:findings');
+  }
   // U20CDF3 (U20CDF2 verification H5.1 / low 4): a NOT_CHECKED finding of a layer's rule next to stored
   // evidence for that layer -- with or without a risk finding beside it. The gate rejects evidence +
   // unavailable for one layer and the rule engine writes NOT_CHECKED only for an unavailable layer, so

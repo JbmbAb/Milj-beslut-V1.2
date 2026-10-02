@@ -682,8 +682,10 @@ function recordIntegrityFailure(
   ];
   const stored = storedFindingsUnverified(rawFindings);
   const named = storedRiskFindingsSv(Array.isArray(rawFindings) ? rawFindings : []);
-  const storedSv =
-    stored.total === 0
+  const storedSv = !Array.isArray(rawFindings)
+    ? // W-U20CDF5 (L3): never "inga fynd" for a record whose findings cannot be read at all.
+      'Den lagrade postens fynd kan inte läsas: fältet saknas eller är inte en lista.'
+    : stored.total === 0
       ? 'Den lagrade posten innehåller inga fynd.'
       : `Den lagrade posten innehåller ${stored.total} fynd som inte kan verifieras` +
         (stored.highest_level ? ` (högsta lagrade risknivå, overifierad: ${RISK_WORD_SV[stored.highest_level]})` : '') +
@@ -762,6 +764,23 @@ export function recordIntegrityDiagnosticWire(raw: unknown): RecordIntegrityDiag
   };
 }
 
+/**
+ * W-U20CDF5: the statement context of a STORED record, the same on every path that reads one back (the
+ * read-back, the PDF, verify and the map): its findings, what the read could not read among its pinned
+ * evidence, and the record facts the findings list alone cannot carry (L3: whether it has a findings field
+ * at all).
+ */
+function storedRecordStatementContext(
+  assessment: LocalizationAssessmentArtifact,
+  details: Pick<GovernedAssessmentDetails, 'pinnedEvidence'>,
+): Parameters<typeof governedOverallStatement>[2] {
+  return {
+    findings: assessment.payload.findings,
+    pinnedEvidence: details.pinnedEvidence,
+    storedRecord: { hasFindingsField: (assessment.payload as { findings?: unknown }).findings !== undefined },
+  };
+}
+
 /** W-U20CDF5 (U20CDF4 verification M1): verify / the map could not read every pinned evidence of the record. */
 export const ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE = 'ASSESSMENT_PINNED_EVIDENCE_UNREADABLE';
 
@@ -826,7 +845,7 @@ async function currentRecordIntegrityRefusal(
   const statement = governedOverallStatement(
     governedVerdictFromFindings(assessment.payload.findings).overallRisk,
     details.governedLayerChecks,
-    { findings: assessment.payload.findings, pinnedEvidence: details.pinnedEvidence },
+    storedRecordStatementContext(assessment, details),
   );
   if (statement.coverage_state === 'RECORD_INTEGRITY_ERROR') {
     return recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings);
@@ -1274,10 +1293,7 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
   const verdict = governedVerdictFromFindings(assessment.payload.findings);
   // U20CDF2 (G1): coverage and risk from the same stored record -- its findings and its checks.
   // U20CDF2 (G2): and what this read could not read among the pinned refs (integrity/technical error).
-  const overallStatement = governedOverallStatement(verdict.overallRisk, details.governedLayerChecks, {
-    findings: assessment.payload.findings,
-    pinnedEvidence: details.pinnedEvidence,
-  });
+  const overallStatement = governedOverallStatement(verdict.overallRisk, details.governedLayerChecks, storedRecordStatementContext(assessment, details));
   // U20CDF4 (owner decision 2026-10-03 (4) point 1): a structurally inconsistent current record is not
   // returned as a 200 assessment (and so not as a PDF either, which is built from this answer). Its
   // stored findings stay in view only as non-authoritative diagnostic data (GovernedRecordIntegrityFailure).
