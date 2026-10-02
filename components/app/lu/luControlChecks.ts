@@ -10,7 +10,9 @@
  *   - GET /api/localization/:projectId/geometry  (provenance, provisioning status)
  *   - only for rows OUTSIDE the six checks: the run's executionMotor.governed_layer_checks, shown as
  *     the server states them (no client derivation)
- * plus the static rule/layer definitions (LURuleEngine LAYER_RULE_IDS).
+ * plus the static rule/layer definitions (LURuleEngine LAYER_RULE_IDS) and, for each register's
+ * source and coverage, the frozen import contracts (LAYER-ID-CONTRACTS-V1, bound to the exact
+ * dataset version -- DEMO M2c item 1).
  *
  * The six knowledge states (DIRECTIVE-72H §11) are kept apart, never collapsed into each other:
  *   HIT                kontrollerat – träff
@@ -179,6 +181,15 @@ export interface LuCheckView {
   readonly summary: string;
   /** NO_HIT only: what a negative register result does and does not say (shown under the row). */
   readonly registerNote: string | null;
+  /**
+   * DEMO M2c item 1: the register's coverage as the import contract states it, for the exact
+   * dataset version of this evidence ("Täckning: ..."); null when the contract says nothing.
+   */
+  readonly coverageNote: string | null;
+  /** True when the register is KNOWN to cover only part of what the check's name covers. */
+  readonly coverageLimited: boolean;
+  /** Short form for the assessment line, e.g. "endast naturreservat"; null unless coverageLimited. */
+  readonly limitedCoverageShort: string | null;
   /** Server-stated rows only: the server's own Swedish explanation (e.g. documentCheck.message_sv). */
   readonly serverNote: string | null;
   /** Rule that fires on this layer, when there is one (for "Fynd i bedömningen"). */
@@ -200,16 +211,105 @@ const NOT_IN_VIEWER_PROJECTION = 'Skickas inte med i kontrollresultatet';
 /**
  * Per layer: the limit of a negative register check. States only what kind of check it is and
  * what it does not show -- no new facts, no risk level, no hydrological or contamination conclusion.
+ * What the register actually CONTAINS is stated separately, from the import contract (below).
  */
 const NEGATIVE_REGISTER_LIMIT: Readonly<Record<Exclude<LuCheckKey, 'property'>, string>> = {
   water: 'Det är en registerkontroll, inte en inventering i fält, och visar inte att oregistrerade brunnar eller påverkan saknas.',
   ebh: 'Det är en registerkontroll, inte en markundersökning, och visar inte markens skick eller att föroreningar eller påverkan saknas.',
-  protected_area:
-    'Det är en registerkontroll av utpekade skyddade områden, inte en naturinventering, och visar inte att naturvärden eller påverkan saknas.',
-  natura2000: 'Det är en registerkontroll av utpekade Natura 2000-områden och visar inte att påverkan på sådana områden saknas.',
+  protected_area: 'Det är en registerkontroll, inte en naturinventering, och visar inte att naturvärden eller påverkan saknas.',
+  natura2000: 'Det är en registerkontroll och visar inte att påverkan på Natura 2000-områden saknas.',
   water_protection_area:
-    'Det är en registerkontroll av beslutade vattenskyddsområden, inte en undersökning av grundvatten eller vattentäkter, och visar inte att påverkan saknas.',
+    'Det är en registerkontroll, inte en undersökning av grundvatten eller vattentäkter, och visar inte att påverkan saknas.',
 };
+
+/**
+ * DEMO M2c item 1 (M2b verifier finding 1). What each LU v1 register actually contains, taken from
+ * the FROZEN import contracts -- docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md (ADMIT rows)
+ * and ADMIT-V1-SET.md (authority decisions). The viewer payload carries only the dataset id and its
+ * version hash, so this is static; it applies ONLY when the evidence's version hash IS the
+ * contract's source_sha256 (they are the same value by design, SpatialLayerRegistry.version_hash),
+ * so a re-imported or widened dataset never inherits a coverage statement written for another
+ * version. Nothing beyond the contracts is stated: where they say nothing, "Saknas i underlaget".
+ * Interim until the server delivers coverage per layer itself (U20-D); presentation only -- the
+ * machine-readable state (NO_HIT etc.) is never changed by it.
+ */
+interface LuRegisterContract {
+  /** LAYER-ID-CONTRACTS-V1 source_sha256 (== the governed evidence's `version`). */
+  readonly sourceSha256: string;
+  readonly layerContractId: string;
+  /** LAYER-ID-CONTRACTS-V1 source_id, verbatim (technical section only). */
+  readonly sourceId: string;
+  /** Plain-Swedish source: authority + what the dataset is. */
+  readonly sourceSv: string;
+  /** The contract's dated source_version; null when it gives none ("legacy-adopted-..."). */
+  readonly sourceDate: string | null;
+  /** Coverage as the contract states it; null when it says nothing. */
+  readonly coverageSv: string | null;
+  /** Non-null only for a KNOWN partial coverage: the short form for the assessment line. */
+  readonly limitedShortSv: string | null;
+}
+
+const LU_REGISTER_CONTRACTS: Readonly<Record<Exclude<LuCheckKey, 'property'>, LuRegisterContract>> = {
+  water: {
+    sourceSha256: '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc',
+    layerContractId: 'lu.water_wells',
+    sourceId: 'SGU/brunnar/2026-06-19',
+    sourceSv: 'SGU – brunnar',
+    sourceDate: '2026-06-19',
+    coverageSv: null,
+    limitedShortSv: null,
+  },
+  ebh: {
+    sourceSha256: '02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186',
+    layerContractId: 'lu.ebh',
+    sourceId: 'LST/EBH_Potentiellt_fororenade_omraden/2026-07-23',
+    sourceSv: 'Länsstyrelsen – potentiellt förorenade områden (EBH)',
+    sourceDate: '2026-07-23',
+    coverageSv: null,
+    limitedShortSv: null,
+  },
+  protected_area: {
+    sourceSha256: '983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae',
+    layerContractId: 'lu.protected_area',
+    sourceId: 'Naturvardsverket/SkyddadeOmraden/Naturreservat/legacy-adopted-2026-07-20',
+    sourceSv: 'Naturvårdsverket – skyddade områden: naturreservat',
+    sourceDate: null,
+    coverageSv: 'Endast naturreservat. Andra typer av skyddade områden ingår inte i underlaget och är inte kontrollerade.',
+    limitedShortSv: 'endast naturreservat',
+  },
+  natura2000: {
+    sourceSha256: 'a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02',
+    layerContractId: 'lu.natura2000',
+    sourceId: 'Naturvardsverket/Natura2000/2026-05-08/SPA_Rikstackande',
+    sourceSv: 'Naturvårdsverket – Natura 2000, fågeldirektivets områden (SPA), rikstäckande',
+    sourceDate: '2026-05-08',
+    // Contract: "SPA rikstäckande only v1; SCI = later wave".
+    coverageSv:
+      'Endast fågeldirektivets områden (SPA). Habitatdirektivets områden (SCI/SAC) ingår inte i underlaget och är inte kontrollerade.',
+    limitedShortSv: 'endast fågeldirektivets områden (SPA), inte habitatdirektivets (SCI/SAC)',
+  },
+  water_protection_area: {
+    sourceSha256: 'ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18',
+    layerContractId: 'lu.water_protection',
+    sourceId: 'Naturvardsverket/Vatten/Vattenskyddsomrade/legacy-adopted-2026-07-20',
+    sourceSv: 'Naturvårdsverket – vattenskyddsområden',
+    sourceDate: null,
+    // ADMIT-V1-SET authority decision 1: NV is the sole source; LST / VISS/lst_vattenskydd is out of scope.
+    coverageSv:
+      'Endast Naturvårdsverkets dataset ingår; Länsstyrelsens vattenskyddsdata (VISS) ingår inte. Om datasetet omfattar alla vattenskyddsområden: saknas i underlaget.',
+    limitedShortSv: null,
+  },
+};
+
+/** The contract entry for this layer, but only if the evidence is the contract's exact dataset version. */
+function registerContractFor(key: Exclude<LuCheckKey, 'property'>, props: LuViewerEvidenceProps): LuRegisterContract | null {
+  const contract = LU_REGISTER_CONTRACTS[key];
+  const version = str(props.version) ?? str(props.layer_version_hash);
+  return version === contract.sourceSha256 ? contract : null;
+}
+
+/** Suffix on the HIT/NO_HIT chip of a register with known partial coverage (state itself unchanged). */
+export const LU_LIMITED_COVERAGE_SUFFIX = ' · begränsad täckning';
 
 function negativeRegisterNote(def: LuCheckDefinition, radius: number | null, dataset: string | null): string {
   const where = radius === null ? 'inom sökradien' : `inom ${radius} m`;
@@ -308,20 +408,28 @@ function layerCheck(
     searchRadiusMeters: number | null = null,
     evidenceArtifactId: string | null = null,
     registerNote: string | null = null,
-  ): LuCheckView => ({
-    key: def.key,
-    label: def.label,
-    state,
-    stateLabel: LU_KNOWLEDGE_STATE_LABEL[state],
-    summary,
-    registerNote,
-    serverNote: null,
-    ruleId: def.ruleId,
-    details,
-    technical: def.ruleId ? [{ label: 'Lager', value: def.key }, { label: 'Regel', value: def.ruleId }, ...technical] : technical,
-    searchRadiusMeters,
-    evidenceArtifactId,
-  });
+    contract: LuRegisterContract | null = null,
+  ): LuCheckView => {
+    // M2c item 1: a known partial coverage qualifies a checked result in the same box.
+    const limited = Boolean(contract?.limitedShortSv) && (state === 'HIT' || state === 'NO_HIT');
+    return {
+      key: def.key,
+      label: def.label,
+      state,
+      stateLabel: `${LU_KNOWLEDGE_STATE_LABEL[state]}${limited ? LU_LIMITED_COVERAGE_SUFFIX : ''}`,
+      summary,
+      registerNote,
+      coverageNote: contract?.coverageSv ? `Täckning: ${lowerFirst(contract.coverageSv)}` : null,
+      coverageLimited: limited,
+      limitedCoverageShort: limited ? contract!.limitedShortSv : null,
+      serverNote: null,
+      ruleId: def.ruleId,
+      details,
+      technical: def.ruleId ? [{ label: 'Lager', value: def.key }, { label: 'Regel', value: def.ruleId }, ...technical] : technical,
+      searchRadiusMeters,
+      evidenceArtifactId,
+    };
+  };
   const notCheckedResult = { label: 'Resultat', value: 'Ej kontrollerad' };
   const noResult = { label: 'Resultat', value: 'Inget resultat kan visas' };
 
@@ -368,7 +476,10 @@ function layerCheck(
   const radius = num(props.distance_meters);
   const artifactId = str(props.cas_artifact_id);
   const count = formatMatchCount(props.match_count_observed, props.max_features_per_layer);
-  // Every row is either taken from the governed viewer evidence or says that it is missing there.
+  // M2c item 1: the register's source and coverage per the import contract -- only for its exact version.
+  const contract = def.key === 'property' ? null : registerContractFor(def.key, props);
+  // Every row is either taken from the governed viewer evidence or the frozen import contract of
+  // this exact dataset version, or says that it is missing there.
   const details: LuCheckDetailRow[] = [
     { label: 'Evidenstyp', value: describeEvidenceType(props) },
     {
@@ -379,7 +490,9 @@ function layerCheck(
     { label: 'Räknetak', value: describeCountCap(props.match_count_observed, props.max_features_per_layer) },
     { label: 'Sökradie', value: formatRadius(radius) },
     { label: 'Metod', value: describeMethod(props) },
-    { label: 'Källa (dataset)', value: str(props.dataset) ?? MISSING },
+    { label: 'Källa', value: contract?.sourceSv ?? MISSING },
+    { label: 'Källversion', value: contract?.sourceDate ?? MISSING },
+    { label: 'Täckning', value: contract?.coverageSv ?? MISSING },
     { label: 'Datasetversion', value: shortHash(props.version ?? props.layer_version_hash) ?? MISSING },
     { label: 'Hämtad', value: formatTimestamp(props.retrieved_at ?? props.queried_at) },
     { label: 'Upplösning/avgränsning', value: MISSING },
@@ -390,19 +503,25 @@ function layerCheck(
     { label: 'Innehållshash', value: str(props.cas_content_hash) ?? MISSING },
     { label: 'Dataset', value: str(props.dataset) ?? MISSING },
     { label: 'Datasetversion (full)', value: str(props.version) ?? str(props.layer_version_hash) ?? MISSING },
+    {
+      label: 'Importkontrakt',
+      value: contract
+        ? `${contract.layerContractId} · ${contract.sourceId}`
+        : 'Datasetversionen finns inte i importkontraktet (LAYER-ID-CONTRACTS-V1).',
+    },
     { label: 'Statuskod', value: str(props.governance_status) ?? MISSING },
     { label: 'Metodkod', value: str(props.algorithm) ?? MISSING },
   ];
 
   if (str(props.governance_status) !== 'VERIFIED_OBSERVATION') {
-    return make('UNCERTAIN', 'Underlaget har inte status verifierad observation.', details, technical, radius, artifactId);
+    return make('UNCERTAIN', 'Underlaget har inte status verifierad observation.', details, technical, radius, artifactId, null, contract);
   }
   if (typeof props.exists !== 'boolean') {
-    return make('UNCERTAIN', 'Kontrollresultatet kunde inte tolkas.', details, technical, radius, artifactId);
+    return make('UNCERTAIN', 'Kontrollresultatet kunde inte tolkas.', details, technical, radius, artifactId, null, contract);
   }
   const radiusText = radius === null ? 'sökradien' : `sökradien ${radius} m`;
   if (props.exists) {
-    return make('HIT', `${count ?? 'Objekt'} inom ${radiusText}.`, details, technical, radius, artifactId);
+    return make('HIT', `${count ?? 'Objekt'} inom ${radiusText}.`, details, technical, radius, artifactId, null, contract);
   }
   return make(
     'NO_HIT',
@@ -412,7 +531,12 @@ function layerCheck(
     radius,
     artifactId,
     negativeRegisterNote(def, radius, str(props.dataset)),
+    contract,
   );
+}
+
+function lowerFirst(s: string): string {
+  return s ? `${s[0]!.toLowerCase()}${s.slice(1)}` : s;
 }
 
 function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckView {
@@ -423,6 +547,9 @@ function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckV
     stateLabel: state === 'HIT' ? LU_PROPERTY_FOUND_LABEL : LU_KNOWLEDGE_STATE_LABEL[state],
     summary,
     registerNote: null,
+    coverageNote: null,
+    coverageLimited: false,
+    limitedCoverageShort: null,
     serverNote: null,
     ruleId: null,
     details,
@@ -526,6 +653,9 @@ function extraServerRows(checks: readonly unknown[]): LuCheckView[] {
       stateLabel: LU_KNOWLEDGE_STATE_LABEL[state],
       summary,
       registerNote: null,
+      coverageNote: null,
+      coverageLimited: false,
+      limitedCoverageShort: null,
       serverNote,
       ruleId: e ? str(e.rule_id) : null,
       details: [],

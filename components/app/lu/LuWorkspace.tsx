@@ -817,13 +817,22 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const showProgress =
     Boolean(site) && (running || provisioning === 'PENDING' || provisioning === 'LEASED' || evidence.load.status === 'loading');
 
-  // DEMO M2b (§11, coordinator 2026-10-02): the assessment line never stands alone while any check is
-  // not done. Counted from the SAME rows the control panel shows -- no new derivation, and the
-  // machine-readable risk levels are untouched.
-  const coverage = useMemo(() => {
+  // DEMO M2b/M2c (§11, owner decision OD-K0-1): the assessment line never stands alone while any check
+  // is not done or any register has a known limited coverage. Owner's form: "... i de kontroller som
+  // utfördes; underlaget är ofullständigt: N av M kontroller genomförda." -- the governed assessment
+  // the UI reads carries no overall risk level, so the line opens with "Bedömningen gäller" instead
+  // of a risk word (none is invented). Counted from the SAME rows the control panel shows -- no new
+  // derivation, and the machine-readable states and risk levels are untouched.
+  const coverage = useMemo((): { complete: boolean; head: string; missing: string | null; limited: string | null } => {
     const rows = checks.filter((c) => c.key !== 'property');
-    const pending = rows.filter((c) => c.state === 'LOADING');
-    const incomplete = rows.filter((c) => c.state !== 'HIT' && c.state !== 'NO_HIT' && c.state !== 'LOADING');
+    if (rows.some((c) => c.state === 'LOADING')) {
+      return {
+        complete: false,
+        head: 'Kontrollresultaten hämtas – underlagets fullständighet visas när de är hämtade.',
+        missing: null,
+        limited: null,
+      };
+    }
     const shortState = (c: (typeof rows)[number]): string =>
       c.key === 'extra-document' && c.state === 'NOT_CHECKED'
         ? 'ej analyserat'
@@ -834,27 +843,26 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             : c.state === 'UNCERTAIN'
               ? 'ofullständigt underlag'
               : 'tekniskt fel';
-    // The document check is part of DoD v1 (K-8): a missing server answer about it is not "complete".
+    // The document check is part of DoD v1 (K-8): a missing server answer about it is a check without
+    // a result, never a smaller set.
     const documentCheckMissing = !rows.some((c) => c.key === 'extra-document');
-    if (pending.length > 0) {
-      return { complete: false, text: 'Kontrollresultaten hämtas – underlagets fullständighet visas när de är hämtade.' };
-    }
-    if (incomplete.length > 0) {
-      const list = incomplete.map((c) => `${c.label}: ${shortState(c)}`).join('; ');
-      return {
-        complete: false,
-        text:
-          `Underlaget är ofullständigt: ${incomplete.length} av ${rows.length} kontroller kunde inte utföras eller visas (${list}). ` +
-          `Bedömningen gäller bara de kontroller som utfördes.${documentCheckMissing ? ' Uppgift om dokumentkontrollen saknas.' : ''}`,
-      };
-    }
-    if (documentCheckMissing) {
-      return {
-        complete: false,
-        text: `Alla ${rows.length} kartkontroller gav ett kontrollresultat, men uppgift om dokumentkontrollen saknas – underlaget kan vara ofullständigt.`,
-      };
-    }
-    return { complete: true, text: `Alla ${rows.length} kontroller gav ett kontrollresultat (se Kontroller).` };
+    const total = rows.length + (documentCheckMissing ? 1 : 0);
+    const done = rows.filter((c) => c.state === 'HIT' || c.state === 'NO_HIT');
+    const withoutResult = [
+      ...rows.filter((c) => c.state !== 'HIT' && c.state !== 'NO_HIT').map((c) => `${c.label} (${shortState(c)})`),
+      ...(documentCheckMissing ? ['Dokumentbevis (uppgift saknas i svaret)'] : []),
+    ];
+    const limited = done.filter((c) => c.coverageLimited && c.limitedCoverageShort).map((c) => `${c.label} – ${c.limitedCoverageShort}`);
+    const head =
+      done.length < total
+        ? `Bedömningen gäller de kontroller som utfördes; underlaget är ofullständigt: ${done.length} av ${total} kontroller genomförda.`
+        : `Bedömningen gäller de kontroller som utfördes; ${done.length} av ${total} kontroller genomförda.`;
+    return {
+      complete: done.length === total && limited.length === 0,
+      head,
+      missing: withoutResult.length > 0 ? `Utan visat kontrollresultat: ${withoutResult.join('; ')}.` : null,
+      limited: limited.length > 0 ? `Begränsad täckning: ${limited.join('; ')}.` : null,
+    };
   }, [checks]);
 
   // Item 4: one ring only when every checked layer used the same governed search radius.
@@ -1215,14 +1223,18 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               </span>
             </p>
             {governed.assessmentStatus === 'ASSESSED' ? (
-              <p
+              <div
                 data-testid="lu-assessment-coverage"
                 data-complete={coverage.complete ? 'true' : 'false'}
-                className="text-sm font-semibold"
+                className="text-sm space-y-1"
                 style={{ color: coverage.complete ? 'inherit' : '#FDBA74' }}
               >
-                {coverage.text}
-              </p>
+                <p data-testid="lu-assessment-coverage-head" className="font-semibold">
+                  {coverage.head}
+                </p>
+                {coverage.missing ? <p data-testid="lu-assessment-coverage-missing">{coverage.missing}</p> : null}
+                {coverage.limited ? <p data-testid="lu-assessment-coverage-limited">{coverage.limited}</p> : null}
+              </div>
             ) : null}
           </div>
           {governed.statusMessage ? (

@@ -189,15 +189,140 @@ describe('DEMO M2a/M2b luControlChecks', () => {
       'Register: inget registrerat objekt inom 500 m i lagret Potentiellt förorenade områden (EBH) (dataset ebh). Det är en registerkontroll, inte en markundersökning, och visar inte markens skick eller att föroreningar eller påverkan saknas.',
     );
     expect(c.water.registerNote).toContain('inte en inventering i fält');
-    expect(c.natura2000.registerNote).toContain('visar inte att påverkan på sådana områden saknas');
+    // M2c item 1: no longer "registerkontroll av utpekade Natura 2000-områden" (the register is SPA only).
+    expect(c.natura2000.registerNote).toContain('Det är en registerkontroll och visar inte att påverkan på Natura 2000-områden saknas.');
     // Evidence panel: evidence type and the coverage/limit facts the API has; the rest is said to be missing.
     const rows = Object.fromEntries(c.ebh.details.map((r) => [r.label, r.value]));
     expect(rows.Evidenstyp).toBe('Registeruppgift / datasetobservation');
     expect(JSON.stringify(c.ebh.details)).not.toMatch(/mätning|modell/i);
-    expect(rows['Källa (dataset)']).toBe('ebh');
+    // M2c item 1: the source is the register as the import contract names it; the dataset id is technical.
+    expect(rows.Källa).toBe('Länsstyrelsen – potentiellt förorenade områden (EBH)');
+    expect(c.ebh.technical).toContainEqual({ label: 'Dataset', value: 'ebh' });
     expect(rows.Räknetak).toBe('Inte nått (0 av högst 50)');
     expect(rows['Upplösning/avgränsning']).toBe('Saknas i underlaget');
     expect(rows.Resultat).toBe('Ingen registrerad träff');
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // DEMO M2c item 1 (M2b verifier finding 1, High): every register states its ACTUAL coverage as the
+  // frozen import contracts give it (docs/architecture/admit-v1/LAYER-ID-CONTRACTS-V1.md +
+  // ADMIT-V1-SET.md), bound to the exact dataset version (contract source_sha256 == evidence version).
+  // ---------------------------------------------------------------------------------------------
+  const CONTRACT_SHA: Record<(typeof LAYERS)[number], string> = {
+    water: '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc',
+    ebh: '02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186',
+    protected_area: '983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae',
+    natura2000: 'a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02',
+    water_protection_area: 'ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18',
+  };
+  const contractFeature = (layer: (typeof LAYERS)[number], exists: boolean, count: number) =>
+    feature(layer, exists, count, { version: CONTRACT_SHA[layer], layer_version_hash: CONTRACT_SHA[layer] });
+  const rowsOf = (check: { details: readonly { label: string; value: string }[] }) =>
+    Object.fromEntries(check.details.map((r) => [r.label, r.value]));
+
+  it('M2c item 1: Natura 2000 (SPA only) and Skyddad natur (naturreservat only) are never an unqualified "ingen registrerad träff"', () => {
+    const c = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: LAYERS.map((layer) => contractFeature(layer, false, 0)) },
+        findings: [],
+      }),
+    );
+    // Machine-readable state is unchanged ...
+    expect(c.natura2000.state).toBe('NO_HIT');
+    expect(c.protected_area.state).toBe('NO_HIT');
+    // ... but the chip carries the known partial coverage in the same box.
+    expect(c.natura2000.coverageLimited).toBe(true);
+    expect(c.natura2000.stateLabel).toBe('Kontrollerat – ingen registrerad träff · begränsad täckning');
+    expect(c.natura2000.coverageNote).toBe(
+      'Täckning: endast fågeldirektivets områden (SPA). Habitatdirektivets områden (SCI/SAC) ingår inte i underlaget och är inte kontrollerade.',
+    );
+    expect(c.protected_area.coverageLimited).toBe(true);
+    expect(c.protected_area.stateLabel).toBe('Kontrollerat – ingen registrerad träff · begränsad täckning');
+    expect(c.protected_area.coverageNote).toBe(
+      'Täckning: endast naturreservat. Andra typer av skyddade områden ingår inte i underlaget och är inte kontrollerade.',
+    );
+    // The register notes no longer claim the whole category ("utpekade ... områden", "beslutade").
+    for (const layer of LAYERS) {
+      expect(`${c[layer].summary} ${c[layer].registerNote} ${c[layer].coverageNote ?? ''}`).not.toMatch(/utpekade|beslutade/);
+      expect(`${c[layer].summary} ${c[layer].registerNote}`).not.toMatch(/inga risker|ingen risk|oförorenad|ren mark|inga avvikelser/i);
+    }
+    // Evidence panel: source, dated version and coverage from the contract, or "Saknas i underlaget".
+    expect(rowsOf(c.natura2000).Källa).toBe('Naturvårdsverket – Natura 2000, fågeldirektivets områden (SPA), rikstäckande');
+    expect(rowsOf(c.natura2000).Källversion).toBe('2026-05-08');
+    expect(rowsOf(c.natura2000).Täckning).toBe(
+      'Endast fågeldirektivets områden (SPA). Habitatdirektivets områden (SCI/SAC) ingår inte i underlaget och är inte kontrollerade.',
+    );
+    expect(rowsOf(c.protected_area).Källa).toBe('Naturvårdsverket – skyddade områden: naturreservat');
+    expect(rowsOf(c.protected_area).Källversion).toBe('Saknas i underlaget');
+  });
+
+  it('M2c item 1: wells, EBH and water protection state what the contract says -- and "Saknas i underlaget" where it says nothing', () => {
+    const c = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: LAYERS.map((layer) => contractFeature(layer, false, 0)) },
+        findings: [],
+      }),
+    );
+    for (const layer of ['water', 'ebh', 'water_protection_area'] as const) {
+      expect(c[layer].coverageLimited).toBe(false);
+      expect(c[layer].stateLabel).toBe('Kontrollerat – ingen registrerad träff');
+    }
+    expect(c.water.coverageNote).toBeNull();
+    expect(rowsOf(c.water).Täckning).toBe('Saknas i underlaget');
+    expect(rowsOf(c.water).Källa).toBe('SGU – brunnar');
+    expect(rowsOf(c.water).Källversion).toBe('2026-06-19');
+    expect(c.ebh.coverageNote).toBeNull();
+    expect(rowsOf(c.ebh).Täckning).toBe('Saknas i underlaget');
+    expect(rowsOf(c.ebh).Källa).toBe('Länsstyrelsen – potentiellt förorenade områden (EBH)');
+    expect(rowsOf(c.ebh).Källversion).toBe('2026-07-23');
+    expect(c.water_protection_area.coverageNote).toBe(
+      'Täckning: endast Naturvårdsverkets dataset ingår; Länsstyrelsens vattenskyddsdata (VISS) ingår inte. Om datasetet omfattar alla vattenskyddsområden: saknas i underlaget.',
+    );
+    expect(rowsOf(c.water_protection_area).Källa).toBe('Naturvårdsverket – vattenskyddsområden');
+    expect(rowsOf(c.water_protection_area).Källversion).toBe('Saknas i underlaget');
+  });
+
+  it('M2c item 1: the coverage statement is bound to the exact dataset version -- another version says "Saknas i underlaget"', () => {
+    const otherVersion = 'f'.repeat(64);
+    const c = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: [feature('natura2000', false, 0, { version: otherVersion, layer_version_hash: otherVersion })] },
+        findings: [],
+      }),
+    );
+    expect(c.natura2000.state).toBe('NO_HIT');
+    expect(c.natura2000.coverageLimited).toBe(false);
+    expect(c.natura2000.coverageNote).toBeNull();
+    expect(rowsOf(c.natura2000).Täckning).toBe('Saknas i underlaget');
+    expect(rowsOf(c.natura2000).Källa).toBe('Saknas i underlaget');
+    expect(c.natura2000.technical).toContainEqual({
+      label: 'Importkontrakt',
+      value: 'Datasetversionen finns inte i importkontraktet (LAYER-ID-CONTRACTS-V1).',
+    });
+  });
+
+  it('M2c item 1: a hit in a partially covered register is still a hit, with the coverage stated', () => {
+    const c = byKey(
+      deriveLuControlChecks({
+        property,
+        assessment: PRESENT,
+        evidence: { status: 'loaded', features: [contractFeature('natura2000', true, 1)] },
+        findings: [],
+      }),
+    );
+    expect(c.natura2000.state).toBe('HIT');
+    expect(c.natura2000.stateLabel).toBe('Kontrollerat – träff · begränsad täckning');
+    expect(c.natura2000.coverageNote).toContain('endast fågeldirektivets områden (SPA)');
+    expect(c.natura2000.technical).toContainEqual({
+      label: 'Importkontrakt',
+      value: 'lu.natura2000 · Naturvardsverket/Natura2000/2026-05-08/SPA_Rikstackande',
+    });
   });
 
   it('the count cap is stated when it was reached, and said to be missing when the API has no cap', () => {

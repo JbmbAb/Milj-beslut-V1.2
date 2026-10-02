@@ -23,6 +23,16 @@ const getActiveProjectId = vi.fn(() => 'proj-1');
 // what the component matches on to distinguish "no persisted assessment yet" from a genuine error.
 const NO_CURRENT_ASSESSMENT_MESSAGE = 'No current governed LU assessment is available for this project.';
 
+// DEMO M2c: each layer's real dataset version (= source_sha256 in LAYER-ID-CONTRACTS-V1.md), as the
+// captured live payload carries it.
+const LAYER_VERSION: Record<string, string> = {
+  water: '2b4b514f8b18a1a614d9aeac75c32eff8c52a3864c54770be112fd88fa263ddc',
+  ebh: '02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186',
+  protected_area: '983772bf129d14326c43aa5d08f152e65604778d392c28ea4fee0c4e838af9ae',
+  natura2000: 'a5d665ae7bfde9ebeaa4883d5db7bbf70aea9cb7ad5a3f621c4cdbc003ad7f02',
+  water_protection_area: 'ba6fdd88fa478d9b930a41153d03b84a34b086de8d6c5aa0f6b63c0b4dd6ff18',
+};
+
 // DEMO M2a: a governed /viewer/evidence FeatureCollection in the real wire shape
 // (demo-runtime/m1a/uppsala-svia-1-111/09-viewer-evidence.json), built per test.
 function viewerEvidence(layers: Array<{ layer: string; exists: boolean; count: number }>) {
@@ -35,7 +45,7 @@ function viewerEvidence(layers: Array<{ layer: string; exists: boolean; count: n
         cas_artifact_id: `evidence-${layer}-test`,
         cas_content_hash: 'aaaaaaaabbbbbbbbccccccccdddddddd',
         dataset: layer,
-        version: '02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186',
+        version: LAYER_VERSION[layer] ?? '0'.repeat(64),
         engine: 'PostGIS',
         algorithm: 'spatial.dwithin_existence',
         result_semantics_kind: 'EXISTENCE_WITHIN_DISTANCE',
@@ -1370,23 +1380,25 @@ describe('LuWorkspace DEMO M2b', () => {
     expect(summary).toContainElement(screen.getByTestId('lu-assessment-status'));
     expect(summary).toContainElement(coverage);
     expect(coverage).toHaveAttribute('data-complete', 'false');
-    expect(coverage).toHaveTextContent(
-      'Underlaget är ofullständigt: 1 av 6 kontroller kunde inte utföras eller visas (Dokumentbevis: ej analyserat). Bedömningen gäller bara de kontroller som utfördes.',
+    // DEMO M2c item 1: the owner's form (OD-K0-1) -- N of M checks carried out.
+    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent(
+      'Bedömningen gäller de kontroller som utfördes; underlaget är ofullständigt: 5 av 6 kontroller genomförda.',
     );
+    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Utan visat kontrollresultat: Dokumentbevis (ej analyserat).');
     // Machine-readable levels are untouched: the LOW findings still say "Låg risk" for themselves.
     expect(screen.getByTestId('lu-finding-finding-water')).toHaveTextContent('Låg risk');
   });
 
-  it('§11 (coordinator): a technical error on a layer is counted as "kunde inte utföras eller visas" in the assessment line', async () => {
+  it('§11 (coordinator): a technical error on a layer is never counted as a carried-out check in the assessment line', async () => {
     const user = userEvent.setup();
     mockM2b({
       currentAssessment: () => ({ ...persisted('assessment-x'), documentCheck: DOCUMENT_CHECK }),
       evidence: () => apiError(503, 'upstream down'),
     });
     await openM2b(user);
-    await waitFor(() => expect(screen.getByTestId('lu-assessment-coverage')).toHaveTextContent('6 av 6 kontroller'));
-    expect(screen.getByTestId('lu-assessment-coverage')).toHaveTextContent('Brunnar: tekniskt fel');
-    expect(screen.getByTestId('lu-assessment-coverage')).toHaveTextContent('Dokumentbevis: ej analyserat');
+    await waitFor(() => expect(screen.getByTestId('lu-assessment-coverage')).toHaveTextContent('0 av 6 kontroller genomförda'));
+    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Brunnar (tekniskt fel)');
+    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Dokumentbevis (ej analyserat)');
   });
 
   it('§11 (coordinator): all five map checks done but no document check in the answer is still not "complete"', async () => {
@@ -1395,7 +1407,60 @@ describe('LuWorkspace DEMO M2b', () => {
     await openM2b(user);
     await waitFor(() => expect(screen.getByTestId('lu-check-water')).toHaveAttribute('data-state', 'HIT'));
     expect(screen.getByTestId('lu-assessment-coverage')).toHaveAttribute('data-complete', 'false');
-    expect(screen.getByTestId('lu-assessment-coverage')).toHaveTextContent('uppgift om dokumentkontrollen saknas');
+    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent('underlaget är ofullständigt: 5 av 6 kontroller genomförda.');
+    expect(screen.getByTestId('lu-assessment-coverage-missing')).toHaveTextContent('Dokumentbevis (uppgift saknas i svaret)');
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // DEMO M2c item 1 (M2b verifier finding 1, High): a register with known partial coverage is never
+  // shown as an unqualified green "ingen registrerad träff", and the assessment line never says
+  // "Alla 6 kontroller gav ett kontrollresultat" while a layer has limited coverage.
+  // -----------------------------------------------------------------------------------------------
+  const FIVE_NO_HIT = viewerEvidence(LAYERS.map((layer) => ({ layer, exists: false, count: 0 })));
+  const DOCUMENT_CHECK_HIT = {
+    layer: 'document',
+    rule_id: 'LU-DOC-BESLUT-001',
+    status: 'CHECKED_HIT',
+    evidence_artifact_id: 'doc-evidence-1',
+    reason: null,
+    message_sv:
+      'Dokument och tidigare beslut: kontrollerat – träff. Bedömningen innehåller verifierat dokumentbevis (se fynd). ' +
+      'Övriga dokument för fastigheten är inte kontrollerade.',
+  };
+
+  it('M2c item 1: Natura 2000 and Skyddad natur rows state their limited coverage in the same box, never plain green', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-x', []), documentCheck: DOCUMENT_CHECK }), evidence: () => FIVE_NO_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
+    for (const layer of ['natura2000', 'protected_area']) {
+      expect(screen.getByTestId(`lu-check-${layer}`)).toHaveAttribute('data-coverage', 'limited');
+      expect(screen.getByTestId(`lu-check-state-${layer}`)).toHaveTextContent('Kontrollerat – ingen registrerad träff · begränsad täckning');
+    }
+    expect(screen.getByTestId('lu-check-coverage-note-natura2000')).toHaveTextContent(
+      'Täckning: endast fågeldirektivets områden (SPA). Habitatdirektivets områden (SCI/SAC) ingår inte i underlaget och är inte kontrollerade.',
+    );
+    expect(screen.getByTestId('lu-check-coverage-note-protected_area')).toHaveTextContent('Täckning: endast naturreservat.');
+    expect(screen.getByTestId('lu-check-ebh')).not.toHaveAttribute('data-coverage', 'limited');
+    expect(screen.getByTestId('lu-control-panel')).not.toHaveTextContent(/utpekade|beslutade/);
+  });
+
+  it('M2c item 1: with every check carried out, the assessment line still names the limited coverage -- never "Alla 6 kontroller"', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => ({ ...persisted('assessment-x', []), documentCheck: DOCUMENT_CHECK_HIT }), evidence: () => FIVE_NO_HIT });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-check-natura2000')).toHaveAttribute('data-state', 'NO_HIT'));
+    const coverage = screen.getByTestId('lu-assessment-coverage');
+    expect(coverage).not.toHaveTextContent(/Alla \d+ kontroller/);
+    expect(coverage).toHaveAttribute('data-complete', 'false');
+    expect(screen.getByTestId('lu-assessment-coverage-head')).toHaveTextContent(
+      'Bedömningen gäller de kontroller som utfördes; 6 av 6 kontroller genomförda.',
+    );
+    const limited = screen.getByTestId('lu-assessment-coverage-limited');
+    expect(limited).toHaveTextContent('Begränsad täckning:');
+    expect(limited).toHaveTextContent('Skyddad natur – endast naturreservat');
+    expect(limited).toHaveTextContent('Natura 2000 – endast fågeldirektivets områden (SPA), inte habitatdirektivets (SCI/SAC)');
+    expect(screen.getByTestId('lu-assessment-summary')).toHaveStyle({ borderLeft: '3px solid #F97316' });
   });
 
   it('item 5: when neither the read-back nor a run carries the document check, the panel says the answer lacks it', async () => {
