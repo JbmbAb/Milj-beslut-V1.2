@@ -48,6 +48,8 @@ export interface ProtectedRelationClassificationSpec {
      * verb the text does not hold (`psql -c "$SQL"`): DYNAMIC_SQL, unresolvable.
      */
     readonly dynamic_statement_after: readonly string[];
+    /** ...and after these only in a statement that starts with EXPLAIN (`EXPLAIN ANALYZE $X` runs $X; `ANALYZE $T` names a table). */
+    readonly dynamic_statement_after_explain: readonly string[];
     readonly truncate_not_after: readonly string[];
     readonly update_not_after: readonly string[];
     readonly execute_not_after: readonly string[];
@@ -133,6 +135,7 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   stringList(sql.trigger_words, "sql.trigger_words");
   stringList(sql.reserved_at_name_position, "sql.reserved_at_name_position");
   stringList(sql.dynamic_statement_after, "sql.dynamic_statement_after");
+  stringList(sql.dynamic_statement_after_explain, "sql.dynamic_statement_after_explain");
   if (typeof sql.max_nesting !== "number" || sql.max_nesting < 1) throw invalid("sql.max_nesting");
   const ogr = doc.ogr2ogr as Record<string, unknown> | undefined;
   if (!ogr) throw invalid("ogr2ogr");

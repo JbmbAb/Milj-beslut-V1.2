@@ -110,6 +110,7 @@ function Get-ProtectedClassificationSpec {
         CreateModifiers = [string[]]@($doc.sql.create_modifiers)
         StatementStartAfter = [string[]]@($doc.sql.statement_start_after)
         DynamicStatementAfter = [string[]]@($doc.sql.dynamic_statement_after)
+        DynamicStatementAfterExplain = [string[]]@($doc.sql.dynamic_statement_after_explain)
         TruncateNotAfter = [string[]]@($doc.sql.truncate_not_after)
         UpdateNotAfter = [string[]]@($doc.sql.update_not_after)
         ExecuteNotAfter = [string[]]@($doc.sql.execute_not_after)
@@ -705,7 +706,8 @@ function PrgAnStatement($an, $toks) {
         # U30F2 H1: `psql -c "$SQL"` / `BEGIN $CMD; END`: the statement's verb is not in the text
         if ($t.t -ceq 'DYN') {
             $pk = PrgPrevKey $toks $p
-            if ($p -eq 0 -or ($null -ne $pk -and $spec.DynamicStatementAfter -ccontains $pk)) { $an.Acc.Unres('DYNAMIC_SQL', 'a statement whose verb is a dynamic value'); continue }
+            $explainPrev = $null -ne $pk -and $spec.DynamicStatementAfterExplain -ccontains $pk -and $toks[0].t -ceq 'WORD' -and $toks[0].v -ceq 'explain'
+            if ($p -eq 0 -or ($null -ne $pk -and $spec.DynamicStatementAfter -ccontains $pk) -or $explainPrev) { $an.Acc.Unres('DYNAMIC_SQL', 'a statement whose verb is a dynamic value'); continue }
         }
         if ($t.t -cne 'WORD') { continue }
         $prev = PrgPrevKey $toks $p

@@ -781,7 +781,9 @@ class _SqlAnalyzer:
                 self.unres('PSQL_META', f'psql \\{_v(t)} runs SQL the text does not contain')
                 continue
             # U30F2 H1: `psql -c "$SQL"` / `BEGIN $CMD; END`: the statement's verb is not in the text
-            if _t(t) == 'DYN' and (p == 0 or (_prev_key(toks, p) or '') in sql['dynamic_statement_after']):
+            explain_prev = (_prev_key(toks, p) or '') in sql['dynamic_statement_after_explain'] and len(toks) > 0 \
+                and _t(toks[0]) == 'WORD' and _v(toks[0]) == 'explain'
+            if _t(t) == 'DYN' and (p == 0 or (_prev_key(toks, p) or '') in sql['dynamic_statement_after'] or explain_prev):
                 self.unres('DYNAMIC_SQL', 'a statement whose verb is a dynamic value')
                 continue
             if _t(t) != 'WORD':

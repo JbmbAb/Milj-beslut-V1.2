@@ -190,5 +190,8 @@
   {"id": "dyn-value-in-select-sql", "kind": "sql", "text": "SELECT ⟦DYN:c⟧ FROM env.sgu_well", "expect": {"verdict": "ALLOWED"}},
   {"id": "dyn-quoted-identifier-psql", "kind": "command", "text": "psql -c \"TRUNCATE \\\"$SCHEMA\\\".\\\"$TABLE\\\"\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["TRUNCATE"]}},
   {"id": "dyn-quoted-identifier-sql", "kind": "sql", "text": "DROP TABLE \"env\".\"⟦DYN:t⟧\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP"]}},
-  {"id": "dyn-postgis-function-argument", "kind": "command", "text": "psql -c \"SELECT DropGeometryTable('$S', 'sgu_well')\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP"]}}
+  {"id": "dyn-postgis-function-argument", "kind": "command", "text": "psql -c \"SELECT DropGeometryTable('$S', 'sgu_well')\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DROP"]}},
+  {"id": "dyn-analyze-table-is-statistics", "kind": "command", "text": "psql -c \"CREATE INDEX IF NOT EXISTS ${T}_gist ON ${S}.${T} USING GIST (geom); ANALYZE ${S}.${T};\"", "expect": {"verdict": "ALLOWED"}},
+  {"id": "dyn-explain-analyze-runs-the-statement", "kind": "command", "text": "psql -c \"EXPLAIN ANALYZE $SQL\"", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "dyn-explain-analyze-verbose", "kind": "sql", "text": "EXPLAIN (ANALYZE) VERBOSE ⟦DYN:q⟧", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}}
 ]

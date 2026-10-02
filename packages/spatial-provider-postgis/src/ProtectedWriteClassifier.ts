@@ -632,7 +632,8 @@ class SqlAnalyzer {
         continue;
       }
       // U30F2 H1: `psql -c "$SQL"` / `BEGIN $CMD; END`: the statement's verb is not in the text
-      if (t.t === "DYN" && (p === 0 || sql.dynamic_statement_after.includes(prevKey(toks, p) ?? ""))) {
+      const explainPrev = sql.dynamic_statement_after_explain.includes(prevKey(toks, p) ?? "") && wordAt(toks, 0, "explain");
+      if (t.t === "DYN" && (p === 0 || sql.dynamic_statement_after.includes(prevKey(toks, p) ?? "") || explainPrev)) {
         this.unresolved("DYNAMIC_SQL", "a statement whose verb is a dynamic value");
         continue;
       }
