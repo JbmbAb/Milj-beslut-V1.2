@@ -399,7 +399,7 @@ describe('W-CATCH2 / BOOT verifier finding 2: a projection row with an unknown T
     expect(await outcomeOf(s.resolve())).toEqual({ resolved: y.artifact_id });
   });
 
-  it('S10: the current Y row's type value corrupted -> PROJECTION_ROW_INCONSISTENT (503, not retryable), never 404 "missing"', async () => {
+  it('S10: the type value of the current Y row corrupted -> PROJECTION_ROW_INCONSISTENT (503, not retryable), never 404 "missing"', async () => {
     const s = await setup();
     const x = await s.assessment('x-s10', contextOld);
     const y = await s.assessment('y-s10', contextNew);
@@ -411,7 +411,7 @@ describe('W-CATCH2 / BOOT verifier finding 2: a projection row with an unknown T
     expect(s.repository.reads.filter((id) => id.startsWith('assessment-')), 'nothing is presented from a damaged index').toEqual([]);
   });
 
-  it('S11: X2 and Y2 on the same binding and point (normally AMBIGUOUS); Y2's type value corrupted -> fail closed, X2 never served with 200', async () => {
+  it('S11: X2 and Y2 on the same binding and point (normally AMBIGUOUS); the type value of Y2 corrupted -> fail closed, X2 never served with 200', async () => {
     const s = await setup();
     const x2 = await s.assessment('x2-s11', contextNew, POINT_A);
     const y2 = await s.assessment('y2-s11', contextNew, POINT_A);
@@ -421,7 +421,7 @@ describe('W-CATCH2 / BOOT verifier finding 2: a projection row with an unknown T
     expect(control.message).toMatch(/^REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT/);
     corruptType(s, y2.artifact_id, 'X');
     const outcome = await outcomeOf(s.resolve(POINT_A));
-    expect(outcome, 'another assessment was presented because one row's type column was damaged').not.toEqual({ resolved: x2.artifact_id });
+    expect(outcome, 'another assessment was presented because the type column of one row was damaged').not.toEqual({ resolved: x2.artifact_id });
     expectRowInconsistent(outcome, [y2.artifact_id]);
   });
 
