@@ -168,6 +168,22 @@ describe('DEMO M2b presentLuError', () => {
     expect(p.technical.map((r) => r.value)).toContain((err as { code: string }).code);
   });
 
+  it('item 6: PROPERTY_LOOKUP_AMBIGUOUS is a known limitation of the property data -- never "check your designation", never a retry', () => {
+    for (const status of [400, 409]) {
+      const p = presentLuError(
+        httpError(status, 'Fastighetsbeteckningen matchar flera fastighetsytor. Ingen fastighet valdes.', { code: 'PROPERTY_LOOKUP_AMBIGUOUS' }),
+        'property-lookup',
+      );
+      expect(p.kind).toBe('REFUSED');
+      expect(p.retryable).toBe(false);
+      expect(p.messageSv).toBe(
+        'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.',
+      );
+      expect(p.messageSv).not.toMatch(/Kontrollera fastighetsbeteckningen/);
+      expect(p.technical).toContainEqual({ label: 'Felkod', value: 'PROPERTY_LOOKUP_AMBIGUOUS' });
+    }
+  });
+
   it('item 5: the server\'s `retryable` decides -- a 503 it marks not retryable never offers "Försök igen"; a refusal never does', () => {
     expect(presentLuError(httpError(503, 'x', { retryable: false }), 'current-assessment').retryable).toBe(false);
     expect(presentLuError(httpError(500, 'x'), 'current-assessment').retryable).toBe(true);

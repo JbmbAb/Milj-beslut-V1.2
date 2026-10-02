@@ -2060,6 +2060,25 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-run-outcome')).toHaveTextContent('Ett nytt försök ger samma utfall så länge orsaken finns kvar.');
   });
 
+  it('item 6: an ambiguous property designation is a known data limitation -- plain Swedish, no retry, nothing assessed', async () => {
+    const user = userEvent.setup();
+    mockM2b({ currentAssessment: () => 'missing' });
+    fetchPropertyInfo.mockRejectedValue(
+      apiError(400, 'Fastighetsbeteckningen matchar flera fastighetsytor. Ingen fastighet valdes.', { code: 'PROPERTY_LOOKUP_AMBIGUOUS' }),
+    );
+    render(<LuWorkspace />);
+    await user.type(screen.getByTestId('lu-designation'), 'ALE ÄLEBRÄCKE 1:31');
+    await user.click(screen.getByTestId('lu-lookup'));
+    const message = await screen.findByTestId('lu-lookup-error-message');
+    expect(message).toHaveTextContent(
+      'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.',
+    );
+    expect(screen.queryByTestId('lu-lookup-error-retry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lu-control-retry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lu-site-ready')).not.toBeInTheDocument();
+    expect(callApi).not.toHaveBeenCalledWith(expect.stringContaining('/current-assessment'), expect.anything());
+  });
+
   it('item 2: an answer without an overall statement says "Saknas i underlaget" -- the UI composes nothing in its place', async () => {
     const user = userEvent.setup();
     mockM2b({ currentAssessment: () => persistedWithoutServerChecks('assessment-old-server') });

@@ -230,6 +230,10 @@ export function presentCurrentnessFailureClass(
   };
 }
 
+/** W-M2d item 6: an exact designation the property data holds on more than one row (PROPERTY_LOOKUP_AMBIGUOUS). */
+export const PROPERTY_LOOKUP_AMBIGUOUS_SV =
+  'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.';
+
 /** U20-D/U20CDF: the read-back's own bound point could not be verified (ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED). */
 const ASSESSED_POINT_TEXT: Readonly<Record<string, CodeText>> = {
   LOCALIZATION_GEOMETRY_MISSING: {
@@ -322,6 +326,11 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
       `${lead} Fastighetsuppslag mot Lantmäteriet är avstängt i den här miljön; endast det lokala fastighetsunderlaget används.`,
       false,
     );
+  }
+  if (f.code === 'PROPERTY_LOOKUP_AMBIGUOUS') {
+    // W-M2d item 6 (U20-A): the exact designation is on several rows of the property data (about
+    // 22 700 designations); the server refuses to choose one. Not the user's search, not retryable.
+    return make('REFUSED', PROPERTY_LOOKUP_AMBIGUOUS_SV, false);
   }
   if (f.code === 'LOCAL_PROPERTY_NOT_FOUND' || f.code === 'PROPERTY_NOT_FOUND') {
     return make('NOT_FOUND', `${lead} Fastigheten hittades inte i fastighetsunderlaget. Kontrollera beteckningen.`, false);

@@ -80,6 +80,34 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
     const technical = screen.getByText('Teknisk information').closest('details')!;
     expect(technical).not.toHaveAttribute('open');
     expect(technical).toHaveTextContent('PROPERTY_CENTROID_UNAVAILABLE');
+    // W-M2d item 5: a lasting gap in the property data is not something a new attempt changes.
+    expect(screen.queryByTestId('pf-retry')).not.toBeInTheDocument();
+  });
+
+  it('W-M2d item 6: an ambiguous designation says it is a known limitation of the property data -- not the user\'s search, and no retry', async () => {
+    const user = userEvent.setup();
+    client.listPropertyProjects.mockResolvedValue([]);
+    client.getBootstrapStatus.mockResolvedValue({
+      status: 'FAILED',
+      failureCode: 'PROPERTY_LOOKUP_AMBIGUOUS',
+      failureDetail: 'PROPERTY_LOOKUP_AMBIGUOUS: exact designation "UPPSALA SVIA 1:111" matched 2 property_unit rows; refusing to choose one',
+    });
+    await searchAndCreate(user);
+    expect(await screen.findByTestId('pf-bootstrap-failure-reason')).toHaveTextContent(
+      'Fastigheten kan inte analyseras ännu: beteckningen är inte unik i fastighetsunderlaget. Det är en känd begränsning i underlaget, inte ett fel i din sökning.',
+    );
+    const failed = screen.getByTestId('pf-bootstrap-failed');
+    expect(failed).not.toHaveTextContent(/förrän detta lyckas|inte verifierad/);
+    expect(screen.queryByTestId('pf-retry')).not.toBeInTheDocument();
+    expect(screen.getByText('Teknisk information').closest('details')!).toHaveTextContent('PROPERTY_LOOKUP_AMBIGUOUS');
+  });
+
+  it('W-M2d items 5+6: a technical bootstrap failure still offers a retry', async () => {
+    const user = userEvent.setup();
+    client.listPropertyProjects.mockResolvedValue([]);
+    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode: 'BOOTSTRAP_EXECUTION_ERROR', failureDetail: 'ECONNRESET' });
+    await searchAndCreate(user);
+    expect(await screen.findByTestId('pf-bootstrap-failure-reason')).toHaveTextContent('Ett tekniskt fel uppstod när fastigheten skulle knytas till lokaliseringen.');
     expect(screen.getByTestId('pf-retry')).toBeInTheDocument();
   });
 
