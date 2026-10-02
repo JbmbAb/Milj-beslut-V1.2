@@ -946,6 +946,9 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
     ['B2 node-postgres QueryConfig with a text getter', 'scripts/vrogue/b2v.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nawait pool.query({ get text() { return process.argv[2]!; } });\n"],
     ['B2 node-postgres QueryConfig with a static text and a later spread', 'scripts/vrogue/b2w.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst cfg = JSON.parse(process.env.W_Q!);\nawait pool.query({ text: 'SELECT 1', ...cfg });\n"],
     ['B2 node-postgres QueryConfig shorthand after a brace in a string', 'scripts/vrogue/b2x.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst text = process.argv[2]!;\nawait pool.query({ name: '}', text });\n"],
+    // U30F4 mutation round 3: a computed key, and a text method beside a static binding of the same name
+    ['B2 node-postgres QueryConfig with a computed key', 'scripts/vrogue/b2y.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst key = process.env.W_K!;\nawait pool.query({ [key]: process.argv[2]! });\n"],
+    ['B2 node-postgres QueryConfig with a text method beside a static text binding', 'scripts/vrogue/b2z.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst text = 'SELECT 1';\nawait pool.query({ text() { return process.argv[2]!; } });\n"],
   ])('%s -> caught', (_label, file, content) => {
     expect(isScannedPath(file), file).toBe(true);
     expect(problemsOf(file, content).length).toBeGreaterThan(0);
