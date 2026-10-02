@@ -41,10 +41,7 @@ import { fileURLToPath } from 'url';
 import { syncPropertyUnitFromEnv } from '../db/sync-property-unit-from-env';
 import type { ArtifactRepositoryPort } from '../../packages/mps-runtime/src/kernel/ExecutionKernel';
 import {
-  REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
   SpatialDatasetRetentionError,
-  recordRetentionAtPromote,
-  retainOutgoingThenReplace,
   type SqlPort,
   type TransactionalSqlPort,
 } from '../../packages/spatial-provider-postgis/src/SpatialDatasetRetention';
@@ -52,11 +49,18 @@ import {
   RETENTION_TRANSACTION_TIMEOUT_MS,
   committedRetentionDigestPrecondition,
 } from '../../packages/spatial-provider-postgis/src/RetentionDigestPrecondition';
+// U30F F1: every destructive step of this script (promote TRUNCATE, import-staging overwrite,
+// cleanup-staging DROP) goes through the one protected relation gate.
 import {
   CLEANUP_SKIPPED_RETAINED_RELATION,
+  REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
+  assertStagingImportOverwriteAllowed,
+  dropStagingRelationGoverned,
   planStagingCleanup,
   quoteStagingRelation,
-} from '../../packages/spatial-provider-postgis/src/StagingCleanupProtection';
+  recordRetentionAtPromote,
+  retainOutgoingThenReplace,
+} from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 
 dotenv.config();
 
@@ -265,6 +269,21 @@ async function processManifest(manifestPath: string) {
         logger.dry(`[import-staging] Would run ogr2ogr from ${primaryFilePath} to ${fullStagingTarget}`);
         return;
       }
+
+      // U30F F1 (PRES-05): ogr2ogr -overwrite replaces lm_staging.<table>_<hash8>, which may be the
+      // retained relation of a bound version (same hash, --retry-failed, or an 8-hex collision).
+      // Decided per relation BEFORE anything is written; a protected relation refuses the import.
+      await assertStagingImportOverwriteAllowed({
+        db: prismaSqlPort(prisma),
+        relation: { schema: stagingSchema, table: stagingTable },
+        openRepo: async () => {
+          try {
+            return await openRetentionCas();
+          } catch {
+            return null; // undecidable protection -> refused inside, never "unprotected"
+          }
+        },
+      });
 
       logger.info(`   - Creating staging schema ${stagingSchema} if not exists...`);
       await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${stagingSchema};`);
@@ -740,7 +759,7 @@ async function cleanupStaging() {
       if (decision.code === CLEANUP_SKIPPED_RETAINED_RELATION) {
         logger.warn(
           `   - ${decision.code} [${decision.reason}]: keeping ${decision.relation_name} (batches ${batches})` +
-            (decision.record_id ? ` -- retention record ${decision.record_id}` : ' -- a SUCCESS batch is materialised in it'),
+            (decision.detail ? ` -- ${decision.detail}` : ''),
         );
       } else {
         logger.warn(`   - ${decision.code}: keeping ${decision.relation_name} (batches ${batches}): ${decision.detail}`);
@@ -751,15 +770,24 @@ async function cleanupStaging() {
 
     const stagingTable = quoteStagingRelation(decision.relation);
     if (!execute) {
-      logger.dry(`[cleanup-staging] Would run DROP TABLE IF EXISTS ${stagingTable} (batches ${batches})`);
-    } else {
-      logger.info(`   - Dropping ${stagingTable}...`);
-      try {
-         await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${stagingTable};`);
-         logger.info(`   ✅ Dropped ${stagingTable}`);
-      } catch (err: any) {
-         logger.error(`   ❌ Failed to drop ${stagingTable}: ${err.message}`);
+      logger.dry(`[cleanup-staging] Would run DROP TABLE ${stagingTable} after re-checking its protection under a lock (batches ${batches})`);
+      continue;
+    }
+    // U30F F9: protection is decided again in the DROP's own transaction, under an ACCESS EXCLUSIVE
+    // lock on the relation, immediately before the DROP; a change since the plan keeps the relation.
+    logger.info(`   - Dropping ${stagingTable} (re-checked under lock)...`);
+    try {
+      const dropped = await dropStagingRelationGoverned({ db: prismaTransactionalSqlPort(), repo: retentionRepo, relation: decision.relation });
+      if (dropped.outcome === 'DROPPED') logger.info(`   ✅ Dropped ${stagingTable}`);
+      else if (dropped.outcome === 'ABSENT') logger.info(`   - ${stagingTable} no longer exists; nothing to drop`);
+      else {
+        const p = dropped.protection;
+        logger.warn(`   - ${p.code} [${p.reason}]: keeping ${decision.relation_name} (batches ${batches}) -- changed since the plan: ${p.detail}`);
+        if (p.code !== CLEANUP_SKIPPED_RETAINED_RELATION) process.exitCode = 1;
       }
+    } catch (err: any) {
+      logger.error(`   ❌ Failed to drop ${stagingTable}: ${err.message}`);
+      process.exitCode = 1;
     }
   }
 }

@@ -275,6 +275,62 @@ export function legacyV1RetentionRecordId(target: QualifiedTable, sha256: string
   return recordIdIn(SPATIAL_DATASET_RETENTION_CONTRACT_V1, target, sha256);
 }
 
+/**
+ * F9 (U30F): the retained relation's claim, keyed by the RELATION NAME alone. Written before every
+ * verified record, so a staging cleanup or import can find "this relation holds a recorded version"
+ * without the ledger (whose SUCCESS row may be gone) and without knowing the full version hash (an
+ * 8-hex collision maps two versions to one name). WORM: a second version claiming the same relation
+ * is a RECORD_CONFLICT.
+ */
+export const SPATIAL_DATASET_RETAINED_RELATION_CLAIM = "SPATIAL_DATASET_RETAINED_RELATION_CLAIM" as const;
+export const SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1 = "spatial-dataset-retained-relation-claim-v1" as const;
+
+export interface RetainedRelationClaimPayload {
+  readonly contract_version: typeof SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1;
+  readonly retained_relation: string;
+  readonly target: QualifiedTable;
+  readonly content_bundle_sha256: string;
+  readonly retention_record_id: string;
+}
+
+export interface RetainedRelationClaim {
+  readonly artifact_id: string;
+  readonly artifact_type: typeof SPATIAL_DATASET_RETAINED_RELATION_CLAIM;
+  readonly content_hash: ContentHash;
+  readonly payload: RetainedRelationClaimPayload;
+}
+
+export function retainedRelationClaimId(relation: QualifiedTable): string {
+  assertIdentifier(relation.schema, "schema");
+  assertIdentifier(relation.table, "retained relation");
+  const digest = createHash("sha256")
+    .update(`${SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1}\u0000${relation.schema}.${relation.table}`, "utf8")
+    .digest("hex");
+  return `spatial-dataset-retained-relation-claim-${digest.slice(0, 40)}`;
+}
+
+/** The claim on `relation`, or null when none exists; any other read failure propagates. */
+export async function resolveRetainedRelationClaim(repo: ArtifactRepositoryPort, relation: QualifiedTable): Promise<RetainedRelationClaim | null> {
+  const artifactId = retainedRelationClaimId(relation);
+  try {
+    return await repo.resolve<RetainedRelationClaim>({ artifact_id: artifactId, artifact_type: SPATIAL_DATASET_RETAINED_RELATION_CLAIM });
+  } catch (error) {
+    if (error instanceof Error && error.message === `Artifact not found: ${artifactId}`) return null;
+    throw error;
+  }
+}
+
+/** Legacy v1 record for (target, version), or null; never treated as verification. */
+export async function resolveLegacyV1RetentionRecord(repo: ArtifactRepositoryPort, target: QualifiedTable, sha256: string): Promise<unknown | null> {
+  const artifactId = legacyV1RetentionRecordId(target, sha256);
+  try {
+    return await repo.resolve({ artifact_id: artifactId, artifact_type: SPATIAL_DATASET_RETENTION_RECORD });
+  } catch (error) {
+    if (error instanceof Error && error.message === `Artifact not found: ${artifactId}`) return null;
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Catalog reads
 // ---------------------------------------------------------------------------------------------
@@ -613,8 +669,10 @@ export async function writeOrVerifyRetentionRecord(
           `but ${record.payload.retained_relation} now has rows=${record.payload.row_count} digest=${record.payload.digest.value}`,
       );
     }
+    await ensureRetainedRelationClaim(repo, existing, rejectCode);
     return { outcome: "ALREADY_RECORDED", record: existing };
   }
+  await ensureRetainedRelationClaim(repo, record, rejectCode);
   try {
     await repo.put({ artifact_id: record.artifact_id, content_hash: record.content_hash, body: record });
   } catch (error) {
@@ -623,6 +681,57 @@ export async function writeOrVerifyRetentionRecord(
     });
   }
   return { outcome: "RECORDED", record };
+}
+
+/** F9: write (or verify) the claim of the record's retained relation, before the record itself. */
+async function ensureRetainedRelationClaim(
+  repo: ArtifactRepositoryPort,
+  record: SpatialDatasetRetentionRecord,
+  rejectCode: SpatialDatasetRetentionError["code"],
+): Promise<void> {
+  const relation = parseQualifiedTable(record.payload.retained_relation);
+  const claimId = retainedRelationClaimId(relation);
+  let claim: RetainedRelationClaim | null;
+  try {
+    claim = await resolveRetainedRelationClaim(repo, relation);
+  } catch (error) {
+    throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `reading relation claim ${claimId}: ${describe(error)}`, { cause: error });
+  }
+  if (claim) {
+    const p = claim.payload as Partial<RetainedRelationClaimPayload> | undefined;
+    if (
+      p?.content_bundle_sha256 !== record.payload.content_bundle_sha256 ||
+      p?.target?.schema !== record.payload.target.schema ||
+      p?.target?.table !== record.payload.target.table
+    ) {
+      throw new SpatialDatasetRetentionError(
+        rejectCode,
+        "RECORD_CONFLICT",
+        `${record.payload.retained_relation} is already claimed by ${p?.target ? formatQualifiedTable(p.target as QualifiedTable) : "?"}@${p?.content_bundle_sha256 ?? "?"} ` +
+          `(claim ${claimId}); ${formatQualifiedTable(record.payload.target)}@${record.payload.content_bundle_sha256} maps to the same relation ` +
+          "(an 8-hex collision or a replaced relation) and cannot be recorded in it",
+      );
+    }
+    return;
+  }
+  const payload: RetainedRelationClaimPayload = {
+    contract_version: SPATIAL_DATASET_RETAINED_RELATION_CLAIM_CONTRACT_V1,
+    retained_relation: record.payload.retained_relation,
+    target: { schema: record.payload.target.schema, table: record.payload.target.table },
+    content_bundle_sha256: record.payload.content_bundle_sha256,
+    retention_record_id: record.artifact_id,
+  };
+  const body: RetainedRelationClaim = {
+    artifact_id: claimId,
+    artifact_type: SPATIAL_DATASET_RETAINED_RELATION_CLAIM,
+    content_hash: sha256ContentHash(payload),
+    payload,
+  };
+  try {
+    await repo.put({ artifact_id: claimId, content_hash: body.content_hash, body });
+  } catch (error) {
+    throw new SpatialDatasetRetentionError(rejectCode, "CAS_UNAVAILABLE", `writing relation claim ${claimId}: ${describe(error)}`, { cause: error });
+  }
 }
 
 function describe(error: unknown): string {

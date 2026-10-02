@@ -2,34 +2,47 @@ import type { ArtifactRepositoryPort } from "../../mps-runtime/src/kernel/Execut
 import {
   RETAINED_RELATION_SCHEMA,
   formatQualifiedTable,
-  isRetainedRelationProtected,
+  relationExists,
+  resolveLegacyV1RetentionRecord,
+  resolveRetainedRelationClaim,
   resolveRetentionRecord,
+  retainedRelationClaimId,
   retentionRecordId,
+  legacyV1RetentionRecordId,
   type QualifiedTable,
   type SqlPort,
+  type TransactionalSqlPort,
 } from "./SpatialDatasetRetention";
 
 /**
- * U30-B2 cleanup-staging -- PRES-05 relation protection for the staging garbage collection.
+ * U30-B2 cleanup-staging + U30F F1/F9 -- PRES-05 protection of the relations in lm_staging.
  *
- * `cleanup-staging` (scripts/import/import-librarian-manifest.ts) drops
- * `lm_staging.<target_table>_<hash8>` for every FAILED (or stale STAGING_STARTED) import batch. That
- * name is ALSO the retained relation of the SUCCESS version with the same hash (the staging table
- * it was promoted from, see SpatialDatasetRetention.retainedRelationFor), so a FAILED re-import of
- * a bound version used to drop that version's only materialisation.
+ * `lm_staging.<target_table>_<hash8>` is the staging table of an import AND the retained relation
+ * of the SUCCESS version with the same 8-hex prefix (SpatialDatasetRetention.retainedRelationFor).
+ * Two governed paths destroy such relations: cleanup-staging (DROP) and import-staging
+ * (ogr2ogr -overwrite). Both decide protection PER RELATION with `decideStagingRelationProtection`:
  *
- * `planStagingCleanup` decides, BEFORE any DROP is issued, per relation:
- *   - SKIP CLEANUP_SKIPPED_RETAINED_RELATION [SUCCESS_BATCH]     a SUCCESS batch maps to the relation;
- *   - SKIP CLEANUP_SKIPPED_RETAINED_RELATION [RETENTION_RECORD]  a retention record exists for the
- *     (target, version hash) of one of its batches;
- *   - SKIP CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE               protection could not be decided (CAS
- *     unavailable or unreadable, or a name that is not a plain identifier) -- fail-closed: kept;
- *   - DROP                                                        only when neither protection applies.
- * A database error while checking SUCCESS batches propagates: the whole cleanup stops before any DROP.
+ *   SUCCESS_BATCH            the ledger has a SUCCESS batch mapping to the relation;
+ *   IN_FLIGHT_BATCH          a batch of the relation is STAGING_IMPORTED or PROMOTE_STARTED, or
+ *                            STAGING_STARTED for less than 24 h (it is being imported or promoted);
+ *   RETENTION_CLAIM          CAS holds the relation's claim (F9: found by the relation name alone,
+ *                            so a lost SUCCESS row or an 8-hex collision does not hide it);
+ *   RETENTION_RECORD         CAS holds a verified record for a version the ledger maps to the relation;
+ *   LEGACY_RETENTION_RECORD  CAS holds a basis-less v1 record for such a version (kept, not verified);
+ *   PROTECTION_UNVERIFIABLE  CAS unavailable or unreadable, or a name that is not a plain identifier.
+ *
+ * Only an unprotected relation may be dropped or overwritten. A database error propagates (nothing
+ * is destroyed). The cleanup checks again immediately before each DROP, in the DROP's own
+ * transaction under an ACCESS EXCLUSIVE lock on the relation (`dropStagingRelationGoverned`), so a
+ * concurrent import or promote between plan and DROP is seen (F9 TOCTOU).
  */
 
 export const CLEANUP_SKIPPED_RETAINED_RELATION = "CLEANUP_SKIPPED_RETAINED_RELATION" as const;
 export const CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE = "CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE" as const;
+export const REJECT_STAGING_IMPORT_WOULD_OVERWRITE_RETAINED_RELATION = "REJECT_STAGING_IMPORT_WOULD_OVERWRITE_RETAINED_RELATION" as const;
+
+/** A STAGING_STARTED batch younger than this is an import in progress (the cleanup's own staleness rule). */
+export const STAGING_STARTED_IN_FLIGHT_MS = 24 * 60 * 60 * 1000;
 
 export interface StagingCleanupCandidate {
   readonly id: string;
@@ -38,6 +51,24 @@ export interface StagingCleanupCandidate {
   readonly target_table: string;
   readonly content_bundle_sha256: string;
 }
+
+export type StagingProtectionReason =
+  | "SUCCESS_BATCH"
+  | "IN_FLIGHT_BATCH"
+  | "RETENTION_CLAIM"
+  | "RETENTION_RECORD"
+  | "LEGACY_RETENTION_RECORD";
+
+export type StagingRelationProtection =
+  | { readonly protected: false }
+  | {
+      readonly protected: true;
+      readonly code: typeof CLEANUP_SKIPPED_RETAINED_RELATION;
+      readonly reason: StagingProtectionReason;
+      readonly detail: string;
+      readonly record_id?: string;
+    }
+  | { readonly protected: true; readonly code: typeof CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE; readonly reason: "PROTECTION_UNVERIFIABLE"; readonly detail: string };
 
 export type StagingCleanupDecision =
   | {
@@ -49,11 +80,12 @@ export type StagingCleanupDecision =
   | {
       readonly action: "SKIP";
       readonly code: typeof CLEANUP_SKIPPED_RETAINED_RELATION;
-      readonly reason: "SUCCESS_BATCH" | "RETENTION_RECORD";
+      readonly reason: StagingProtectionReason;
       readonly relation: QualifiedTable;
       readonly relation_name: string;
       readonly batch_ids: readonly string[];
       readonly record_id?: string;
+      readonly detail?: string;
     }
   | {
       readonly action: "SKIP";
@@ -82,11 +114,120 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+interface LedgerRowForRelation {
+  readonly id: string;
+  readonly status: string;
+  readonly target_schema: string;
+  readonly target_table: string;
+  readonly content_bundle_sha256: string;
+  readonly started_at: Date | string | null;
+}
+
+/** Every ledger row (any status) whose <target_table>_<hash8> is this relation's name. */
+async function ledgerRowsForRelation(db: SqlPort, relation: QualifiedTable): Promise<LedgerRowForRelation[]> {
+  const result = await db.query<LedgerRowForRelation>(
+    `
+    SELECT id, status, target_schema, target_table, content_bundle_sha256, started_at
+    FROM "PostgisImportBatch"
+    WHERE target_table || '_' || substr(content_bundle_sha256, 1, 8) = $1`,
+    [relation.table],
+  );
+  return result.rows;
+}
+
+/**
+ * The per-relation protection decision (see the module comment). Read-only: a ledger query (DB
+ * errors propagate) and CAS reads (errors -> PROTECTION_UNVERIFIABLE, never "unprotected").
+ */
+export async function decideStagingRelationProtection(input: {
+  readonly db: SqlPort;
+  /** The durable CAS, or null when it could not be opened (then only the ledger can protect). */
+  readonly repo: ArtifactRepositoryPort | null;
+  readonly relation: QualifiedTable;
+  readonly now?: Date;
+  /** Versions known to map to the relation besides the ledger's (the cleanup's candidate batches). */
+  readonly knownVersions?: readonly { readonly target_schema: string; readonly target_table: string; readonly content_bundle_sha256: string }[];
+}): Promise<StagingRelationProtection> {
+  const { db, repo, relation } = input;
+  const name = formatQualifiedTable(relation);
+  if (relation.schema !== RETAINED_RELATION_SCHEMA || !isIdentifier(relation.schema) || !isIdentifier(relation.table)) {
+    return {
+      protected: true,
+      code: CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE,
+      reason: "PROTECTION_UNVERIFIABLE",
+      detail: `${name} is not a plain lm_staging identifier; it is never interpolated into a DROP or an overwrite`,
+    };
+  }
+
+  const rows = await ledgerRowsForRelation(db, relation);
+  const success = rows.find((r) => r.status === "SUCCESS");
+  if (success) {
+    return { protected: true, code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "SUCCESS_BATCH", detail: `SUCCESS batch ${success.id} is materialised in it` };
+  }
+  const now = (input.now ?? new Date()).getTime();
+  const inFlight = rows.find(
+    (r) =>
+      r.status === "STAGING_IMPORTED" ||
+      r.status === "PROMOTE_STARTED" ||
+      (r.status === "STAGING_STARTED" && (r.started_at === null || now - new Date(r.started_at).getTime() < STAGING_STARTED_IN_FLIGHT_MS)),
+  );
+  if (inFlight) {
+    return { protected: true, code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "IN_FLIGHT_BATCH", detail: `batch ${inFlight.id} is ${inFlight.status}` };
+  }
+
+  if (!repo) {
+    return {
+      protected: true,
+      code: CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE,
+      reason: "PROTECTION_UNVERIFIABLE",
+      detail: "the durable Mimers CAS is unavailable, so a retention claim or record cannot be ruled out",
+    };
+  }
+  try {
+    if (await resolveRetainedRelationClaim(repo, relation)) {
+      const id = retainedRelationClaimId(relation);
+      return { protected: true, code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "RETENTION_CLAIM", detail: `relation claim ${id}`, record_id: id };
+    }
+    const versions = new Map<string, QualifiedTable>();
+    for (const r of [...rows, ...(input.knownVersions ?? [])]) {
+      if (SHA256_HEX.test(r.content_bundle_sha256) && isIdentifier(r.target_schema) && isIdentifier(r.target_table)) {
+        versions.set(`${r.target_schema}.${r.target_table}@${r.content_bundle_sha256}`, { schema: r.target_schema, table: r.target_table });
+      }
+    }
+    for (const [key, target] of versions) {
+      const sha256 = key.slice(key.indexOf("@") + 1);
+      if (await resolveRetentionRecord(repo, target, sha256)) {
+        const id = retentionRecordId(target, sha256);
+        return { protected: true, code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "RETENTION_RECORD", detail: `retention record ${id}`, record_id: id };
+      }
+      if (await resolveLegacyV1RetentionRecord(repo, target, sha256)) {
+        const id = legacyV1RetentionRecordId(target, sha256);
+        return {
+          protected: true,
+          code: CLEANUP_SKIPPED_RETAINED_RELATION,
+          reason: "LEGACY_RETENTION_RECORD",
+          detail: `legacy (basis-less) retention record ${id}; kept, never treated as verified`,
+          record_id: id,
+        };
+      }
+    }
+  } catch (error) {
+    return {
+      protected: true,
+      code: CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE,
+      reason: "PROTECTION_UNVERIFIABLE",
+      detail: `reading the retention claim/records for ${name} failed: ${describe(error)}`,
+    };
+  }
+  return { protected: false };
+}
+
 export async function planStagingCleanup(input: {
   readonly db: SqlPort;
-  /** The durable CAS, or null when it could not be opened (then only SUCCESS-batch protection is decidable). */
+  /** The durable CAS, or null when it could not be opened (then only the ledger can protect). */
   readonly repo: ArtifactRepositoryPort | null;
   readonly candidates: readonly StagingCleanupCandidate[];
+  readonly now?: Date;
 }): Promise<StagingCleanupDecision[]> {
   // Same relation naming as the import (and the original cleanup): <target_table>_<hash8>.
   const groups = new Map<string, StagingCleanupCandidate[]>();
@@ -113,46 +254,92 @@ export async function planStagingCleanup(input: {
       continue;
     }
     const relation: QualifiedTable = { schema: RETAINED_RELATION_SCHEMA, table: name };
-
-    // 1. A SUCCESS batch maps to this relation (DB errors propagate: no DROP is issued at all).
-    if (await isRetainedRelationProtected(input.db, relation)) {
-      decisions.push({ action: "SKIP", code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "SUCCESS_BATCH", relation, relation_name: relationName, batch_ids: batchIds });
-      continue;
-    }
-
-    // 2. A retention record exists for one of the versions behind this relation. A record can only
-    //    exist for a sha256 version hash on an identifier target (retentionRecordId requires both).
-    const versions = new Map<string, QualifiedTable>();
-    for (const b of batches) {
-      if (SHA256_HEX.test(b.content_bundle_sha256) && isIdentifier(b.target_schema) && isIdentifier(b.target_table)) {
-        versions.set(`${b.target_schema}.${b.target_table}@${b.content_bundle_sha256}`, { schema: b.target_schema, table: b.target_table });
-      }
-    }
-    let protectedBy: string | null = null;
-    let unverifiable: string | null = null;
-    for (const [key, target] of versions) {
-      const sha256 = key.slice(key.indexOf("@") + 1);
-      if (!input.repo) {
-        unverifiable = "the durable Mimers CAS is unavailable, so a retention record cannot be ruled out";
-        break;
-      }
-      try {
-        if (await resolveRetentionRecord(input.repo, target, sha256)) {
-          protectedBy = retentionRecordId(target, sha256);
-          break;
-        }
-      } catch (error) {
-        unverifiable = `reading the retention record for ${formatQualifiedTable(target)}@${sha256} failed: ${describe(error)}`;
-        break;
-      }
-    }
-    if (protectedBy) {
-      decisions.push({ action: "SKIP", code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "RETENTION_RECORD", relation, relation_name: relationName, batch_ids: batchIds, record_id: protectedBy });
-    } else if (unverifiable) {
-      decisions.push({ action: "SKIP", code: CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE, relation_name: relationName, batch_ids: batchIds, detail: unverifiable });
-    } else {
+    const protection = await decideStagingRelationProtection({ db: input.db, repo: input.repo, relation, now: input.now, knownVersions: batches });
+    if (!protection.protected) {
       decisions.push({ action: "DROP", relation, relation_name: relationName, batch_ids: batchIds });
+    } else if (protection.code === CLEANUP_SKIPPED_RETAINED_RELATION) {
+      decisions.push({
+        action: "SKIP",
+        code: CLEANUP_SKIPPED_RETAINED_RELATION,
+        reason: protection.reason,
+        relation,
+        relation_name: relationName,
+        batch_ids: batchIds,
+        detail: protection.detail,
+        ...(protection.record_id ? { record_id: protection.record_id } : {}),
+      });
+    } else {
+      decisions.push({ action: "SKIP", code: CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE, relation_name: relationName, batch_ids: batchIds, detail: protection.detail });
     }
   }
   return decisions;
+}
+
+export type GovernedStagingDropOutcome =
+  | { readonly outcome: "DROPPED" }
+  | { readonly outcome: "ABSENT" }
+  | { readonly outcome: "KEPT"; readonly protection: Exclude<StagingRelationProtection, { readonly protected: false }> };
+
+/**
+ * F9: the only DROP of an lm_staging relation. In ONE transaction: bounded lock wait, existence,
+ * ACCESS EXCLUSIVE lock on the relation (a concurrent promote reading it, or an import replacing it,
+ * is serialised), the protection decision again, and only then the DROP (no CASCADE: a dependent
+ * object makes it fail rather than vanish).
+ */
+export async function dropStagingRelationGoverned(input: {
+  readonly db: TransactionalSqlPort;
+  readonly repo: ArtifactRepositoryPort | null;
+  readonly relation: QualifiedTable;
+  readonly lockTimeoutMs?: number;
+  readonly now?: Date;
+}): Promise<GovernedStagingDropOutcome> {
+  const quoted = quoteStagingRelation(input.relation);
+  if (input.relation.schema !== RETAINED_RELATION_SCHEMA) throw new Error(`REJECT_STAGING_CLEANUP_IDENTIFIER: ${quoted} is not in ${RETAINED_RELATION_SCHEMA}`);
+  const lockTimeout = Math.max(1, Math.floor(input.lockTimeoutMs ?? 5000));
+  return input.db.transaction(async (tx) => {
+    await tx.execute(`SET LOCAL lock_timeout = '${lockTimeout}ms'`);
+    if (!(await relationExists(tx, input.relation))) return { outcome: "ABSENT" } as const;
+    await tx.execute(`LOCK TABLE ${quoted} IN ACCESS EXCLUSIVE MODE`);
+    const protection = await decideStagingRelationProtection({ db: tx, repo: input.repo, relation: input.relation, now: input.now });
+    if (protection.protected) return { outcome: "KEPT", protection } as const;
+    await tx.execute(`DROP TABLE ${quoted}`);
+    return { outcome: "DROPPED" } as const;
+  });
+}
+
+export class StagingRelationProtectedError extends Error {
+  readonly code = REJECT_STAGING_IMPORT_WOULD_OVERWRITE_RETAINED_RELATION;
+  constructor(
+    readonly relation: string,
+    readonly reason: StagingProtectionReason | "PROTECTION_UNVERIFIABLE",
+    detail: string,
+  ) {
+    super(
+      `${REJECT_STAGING_IMPORT_WOULD_OVERWRITE_RETAINED_RELATION} [${reason}]: import-staging would overwrite ${relation} ` +
+        `(ogr2ogr -overwrite), which is protected: ${detail}. Nothing was written; there is no override.`,
+    );
+    this.name = "StagingRelationProtectedError";
+  }
+}
+
+/**
+ * F1: before import-staging writes lm_staging.<table>_<hash8> with `ogr2ogr -overwrite`. A relation
+ * that does not exist yet is free (the CAS is not even opened); an existing one may be overwritten
+ * only when `decideStagingRelationProtection` finds it unprotected (a leftover of a failed import).
+ */
+export async function assertStagingImportOverwriteAllowed(input: {
+  readonly db: SqlPort;
+  readonly relation: QualifiedTable;
+  /** Opens the durable CAS lazily; resolves null when it cannot be opened. */
+  readonly openRepo: () => Promise<ArtifactRepositoryPort | null>;
+  readonly now?: Date;
+}): Promise<void> {
+  const name = formatQualifiedTable(input.relation);
+  if (input.relation.schema !== RETAINED_RELATION_SCHEMA || !isIdentifier(input.relation.table)) {
+    throw new StagingRelationProtectedError(name, "PROTECTION_UNVERIFIABLE", "not a plain lm_staging identifier");
+  }
+  if (!(await relationExists(input.db, input.relation))) return;
+  const repo = await input.openRepo();
+  const protection = await decideStagingRelationProtection({ db: input.db, repo, relation: input.relation, now: input.now });
+  if (protection.protected) throw new StagingRelationProtectedError(name, protection.reason, protection.detail);
 }

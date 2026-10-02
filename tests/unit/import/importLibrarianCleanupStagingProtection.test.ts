@@ -25,17 +25,30 @@ const UNBOUND = 'deadbeef' + '1'.repeat(56);
 const STALE = 'cafebabe' + '2'.repeat(56);
 
 const h = vi.hoisted(() => {
-  type Row = { id: string; status: string; target_schema: string; target_table: string; content_bundle_sha256: string };
+  type Row = { id: string; status: string; target_schema: string; target_table: string; content_bundle_sha256: string; started_at?: Date };
   const state = {
     successBatches: [] as Row[],
     badBatches: [] as Row[],
     drops: [] as string[],
+    statements: [] as string[],
     findManyWhere: null as unknown,
     casCreateFails: false,
     protectionQueryFails: false,
     repo: null as unknown,
+    /** U30F F9: every ledger protection read is counted; after `flipAfterReads` reads, `flipRow` becomes a SUCCESS row. */
+    protectionReads: 0,
+    flipAfterReads: 0,
+    flipRow: null as Row | null,
   };
   const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
+  const nameOf = (b: Row) => `${b.target_table}_${b.content_bundle_sha256.substring(0, 8)}`;
+  const protectionRead = () => {
+    if (state.protectionQueryFails) throw new Error('simulated database failure');
+    state.protectionReads += 1;
+    if (state.flipRow && state.protectionReads > state.flipAfterReads && !state.successBatches.includes(state.flipRow)) {
+      state.successBatches.push(state.flipRow);
+    }
+  };
   const fake = {
     postgisImportBatch: {
       async findMany(args: { where: unknown }) {
@@ -46,17 +59,30 @@ const h = vi.hoisted(() => {
     async $queryRawUnsafe(sql: string, ...params: unknown[]) {
       const s = normalize(sql);
       if (s.includes('FROM "PostgisImportBatch"') && s.includes('EXISTS')) {
-        if (state.protectionQueryFails) throw new Error('simulated database failure');
+        protectionRead();
         const name = String(params[0]);
-        return [{ protected: state.successBatches.some((b) => `${b.target_table}_${b.content_bundle_sha256.substring(0, 8)}` === name) }];
+        return [{ protected: state.successBatches.some((b) => nameOf(b) === name) }];
       }
+      if (s.includes('FROM "PostgisImportBatch"')) {
+        protectionRead();
+        const name = String(params[0]);
+        return [...state.successBatches, ...state.badBatches].filter((b) => nameOf(b) === name).map((b) => ({ started_at: new Date(0), ...b }));
+      }
+      if (s.startsWith('SELECT to_regclass')) return [{ exists: true }];
       throw new Error(`fake prisma: unexpected query ${s}`);
     },
     async $executeRawUnsafe(sql: string) {
       const s = normalize(sql);
-      if (!s.startsWith('DROP TABLE')) throw new Error(`fake prisma: unexpected statement ${s}`);
-      state.drops.push(s);
+      state.statements.push(s);
+      if (s.startsWith('DROP TABLE')) state.drops.push(s);
+      else if (!s.startsWith('LOCK TABLE') && !s.startsWith('SET LOCAL')) throw new Error(`fake prisma: unexpected statement ${s}`);
       return 0;
+    },
+    async $transaction(work: (tx: unknown) => Promise<unknown>) {
+      state.statements.push('BEGIN');
+      const result = await work(fake);
+      state.statements.push('COMMIT');
+      return result;
     },
     async $disconnect() {},
   };
@@ -123,10 +149,19 @@ const PROTECTED_RELATIONS = [
   'registerenhetsomradesytor_4ed76ac8',
 ];
 
+/** The lm_staging relations a DROP statement was issued for, in order. */
+function droppedRelations(): string[] {
+  return h.state.drops.map((d) => d.match(/"lm_staging"\."([^"]+)"/)?.[1] ?? `UNPARSED ${d}`);
+}
+
 beforeEach(() => {
   h.state.successBatches.length = 0;
   h.state.badBatches.length = 0;
   h.state.drops.length = 0;
+  h.state.statements.length = 0;
+  h.state.protectionReads = 0;
+  h.state.flipAfterReads = 0;
+  h.state.flipRow = null;
   h.state.casCreateFails = false;
   h.state.protectionQueryFails = false;
   h.state.repo = null;
@@ -154,10 +189,7 @@ describe('cleanup-staging keeps retained relations (U30-B2 cleanup-staging, PRES
     for (const name of PROTECTED_RELATIONS) {
       expect(h.state.drops.filter((d) => d.includes(name)), name).toEqual([]);
     }
-    expect(h.state.drops).toEqual([
-      'DROP TABLE IF EXISTS "lm_staging"."protected_area_cafebabe";',
-      'DROP TABLE IF EXISTS "lm_staging"."sgu_well_deadbeef";',
-    ]);
+    expect(droppedRelations()).toEqual(['protected_area_cafebabe', 'sgu_well_deadbeef']);
     const text = output.join('\n');
     expect(text).toMatch(/CLEANUP_SKIPPED_RETAINED_RELATION \[SUCCESS_BATCH\]: keeping lm_staging\.ebh_potentiellt_fororenade_omraden_02fccffc \(batches ebh-failed-1, ebh-failed-2\)/);
     expect(text).toMatch(/CLEANUP_SKIPPED_RETAINED_RELATION \[SUCCESS_BATCH\]: keeping lm_staging\.natura2000_area_a5d665ae/);
@@ -206,5 +238,37 @@ describe('cleanup-staging keeps retained relations (U30-B2 cleanup-staging, PRES
 
     expect(h.state.drops).toEqual([]);
     expect(output.join('\n')).toMatch(/CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE/);
+  });
+});
+
+describe('U30F F9: protection is checked again immediately before each DROP, in the DROP transaction', () => {
+  it('a SUCCESS batch that appears between the plan and the DROP keeps the relation (no DROP issued)', async () => {
+    h.state.badBatches.push(row('unbound-failed', 'FAILED', 'sgu_well', UNBOUND));
+    h.state.repo = new InMemoryArtifactRepository();
+    // The plan's ledger read sees no SUCCESS row; every later read does (a concurrent promote finished).
+    h.state.flipAfterReads = 1;
+    h.state.flipRow = row('concurrent-success', 'SUCCESS', 'sgu_well', UNBOUND);
+    const { cleanupStaging } = await loadScript(true);
+    await cleanupStaging();
+
+    expect(h.state.drops).toEqual([]);
+    expect(h.state.protectionReads).toBeGreaterThanOrEqual(2);
+    expect(output.join('\n')).toMatch(/CLEANUP_SKIPPED_RETAINED_RELATION \[SUCCESS_BATCH\].*sgu_well_deadbeef/);
+  });
+
+  it('the DROP runs inside one transaction after an exclusive lock on the relation and the re-check', async () => {
+    h.state.badBatches.push(row('unbound-failed', 'FAILED', 'sgu_well', UNBOUND));
+    h.state.repo = new InMemoryArtifactRepository();
+    const { cleanupStaging } = await loadScript(true);
+    await cleanupStaging();
+
+    const s = h.state.statements;
+    const drop = s.findIndex((x) => x.startsWith('DROP TABLE'));
+    expect(drop).toBeGreaterThan(-1);
+    const begin = s.lastIndexOf('BEGIN', drop);
+    expect(begin).toBeGreaterThan(-1);
+    expect(s.slice(begin, drop)).toContain('LOCK TABLE "lm_staging"."sgu_well_deadbeef" IN ACCESS EXCLUSIVE MODE');
+    expect(s[drop]).toBe('DROP TABLE "lm_staging"."sgu_well_deadbeef"');
+    expect(s.indexOf('COMMIT', drop)).toBeGreaterThan(drop);
   });
 });

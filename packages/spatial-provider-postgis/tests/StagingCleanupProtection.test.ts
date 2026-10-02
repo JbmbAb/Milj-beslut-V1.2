@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
 import { sha256ContentHash } from "../../mps-runtime/src/kernel/ExecutionKernel";
@@ -25,8 +26,15 @@ function db(successRelations: readonly string[]): SqlPort & { calls: string[] } 
     calls,
     async query<T>(sql: string, params: readonly unknown[] = []) {
       if (!sql.includes('FROM "PostgisImportBatch"')) throw new Error(`unexpected query ${sql}`);
-      calls.push(String(params[0]));
-      return { rows: [{ protected: successRelations.includes(String(params[0])) }] as T[] };
+      const name = String(params[0]);
+      calls.push(name);
+      if (sql.includes("EXISTS")) return { rows: [{ protected: successRelations.includes(name) }] as T[] };
+      // U30F: the full per-relation ledger read
+      return {
+        rows: (successRelations.includes(name)
+          ? [{ id: `success-${name}`, status: "SUCCESS", target_schema: "env", target_table: name.replace(/_[0-9a-f]{8}$/, ""), content_bundle_sha256: H1, started_at: null }]
+          : []) as T[],
+      };
     },
     async execute() {
       throw new Error("the planner never executes a statement");
@@ -63,6 +71,7 @@ describe("planStagingCleanup (U30-B2 cleanup-staging)", () => {
         relation: { schema: "lm_staging", table: "sgu_well_11111111" },
         relation_name: "lm_staging.sgu_well_11111111",
         batch_ids: ["a", "b"],
+        detail: "SUCCESS batch success-sgu_well_11111111 is materialised in it",
       },
     ]);
     expect(port.calls).toEqual(["ebh_22222222", "sgu_well_11111111"]);
@@ -105,7 +114,7 @@ describe("planStagingCleanup (U30-B2 cleanup-staging)", () => {
     expect(quoteStagingRelation({ schema: "lm_staging", table: "sgu_well_11111111" })).toBe('"lm_staging"."sgu_well_11111111"');
   });
 
-  it("a database error while checking SUCCESS batches propagates (the cleanup stops before any drop)", async () => {
+  it("a database error while checking the ledger propagates (the cleanup stops before any drop)", async () => {
     const failing: SqlPort = {
       query: async () => {
         throw new Error("simulated database failure");
@@ -113,5 +122,89 @@ describe("planStagingCleanup (U30-B2 cleanup-staging)", () => {
       execute: async () => undefined,
     };
     await expect(planStagingCleanup({ db: failing, repo: null, candidates: [candidate("a", "sgu_well", H1)] })).rejects.toThrow(/simulated/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U30F F9 / F1: protection is decided per relation from the WHOLE ledger and from CAS by the
+// relation's own name, so a missing SUCCESS row or an 8-hex collision never opens a DROP.
+// ---------------------------------------------------------------------------------------------
+
+type LedgerRow = { id: string; status: string; target_schema: string; target_table: string; content_bundle_sha256: string; started_at: Date };
+
+/** A ledger fake that answers both the SUCCESS-only EXISTS probe and a full per-relation ledger read. */
+function ledgerDb(rows: LedgerRow[]): SqlPort & { statements: string[] } {
+  const statements: string[] = [];
+  const nameOf = (r: LedgerRow) => `${r.target_table}_${r.content_bundle_sha256.substring(0, 8)}`;
+  return {
+    statements,
+    async query<T>(sql: string, params: readonly unknown[] = []) {
+      const s = sql.replace(/\s+/g, " ").trim();
+      if (!s.includes('FROM "PostgisImportBatch"')) throw new Error(`unexpected query ${s}`);
+      const name = String(params[0]);
+      if (s.includes("EXISTS")) return { rows: [{ protected: rows.some((r) => r.status === "SUCCESS" && nameOf(r) === name) }] as T[] };
+      return { rows: rows.filter((r) => nameOf(r) === name) as T[] };
+    },
+    async execute(sql: string) {
+      statements.push(sql);
+    },
+  };
+}
+
+function claimId(relation: string): string {
+  const digest = createHash("sha256").update(`spatial-dataset-retained-relation-claim-v1\u0000${relation}`, "utf8").digest("hex");
+  return `spatial-dataset-retained-relation-claim-${digest.slice(0, 40)}`;
+}
+
+function legacyV1Id(table: string, hash: string): string {
+  const digest = createHash("sha256").update(`spatial-dataset-retention-v1\u0000env.${table}\u0000${hash}`, "utf8").digest("hex");
+  return `spatial-dataset-retention-${digest.slice(0, 40)}`;
+}
+
+async function put(repo: InMemoryArtifactRepository, id: string, payload: Record<string, unknown>): Promise<void> {
+  const body = { artifact_id: id, payload };
+  await repo.put({ artifact_id: id, content_hash: sha256ContentHash(body), body });
+}
+
+const V = "2b4b514f" + "a".repeat(56);
+const V2 = "2b4b514f" + "b".repeat(56); // same 8-hex prefix: the same relation name
+const NOW = new Date("2026-10-02T20:00:00Z");
+
+function row(id: string, status: string, hash: string, startedHoursAgo = 48): LedgerRow {
+  return { id, status, target_schema: "env", target_table: "sgu_well", content_bundle_sha256: hash, started_at: new Date(NOW.getTime() - startedHoursAgo * 3600_000) };
+}
+
+describe("U30F F9: per-relation protection without the SUCCESS row", () => {
+  it("8-hex collision: V's SUCCESS row is gone but V's relation claim is in CAS -> the FAILED V2 batch never drops it", async () => {
+    const repo = new InMemoryArtifactRepository();
+    await put(repo, claimId("lm_staging.sgu_well_2b4b514f"), { retained_relation: "lm_staging.sgu_well_2b4b514f", content_bundle_sha256: V });
+    const decisions = await planStagingCleanup({ db: ledgerDb([row("v2-failed", "FAILED", V2)]), repo, candidates: [candidate("v2-failed", "sgu_well", V2)] });
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({ action: "SKIP", code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "RETENTION_CLAIM" });
+  });
+
+  it("a record for ANY ledger version behind the relation protects it (not only the candidates' versions), legacy v1 records included", async () => {
+    const repo = new InMemoryArtifactRepository();
+    await put(repo, legacyV1Id("sgu_well", V), { contract_version: "spatial-dataset-retention-v1" });
+    const ledger = [row("v-failed", "FAILED", V), row("v2-failed", "FAILED", V2)];
+    const decisions = await planStagingCleanup({ db: ledgerDb(ledger), repo, candidates: [candidate("v2-failed", "sgu_well", V2)] });
+    expect(decisions[0]).toMatchObject({ action: "SKIP", code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "LEGACY_RETENTION_RECORD" });
+  });
+
+  it("an in-flight batch of the relation (STAGING_IMPORTED / PROMOTE_STARTED / fresh STAGING_STARTED) keeps it", async () => {
+    for (const status of ["STAGING_IMPORTED", "PROMOTE_STARTED"]) {
+      const ledger = [row("v-failed", "FAILED", V), row("v-live", status, V)];
+      const decisions = await planStagingCleanup({ db: ledgerDb(ledger), repo: new InMemoryArtifactRepository(), candidates: [candidate("v-failed", "sgu_well", V)], now: NOW });
+      expect(decisions[0], status).toMatchObject({ action: "SKIP", code: CLEANUP_SKIPPED_RETAINED_RELATION, reason: "IN_FLIGHT_BATCH" });
+    }
+    const fresh = [row("v-failed", "FAILED", V), row("v-start", "STAGING_STARTED", V, 2)];
+    expect((await planStagingCleanup({ db: ledgerDb(fresh), repo: new InMemoryArtifactRepository(), candidates: [candidate("v-failed", "sgu_well", V)], now: NOW }))[0]).toMatchObject({
+      action: "SKIP",
+      reason: "IN_FLIGHT_BATCH",
+    });
+    const stale = [row("v-start", "STAGING_STARTED", V, 30)];
+    expect((await planStagingCleanup({ db: ledgerDb(stale), repo: new InMemoryArtifactRepository(), candidates: [candidate("v-start", "sgu_well", V, "STAGING_STARTED")], now: NOW }))[0]).toMatchObject({
+      action: "DROP",
+    });
   });
 });

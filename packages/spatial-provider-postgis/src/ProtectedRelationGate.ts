@@ -472,11 +472,24 @@ export function refuseRetiredDestructiveScript(script: string): never {
 // Governed paths (the gate's other doors)
 // ---------------------------------------------------------------------------------------------
 
+/** Live LU layers: the retain-before-replace promote is the only TRUNCATE (F3 basis, F4 precondition, F5 ledger identity). */
 export {
   retainOutgoingThenReplace,
   recordRetentionAtPromote,
   REJECT_PROMOTE_OUTGOING_VERSION_NOT_RETAINED,
 } from "./SpatialDatasetRetention";
+/** lm_staging: per-relation protection before every DROP (cleanup-staging) and every overwrite (import-staging). */
+export {
+  CLEANUP_SKIPPED_PROTECTION_UNVERIFIABLE,
+  CLEANUP_SKIPPED_RETAINED_RELATION,
+  REJECT_STAGING_IMPORT_WOULD_OVERWRITE_RETAINED_RELATION,
+  StagingRelationProtectedError,
+  assertStagingImportOverwriteAllowed,
+  decideStagingRelationProtection,
+  dropStagingRelationGoverned,
+  planStagingCleanup,
+  quoteStagingRelation,
+} from "./StagingCleanupProtection";
 export {
   PROTECTED_RELATIONS,
   PROTECTED_RELATIONS_FILE,

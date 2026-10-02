@@ -17,6 +17,7 @@ import {
   recordRetentionAtPromote,
   resolveRetentionRecord,
   retainOutgoingThenReplace,
+  retainedRelationClaimId,
   retainedRelationFor,
   retentionRecordId,
   type ImportBatchRow,
@@ -267,6 +268,7 @@ describe("retainOutgoingThenReplace: the PRES-05 gate before TRUNCATE", () => {
       "query:current-batch",
       "digest:env.sgu_well",
       "digest:lm_staging.sgu_well_2b4b514f",
+      `cas:put:${retainedRelationClaimId({ schema: "lm_staging", table: "sgu_well_2b4b514f" })}`,
       `cas:put:${recordId}`,
       "TRUNCATE",
       "INSERT",
@@ -589,6 +591,39 @@ describe("F3 (U30F): a retention record is verified only on a comparison basis",
       established_by: "BACKFILL_CURRENT",
       version_batch_id: "batch-v2",
     });
+  });
+});
+
+describe("F9 (U30F): the retained relation is claimed in CAS by its own name", () => {
+  function claimIdOf(relation: string): string {
+    const digest = createHash("sha256").update(`spatial-dataset-retained-relation-claim-v1\u0000${relation}`, "utf8").digest("hex");
+    return `spatial-dataset-retained-relation-claim-${digest.slice(0, 40)}`;
+  }
+
+  it("a verified record is preceded by a claim of its relation, findable without the ledger", async () => {
+    const db = retainedScenario();
+    const store = new InMemoryArtifactRepository();
+    await retainOutgoingThenReplace({ db, repo: loggingRepo(db, store), target: TARGET, insertSql: INSERT_SQL });
+    const id = claimIdOf("lm_staging.sgu_well_2b4b514f");
+    const claim = await store.resolve<{ payload: Record<string, unknown> }>({ artifact_id: id, artifact_type: "SPATIAL_DATASET_RETAINED_RELATION_CLAIM" });
+    expect(claim.payload).toMatchObject({
+      retained_relation: "lm_staging.sgu_well_2b4b514f",
+      target: TARGET,
+      content_bundle_sha256: HASH_V1,
+      retention_record_id: retentionRecordId(TARGET, HASH_V1),
+    });
+    expect(db.log.indexOf(`cas:put:${id}`)).toBeLessThan(db.log.indexOf(`cas:put:${retentionRecordId(TARGET, HASH_V1)}`));
+  });
+
+  it("a relation already claimed by another version (8-hex collision) -> RECORD_CONFLICT, no TRUNCATE", async () => {
+    const store = new InMemoryArtifactRepository();
+    const id = claimIdOf("lm_staging.sgu_well_2b4b514f");
+    const other = { artifact_id: id, payload: { retained_relation: "lm_staging.sgu_well_2b4b514f", target: TARGET, content_bundle_sha256: "2b4b514f" + "c".repeat(56) } };
+    await store.put({ artifact_id: id, content_hash: sha256ContentHash(other), body: other });
+    const db = retainedScenario();
+    const error = await rejection(retainOutgoingThenReplace({ db, repo: loggingRepo(db, store), target: TARGET, insertSql: INSERT_SQL }));
+    expect(error.reason).toBe("RECORD_CONFLICT");
+    expect(db.log).not.toContain("TRUNCATE");
   });
 });
 
