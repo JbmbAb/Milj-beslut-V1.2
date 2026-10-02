@@ -80,6 +80,11 @@ export const LU_V1_GOVERNED_SPATIAL_LAYERS = [
 
 export const MISSING_IN_BASIS_SV = 'Saknas i underlaget';
 
+/** U20CDF3 (low 2): exactly one of the governed LU v1 spatial layers (no case folding, no trimming). */
+export function isGovernedSpatialLayer(dataset: string): boolean {
+  return (LU_V1_GOVERNED_SPATIAL_LAYERS as readonly string[]).includes(dataset);
+}
+
 // ---------------------------------------------------------------------------------------------
 // ADMIT v1 layer contracts (presentation only)
 // ---------------------------------------------------------------------------------------------
@@ -335,11 +340,11 @@ export function presentedGovernedLayerChecks(input: {
    */
   readonly unreadableArtifactIds?: readonly string[];
 }): PresentedGovernedLayerCheck[] {
+  // U20CDF3 (U20CDF2 verification H4 / low 2): exactly the governed M layers -- never an extra row for
+  // evidence of another dataset (an unknown or mis-cased one gave "6 av 7"). Such evidence makes the
+  // record a typed integrity error instead (resolveGovernedAssessmentDetails -> pinnedEvidence ->
+  // assessGovernedCoverage: RECORD_INTEGRITY_ERROR).
   const requestedLayers: string[] = [...LU_V1_GOVERNED_SPATIAL_LAYERS];
-  for (const evidence of input.spatialEvidence) {
-    const layer = evidence.payload?.source_metadata?.dataset;
-    if (typeof layer === 'string' && !requestedLayers.includes(layer)) requestedLayers.push(layer);
-  }
   const spatial = computeGovernedLayerChecks({
     requestedLayers,
     evidence: input.spatialEvidence,
@@ -550,6 +555,9 @@ function spatialDetail(
   // U20CDF2 (G3): the evidence's own result is read through the same normal form as the fresh-run
   // gate and the layer checks -- e.g. exists:true with match count 0 is not shown as a hit.
   const form = readSpatialEvidenceForm(artifact);
+  // U20CDF3 (low 2): evidence of a dataset outside the governed layers is not a register result of any
+  // check -- it is not presented as a hit or a no-hit (the record is an integrity error).
+  const outsideGovernedLayers = layer === null || !isGovernedSpatialLayer(layer);
   const pseudoCheck: GovernedLayerCheck = {
     layer: layer ?? 'okänt lager',
     rule_id: null,
@@ -589,7 +597,9 @@ function spatialDetail(
     coverage_limitation_sv: contract?.coverage_limitation_sv ?? MISSING_IN_BASIS_SV,
     known_coverage_gaps: knownCoverageGapsFor(view.versionHash),
     cited_by_finding_ids: citedBy,
-    message_sv: spatialCheckMessageSv(pseudoCheck, coverageStateOf(pseudoCheck), view),
+    message_sv: outsideGovernedLayers
+      ? 'Integritetsfel: evidensen gäller ett lager utanför de styrda kontrollerna och tolkas inte som ett kontrollresultat.'
+      : spatialCheckMessageSv(pseudoCheck, coverageStateOf(pseudoCheck), view),
     binding_note_sv:
       bindingAssurance === 'HASH_BOUND_LEGACY_ADOPTED'
         ? `${SPATIAL_BINDING_NOTE_SV} Källan är enligt ADMIT v1-kontraktet en legacy-adopterad leverans (${contract!.source_version}): befintliga data som adopterats, den svagaste bindningsklassen.`
@@ -901,6 +911,8 @@ export async function resolveGovernedAssessmentDetails(input: {
   const evidenceDetails: GovernedEvidenceDetail[] = [];
   const spatialEvidence: SpatialEvidenceArtifact[] = [];
   const unreadableArtifactIds: string[] = [];
+  // U20CDF3 (low 2): intact spatial evidence whose dataset is not one of the governed layers.
+  const outsideGovernedLayerIds: string[] = [];
   // U20CDF2 (G2): the class of what could not be read (a corrupted read fails the read-back closed).
   let anyNotFound = false;
   let anyReadError = false;
@@ -926,6 +938,8 @@ export async function resolveGovernedAssessmentDetails(input: {
       if (isSpatialEvidenceIntact(ref, read.artifact)) {
         spatialEvidence.push(read.artifact);
         detail = spatialDetail(ref, read.artifact, cited);
+        const dataset = read.artifact.payload?.source_metadata?.dataset;
+        if (typeof dataset !== 'string' || !isGovernedSpatialLayer(dataset)) outsideGovernedLayerIds.push(ref.artifact_id);
       } else {
         detail = tamperedDetail(ref, cited);
       }
@@ -961,6 +975,9 @@ export async function resolveGovernedAssessmentDetails(input: {
       // One lasting loss (not found) makes the record not retryable; only read errors may pass on retry.
       technical_error_class: anyNotFound ? 'EVIDENCE_NOT_FOUND' : anyReadError ? 'EVIDENCE_READ_ERROR' : null,
       retryable: anyNotFound ? false : anyReadError ? true : null,
+      ...(outsideGovernedLayerIds.length > 0
+        ? { outside_governed_layers_artifact_ids: [...outsideGovernedLayerIds].sort() }
+        : {}),
     },
     propertyRoot,
     integrity: integrityFailure,

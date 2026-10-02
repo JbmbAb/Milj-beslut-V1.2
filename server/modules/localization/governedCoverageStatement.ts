@@ -141,13 +141,18 @@ export function highestGovernedRiskLevel(findings: readonly { readonly risk_leve
  *  - PINNED_EVIDENCE_UNREADABLE (U20CDF2 G2): the record is bound to evidence that cannot be read back
  *    from CAS -- an integrity/technical error, not a new coverage computation (nothing is recounted
  *    from what happens to be readable now; the stored findings are still named);
- *  - CHECKS_UNAVAILABLE: no layer checks at all.
+ *  - CHECKS_UNAVAILABLE: no layer checks at all;
+ *  - RECORD_INTEGRITY_ERROR (U20CDF3; owner: "ogiltig kombination fail-closed"): the record holds a
+ *    combination no known producer writes and that the common normal form does not admit (see
+ *    assessGovernedCoverage) -- a typed integrity error: no count, no overall level, stored findings
+ *    still named.
  */
 export type GovernedRecordCoverageState =
   | 'DETERMINED'
   | 'HISTORICAL_COVERAGE_UNKNOWN'
   | 'PINNED_EVIDENCE_UNREADABLE'
-  | 'CHECKS_UNAVAILABLE';
+  | 'CHECKS_UNAVAILABLE'
+  | 'RECORD_INTEGRITY_ERROR';
 
 /**
  * U20CDF2 (G2): what a read-back could not read among the assessment's pinned evidence refs. A ref
@@ -161,10 +166,19 @@ export interface PinnedEvidenceReadability {
   readonly unreadable_artifact_ids: readonly string[];
   readonly technical_error_class: 'EVIDENCE_NOT_FOUND' | 'EVIDENCE_READ_ERROR' | null;
   readonly retryable: boolean | null;
+  /**
+   * U20CDF3 (low 2): pinned spatial evidence that was read intact but names a dataset outside the
+   * governed layers (unknown or mis-cased). No layer row is made for it; the record is a
+   * RECORD_INTEGRITY_ERROR. Absent when there is none.
+   */
+  readonly outside_governed_layers_artifact_ids?: readonly string[];
 }
 
 export const HISTORICAL_COVERAGE_UNKNOWN_SV = 'Täckningsgrad kan inte fastställas för denna historiska bedömning.';
 const CHECKS_UNAVAILABLE_SV = 'Täckningsgrad kan inte fastställas: uppgift om genomförda kontroller saknas i underlaget.';
+export const RECORD_INTEGRITY_ERROR_SV =
+  'Integritetsfel: bedömningens lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet. ' +
+  'Täckningsgrad och samlad risknivå kan därför inte fastställas.';
 
 export interface GovernedStatementContext {
   /** The assessment's stored findings -- the rule engine's outcome the risk level is derived from. */
@@ -209,7 +223,13 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
       coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
       coverage_basis: pinned.unreadable_artifact_ids.map((id) => `PINNED_EVIDENCE_UNREADABLE:${id}`),
       coverage: null,
-      pinned_evidence: pinned,
+      // Exactly the readability fields (the integrity list below is reported through coverage_basis).
+      pinned_evidence: {
+        pinned_total: pinned.pinned_total,
+        unreadable_artifact_ids: pinned.unreadable_artifact_ids,
+        technical_error_class: pinned.technical_error_class,
+        retryable: pinned.retryable,
+      },
     };
   }
   const unreadableRows = checks.filter(
@@ -223,6 +243,11 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
     };
   }
   const findings = Array.isArray(context?.findings) ? context.findings : [];
+  // U20CDF3 (owner: "ogiltig kombination fail-closed"; one common normal form): combinations no known
+  // producer writes are a typed integrity error, ahead of the historical classification.
+  const integrity: string[] = [];
+  for (const id of pinned?.outside_governed_layers_artifact_ids ?? []) integrity.push(`EVIDENCE_OUTSIDE_GOVERNED_LAYERS:${id}`);
+  if (integrity.length > 0) return { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: integrity, coverage: null };
   const riskRules = new Set(findings.filter(isGovernedRiskFinding).map((finding) => finding.rule_id));
   const basis: string[] = [];
   let documentCheck: GovernedLayerCheck | null = null;
@@ -289,6 +314,7 @@ export function governedOverallStatementSv(riskLevel: string, checks: unknown, c
   const storedClause = stored ? ` Bedömningens lagrade fynd redovisas var för sig: ${stored}.` : '';
   if (assessed.coverage_state === 'CHECKS_UNAVAILABLE') return `${CHECKS_UNAVAILABLE_SV}${storedClause}`;
   if (assessed.coverage_state === 'HISTORICAL_COVERAGE_UNKNOWN') return `${HISTORICAL_COVERAGE_UNKNOWN_SV}${storedClause}`;
+  if (assessed.coverage_state === 'RECORD_INTEGRITY_ERROR') return `${RECORD_INTEGRITY_ERROR_SV}${storedClause}`;
   if (assessed.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') {
     // U20CDF2 (G2; owner): never "0 av M" recounted from what is readable now, never an overall
     // level that hides or replaces the stored findings; the error class and whether a retry can help.

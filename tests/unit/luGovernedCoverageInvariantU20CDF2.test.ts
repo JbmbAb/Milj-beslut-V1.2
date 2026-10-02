@@ -286,7 +286,7 @@ describe('U20CDF2 invariant A: every current run in the normal form gives a cons
     for (const combo of freshCombinations()) {
       const spatialEvidence = combo.flatMap((outcome, i) => (outcome === 'UNAVAILABLE' ? [] : [evidence(LAYERS[i]!, outcome)]));
       const unavailable = combo.flatMap((outcome, i) => (outcome === 'UNAVAILABLE' ? [{ dataset: LAYERS[i]!, reason: 'SOURCE_UNAVAILABLE' }] : []));
-      assertGovernedSpatialQueryOutcome({ evidence: spatialEvidence, unavailable_layers: unavailable });
+      assertGovernedSpatialQueryOutcome({ evidence: spatialEvidence, unavailable_layers: unavailable }, LAYERS);
       const spatialFindings = engine.evaluate({
         spatial_evidence: spatialEvidence as never,
         document_evidence: [],
@@ -346,7 +346,7 @@ describe('U20CDF2 invariant B: a provider outcome outside the normal form never 
         const backgroundUnavailable = background === 'UNAVAILABLE' ? others.map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' })) : [];
         for (const state of INVALID) {
           expect(() =>
-            assertGovernedSpatialQueryOutcome({ evidence: [...backgroundEvidence, evidence(layer, state)], unavailable_layers: backgroundUnavailable }),
+            assertGovernedSpatialQueryOutcome({ evidence: [...backgroundEvidence, evidence(layer, state)], unavailable_layers: backgroundUnavailable }, LAYERS),
           ).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: /);
           rejected += 1;
         }
@@ -355,7 +355,7 @@ describe('U20CDF2 invariant B: a provider outcome outside the normal form never 
           assertGovernedSpatialQueryOutcome({
             evidence: [...backgroundEvidence, evidence(layer, 'NO_HIT')],
             unavailable_layers: [...backgroundUnavailable, { dataset: layer, reason: 'SOURCE_UNAVAILABLE' }],
-          }),
+          }, LAYERS),
         ).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: .* EVIDENCE_AND_UNAVAILABLE$/);
         rejected += 1;
       }

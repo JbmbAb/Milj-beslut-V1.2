@@ -305,6 +305,36 @@ describe('U20-C: unbound reads never steer the governed generate-report request'
     expect(coded.siteAnalyses[0].warnings).toEqual(['ExecutionKernel error: REJECT_SPATIAL_PROVIDER']);
   });
 
+  // U20CDF3 (U20CDF2 verification H4 / low 2): evidence for a dataset that was not requested -- an
+  // unknown layer or a mis-cased governed one -- used to pass the gate and add a seventh row ("6 av 7",
+  // "Låg risk"). It now fails the run closed with a typed class; the provider's string is not echoed.
+  it.each([['flood'], ['WATER']])('U20CDF3 (low 2): evidence for "%s" (not a requested layer) fails the run closed, never a seventh row', async (dataset) => {
+    const outside = {
+      artifact_id: 'evidence-outside-u20c',
+      artifact_type: 'SPATIAL_EVIDENCE',
+      payload: {
+        source_metadata: { dataset },
+        result_semantics: { kind: 'EXISTENCE_WITHIN_DISTANCE', result: { exists: true, match_count_observed: 1, max_features_per_layer: 50 } },
+      },
+    };
+    queryMock.mockResolvedValue({ evidence: [...LAYERS.map(spatialEvidence), outside], unavailable_layers: [] });
+    const res = await post('/api/localization/generate-report');
+    expect(res.status).toBe(200);
+    const site = res.body.siteAnalyses[0];
+    expect(site.executionMotor).toMatchObject({
+      admitted: false, assessment_status: 'EXECUTION_FAILED', assessment_artifact_id: null,
+      reason_codes: ['REJECT_SPATIAL_EVIDENCE_FORM', 'DATASET_NOT_REQUESTED'],
+    });
+    expect(site.executionMotor.governed_layer_checks).toBeUndefined();
+    expect(kernelMock).not.toHaveBeenCalled();
+    expect(site.warnings).toEqual([
+      'Spatialt underlag avvisat: svaret gäller ett lager som inte efterfrågades (REJECT_SPATIAL_EVIDENCE_FORM: DATASET_NOT_REQUESTED). ' +
+        'Ingen bedömning gjordes; regelmotorn nåddes aldrig.',
+    ]);
+    expect(JSON.stringify(res.body)).not.toContain(dataset);
+    expect(JSON.stringify(res.body)).not.toMatch(/6 av 7|låg risk/i);
+  });
+
   it.each<[string, string]>([
     ['REJECT_SPATIAL_PROVIDER: missing canonical binding', 'REJECT_SPATIAL_PROVIDER'],
     ['REJECT_CAS_READ: C:/data/cas/objects/ab/cd could not be opened', 'REJECT_CAS_READ'],

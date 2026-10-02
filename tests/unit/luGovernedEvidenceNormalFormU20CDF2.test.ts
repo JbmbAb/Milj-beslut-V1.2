@@ -68,11 +68,14 @@ describe('U20CDF2 (G3): the one normal form of a governed spatial evidence resul
 
 describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine', () => {
   const valid = { evidence: [ev('water', { exists: true, match_count_observed: 3 }), ev('ebh', { exists: false, match_count_observed: 0 })], unavailable_layers: [{ dataset: 'natura2000', reason: 'SOURCE_UNAVAILABLE' }] };
+  // U20CDF3: the gate is told which layers were requested; `valid` answers exactly these.
+  const REQUESTED = ['water', 'ebh', 'natura2000'];
+  const ALL_LAYERS = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'];
 
   it('a provider outcome in the normal form passes', () => {
-    expect(() => assertGovernedSpatialQueryOutcome(valid)).not.toThrow();
+    expect(() => assertGovernedSpatialQueryOutcome(valid, REQUESTED)).not.toThrow();
     // Silence about a layer is not a form violation here (see the coverage classification).
-    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [] })).not.toThrow();
+    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [] }, ALL_LAYERS)).not.toThrow();
   });
 
   it.each<[string, Record<string, unknown> | undefined, unknown]>([
@@ -83,16 +86,16 @@ describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine',
     ['count not a count', { exists: true, match_count_observed: -2 }, 'EXISTENCE_WITHIN_DISTANCE'],
   ])('%s -> REJECT_SPATIAL_EVIDENCE_FORM (fail-closed, no second interpretation)', (_label, result, kind) => {
     const outcome = { ...valid, evidence: [...valid.evidence, ev('protected_area', result, kind)] };
-    expect(() => assertGovernedSpatialQueryOutcome(outcome)).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: /);
+    expect(() => assertGovernedSpatialQueryOutcome(outcome, [...REQUESTED, 'protected_area'])).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: /);
   });
 
   it('evidence AND an unavailable entry for the same layer -> REJECT_SPATIAL_EVIDENCE_FORM', () => {
     const outcome = { ...valid, unavailable_layers: [...valid.unavailable_layers, { dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }] };
-    expect(() => assertGovernedSpatialQueryOutcome(outcome)).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: water EVIDENCE_AND_UNAVAILABLE$/);
+    expect(() => assertGovernedSpatialQueryOutcome(outcome, REQUESTED)).toThrow(/^REJECT_SPATIAL_EVIDENCE_FORM: water EVIDENCE_AND_UNAVAILABLE$/);
   });
 
   it('an unavailable entry without a dataset name -> REJECT_SPATIAL_EVIDENCE_FORM', () => {
-    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [{ dataset: '', reason: 'x' }] })).toThrow(
+    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [], unavailable_layers: [{ dataset: '', reason: 'x' }] }, ALL_LAYERS)).toThrow(
       /^REJECT_SPATIAL_EVIDENCE_FORM: /,
     );
   });
@@ -109,7 +112,7 @@ describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine',
   ])('U20CDF3 (low 6): %s -> a GovernedSpatialEvidenceFormError with code, violation and layer', (_label, outcome, violation, layer) => {
     let thrown: unknown;
     try {
-      assertGovernedSpatialQueryOutcome(outcome);
+      assertGovernedSpatialQueryOutcome(outcome, [...REQUESTED, 'protected_area']);
     } catch (error) {
       thrown = error;
     }
@@ -133,7 +136,7 @@ describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine',
         const outcome = state === 'UNAVAILABLE'
           ? { evidence: [], unavailable_layers: [{ dataset: layer, reason: 'SOURCE_UNAVAILABLE' }] }
           : { evidence: [ev(layer, state)], unavailable_layers: [] };
-        assertGovernedSpatialQueryOutcome(outcome);
+        assertGovernedSpatialQueryOutcome(outcome, [layer]);
         const findings = engine.evaluate({
           spatial_evidence: outcome.evidence as never,
           document_evidence: [],
@@ -149,12 +152,64 @@ describe('U20CDF2 (G3): the fresh-run gate fails closed before the rule engine',
   });
 });
 
+describe('U20CDF3 (U20CDF2 verification H4 / low 2): every outcome names a distinct REQUESTED layer -- an unknown or mis-cased dataset is fail-closed, never a seventh row', () => {
+  const ALL_LAYERS = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'];
+  const negatives = ALL_LAYERS.map((layer) => ev(layer, { exists: false, match_count_observed: 0 }));
+  const rejection = (outcome: { evidence: unknown[]; unavailable_layers: unknown[] }) => {
+    try {
+      assertGovernedSpatialQueryOutcome(outcome, ALL_LAYERS);
+    } catch (error) {
+      return error;
+    }
+    return null;
+  };
+
+  it('the real provider outcome (one entry per requested layer, exact names) passes', () => {
+    expect(rejection({ evidence: negatives, unavailable_layers: [] })).toBeNull();
+    expect(rejection({ evidence: negatives.slice(1), unavailable_layers: [{ dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }] })).toBeNull();
+  });
+
+  it.each<[string, string]>([
+    ['an unknown layer (verifier probe: flood, exists:true)', 'flood'],
+    ['a mis-cased governed layer (WATER)', 'WATER'],
+    ['a mis-cased governed layer (Natura2000)', 'Natura2000'],
+    ['a governed layer with surrounding space', ' water'],
+    ['a governed layer with a trailing space', 'ebh '],
+    ['the document check name (not a spatial layer)', 'document'],
+  ])('evidence for %s -> DATASET_NOT_REQUESTED, the provider string is never echoed as a layer', (_label, dataset) => {
+    for (const exists of [true, false]) {
+      const error = rejection({ evidence: [...negatives, ev(dataset, { exists, match_count_observed: exists ? 1 : 0 })], unavailable_layers: [] });
+      expect(error).toBeInstanceOf(GovernedSpatialEvidenceFormError);
+      expect(error).toMatchObject({ violation: 'DATASET_NOT_REQUESTED', layer: null });
+      expect((error as Error).message).toBe('REJECT_SPATIAL_EVIDENCE_FORM: okänt-lager DATASET_NOT_REQUESTED');
+    }
+  });
+
+  it('an unavailable entry for a layer that was not requested -> DATASET_NOT_REQUESTED', () => {
+    const error = rejection({ evidence: negatives.slice(1), unavailable_layers: [{ dataset: 'WATER', reason: 'SOURCE_UNAVAILABLE' }] });
+    expect(error).toMatchObject({ violation: 'DATASET_NOT_REQUESTED', layer: null });
+  });
+
+  it.each<[string, { evidence: unknown[]; unavailable_layers: unknown[] }]>([
+    ['two evidences for one layer (one hit, one no-hit)', { evidence: [...negatives, ev('water', { exists: true, match_count_observed: 2 })], unavailable_layers: [] }],
+    ['two identical negative evidences for one layer', { evidence: [...negatives, negatives[1]!], unavailable_layers: [] }],
+    ['two unavailable entries for one layer', {
+      evidence: negatives.slice(1),
+      unavailable_layers: [{ dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }, { dataset: 'water', reason: 'SOURCE_UNAVAILABLE' }],
+    }],
+  ])('%s -> DUPLICATE_LAYER_OUTCOME', (_label, outcome) => {
+    const error = rejection(outcome);
+    expect(error).toBeInstanceOf(GovernedSpatialEvidenceFormError);
+    expect((error as GovernedSpatialEvidenceFormError).violation).toBe('DUPLICATE_LAYER_OUTCOME');
+  });
+});
+
 describe('U20CDF2 (G3 / owner invariant): a layer with a stored risk finding was processed and counts as completed', () => {
   it('the verifier probe F1: exists:true + count 0 gives a MEDIUM finding from the real rule engine -> the layer is CHECKED_HIT, never NOT_CHECKED', () => {
     const water = ev('water', { exists: true, match_count_observed: 0, max_features_per_layer: 50 });
     const unavailable = ['ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((dataset) => ({ dataset, reason: 'SOURCE_UNAVAILABLE' }));
     // The fresh run never gets here (the gate rejects this evidence); a stored record can still hold it.
-    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [water], unavailable_layers: unavailable })).toThrow(/REJECT_SPATIAL_EVIDENCE_FORM/);
+    expect(() => assertGovernedSpatialQueryOutcome({ evidence: [water], unavailable_layers: unavailable }, ['water', ...unavailable.map((u) => u.dataset)])).toThrow(/REJECT_SPATIAL_EVIDENCE_FORM/);
     const findings = new LURuleEngine().evaluate({ spatial_evidence: [water] as never, document_evidence: [], unavailable_layers: unavailable as never });
     expect(findings.find((f) => f.rule_id === 'LU-WATER-001')?.risk_level).toBe('MEDIUM');
 

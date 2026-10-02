@@ -24,8 +24,10 @@
  *  - `result_semantics.result.match_count_observed`, when present (not undefined/null), is a
  *    non-negative integer and `count > 0` equals `exists`.
  * Query outcome level (fresh run only): every unavailable entry names a dataset, and no dataset is
- * both evidenced and reported unavailable. Silence about a requested layer is not a form violation
- * here; the coverage classification (governedLayerChecks.ts) treats such a record honestly.
+ * both evidenced and reported unavailable. U20CDF3 (low 2): every entry names exactly one of the
+ * requested layers, and each requested layer is answered at most once. Silence about a requested
+ * layer is not a form violation here; the coverage classification (governedLayerChecks.ts) treats
+ * such a record honestly.
  */
 
 export const ADMITTED_SPATIAL_RESULT_KIND = 'EXISTENCE_WITHIN_DISTANCE';
@@ -77,7 +79,11 @@ export function readSpatialEvidenceForm(evidence: unknown): SpatialEvidenceForm 
 export type SpatialQueryOutcomeViolation =
   | SpatialEvidenceFormViolation
   | 'UNAVAILABLE_WITHOUT_DATASET'
-  | 'EVIDENCE_AND_UNAVAILABLE';
+  | 'EVIDENCE_AND_UNAVAILABLE'
+  /** U20CDF3 (low 2): an entry names a dataset that is not exactly one of the requested layers. */
+  | 'DATASET_NOT_REQUESTED'
+  /** U20CDF3 (low 2): a requested layer is answered more than once. */
+  | 'DUPLICATE_LAYER_OUTCOME';
 
 /** Swedish description of each violation (the machine code stays the truth, in parentheses). */
 export const SPATIAL_QUERY_OUTCOME_VIOLATION_SV: Readonly<Record<SpatialQueryOutcomeViolation, string>> = {
@@ -89,6 +95,8 @@ export const SPATIAL_QUERY_OUTCOME_VIOLATION_SV: Readonly<Record<SpatialQueryOut
   MATCH_COUNT_CONTRADICTS_EXISTS: 'antalet träffar motsäger träffuppgiften',
   UNAVAILABLE_WITHOUT_DATASET: 'en uppgift om otillgängligt lager saknar lagernamn',
   EVIDENCE_AND_UNAVAILABLE: 'samma lager redovisas både med evidens och som otillgängligt',
+  DATASET_NOT_REQUESTED: 'svaret gäller ett lager som inte efterfrågades',
+  DUPLICATE_LAYER_OUTCOME: 'samma lager redovisas mer än en gång',
 };
 
 /**
@@ -113,25 +121,44 @@ export class GovernedSpatialEvidenceFormError extends Error {
 /**
  * The fresh-run gate: throws a GovernedSpatialEvidenceFormError
  * (`REJECT_SPATIAL_EVIDENCE_FORM: <dataset> <violation>`) for the first entry outside the normal form.
+ *
+ * U20CDF3 (U20CDF2 verification H4 / low 2): every entry must name EXACTLY one of `requestedLayers`
+ * (no case folding, no trimming) and no requested layer may be answered twice. An unknown or
+ * mis-cased dataset used to pass, reach the rule engine (no rule -> no finding) and add a seventh
+ * layer row ("6 av 7", "Låg risk"); now the run fails closed before the rule engine. Such a dataset is
+ * never echoed as a layer (layer null): it is an arbitrary provider string.
  */
-export function assertGovernedSpatialQueryOutcome(outcome: {
-  readonly evidence: readonly unknown[];
-  readonly unavailable_layers: readonly unknown[];
-}): void {
+export function assertGovernedSpatialQueryOutcome(
+  outcome: {
+    readonly evidence: readonly unknown[];
+    readonly unavailable_layers: readonly unknown[];
+  },
+  requestedLayers: readonly string[],
+): void {
+  const requested = new Set(requestedLayers);
   const evidenced = new Set<string>();
   for (const evidence of outcome.evidence) {
     const form = readSpatialEvidenceForm(evidence);
+    if (form.dataset === null) {
+      throw new GovernedSpatialEvidenceFormError('DATASET_MISSING', null);
+    }
+    if (!requested.has(form.dataset)) throw new GovernedSpatialEvidenceFormError('DATASET_NOT_REQUESTED', null);
     if (form.valid === false) {
       const rejected = form as Extract<SpatialEvidenceForm, { valid: false }>;
       throw new GovernedSpatialEvidenceFormError(rejected.violation, rejected.dataset);
     }
+    if (evidenced.has(form.dataset)) throw new GovernedSpatialEvidenceFormError('DUPLICATE_LAYER_OUTCOME', form.dataset);
     evidenced.add(form.dataset);
   }
+  const unavailableSeen = new Set<string>();
   for (const unavailable of outcome.unavailable_layers) {
     const dataset = unavailable && typeof unavailable === 'object' ? (unavailable as { dataset?: unknown }).dataset : undefined;
     if (typeof dataset !== 'string' || dataset.length === 0) {
       throw new GovernedSpatialEvidenceFormError('UNAVAILABLE_WITHOUT_DATASET', null);
     }
+    if (!requested.has(dataset)) throw new GovernedSpatialEvidenceFormError('DATASET_NOT_REQUESTED', null);
     if (evidenced.has(dataset)) throw new GovernedSpatialEvidenceFormError('EVIDENCE_AND_UNAVAILABLE', dataset);
+    if (unavailableSeen.has(dataset)) throw new GovernedSpatialEvidenceFormError('DUPLICATE_LAYER_OUTCOME', dataset);
+    unavailableSeen.add(dataset);
   }
 }

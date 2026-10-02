@@ -1120,7 +1120,11 @@ async function analyzeSite(
     // read stored evidence through. An evidence with a non-boolean `exists`, a match count that
     // contradicts it or another declared kind, or a layer both evidenced and unavailable, fails the
     // run closed (REJECT_SPATIAL_EVIDENCE_FORM -> EXECUTION_FAILED, no assessment, no verdict).
-    assertGovernedSpatialQueryOutcome({ evidence: mpsEvidence, unavailable_layers: providerUnavailableLayers });
+    // U20CDF3 (low 2): and every entry names exactly one of the layers this run requested.
+    assertGovernedSpatialQueryOutcome(
+      { evidence: mpsEvidence, unavailable_layers: providerUnavailableLayers },
+      queryRequest.layers.map((layer) => layer.name),
+    );
     const mpsUnavailableLayers = providerUnavailableLayers.map(({ dataset, reason }) => ({ dataset, reason }));
     const governedDocumentEvidence = await resolveCanonicalDocumentEvidence(
       site.documentEvidenceRefs,
