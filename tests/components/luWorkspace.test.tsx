@@ -2175,6 +2175,35 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-geometry-current')).toHaveTextContent('59.890000, 17.760000');
   }, 15000);
 
+  it('W-M2e item 3 (M2d verification probe L1): while a saved point waits, the notice never claims the PREVIOUS point applies -- another session may have saved a third', async () => {
+    const user = userEvent.setup();
+    const pointA = { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', wgs84LngLat: [17.74, 59.87], provisioningStatus: 'COMPLETED' };
+    const pointB = { artifact_id: 'loc-geom-B', provenance: 'user_defined', wgs84LngLat: [17.76, 59.89], provisioningStatus: 'PENDING', supersessionStatus: 'PENDING' };
+    // Another session saves X, and the server makes X current: GET answers X, neither A nor B.
+    const pointX = { artifact_id: 'loc-geom-X', provenance: 'user_defined', wgs84LngLat: [17.8, 59.9], provisioningStatus: 'COMPLETED' };
+    let serverCurrent: typeof pointA = pointA;
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-A', localizationGeometry: boundPoint('loc-geom-1', [17.74, 59.87]) }) });
+    const base = callApi.getMockImplementation()!;
+    callApi.mockImplementation((url: string, o?: { method?: string }) => {
+      if (url.endsWith('/geometry') && o?.method === 'POST') return Promise.resolve({ ok: true, geometry: pointB });
+      if (url.endsWith('/geometry')) return Promise.resolve({ ok: true, geometry: serverCurrent });
+      return base(url, o);
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-start-picking-location'));
+    act(() => lastCesiumMapViewProps.onLocationPick(59.89, 17.76));
+    await user.click(await screen.findByTestId('lu-save-location'));
+    serverCurrent = pointX;
+    const pending = await screen.findByTestId('lu-geometry-pending');
+    await new Promise((resolve) => setTimeout(resolve, 2300)); // one poll answers X
+    expect(pending).toHaveTextContent(
+      'Den nya kontrollpunkten är sparad men ännu inte bekräftad som projektets aktuella punkt. Tills bytet är bekräftat gäller den ' +
+        'kontrollpunkt som servern anger som aktuell, och ingen bedömning körs.',
+    );
+    expect(pending).not.toHaveTextContent(/tidigare kontrollpunkt/);
+    expect(screen.getByTestId('lu-run')).toBeDisabled();
+  }, 10000);
+
   it('item 7: a save whose change of current point was overtaken says so and shows the project\'s current point', async () => {
     const user = userEvent.setup();
     const pointA = { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', wgs84LngLat: [17.74, 59.87], provisioningStatus: 'COMPLETED' };

@@ -1289,9 +1289,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               {pendingSave ? (
                 // W-M2d item 7: the saved point is shown as saved, and honestly as not yet current.
                 <div data-testid="lu-geometry-pending" className="text-xs space-y-1 border p-2" style={{ borderColor: '#F97316', color: '#FDBA74' }}>
+                  {/* W-M2e item 3 (M2d verification probe L1): while waiting, the UI does not know WHICH point is
+                      current (another session may have saved a third) -- it says only that the server's applies. */}
                   <p>
                     Den nya kontrollpunkten är sparad men ännu inte bekräftad som projektets aktuella punkt. Tills bytet är
-                    bekräftat gäller projektets tidigare kontrollpunkt, och ingen bedömning körs.
+                    bekräftat gäller den kontrollpunkt som servern anger som aktuell, och ingen bedömning körs.
                   </p>
                   {pendingPolls >= PENDING_SAVE_MAX_POLLS ? (
                     <p data-testid="lu-geometry-pending-stale">Bytet har inte bekräftats ännu.</p>
