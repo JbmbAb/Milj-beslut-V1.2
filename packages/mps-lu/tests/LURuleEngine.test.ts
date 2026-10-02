@@ -158,3 +158,22 @@ describe("LURuleEngine -- SEM-1/OD-03 (W2) NOT_CHECKED emission", () => {
     expect(new LURuleEngine().evaluate({ spatial_evidence: [], document_evidence: [] })).toHaveLength(0);
   });
 });
+
+describe("LURuleEngine -- U30-R2 NOT_CHECKED explanation: deterministic, neutral, no provider text", () => {
+  const RAW = 'QueryFailedError: relation "env.sgu_well" does not exist (SELECT 1 AS hit FROM env.sgu_well WHERE ST_DWithin(geom, $1, $2))';
+
+  it("the explanation is the standardized text for the layer, whatever the provider's reason says (U20CD finding 5)", () => {
+    const [finding] = evaluate([], [{ dataset: "water", reason: RAW }]);
+    expect(finding.explanation).toBe(
+      'Lagret "water" kunde inte kontrolleras: källan kunde inte frågas vid bedömningen. Ej kontrollerbart - underlag saknas.',
+    );
+    expect(finding.explanation).not.toMatch(/QueryFailedError|does not exist|SELECT|ST_DWithin|env\.sgu_well/);
+  });
+
+  it("the finding is a pure function of the layer: the reason never changes a byte of it", () => {
+    const [fromRaw] = evaluate([], [{ dataset: "ebh", reason: RAW }]);
+    const [fromClass] = evaluate([], [{ dataset: "ebh", reason: "SOURCE_UNAVAILABLE" }]);
+    expect(fromRaw).toEqual(fromClass);
+    expect(fromRaw.evidence_refs).toEqual([]);
+  });
+});
