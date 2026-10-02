@@ -98,8 +98,12 @@ export class FileCASRepository implements CASRepository {
     await fs.mkdir(path.join(this.baseDir, 'objects', 'sha256'), { recursive: true });
     await fs.mkdir(path.join(this.baseDir, 'objects', 'sha512'), { recursive: true });
 
-    const dummyTmp = path.join(this.baseDir, 'tmp', '.fs_assertion_dummy');
-    const dummyDest = path.join(this.baseDir, 'objects', 'sha256', '.fs_assertion_dummy');
+    // Unique per call (pid + random): processes initializing the same root concurrently (web +
+    // LU workers on start) must not collide on one fixed probe name -- that surfaced as a false
+    // [P-05] EEXIST/ENOENT "same filesystem" failure. Dot-prefixed, so object enumeration skips it.
+    const probeName = `.fs_assertion_probe_${process.pid}_${randomBytes(8).toString('hex')}`;
+    const dummyTmp = path.join(this.baseDir, 'tmp', probeName);
+    const dummyDest = path.join(this.baseDir, 'objects', 'sha256', probeName);
     try {
       await fs.writeFile(dummyTmp, 'probe');
       await fs.link(dummyTmp, dummyDest);
