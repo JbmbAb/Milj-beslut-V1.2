@@ -933,6 +933,26 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
     expect(problemsOf(file, content)).toEqual([]);
   });
 
+  // U30F4 (B2, "other SQL-executing methods of listed clients"): forms of node-postgres, ADO.NET/Npgsql and SQLAlchemy
+  it.each([
+    ['B2 node-postgres QueryConfig with a shorthand text', 'scripts/vrogue/b2o.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst text = process.argv[2]!;\nawait pool.query({ text, values: [] });\n"],
+    ['B2 node-postgres QueryConfig spread from run time', 'scripts/vrogue/b2p.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst cfg = JSON.parse(process.env.W_Q!);\nawait pool.query({ ...cfg });\n"],
+    ['B2 ADO.NET executenonquery() in lower case (PowerShell is case-insensitive)', 'scripts/vrogue/b2q.ps1', "$cmd = $conn.CreateCommand()\n$cmd.CommandText = $args[0]\n$cmd.executenonquery()\n"],
+    ['B2 ADO.NET ExecuteNonQueryAsync()', 'scripts/vrogue/b2r.ps1', "$cmd = $conn.CreateCommand()\n$cmd.CommandText = $args[0]\n$n = $cmd.ExecuteNonQueryAsync().Result\n"],
+    ['B2 Npgsql BeginTextImport (COPY ... FROM STDIN)', 'scripts/vrogue/b2s.ps1', "$w = $conn.BeginTextImport($args[0])\n$w.Write($rows)\n$w.Dispose()\n"],
+    ['B2 SQLAlchemy Table.create', 'scripts/vrogue/b2t.py', `${PY_SQLA}Table('sgu_well', md, schema='env').create(engine)\n`],
+  ])('%s -> caught', (_label, file, content) => {
+    expect(isScannedPath(file), file).toBe(true);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['node-postgres QueryConfig with a static text and shorthand values', 'scripts/vrogue/c11.ts', "import pg from 'pg';\nconst pool = new pg.Pool();\nconst values = [1];\nawait pool.query({ name: 'one', text: 'SELECT $1::int', values });\n"],
+    ['a set add/create in a file without SQLAlchemy', 'scripts/vrogue/c12.py', "import sys\nseen = set()\nseen.add(sys.argv[1])\nclient.create(sys.argv[1])\n"],
+  ])('control: %s passes', (_label, file, content) => {
+    expect(problemsOf(file, content)).toEqual([]);
+  });
+
   it('B5: every file type in the repository has a decision -- scanned, an unscanned executable type listed per file, or decided data', () => {
     expect(fileTypeProblems(REPO.files)).toEqual([]);
   });
