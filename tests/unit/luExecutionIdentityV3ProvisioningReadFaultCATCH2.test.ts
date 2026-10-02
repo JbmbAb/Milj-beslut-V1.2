@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   puts: [] as string[],
   contextError: null as unknown,
   accessError: null as Error | null,
+  failPutOfIdPrefix: null as string | null,
 }));
 
 vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
@@ -40,6 +41,9 @@ vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
             resolve: (ref: { artifact_id: string; artifact_type: string }) => inner.resolve(ref),
             put: (artifact: { artifact_id: string }) => {
               h.puts.push(artifact.artifact_id);
+              if (h.failPutOfIdPrefix && artifact.artifact_id.startsWith(h.failPutOfIdPrefix)) {
+                return Promise.reject(Object.assign(new Error("EIO: i/o error, write 'D:\\mimer-demo\\cas\\x.idx'"), { code: 'EIO' }));
+              }
               return inner.put(artifact as never);
             },
           },
@@ -133,6 +137,7 @@ beforeEach(async () => {
   h.puts.length = 0;
   h.contextError = null;
   h.accessError = null;
+  h.failPutOfIdPrefix = null;
   process.env.LU_EXECUTION_AUTHORITY_ROOT_KEY_ID = rootKey.keyId;
   process.env.LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM = rootKey.publicKeyPem;
   process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = authorityKey.keyId;
@@ -270,5 +275,28 @@ describe('W-CATCH2 #12: the same surface keeps the cause without raw text', () =
     const outcome = (await run()) as { failureCode?: string; failureDetail?: string };
     expect(outcome.failureCode).toBe('PROVISIONING_EXECUTION_ERROR');
     expect(outcome.failureDetail).not.toMatch(/database server/);
+  });
+});
+
+describe('W-CATCH3 (CATCH2 verifier finding 3): the stored text tells the truth about writes (shared provisioningFailure.ts)', () => {
+  const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats i arkivet innan felet uppstod, men begäran slutfördes inte.';
+  it('a failure AFTER the identity and its attestation were written (the temporal status cannot be written) never says "Inget utfärdades." or "kunde inte läsas"', async () => {
+    h.failPutOfIdPrefix = 'lu-source-authority-status-';
+    const outcome = (await run()) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(h.puts.some((id) => id.startsWith('lu-identity-v3-')), 'the identity was written before the failure').toBe(true);
+    expect(outcome.failureCode).toBe('PROVISIONING_EXECUTION_ERROR');
+    expect(outcome.failureDetail).not.toContain('Inget utfärdades');
+    expect(outcome.failureDetail).not.toContain('kunde inte läsas');
+    expect(outcome.failureDetail).toContain('Ett nytt försök kan lyckas.');
+    expect(outcome.failureDetail?.endsWith(MAY_HAVE_WRITTEN)).toBe(true);
+    expect(outcome.failureDetail).not.toMatch(RAW);
+  });
+  it('control: a failure before anything was written still ends "Inget utfärdades." (the pinned geometry cannot be read)', async () => {
+    unlinkSync(indexEntryPath(geometryId));
+    mkdirSync(indexEntryPath(geometryId));
+    const outcome = (await run()) as { failureDetail?: string };
+    expect(h.puts).toEqual([]);
+    expect(outcome.failureDetail?.endsWith('Inget utfärdades.')).toBe(true);
   });
 });

@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   edgeRows: [] as Array<{ projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; createdAt: Date }>,
   geometryListError: null as Error | null,
   accessError: null as Error | null,
+  edgeRegisterError: null as Error | null,
 }));
 
 vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
@@ -73,6 +74,7 @@ vi.mock('../../server/repositories/localizationGeometryProjectionRepository', ()
 vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => ({
   PrismaLocalizationGeometrySupersessionIndex: class {
     async register(row: { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string }) {
+      if (h.edgeRegisterError) throw h.edgeRegisterError;
       if (h.edgeRows.some((r) => r.projectId === row.projectId && r.supersessionArtifactId === row.supersessionArtifactId)) return;
       h.edgeRows.push({ ...row, createdAt: new Date(Date.UTC(2026, 9, 2) + h.edgeRows.length) });
     }
@@ -82,11 +84,12 @@ vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', 
   },
 }));
 
-import { FileCASRepository, LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { FileCASRepository, LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { createLocalizationGeometryArtifact, createLocalizationGeometrySupersessionIssuerArtifact } from '@miljobeslut/mps-lu';
 import { MimersByteStorageBackend } from '../../packages/mps-runtime/src/repository/MimersByteStorageBackend';
 import { CasBackedArtifactRepository } from '../../packages/mps-runtime/src/repository/CasBackedArtifactRepository';
 import { executeGeometrySupersessionProvisioning } from '../../server/modules/localization/luGeometrySupersessionProvisioning';
+import { attestLocalizationGeometrySupersessionIssuerArtifact } from '../../server/modules/localization/localizationGeometrySupersessionAuthority';
 import { PrismaLocalizationGeometryProjectionIndex } from '../../server/repositories/localizationGeometryProjectionRepository';
 import { __resetLocalizationGeometrySupersessionSigningProviderForTests } from '../../server/security/localizationGeometrySupersessionSigningKey';
 import { __resetLocalizationGeometrySupersessionVerifierForTests } from '../../server/security/localizationGeometrySupersessionVerifier';
@@ -146,6 +149,7 @@ beforeEach(async () => {
   h.edgeRows.length = 0;
   h.geometryListError = null;
   h.accessError = null;
+  h.edgeRegisterError = null;
   process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID = key.keyId;
   process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM = key.privateKeyPem;
   process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = key.publicKeyPem;
@@ -303,5 +307,95 @@ describe('W-CATCH3 #11: an object under a deterministic id must BE that object',
     const ab = await transitionedOnce();
     pointIndexAt(issuerId, ab);
     expectTypedNoWrite(await request(B, C, '2026-10-02T11:00:00.000Z'), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 3, probes S1/S1b): the field-for-field issuer comparison leaves out
+// the attestation, and the relation was written BEFORE the step that verifies the issuer's attestation
+// -- a GLOBAL issuer with a garbled signature led to a CAS write, while the stored text said
+// "Inget utfärdades.". An existing issuer is now verified before it is used, every new artifact is
+// verified before it is written, and the stored text says what may have been written.
+// ------------------------------------------------------------------------------------------------
+
+const NOTHING_ISSUED = 'Inget utfärdades.';
+const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats i arkivet innan felet uppstod, men begäran slutfördes inte.';
+const garble = (signature: unknown) => String(signature ?? '').split('').reverse().join('');
+
+async function rewriteObject(id: string, edit: (body: Record<string, unknown>) => void): Promise<void> {
+  const envelope = JSON.parse(readFileSync(objectPath(id), 'utf8')) as { body: Record<string, unknown> };
+  edit(envelope.body);
+  const cas = new FileCASRepository(h.casDir, { durabilityMode: 'none' });
+  await cas.initialize();
+  const { hash } = await cas.putBytes(Buffer.from(JSON.stringify(envelope), 'utf8'));
+  writeFileSync(indexEntryPath(id), JSON.stringify({ artifact_id: id, hash }));
+}
+
+/** Another Ed25519 public key under the SAME key id (a verifier configured with the wrong key). */
+function wrongVerifierUnderTheSameKeyId(keyId: string): LocalPemVerificationKeyProvider {
+  const seed = createHash('sha256').update(`w-catch3-wrong-key:${keyId}`).digest();
+  const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
+  return new LocalPemVerificationKeyProvider(keyId, createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }).toString());
+}
+
+describe('W-CATCH3 #11: an existing issuer is verified before anything is written (finding 3)', () => {
+  it('S1b: the GLOBAL issuer is stored with exact content but a garbled signature before the project\'s FIRST transition -> EXISTING_ARTIFACT_REFUSED, nothing written, no edge', async () => {
+    const bare = createLocalizationGeometrySupersessionIssuerArtifact({ issuer_key_id: key.keyId, owner_authority_ref: OWNER_AUTHORITY_REF });
+    const attestation = await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bare, signing: key.provider });
+    const damaged = { ...bare, attestation: { ...attestation, signature: garble(attestation.signature) } };
+    await repository().put({ artifact_id: damaged.artifact_id, content_hash: damaged.content_hash, body: damaged } as never);
+    h.puts.length = 0;
+    expectTypedNoWrite(await request(A, B), { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false });
+    expect(h.edgeRows).toEqual([]);
+  });
+  it('S1: the same damage after the project already has a transition -> EXISTING_ARTIFACT_REFUSED, nothing written, edges unchanged', async () => {
+    await transitionedOnce();
+    await rewriteObject(issuerId, (body) => {
+      const att = body.attestation as Record<string, unknown>;
+      body.attestation = { ...att, signature: garble(att.signature) };
+    });
+    const edgesBefore = JSON.stringify(h.edgeRows);
+    expectTypedNoWrite(await request(B, C, '2026-10-02T11:00:00.000Z'), { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false });
+    expect(JSON.stringify(h.edgeRows)).toBe(edgesBefore);
+  });
+  it('the verification key is another key under the issuer key id (configuration error): the first transition writes NOTHING -- neither the issuer nor the relation -- so "Inget utfärdades." is true', async () => {
+    __resetLocalizationGeometrySupersessionVerifierForTests(wrongVerifierUnderTheSameKeyId(key.keyId));
+    const outcome = (await request(A, B)) as { ok: boolean; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(h.puts, 'nothing written before the new issuer and the new relation verify').toEqual([]);
+    expect(h.edgeRows).toEqual([]);
+    expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
+    expect(outcome.failureDetail).not.toMatch(RAW);
+  });
+});
+
+describe('W-CATCH3 #11: the stored text tells the truth about writes (finding 3, provisioningFailure.ts)', () => {
+  it('a failure AFTER the relation was written (the edge cannot be registered) never says "Inget utfärdades." and never "kunde inte läsas"; it says an object may have been saved', async () => {
+    h.edgeRegisterError = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' });
+    const outcome = (await request(A, B)) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(h.puts.length, 'the relation (and the issuer) were written before the edge failed').toBeGreaterThan(0);
+    expect(outcome.failureCode).toBe('PROVISIONING_EXECUTION_ERROR');
+    expect(outcome.failureDetail).not.toContain('Inget utfärdades');
+    expect(outcome.failureDetail).not.toContain('kunde inte läsas');
+    expect(outcome.failureDetail).toContain('Ett nytt försök kan lyckas.');
+    expect(outcome.failureDetail?.endsWith(MAY_HAVE_WRITTEN)).toBe(true);
+    expect(outcome.failureDetail).not.toMatch(RAW);
+  });
+  it('a failure after the global issuer was minted in this run (no current point) does not claim "Inget utfärdades."', async () => {
+    h.geometryRows.length = 0; // the project has no current point: the gate fails after the issuer was minted and written
+    const outcome = (await request(A, B)) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(h.puts).toEqual([issuerId]);
+    expect(outcome.failureCode).toBe('CURRENT_GEOMETRY_UNAVAILABLE');
+    expect(outcome.failureDetail).not.toContain('Inget utfärdades');
+    expect(outcome.failureDetail?.endsWith(MAY_HAVE_WRITTEN)).toBe(true);
+  });
+  it('control: a failure before anything was written still ends "Inget utfärdades." (the pinned successor cannot be read)', async () => {
+    unlinkSync(indexEntryPath(B.artifact_id));
+    mkdirSync(indexEntryPath(B.artifact_id));
+    const outcome = (await request(A, B)) as { failureDetail?: string };
+    expect(h.puts).toEqual([]);
+    expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
   });
 });

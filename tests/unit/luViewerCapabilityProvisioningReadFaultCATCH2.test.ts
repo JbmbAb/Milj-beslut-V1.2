@@ -28,6 +28,7 @@ const h = vi.hoisted(() => ({
   releaseError: null as Error | null,
   viewerIdentityId: '',
   spawns: 0,
+  spawnExitCode: 0,
 }));
 
 vi.mock('@miljobeslut/mps-runtime', async (importOriginal) => {
@@ -76,7 +77,7 @@ vi.mock('../../src/application/resolveCurrentViewerIdentity', () => ({
 vi.mock('node:child_process', () => {
   const spawn = () => {
     h.spawns += 1;
-    return { once: (event: string, cb: (code: number) => void) => { if (event === 'exit') setTimeout(() => cb(0), 0); } };
+    return { once: (event: string, cb: (code: number) => void) => { if (event === 'exit') setTimeout(() => cb(h.spawnExitCode), 0); } };
   };
   return { spawn, default: { spawn } };
 });
@@ -104,7 +105,7 @@ vi.mock('../../server/repositories/projectContextBindingRepository', () => ({
   },
 }));
 
-import { FileCASRepository, LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { FileCASRepository, LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import {
   createProjectContextBindingArtifactV2,
   createProjectContextBindingIssuerArtifact,
@@ -170,6 +171,7 @@ beforeEach(async () => {
   h.viewerIdentityError = null;
   h.releaseError = null;
   h.spawns = 0;
+  h.spawnExitCode = 0;
   process.env.VIEWER_CAPABILITY_ISSUER_KEY_ID = capabilityKey.keyId;
   process.env.VIEWER_CAPABILITY_ISSUER_PRIVATE_KEY_PEM = capabilityKey.privateKeyPem;
   process.env.VIEWER_CAPABILITY_ISSUER_PUBLIC_KEY_PEM = capabilityKey.publicKeyPem;
@@ -388,5 +390,62 @@ describe('W-CATCH3 #10: an object under a deterministic id must BE that object',
     const id = await mintedOnce();
     expect(await executeViewerCapabilityProvisioning(input())).toEqual({ ok: true, capabilityArtifactId: id, reused: true });
     expect(h.puts).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 3, probe P1): the field-for-field issuer comparison leaves out the
+// attestation. An existing issuer is verified before it is used, a new issuer before it is written, and
+// the stored text says what may have been written (provisioningFailure.ts).
+// ------------------------------------------------------------------------------------------------
+
+const NOTHING_ISSUED = 'Inget utfärdades.';
+const MAY_HAVE_WRITTEN = 'Ett eller flera objekt kan ha sparats i arkivet innan felet uppstod, men begäran slutfördes inte.';
+
+async function rewriteObject(id: string, edit: (body: Record<string, unknown>) => void): Promise<void> {
+  const envelope = JSON.parse(readFileSync(objectPath(id), 'utf8')) as { body: Record<string, unknown> };
+  edit(envelope.body);
+  const cas = new FileCASRepository(h.casDir, { durabilityMode: 'none' });
+  await cas.initialize();
+  const { hash } = await cas.putBytes(Buffer.from(JSON.stringify(envelope), 'utf8'));
+  writeFileSync(indexEntryPath(id), JSON.stringify({ artifact_id: id, hash }));
+}
+
+describe('W-CATCH3 #10: an existing issuer is verified before it is used; nothing is written over a damaged one (finding 3)', () => {
+  it('P1: the issuer content is exact but its attestation is garbled -> EXISTING_ARTIFACT_REFUSED (the issuer, not "a needed input"), nothing written', async () => {
+    await mintedOnce();
+    await rewriteObject(issuerId, (body) => {
+      const att = body.attestation as Record<string, unknown>;
+      body.attestation = { ...att, signature: String(att.signature ?? '').split('').reverse().join('') };
+    });
+    expectTypedNoWrite(
+      await executeViewerCapabilityProvisioning(input('2026-03-01T00:00:00.000Z', '2027-03-01T00:00:00.000Z')),
+      { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false },
+    );
+  });
+  it('the verification key is another key under the issuer key id (configuration error): the first run writes NOTHING, so "Inget utfärdades." is true', async () => {
+    const seed = createHash('sha256').update(`w-catch3-wrong-key:${capabilityKey.keyId}`).digest();
+    const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
+    __resetViewerCapabilityVerifierForTests(new LocalPemVerificationKeyProvider(capabilityKey.keyId, createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }).toString()));
+    const outcome = (await executeViewerCapabilityProvisioning(input())) as { ok: boolean; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(h.puts, 'the new issuer is verified before it is written').toEqual([]);
+    expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
+    expect(outcome.failureDetail).not.toMatch(RAW);
+  });
+  it('a failure AFTER the capability was written (the fresh verification fails) says an object may have been saved, never "Inget utfärdades."', async () => {
+    h.spawnExitCode = 1;
+    const outcome = (await executeViewerCapabilityProvisioning(input())) as { ok: boolean; failureCode?: string; failureDetail?: string };
+    expect(outcome.ok).toBe(false);
+    expect(outcome.failureCode).toBe('FRESH_VERIFICATION_FAILED');
+    expect(h.puts.length, 'the issuer and the capability were written before the fresh verification').toBe(2);
+    expect(outcome.failureDetail).not.toContain('Inget utfärdades');
+    expect(outcome.failureDetail?.endsWith(MAY_HAVE_WRITTEN)).toBe(true);
+  });
+  it('control: a failure before anything was written still ends "Inget utfärdades." (the release cannot be resolved)', async () => {
+    h.releaseError = Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+    const outcome = (await executeViewerCapabilityProvisioning(input())) as { failureDetail?: string };
+    expect(h.puts).toEqual([]);
+    expect(outcome.failureDetail?.endsWith(NOTHING_ISSUED)).toBe(true);
   });
 });
