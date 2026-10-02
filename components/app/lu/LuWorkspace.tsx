@@ -636,7 +636,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
       {site ? (
         <section data-testid="lu-localization-geometry" className="space-y-3 mb-8">
-          <h2 className="text-xs uppercase tracking-widest opacity-70">Kontrollpunkt</h2>
+          <h2 className="text-xs uppercase tracking-widest opacity-70" style={{ color: 'inherit' }}>Kontrollpunkt</h2>
 
           {geometryLoading && !localizationGeometry ? (
             <p className="text-sm opacity-60">Hämtar kontrollpunkt…</p>
@@ -779,7 +779,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           style={{ borderColor: colors.coreGraphite.hex }}
         >
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold">Bedömning</h2>
+            <h2 className="text-xl font-bold" style={{ color: 'inherit' }}>Bedömning</h2>
             <div className="flex gap-2">
               {governed.assessmentArtifactId ? (
                 <button
@@ -848,7 +848,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
           {governed.findings.length > 0 ? (
             <div data-testid="lu-findings">
-              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2">Fynd</h3>
+              <h3 className="text-xs uppercase tracking-widest opacity-70 mb-2" style={{ color: 'inherit' }}>Fynd</h3>
               <ul className="space-y-2 text-sm">
                 {governed.findings.map((f) => {
                   const presentation = presentLuFinding(f);

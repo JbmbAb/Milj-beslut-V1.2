@@ -49,7 +49,7 @@ export const LuCheckDetails: React.FC<{
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-widest opacity-60">Underlag för kontrollen</p>
-          <h3 className="text-lg font-bold">{check.label}</h3>
+          <h3 className="text-lg font-bold" style={{ color: 'inherit' }}>{check.label}</h3>
         </div>
         <button type="button" data-testid="lu-check-details-close" onClick={onClose} className="text-xs underline opacity-80">
           Stäng
@@ -111,7 +111,7 @@ export const LuControlPanel: React.FC<{
   const selected = checks.find((c) => c.key === selectedKey) ?? null;
   return (
     <section data-testid="lu-control-panel" className="space-y-3 mb-10">
-      <h2 className="text-xs uppercase tracking-widest opacity-70">Kontroller</h2>
+      <h2 className="text-xs uppercase tracking-widest opacity-70" style={{ color: 'inherit' }}>Kontroller</h2>
       <p className="text-xs opacity-60">
         ”Inte kontrollerat” betyder att det saknas ett kontrollresultat – inte att det saknas objekt.
       </p>
