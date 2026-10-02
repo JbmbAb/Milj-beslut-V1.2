@@ -2204,6 +2204,29 @@ describe('LuWorkspace W-M2d', () => {
     expect(screen.getByTestId('lu-run')).toBeDisabled();
   }, 10000);
 
+  it('W-M2e item 3 (M2d verification mutant M7): "Kör bedömning" stays blocked while a saved point waits, even when its identity is already prepared', async () => {
+    const user = userEvent.setup();
+    const pointA = { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', wgs84LngLat: [17.74, 59.87], provisioningStatus: 'COMPLETED' };
+    // The saved point's execution identity is already COMPLETED; only its change of current point waits.
+    const pointB = { artifact_id: 'loc-geom-B', provenance: 'user_defined', wgs84LngLat: [17.76, 59.89], provisioningStatus: 'COMPLETED', supersessionStatus: 'PENDING' };
+    mockM2b({ currentAssessment: () => governedReadBack({ id: 'assessment-A', localizationGeometry: boundPoint('loc-geom-1', [17.74, 59.87]) }) });
+    const base = callApi.getMockImplementation()!;
+    callApi.mockImplementation((url: string, o?: { method?: string }) => {
+      if (url.endsWith('/geometry') && o?.method === 'POST') return Promise.resolve({ ok: true, geometry: pointB });
+      if (url.endsWith('/geometry')) return Promise.resolve({ ok: true, geometry: pointA });
+      return base(url, o);
+    });
+    await openM2b(user);
+    await waitFor(() => expect(screen.getByTestId('lu-run')).not.toBeDisabled());
+    await user.click(screen.getByTestId('lu-start-picking-location'));
+    act(() => lastCesiumMapViewProps.onLocationPick(59.89, 17.76));
+    await user.click(await screen.findByTestId('lu-save-location'));
+    await screen.findByTestId('lu-geometry-pending');
+    expect(screen.getByTestId('lu-geometry-current')).toHaveTextContent('59.890000, 17.760000');
+    expect(screen.getByTestId('lu-run')).toBeDisabled();
+    expect(screen.getByTestId('lu-run')).toHaveAttribute('title', 'Den nya kontrollpunkten bekräftas fortfarande.');
+  });
+
   it('item 7: a save whose change of current point was overtaken says so and shows the project\'s current point', async () => {
     const user = userEvent.setup();
     const pointA = { artifact_id: 'loc-geom-1', provenance: 'derived_from_property_boundary', wgs84LngLat: [17.74, 59.87], provisioningStatus: 'COMPLETED' };

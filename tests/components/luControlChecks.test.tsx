@@ -313,6 +313,42 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
     expect(withEvidence('ebh', { integrity: 'CONTENT_HASH_VERIFIED' }).state).toBe('NO_HIT');
   });
 
+  it('W-M2e item 3 (M2d verification mutant M1): INCOMPLETE_EVIDENCE is "Ofullständigt underlag" whatever status it comes with -- never a no-hit', () => {
+    // The server pairs INCOMPLETE_EVIDENCE with NOT_CHECKED today, so the contradiction guard alone hid a
+    // wrong mapping (M1 survived as "equivalent"); paired with CHECKED_NO_HIT the mapping itself decides.
+    const { readBack } = present();
+    for (const status of ['NOT_CHECKED', 'CHECKED_NO_HIT', 'CHECKED_HIT']) {
+      const rows = presentLuControlChecks({
+        property,
+        assessment: PRESENT,
+        server: {
+          ...serverOf(readBack),
+          layerChecks: readBack.governedLayerChecks.map((check) => (check.layer === 'ebh' ? { ...check, status, coverage_state: 'INCOMPLETE_EVIDENCE' } : check)),
+        },
+      });
+      const ebh = rows.find((row) => row.key === 'ebh')!;
+      expect(ebh.state, status).toBe('UNCERTAIN');
+      expect(ebh.stateLabel).toBe('Ofullständigt underlag');
+      expect(ebh.registerNote).toBeNull();
+    }
+  });
+
+  it('W-M2e item 3 (M2d verification: the removed item-5 pin): rows the server alone reports appear only for a present assessment', () => {
+    const { readBack } = present();
+    const server = {
+      ...serverOf(readBack),
+      layerChecks: [
+        ...readBack.governedLayerChecks,
+        { layer: 'sgu_skred', rule_id: 'LU-SKRED-001', status: 'CHECKED_NO_HIT', coverage_state: 'CHECKED_NO_HIT', message_sv: 'Ingen registrerad träff.' },
+      ],
+    };
+    const fixed = ['property', 'water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area', 'document'];
+    for (const assessment of [NONE, { status: 'not_assessed' } as const, { status: 'loading' } as const]) {
+      expect(presentLuControlChecks({ property, assessment, server }).map((row) => row.key), assessment.status).toEqual(fixed);
+    }
+    expect(presentLuControlChecks({ property, assessment: PRESENT, server }).map((row) => row.key)).toEqual([...fixed, 'extra-sgu_skred']);
+  });
+
   it('W-M2e item 2: a coverage_state named like an Object.prototype member is an unknown state (UNCERTAIN), never a mapped one', () => {
     const { readBack } = present();
     for (const coverage_state of ['constructor', 'toString', '__proto__']) {
