@@ -274,3 +274,34 @@ describe('W-CATCH2 #11: the same surface keeps the cause without raw text', () =
     expect(outcome.failureDetail).not.toMatch(/database server/);
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 2, probe S3): the reuse of an EXISTING relation returned whatever
+// object the index entry of the deterministic id pointed at -- a retry of A->B became COMPLETED with
+// the B->C relation. The object under a deterministic id must BE that object.
+// ------------------------------------------------------------------------------------------------
+
+/** Points the index entry of `fromId` at the CAS object of `toId` (a misdirected index entry). */
+function pointIndexAt(fromId: string, toId: string): void {
+  const { hash } = JSON.parse(readFileSync(indexEntryPath(toId), 'utf8')) as { hash: string };
+  writeFileSync(indexEntryPath(fromId), JSON.stringify({ artifact_id: fromId, hash }));
+}
+
+describe('W-CATCH3 #11: an object under a deterministic id must BE that object', () => {
+  it('S3: the A->B relation index entry points at the (valid) B->C relation; a retry of A->B -> EXISTING_ARTIFACT_INTEGRITY_FAULT, never COMPLETED with B->C, no row written', async () => {
+    const ab = await transitionedOnce();
+    const bc = await request(B, C, '2026-10-02T11:00:00.000Z');
+    expect(bc).toMatchObject({ ok: true, reused: false });
+    const bcId = (bc as { supersessionArtifactId: string }).supersessionArtifactId;
+    pointIndexAt(ab, bcId);
+    h.puts.length = 0;
+    const rowsBefore = JSON.stringify({ edges: h.edgeRows, geometries: h.geometryRows });
+    expectTypedNoWrite(await request(A, B), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+    expect(JSON.stringify({ edges: h.edgeRows, geometries: h.geometryRows })).toBe(rowsBefore);
+  });
+  it('the issuer index entry points at another object (the A->B relation) -> EXISTING_ARTIFACT_INTEGRITY_FAULT, nothing written', async () => {
+    const ab = await transitionedOnce();
+    pointIndexAt(issuerId, ab);
+    expectTypedNoWrite(await request(B, C, '2026-10-02T11:00:00.000Z'), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+  });
+});

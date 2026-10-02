@@ -349,3 +349,44 @@ describe('W-CATCH2 #10: the same surface -- the current binding, the access chec
     expect(outcome.failureDetail).not.toMatch(RAW);
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3 (CATCH2 verifier finding 2, probe P4): the reuse of an EXISTING capability returned whatever
+// object the index entry of the deterministic id pointed at -- the request became COMPLETED with
+// ANOTHER capability. The object under a deterministic id must BE that object (its own id), else a
+// typed integrity fault: never COMPLETED with another object, nothing written.
+// ------------------------------------------------------------------------------------------------
+
+/** Points the index entry of `fromId` at the CAS object of `toId` (a misdirected index entry). */
+function pointIndexAt(fromId: string, toId: string): void {
+  const { hash } = JSON.parse(readFileSync(indexEntryPath(toId), 'utf8')) as { hash: string };
+  writeFileSync(indexEntryPath(fromId), JSON.stringify({ artifact_id: fromId, hash }));
+}
+
+describe('W-CATCH3 #10: an object under a deterministic id must BE that object', () => {
+  it('P4: the capability index entry points at ANOTHER valid capability of the same subject (other window) -> EXISTING_ARTIFACT_INTEGRITY_FAULT, never COMPLETED with the other capability', async () => {
+    const id = await mintedOnce();
+    const second = await executeViewerCapabilityProvisioning(input('2026-02-01T00:00:00.000Z', '2027-02-01T00:00:00.000Z'));
+    expect(second).toMatchObject({ ok: true, reused: false });
+    const otherId = (second as { capabilityArtifactId: string }).capabilityArtifactId;
+    expect(otherId).not.toBe(id);
+    pointIndexAt(id, otherId);
+    h.puts.length = 0;
+    const spawnsBefore = h.spawns;
+    expectTypedNoWrite(await executeViewerCapabilityProvisioning(input()), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+    expect(h.spawns, 'the other object is never sent to the fresh verifier as if it were the requested one').toBe(spawnsBefore);
+  });
+  it('the issuer index entry points at another object (the capability) -> EXISTING_ARTIFACT_INTEGRITY_FAULT, nothing written', async () => {
+    const id = await mintedOnce();
+    pointIndexAt(issuerId, id);
+    expectTypedNoWrite(
+      await executeViewerCapabilityProvisioning(input('2026-03-01T00:00:00.000Z', '2027-03-01T00:00:00.000Z')),
+      { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false },
+    );
+  });
+  it('control: the intact existing capability is still reused (no over-closing)', async () => {
+    const id = await mintedOnce();
+    expect(await executeViewerCapabilityProvisioning(input())).toEqual({ ok: true, capabilityArtifactId: id, reused: true });
+    expect(h.puts).toEqual([]);
+  });
+});
