@@ -23,7 +23,10 @@
  *
  *   DATABASE_URL=postgresql://... npx tsx scripts/ops/retain-spatial-dataset-versions.ts --measure-digest \
  *     --target env.registerenhetsomradesytor
- *       (F4 measurement: read-only, owner-approved, likely > 5 minutes for the property layer)
+ *       (F4 measurement: read-only, owner-approved, likely > 5 minutes for the property layer. Always
+ *       name the target: without --target all six default targets are digested. It measures ONE part
+ *       of the F4 budget, measured_digest_seconds; the TRUNCATE + INSERT time, measured_replace_seconds,
+ *       is measured separately and never on live -- see RetentionDigestPrecondition.ts, U30F2 M4.)
  *
  * One JSON line per version on stdout; exit 1 if any version is DIGEST_MISMATCH,
  * LEDGER_ROW_COUNT_MISMATCH, PRECONDITION_UNMET or FAILED.
@@ -126,8 +129,9 @@ async function main(): Promise<void> {
         onResult: (result) => console.log(JSON.stringify(result)),
       });
       console.error(
-        'retain-spatial-dataset-versions: MEASURE done -- nothing recorded; commit a MEASURED entry (with this output as evidence) ' +
-          'to packages/spatial-provider-postgis/src/retention-digest-preconditions.v1.json',
+        'retain-spatial-dataset-versions: MEASURE done -- nothing recorded. This is measured_digest_seconds only: a MEASURED entry in ' +
+          'packages/spatial-provider-postgis/src/retention-digest-preconditions.v1.json also needs measured_replace_seconds ' +
+          '(TRUNCATE + INSERT of the same rows, measured separately, never on live; see RetentionDigestPrecondition.ts)',
       );
       return;
     }

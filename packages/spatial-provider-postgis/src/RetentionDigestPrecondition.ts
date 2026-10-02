@@ -3,15 +3,45 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * SPATIAL-RETENTION-DIGEST-PRECONDITIONS-V1 -- U30F F4.
+ * SPATIAL-RETENTION-DIGEST-PRECONDITIONS-V1 -- U30F F4, U30F2 M4.
  *
- * `retainOutgoingThenReplace` digests the live table and the retained relation under ACCESS
- * EXCLUSIVE inside one interactive transaction (timeout `transaction_timeout_ms`). For the property
- * layer (~4.4 M rows) that is unmeasured and likely longer than the timeout, blocking every read of
- * the table meanwhile. This is a HARD precondition: for every target listed in
- * retention-digest-preconditions.v1.json the replace promote and the retention backfill are refused
- * until a MEASURED entry (a reviewed commit, with the measurement's evidence) shows that
- * `digests_under_lock x measured_digest_seconds <= lock_budget_fraction x timeout`.
+ * `retainOutgoingThenReplace` phase B is ONE interactive transaction (timeout `transaction_timeout_ms`,
+ * 600 s, unchanged) that holds an ACCESS EXCLUSIVE lock on the target from its LOCK TABLE until it
+ * ends, blocking every read of the table meanwhile. Inside that transaction, in order:
+ *   1. the wait for the lock itself (every open reader and writer of the table finishes first);
+ *   2. the ledger re-check (and, for a first import, the admission re-check): small reads;
+ *   3. `ensureOutgoingVersionRetained`: `digests_under_lock` full-table digests (live and retained)
+ *      and the CAS record writes;
+ *   4. TRUNCATE of the target;
+ *   5. the named-column INSERT ... SELECT of every incoming row (geometry, index maintenance).
+ * For the property layer (~4.4 M rows) neither the digests nor the INSERT have been measured.
+ *
+ * HARD precondition: for every target listed in retention-digest-preconditions.v1.json the replace
+ * promote and the retention backfill are refused until a MEASURED entry (a reviewed commit, with the
+ * measurements' evidence) shows that the measured steps under the lock fit the budget:
+ *
+ *   digests_under_lock x measured_digest_seconds + measured_replace_seconds
+ *     <= lock_budget_fraction x transaction_timeout_ms
+ *
+ * `measured_replace_seconds` is steps 4-5 (TRUNCATE + INSERT). A digest time alone never meets the
+ * precondition (U30F2 M4: before, the budget counted only the digests, so MET was necessary but not
+ * sufficient). The rest of the timeout, (1 - lock_budget_fraction) x timeout, is headroom for what is
+ * NOT measured: the lock wait (1), the small reads and writes of 2-3, server load and run-to-run spread.
+ * Headroom is a margin, not a measurement, so MET is still no promise that a promote finishes in time:
+ * a promote that runs out of time rolls back with nothing truncated, but holds the lock until then.
+ *
+ * Measuring (owner-approved runs only; never a test or CI):
+ *   - measured_digest_seconds: `retain-spatial-dataset-versions --measure-digest --target <schema.table>`
+ *     (read-only; always name the target -- without --target it digests all six default targets). It
+ *     prints one JSON line per target; record its `measured_digest_seconds` (the larger of live and
+ *     retained, i.e. ONE digest).
+ *   - measured_replace_seconds: no tool in this repository measures it, and it is never measured on the
+ *     live table: time a TRUNCATE + the same INSERT ... SELECT of `measured_rows` rows into a copy of the
+ *     target with the same columns and indexes, on the same server (an owner-approved write outside live).
+ * Interpretation with the committed numbers (600 000 ms, 0.5, 2): the budget is 300 s, so
+ * 2 x digest + replace <= 300 s. A digest above 150 s alone means the digest-under-lock design must
+ * change (SHARE lock with the digests outside the exclusive lock, or a per-target timeout): an owner
+ * decision, never a timeout raised to make a measurement fit.
  *
  * Not a silent default: an UNMEASURED entry refuses; an absent entry means the target was not
  * named as a risk (NOT_REQUIRED). There is no environment switch and no caller-supplied document on
@@ -29,6 +59,8 @@ export type RetentionDigestTargetPrecondition =
       readonly status: "MEASURED";
       /** Wall time of ONE full digest of the target (the larger of live and retained), in seconds. */
       readonly measured_digest_seconds: number;
+      /** Wall time of the replace under the same lock: TRUNCATE + INSERT ... SELECT of measured_rows rows, in seconds (U30F2 M4). */
+      readonly measured_replace_seconds: number;
       readonly measured_rows: number;
       /** ISO-8601 date or timestamp of the measurement. */
       readonly measured_at: string;
@@ -72,8 +104,11 @@ export function parseRetentionDigestPreconditions(raw: unknown): RetentionDigest
       parsed[name] = Object.freeze({ status: "UNMEASURED", reason: e.reason });
     } else if (e?.status === "MEASURED") {
       const seconds = e.measured_digest_seconds;
+      const replace = e.measured_replace_seconds;
       const rows = e.measured_rows;
       if (typeof seconds !== "number" || !(seconds > 0) || !Number.isFinite(seconds)) throw new Error(`${INVALID}: ${name} measured_digest_seconds`);
+      // M4: the TRUNCATE + INSERT runs under the same lock; an entry without its time cannot be MEASURED.
+      if (typeof replace !== "number" || !(replace > 0) || !Number.isFinite(replace)) throw new Error(`${INVALID}: ${name} measured_replace_seconds`);
       if (typeof rows !== "number" || !Number.isInteger(rows) || rows < 0) throw new Error(`${INVALID}: ${name} measured_rows`);
       if (!text(e.measured_at, 10) || Number.isNaN(Date.parse(e.measured_at))) throw new Error(`${INVALID}: ${name} measured_at`);
       if (!text(e.measured_by, 2) || !text(e.environment, 2) || !text(e.measurement_evidence, 8)) {
@@ -82,6 +117,7 @@ export function parseRetentionDigestPreconditions(raw: unknown): RetentionDigest
       parsed[name] = Object.freeze({
         status: "MEASURED",
         measured_digest_seconds: seconds,
+        measured_replace_seconds: replace,
         measured_rows: rows,
         measured_at: e.measured_at,
         measured_by: e.measured_by,
@@ -122,7 +158,14 @@ export function retentionTransactionTimeoutMs(): number {
 
 export type RetentionDigestPreconditionResult =
   | { readonly kind: "NOT_REQUIRED" }
-  | { readonly kind: "MET"; readonly measured_digest_seconds: number; readonly budget_seconds: number }
+  | {
+      readonly kind: "MET";
+      readonly measured_digest_seconds: number;
+      readonly measured_replace_seconds: number;
+      /** digests_under_lock x measured_digest_seconds + measured_replace_seconds. */
+      readonly needed_seconds: number;
+      readonly budget_seconds: number;
+    }
   | {
       readonly kind: "UNMET";
       readonly code: typeof REJECT_RETENTION_DIGEST_TIME_UNMEASURED | typeof REJECT_RETENTION_DIGEST_EXCEEDS_LOCK_BUDGET;
@@ -146,18 +189,26 @@ export function evaluateRetentionDigestPrecondition(
         `(${entry.reason}) -- record an owner-approved measurement in retention-digest-preconditions.v1.json first`,
     };
   }
-  const needed = preconditions.digests_under_lock * entry.measured_digest_seconds;
+  // M4: every measured step under the exclusive lock -- the digests AND the TRUNCATE + INSERT.
+  const needed = preconditions.digests_under_lock * entry.measured_digest_seconds + entry.measured_replace_seconds;
   if (needed > budget) {
     return {
       kind: "UNMET",
       code: REJECT_RETENTION_DIGEST_EXCEEDS_LOCK_BUDGET,
       detail:
-        `${REJECT_RETENTION_DIGEST_EXCEEDS_LOCK_BUDGET}: ${target} needs ${preconditions.digests_under_lock} x ${entry.measured_digest_seconds} s = ${needed} s ` +
-        `under the exclusive lock, over the budget of ${budget} s (${preconditions.lock_budget_fraction} x ${preconditions.transaction_timeout_ms} ms); ` +
-        `measured ${entry.measured_at} on ${entry.environment} (${entry.measurement_evidence}) -- the digest-under-lock design must change first`,
+        `${REJECT_RETENTION_DIGEST_EXCEEDS_LOCK_BUDGET}: ${target} needs ${preconditions.digests_under_lock} x ${entry.measured_digest_seconds} s + ` +
+        `${entry.measured_replace_seconds} s = ${needed} s under the exclusive lock (digests, then TRUNCATE + INSERT), over the budget of ${budget} s ` +
+        `(${preconditions.lock_budget_fraction} x ${preconditions.transaction_timeout_ms} ms); measured ${entry.measured_at} on ${entry.environment} ` +
+        `(${entry.measurement_evidence}) -- the digest-under-lock design must change first`,
     };
   }
-  return { kind: "MET", measured_digest_seconds: entry.measured_digest_seconds, budget_seconds: budget };
+  return {
+    kind: "MET",
+    measured_digest_seconds: entry.measured_digest_seconds,
+    measured_replace_seconds: entry.measured_replace_seconds,
+    needed_seconds: needed,
+    budget_seconds: budget,
+  };
 }
 
 /** The committed preconditions, for a qualified target; the refusing paths call this (no document parameter). */
