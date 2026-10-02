@@ -17,6 +17,10 @@ import {
 import { requireAuth } from "../security/auth";
 import { rateLimitByUser } from "../security/rateLimit";
 import { getGovernanceSigningProvider } from "../security/governanceSigningKey";
+import {
+  MimersRootRequiredError,
+  resolveDurableMimersRoot,
+} from "../../packages/mps-runtime/src/mimers/DurableMimersRoot.js";
 
 export const governanceRouter = Router();
 
@@ -24,15 +28,40 @@ export const governanceRouter = Router();
 const activeSessions = new Map<string, GovernanceRuntime>();
 
 // Prepare dependencies
-const mimersRoot = process.env.MIMERS_ROOT || path.resolve(".data/mimers");
-const syncReader = new SyncMimersReader(mimersRoot);
 const canonicalPipeline = new DefaultCanonicalPipeline();
 // Ensure hasher is initialized
 await canonicalPipeline.initHasher();
 
-const durabilityMode = process.env.MIMERS_DURABILITY_MODE || "best-effort";
-const cas = new FileCASRepository(path.join(mimersRoot, "cas"), { durabilityMode: durabilityMode as any });
-await cas.initialize();
+/**
+ * U30-A (PRES-19): the governance CAS is the ONE durable Mimers root, resolved through the shared
+ * contract -- never a `.data/mimers` fallback of its own. Opened lazily on first use (not at
+ * module load, so importing the app has no storage side effect); a missing MIMERS_ROOT fails the
+ * request closed with MIMERS_ROOT_REQUIRED (503). The web process's boot gate
+ * (`assertMimersCasReady`) already refuses to start without the same root.
+ * MIMERS_DURABILITY_MODE handling is unchanged (owner decision DP-12 open).
+ */
+type GovernanceStorage = { readonly syncReader: SyncMimersReader; readonly cas: FileCASRepository };
+let governanceStorage: Promise<GovernanceStorage> | null = null;
+function getGovernanceStorage(): Promise<GovernanceStorage> {
+  if (!governanceStorage) {
+    governanceStorage = (async () => {
+      const mimersRoot = resolveDurableMimersRoot(process.env, "governance routes");
+      const durabilityMode = process.env.MIMERS_DURABILITY_MODE || "best-effort";
+      const cas = new FileCASRepository(path.join(mimersRoot, "cas"), { durabilityMode: durabilityMode as any });
+      await cas.initialize();
+      return { syncReader: new SyncMimersReader(mimersRoot), cas };
+    })();
+    governanceStorage.catch(() => {
+      governanceStorage = null;
+    });
+  }
+  return governanceStorage;
+}
+
+/** 503 for a missing/unready durable CAS root (server configuration), otherwise `fallback`. */
+function storageErrorStatus(error: unknown, fallback: number): number {
+  return error instanceof MimersRootRequiredError ? 503 : fallback;
+}
 
 const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve(".quarantine");
 const quarantineStorage = new DiskQuarantineStorage(quarantineRoot);
@@ -43,8 +72,9 @@ const quarantineStorage = new DiskQuarantineStorage(quarantineRoot);
 // quarantine/candidates) must keep working even when that key isn't configured; the first
 // promote request fails closed with a clear error instead.
 let promoterInstance: QuarantinePromoter | null = null;
-function getPromoter(): QuarantinePromoter {
+async function getPromoter(): Promise<QuarantinePromoter> {
   if (!promoterInstance) {
+    const { cas } = await getGovernanceStorage();
     promoterInstance = new QuarantinePromoter(quarantineStorage, cas, getGovernanceSigningProvider());
   }
   return promoterInstance;
@@ -74,14 +104,15 @@ function requireAdminMiddleware(
   next();
 }
 
-governanceRouter.post("/session/start", requireAuth, rateLimitByUser(20, 60_000), requireAdminMiddleware, (req, res) => {
+governanceRouter.post("/session/start", requireAuth, rateLimitByUser(20, 60_000), requireAdminMiddleware, async (req, res) => {
   try {
     const { capability } = req.body;
-    
+
     if (!capability) {
       return res.status(400).json({ error: "Missing capability" });
     }
 
+    const { syncReader } = await getGovernanceStorage();
     const sessionId = randomUUID();
     const contentHash = canonicalPipeline.hashCanonical({ _temp: sessionId } as any, "JSON").digest;
 
@@ -102,7 +133,7 @@ governanceRouter.post("/session/start", requireAuth, rateLimitByUser(20, 60_000)
     activeSessions.set(sessionId, runtime);
     res.json(sessionArtifact);
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(storageErrorStatus(error, 400)).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -265,10 +296,10 @@ governanceRouter.post("/quarantine/:id/promote", requireAuth, rateLimitByUser(10
       signing: signingProvider,
     });
 
-    const result = await getPromoter().promote(id, attestation, governanceRelease);
+    const result = await (await getPromoter()).promote(id, attestation, governanceRelease);
     res.json({ ok: true, result });
   } catch (error) {
-    res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    res.status(storageErrorStatus(error, 400)).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -307,6 +338,7 @@ governanceRouter.get("/stats", requireAuth, rateLimitByUser(30, 60_000), require
 governanceRouter.get("/cas/artifact/:hash", requireAuth, rateLimitByUser(20, 60_000), requireAdminMiddleware, async (req, res) => {
   try {
     const { hash } = req.params;
+    const { cas } = await getGovernanceStorage();
     const bytes = await cas.getBytes(hash, { verifyHash: true });
     if (!bytes) {
       return res.status(404).json({ ok: false, error: `Artifact ${hash} not found in CAS` });
@@ -319,6 +351,6 @@ governanceRouter.get("/cas/artifact/:hash", requireAuth, rateLimitByUser(20, 60_
       res.json({ ok: true, format: "text", data: text });
     }
   } catch (error) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    res.status(storageErrorStatus(error, 500)).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
   }
 });

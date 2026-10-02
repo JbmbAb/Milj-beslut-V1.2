@@ -21,6 +21,12 @@ import request from 'supertest';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createTokenPair } from '../../server/security/auth';
 
+// U30-A: the routes resolve the one durable MIMERS_ROOT (no `.data/mimers` fallback any more).
+// FileCASRepository is mocked below, so this root is never touched on disk.
+vi.hoisted(() => {
+  process.env.MIMERS_ROOT = '/governance-routes-test-mimers-root';
+});
+
 const mocks = vi.hoisted(() => ({
   promote: vi.fn(),
   updateStatus: vi.fn(),
@@ -47,8 +53,8 @@ vi.mock('../../server/security/governanceSigningKey', () => ({
   }),
 }));
 
-// Route module constructs its collaborators at import time (including two
-// top-level `await`s), so they're mocked at the package/module boundary
+// Route module constructs its collaborators at import time or lazily on first use
+// (the durable CAS since U30-A), so they're mocked at the package/module boundary
 // rather than injected — there is no seam to swap them in per-test otherwise.
 vi.mock('@miljobeslut/mimers-brunn-core', () => ({
   FileCASRepository: class {
