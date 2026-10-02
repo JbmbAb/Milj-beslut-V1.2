@@ -1677,6 +1677,83 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     });
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // The outcome-level downgrade: a V1 outcome carries no lineage, so neither the K2 output binding nor
+  // the subject binding above applies to it. A forger can mint one (a new CAS object) for any lineage-era
+  // attempt. The pinned outcome must be the one the execution recorded -- the outcome category A replays.
+  // ---------------------------------------------------------------------------------------------
+
+  /** A V1-shaped outcome (the pre-2026-08-24 kernel's form) for `attemptRef`, stored as a NEW CAS object. */
+  async function mintV1Outcome(repo: ArtifactRepositoryPort, attemptRef: Ref, outcomeId = `outcome-${attemptRef.artifact_id}`) {
+    const body = { outcome_id: outcomeId, artifact_type: "execution_outcome" as const, attempt_ref: attemptRef, result: "success" as const };
+    const content_hash = sha256ContentHash(body);
+    await repo.put({ artifact_id: outcomeId, content_hash, body: { ...body, content_hash } });
+    return { artifact_id: outcomeId, artifact_type: "execution_outcome" };
+  }
+  async function attemptOf(repo: ArtifactRepositoryPort, assessment: LocalizationAssessmentArtifact) {
+    return (await repo.resolve<{ attempt_ref: Ref }>(assessment.payload.execution_outcome_ref)).attempt_ref;
+  }
+
+  it("27o: a genuine V4 kept V4 (A's own authority and point) but pinned to a MINTED V1 outcome of its own attempt, its HIGH dropped -> DENY CONTRACT_DOWNGRADE_REFUSED", async () => {
+    const { repo, A } = await twoCanonical();
+    productConfig();
+    const minted = await mintV1Outcome(repo, await attemptOf(repo, A));
+    const forged = await storeUnderNewId(repo, A, withFindings({ ...A.payload, execution_outcome_ref: minted, evidence_refs: [] }, []));
+    expect(forged.payload.assessment_contract_version).toBe("localization-assessment-v4"); // precondition
+
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["CONTRACT_DOWNGRADE_REFUSED"]);
+  });
+
+  it("27p: A rewritten to V3 and pinned to a MINTED V1 outcome of B's attempt -> DENY CONTRACT_DOWNGRADE_REFUSED", async () => {
+    const { repo, A, B } = await twoCanonical();
+    productConfig();
+    const minted = await mintV1Outcome(repo, await attemptOf(repo, B));
+    const forged = await storeUnderNewId(repo, A, relabelled(withFindings({ ...A.payload, execution_outcome_ref: minted, evidence_refs: [] }, []), "v3"));
+
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["CONTRACT_DOWNGRADE_REFUSED"]);
+  });
+
+  /**
+   * A genuine pre-2026-08-24 execution: the kernel then wrote a V1 outcome at the legacy locator and no
+   * v2 outcome, and the assessment (no contract version) pinned it. Built from a bootstrap run whose v2
+   * outcome is removed and replaced by the V1 outcome the old kernel would have written.
+   */
+  async function historicalV1Execution(name: string) {
+    process.env.MPS_LU_BOOTSTRAP_ADMIT = "1";
+    const repo = new InMemoryArtifactRepository();
+    const run = (await runAssessment(repo, name, [spatialEvidence(name, "water")])).assessment!;
+    const attempt = await attemptOf(repo, run);
+    (repo as unknown as { store: Map<string, unknown> }).store.delete(run.payload.execution_outcome_ref.artifact_id);
+    const legacy = await mintV1Outcome(repo, attempt);
+    const { assessment_contract_version: _v, canonicalizer_id: _c, ...v1Payload } = run.payload;
+    const assessment = await storeUnderNewId(repo, run, { ...v1Payload, execution_outcome_ref: legacy } as Payload);
+    delete process.env.MPS_LU_BOOTSTRAP_ADMIT;
+    return { repo, attempt, assessment };
+  }
+
+  it("27q: a genuine historical V1 execution (V1 outcome at the legacy locator, no v2 outcome) with its V1 assessment still PASSes in the product configuration", async () => {
+    const { repo, assessment } = await historicalV1Execution("reexec-u30r4-v1-era");
+    productConfig();
+    const r = await verify(repo, assessment);
+    expect(r.mismatches).toEqual([]);
+    expect(r.outcome).toBe("PASS");
+  });
+
+  it("27r: in that historical V1 execution, a V1 outcome minted under ANOTHER id for the same attempt -> DENY MANIFEST_ATTEMPT_MISMATCH (not the outcome the execution recorded)", async () => {
+    const { repo, attempt, assessment } = await historicalV1Execution("reexec-u30r4-v1-era-other");
+    productConfig();
+    const other = await mintV1Outcome(repo, attempt, `outcome-${attempt.artifact_id}-other`);
+    const forged = await storeUnderNewId(repo, assessment, { ...assessment.payload, execution_outcome_ref: other });
+
+    const r = await verify(repo, forged);
+    expect(r.outcome).toBe("DENY");
+    expect(r.mismatches.map((m) => m.code)).toEqual(["MANIFEST_ATTEMPT_MISMATCH"]);
+  });
+
   // KNOWN_LIMITATION (U30R4-REPORT): verify is consistency, not authenticity; it needs write access to
   // CAS + DB. These two forgeries PASS and are pinned so that closing them is a deliberate change.
   it("KNOWN_LIMITATION 27m: A rewritten to V3 over its OWN outcome with its own point PASSes -- indistinguishable from a genuine V3 made while V3 was canonical", async () => {
