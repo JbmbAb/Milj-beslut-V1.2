@@ -1,6 +1,7 @@
 import React from 'react';
 import type { LuCheckRowKey, LuCheckView, LuFindingLike, LuKnowledgeState } from './luControlChecks';
 import { presentLuFinding, presentLuFindingSummary } from './luFindingPresentation';
+import { luRetryButtonLabelSv } from './luErrorPresentation';
 
 /**
  * DEMO M2a items 3 + 5, M2b item 1, W-M2d item 1: the LU v1 checks with a visible knowledge state,
@@ -152,12 +153,18 @@ export const LuControlPanel: React.FC<{
   onSelect: (key: LuCheckRowKey | null) => void;
   /** Shown only when at least one check is a technical error that can be retried. */
   onRetry?: (() => void) | null;
+  /**
+   * W-UI1-R3 (owner decision 2026-10-03): 'reread' when the button only reads the assessment again (the property
+   * root's read error, an incoherence) -- it says "Läs in på nytt"; 'retry' (default) when a server-retryable failure
+   * is repeated -- "Försök igen".
+   */
+  retryKind?: 'retry' | 'reread';
   retrying?: boolean;
   /** A short honest note under the list (e.g. that the server's answer lacks the document check). */
   note?: string | null;
-}> = ({ checks, findings, selectedKey, onSelect, onRetry = null, retrying = false, note = null }) => {
+}> = ({ checks, findings, selectedKey, onSelect, onRetry = null, retryKind = 'retry', retrying = false, note = null }) => {
   const selected = checks.find((c) => c.key === selectedKey) ?? null;
-  // W-UI1 (D): the property root's transient read error is re-read with the same "Försök igen".
+  // W-UI1 (D): the property root's transient read error is re-read (W-UI1-R3: "Läs in på nytt").
   const hasTechnicalError = checks.some((c) => c.state === 'TECHNICAL_ERROR' || c.rootReadRetryable);
   return (
     <section data-testid="lu-control-panel" className="space-y-3 mb-10">
@@ -232,7 +239,7 @@ export const LuControlPanel: React.FC<{
           className="px-3 py-1.5 text-xs font-semibold border disabled:opacity-40"
           style={{ borderColor: '#C026D3' }}
         >
-          {retrying ? 'Försöker igen…' : 'Försök igen'}
+          {luRetryButtonLabelSv(retryKind === 'reread', retrying)}
         </button>
       ) : null}
       {note ? (

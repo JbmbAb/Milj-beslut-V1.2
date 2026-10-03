@@ -1,5 +1,5 @@
 import React from 'react';
-import type { LuErrorPresentation } from './luErrorPresentation';
+import { luRetryButtonLabelSv, type LuErrorPresentation } from './luErrorPresentation';
 import { LuRecordIntegrityDiagnostic } from './LuRecordIntegrityDiagnostic';
 
 /**
@@ -28,7 +28,8 @@ export const LuErrorNotice: React.FC<{
         className="px-3 py-1 text-xs font-semibold border disabled:opacity-40"
         style={{ borderColor: '#475569' }}
       >
-        {retrying ? 'Försöker igen…' : 'Försök igen'}
+        {/* W-UI1-R3: "Läs in på nytt" when the action is a re-read, else the server-retryable "Försök igen". */}
+        {luRetryButtonLabelSv(error.reread === true, retrying)}
       </button>
     ) : null}
     {error.diagnostic ? <LuRecordIntegrityDiagnostic view={error.diagnostic} testId={`${testId}-diagnostic`} /> : null}

@@ -1011,6 +1011,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     rootReadRetry ||
     Boolean(geometryError?.retryable) ||
     Boolean(lookupError?.retryable);
+  // W-UI1-R3 (owner decision 2026-10-03): when the panel's button is there only to read the assessment again (the
+  // property root's read error, an incoherence), it says "Läs in på nytt"; when a failure the server marked retryable
+  // is among its reasons, "Försök igen". The conditions for showing it are unchanged.
+  const panelRetryKind: 'retry' | 'reread' =
+    Boolean(persistedAssessmentError?.retryable && !persistedAssessmentError.reread) ||
+    Boolean(overall?.retryable) ||
+    Boolean(geometryError?.retryable) ||
+    Boolean(lookupError?.retryable)
+      ? 'retry'
+      : 'reread';
 
   // The map's own retry: its viewer evidence contradicts the shown assessment (a 404 for it, ids that
   // are not its own) -> read the assessment again; otherwise fetch the map evidence again.
@@ -1037,6 +1047,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           status: 'error',
           messageSv: assessmentPresence.error.messageSv,
           retryable: assessmentPresence.error.retryable,
+          // W-UI1-R3: the map's button reads the assessment again for an incoherence -- "Läs in på nytt".
+          ...(assessmentPresence.error.reread ? { reread: true as const } : {}),
           // DEMO M2c item 3: the same state word the control panel shows for this failure.
           stateLabel: LU_KNOWLEDGE_STATE_LABEL[knowledgeStateForError(assessmentPresence.error)],
         };
@@ -1052,6 +1064,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           status: 'error',
           messageSv: evidence.load.error.messageSv,
           retryable: evidence.load.error.retryable,
+          // W-UI1-R3 (owner decision 2026-10-03): the map's contradiction is re-read -- "Läs in på nytt".
+          ...(evidence.load.error.reread ? { reread: true as const } : {}),
           stateLabel: LU_KNOWLEDGE_STATE_LABEL[knowledgeStateForError(evidence.load.error)],
         };
       case 'loaded':
@@ -1441,6 +1455,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           selectedKey={selectedCheck}
           onSelect={setSelectedCheck}
           onRetry={retryAvailable ? retryChecks : null}
+          retryKind={panelRetryKind}
           retrying={persistedAssessmentLoading || geometryLoading || lookingUp}
           note={assessmentPresence.status === 'present' && governed && !governed.layerChecks ? MISSING_LAYER_CHECKS_NOTE : null}
         />

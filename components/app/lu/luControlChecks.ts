@@ -662,7 +662,8 @@ const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string
   'TECHNICAL_ERROR/ROOT_READ_ERROR': {
     suffix: ' · fastighetsunderlagets proveniens kunde inte läsas just nu',
     noteSv:
-      'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); försök igen. Läsfelet säger inget om fastighetsunderlagets ' +
+      // W-UI1-R3 (owner decision 2026-10-03): the help text follows the button -- a re-read, "Läs in på nytt".
+      'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); läs in på nytt. Läsfelet säger inget om fastighetsunderlagets ' +
       `riktighet. ${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
   },
   // W-UI1 (D): the exact "never stored" signal of a root link -- a proven absence, not a read error.

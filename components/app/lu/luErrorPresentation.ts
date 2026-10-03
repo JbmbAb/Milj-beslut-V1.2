@@ -71,6 +71,22 @@ export interface LuErrorPresentation {
    * non-authoritative diagnostic (shown collapsed); absent for every other answer.
    */
   readonly diagnostic?: LuRecordIntegrityView;
+  /**
+   * W-UI1-R3 (owner decision 2026-10-03): the action offered is RE-READING the assessment (an incoherence between
+   * two answers), not repeating a failed call the server classified -- its button says "Läs in på nytt".
+   */
+  readonly reread?: true;
+}
+
+/** W-UI1-R3: the label of the button that repeats a call the server marked retryable. */
+export const LU_RETRY_LABEL_SV = 'Försök igen';
+/** W-UI1-R3 (owner decision 2026-10-03): the label of the button that reads the assessment again. */
+export const LU_REREAD_LABEL_SV = 'Läs in på nytt';
+
+/** W-UI1-R3: the button label (and its busy form) for a retry or a re-read. */
+export function luRetryButtonLabelSv(reread: boolean, busy: boolean): string {
+  if (reread) return busy ? 'Läser in på nytt…' : LU_REREAD_LABEL_SV;
+  return busy ? 'Försöker igen…' : LU_RETRY_LABEL_SV;
 }
 
 /** A client-side error whose message is already plain Swedish written by this UI. */
@@ -146,8 +162,9 @@ const NOT_FOUND_TEXT: Readonly<Partial<Record<LuErrorContext, string>>> = {
  */
 const VIEWER_EVIDENCE_NO_CURRENT =
   'Kontrollresultaten kunde inte hämtas till kartan: servern anger att projektet inte längre har någon aktuell bedömning, men en bedömning visas här. Läs in bedömningen på nytt.';
+// W-UI1-R3 (owner decision 2026-10-03): the help text follows the button -- "Läs in på nytt", a re-read.
 const VIEWER_EVIDENCE_NOT_FOUND =
-  'Kontrollresultaten kunde inte hämtas till kartan: servern hittade inga kontrollresultat för den visade bedömningen. Försök igen eller läs in bedömningen på nytt.';
+  'Kontrollresultaten kunde inte hämtas till kartan: servern hittade inga kontrollresultat för den visade bedömningen. Läs in bedömningen på nytt.';
 
 interface ErrorFields {
   readonly status: number | null;
@@ -926,6 +943,7 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
         : serverAllowsRetry(f.retryable, { kind, messageSv, retryable: textAllowsRetry }),
     technical,
     ...(diagnostic ? { diagnostic } : {}),
+    ...(opts.reread ? { reread: true as const } : {}),
   });
   const fromTable = (entry: CodeText) => make(entry.kind, entry.messageSv, entry.retryable);
 
@@ -1016,5 +1034,6 @@ export function isNoCurrentAssessmentError(err: unknown): boolean {
 
 /** An incoherence between sources that must describe the same assessment (DEMO M2b item 2). */
 export function presentLuIncoherence(messageSv: string, technical: readonly LuErrorDetailRow[]): LuErrorPresentation {
-  return { kind: 'INCOHERENT', messageSv, retryable: true, technical };
+  // W-UI1-R3: the offered action is reading the assessment again.
+  return { kind: 'INCOHERENT', messageSv, retryable: true, technical, reread: true };
 }

@@ -25,6 +25,11 @@ export type CesiumProductEvidence =
       readonly messageSv: string;
       readonly retryable: boolean;
       /**
+       * W-UI1-R3 (owner decision 2026-10-03): the workspace's action is reading the assessment again (the map's
+       * evidence contradicts the shown assessment) -- the button says "Läs in på nytt" instead of "Försök igen".
+       */
+      readonly reread?: boolean;
+      /**
        * DEMO M2c item 3: the knowledge-state word the control panel shows for the same failure
        * (e.g. "Ofullständigt underlag" for a governance refusal); defaults to "Tekniskt fel".
        */
@@ -641,7 +646,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
                 onClick={retryEvidence}
                 className="text-[10px] font-black uppercase bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg"
               >
-                Försök igen
+                {productMode && productEvidence?.status === 'error' && productEvidence.reread === true ? 'Läs in på nytt' : 'Försök igen'}
               </button>
             ) : null}
             {mode === 'live' && !productMode && (
