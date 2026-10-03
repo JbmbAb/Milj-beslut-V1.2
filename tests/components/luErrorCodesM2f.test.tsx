@@ -323,7 +323,9 @@ describe('W-UI1 C/D: no internal terms in visible server text; the property root
     const property = rows[0]!;
     expect(property.stateLabel).toBe('Hittad · fastighetsunderlagets proveniens kunde inte läsas just nu');
     expect(property.summary).toContain('Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); försök igen.');
-    expect(property.summary).not.toMatch(/äkta|äkthet|verifierad|ROOT_READ_ERROR/);
+    // Owner decision R3-1 (2026-10-03): it says that NO conclusion about authenticity can be drawn -- never a claim of one.
+    expect(property.summary).toContain('Ingen slutsats kan dras om fastighetsrotens äkthet eller om dess proveniens gäller nu.');
+    expect(property.summary).not.toMatch(/äkta|verifierad|aktuell|ROOT_READ_ERROR/i);
     expect(property.rootReadRetryable).toBe(true);
     const visible = property.details.map((d) => d.value).join(' ');
     expect(visible).not.toMatch(INTERNAL);
