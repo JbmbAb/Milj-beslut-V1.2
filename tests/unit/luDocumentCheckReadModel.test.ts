@@ -91,6 +91,8 @@ import {
   createGovernedLocalizationAssessment,
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
+  createProjectPropertyBindingArtifact,
+  createPropertyLookupObservationArtifact,
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
@@ -184,8 +186,21 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
 }
 
 const PROJECT_ID = 'project-k0-document-check';
-const propertyBinding = { artifact_id: 'project-property-binding-k0', artifact_type: 'project_property_binding' } as const;
 const geometryRef = { artifact_id: 'geometry-k0', artifact_type: 'CANONICAL_GEOMETRY' } as const;
+// W-GAP1 (F2, owner decision Round 15-16): the property root is STORED in full (context -> binding -> observation, the
+// product factories' content-addressed ids; stored in setup()). The former fixture named a binding it never stored -- a
+// well-formed root link whose object is not in the CAS is now a lost referenced artifact that the PDF and verify refuse
+// (ROOT_MISSING_FROM_CAS).
+const propertyObservation = createPropertyLookupObservationArtifact({
+  property_identity: 'property-identity-k0', property_designation: 'UPPSALA K0 1:1', source_key: 'k0-key',
+  source_dataset: 'core.property_unit', source_updated_at: '2026-06-28T00:00:00.000Z', municipality: 'Uppsala', geometry_ref: geometryRef,
+});
+const propertyBindingArtifact = createProjectPropertyBindingArtifact({
+  project_id: PROJECT_ID, property_identity: propertyObservation.payload.property_identity, property_designation: propertyObservation.payload.property_designation,
+  geometry_ref: geometryRef, source_refs: [{ artifact_id: propertyObservation.artifact_id, artifact_type: propertyObservation.artifact_type }],
+  resolver_id: 'postgis-property-unit-exact', resolver_version: 'canonical-property-observation-v1', contract_version: 'project-property-binding-v1',
+});
+const propertyBinding = { artifact_id: propertyBindingArtifact.artifact_id, artifact_type: propertyBindingArtifact.artifact_type } as const;
 const pcbIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-issuer-k0-document-check-test');
 const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provider.keyId, pcbIssuerKey.publicKey);
 const pcbIssuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: pcbIssuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
@@ -212,6 +227,9 @@ async function setup() {
   const repository = new MemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
   await repository.put({ artifact_id: pcbIssuer.artifact_id, body: pcbIssuer });
+  // W-GAP1 (F2): the root's binding and observation links are stored (the context below names the binding).
+  await repository.put({ artifact_id: propertyObservation.artifact_id, body: propertyObservation });
+  await repository.put({ artifact_id: propertyBindingArtifact.artifact_id, body: propertyBindingArtifact });
 
   process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
   process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
