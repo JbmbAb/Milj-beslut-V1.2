@@ -1287,6 +1287,25 @@ describe('canaries: U30F5 -- D-2 inline code, D-5 substituted SQL, D-6 process a
     expect(problemsOf(file, content)).toEqual([]);
   });
 
+  // U30F5 mutation round 1: what the first canaries left unexercised
+  it.each([
+    ['D-2 Dockerfile exec form: pwsh -Command with Npgsql ExecuteNonQuery', 'deploy/u7a/Dockerfile', 'FROM mcr.microsoft.com/powershell\nCMD ["pwsh", "-NoProfile", "-Command", "$c = $conn.CreateCommand(); $c.CommandText = $env:SQL; $c.ExecuteNonQuery()"]\n'],
+    ['D-2 CI defaults run shell: python with a dynamic execute', '.github/workflows/u7b.yml', "on: push\ndefaults:\n  run:\n    shell: python\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          import os, psycopg2\n          psycopg2.connect(os.environ['DB']).cursor().execute(os.environ['SQL'])\n"],
+    ['D-2 CI step with a shell the scan does not read (perl)', '.github/workflows/u7c.yml', ci('      - shell: perl {0}\n        run: |\n          system($ENV{CMD});\n')],
+    ['D-7 a process call runs psql -c with an ungated CASCADE (only the command channel reads it)', 'scripts/vrogue/u7g.ts', "import { execSync } from 'node:child_process';\nexecSync('psql -c \"TRUNCATE public.parent CASCADE\"');\n"],
+  ])('%s -> caught', (_label, file, content) => {
+    expect(isScannedPath(file), file).toBe(true);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['D-1 a package.json in a package directory runs a test source relative to it', { 'packages/spatial-provider-postgis/scripts/package.json': npm({ purge: 'tsx purge.test.ts' }), 'packages/spatial-provider-postgis/scripts/purge.test.ts': PURGE_TS }],
+    ['D-1 a launched data file launches a test source in turn', { 'tools/u7e/package.json': npm({ go: 'bash scripts/ops/u7e.txt' }), 'scripts/ops/u7e.txt': 'tsx scripts/ops/unit/purge.test.ts\n', 'scripts/ops/unit/purge.test.ts': PURGE_TS }],
+    ['D-1 an npm script runs a file in a path the scan excludes', { 'tools/u7f/package.json': npm({ go: 'node public/cesium/u7f.js' }), 'public/cesium/u7f.js': "require('child_process').execSync(process.env.CMD);\n" }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
   it("a PowerShell relation gate still counts -- shown on an appended drop without CASCADE (sanitize's own drops are open D-7 sites, UNRESOLVABLE with or without it)", () => {
     const file = 'scripts/import/sanitize-postgis-failed-imports.ps1';
     const original = realText(file);

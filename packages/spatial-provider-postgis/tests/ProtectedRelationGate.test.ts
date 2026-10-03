@@ -193,6 +193,18 @@ describe("SQL write targets", () => {
     }
   });
 
+  it("U30F5 (B8): a GRANT on another object kind (a sequence, a function, a type ...) names no relation -- the kind word is not read as one", () => {
+    for (const sql of [
+      "GRANT USAGE ON SEQUENCE env.sgu_well_id_seq TO app",
+      "GRANT EXECUTE ON FUNCTION public.f() TO app",
+      "REVOKE ALL ON TYPE public.t FROM app",
+      "GRANT USAGE ON ALL SEQUENCES IN SCHEMA env TO app",
+    ]) {
+      expect(extractSqlWriteTargets(sql), sql).toEqual({ targets: [], unresolved: [] });
+    }
+    expect(extractSqlWriteTargets("GRANT SELECT ON public.x TO app")).toEqual({ targets: [{ operation: "GRANT", relation: "public.x" }], unresolved: [] });
+  });
+
   it.each([
     ["TRUNCATE TABLE env.sgu_well CASCADE;", "TRUNCATE"],
     ['DROP TABLE IF EXISTS "lm_staging"."ebh_potentiellt_fororenade_omraden_02fccffc" CASCADE', "DROP"],

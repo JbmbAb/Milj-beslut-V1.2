@@ -290,5 +290,9 @@
   {"id": "u30f5-b8-control-create-role-login", "kind": "sql", "text": "CREATE ROLE reader LOGIN PASSWORD 'x'", "expect": {"verdict": "ALLOWED"}},
   {"id": "u30f5-b8-control-create-user-mapping", "kind": "sql", "text": "CREATE USER MAPPING FOR app SERVER s OPTIONS (user 'a', password 'b')", "expect": {"verdict": "ALLOWED"}},
   {"id": "u30f5-b8-control-alter-user-mapping", "kind": "sql", "text": "ALTER USER MAPPING FOR app SERVER s OPTIONS (SET password 'c')", "expect": {"verdict": "ALLOWED"}},
-  {"id": "u30f5-b8-control-grant-word-in-prose", "kind": "sql", "text": "grant not found in CAS", "expect": {"verdict": "ALLOWED"}}
+  {"id": "u30f5-b8-control-grant-word-in-prose", "kind": "sql", "text": "grant not found in CAS", "expect": {"verdict": "ALLOWED"}},
+  {"id": "u30f5-b8-control-create-role-named-admin", "kind": "sql", "text": "CREATE ROLE admin LOGIN", "expect": {"verdict": "ALLOWED"}},
+  {"id": "u30f5-d5-cmd-batch-argument-as-sql", "kind": "command", "text": "psql -c %1", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "u30f5-d5-cmd-batch-tilde-argument-as-sql", "kind": "command", "text": "psql -c %~2", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}},
+  {"id": "u30f5-d5-cmd-all-arguments-as-sql", "kind": "command", "text": "psql -c %*", "expect": {"verdict": "UNRESOLVABLE", "unresolved": ["DYNAMIC_SQL"]}}
 ]
