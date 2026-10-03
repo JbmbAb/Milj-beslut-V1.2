@@ -750,16 +750,16 @@ function pinnedEvidenceUnreadableRefusal(statement: GovernedOverallStatement, pa
 
 /**
  * U20CDF4: the record-integrity check of an already identity-verified current assessment, for the
- * paths that do not build the read-back themselves (verify, the map). 'map' answers a tampered/corrupted
- * pinned artifact with the read-back's own 424; 'verify' leaves it to H15 (its PASS/DENY semantics: H15
- * reports a tampered evidence as DENY).
+ * paths that do not build the read-back themselves (verify, the map).
  * W-U20CDF5 (U20CDF4 verification M1): a pre-check that could not read every pinned evidence never lets
  * either path go on -- a visible break is the 424 (assessGovernedCoverage puts it first), otherwise the
  * typed PinnedEvidenceUnreadableRefusal.
- * W-U20CDF5-R2 (U20CDF5 verification M1-rest, probe R1): nor does a pre-check whose read content failed its own
- * identity (a corrupt or truncated read) skip that classification on verify. H15 DENYs a LASTING tampering, but
- * after a TRANSIENT one it reads the evidence intact and would replay the record: so a break visible without that
- * content (an unknown severity, a malformed entry, ...) is the 424 first; only a record without one is left to H15.
+ * W-U20CDF5-R2 (U20CDF5 verification M1-rest, probe R1; the verifier's first remedy): a pre-check whose read
+ * content failed its own identity (a tampered or corrupted pinned artifact, a tampered property root) is answered
+ * on BOTH paths with the read-back's own 424 GOVERNED_EVIDENCE_INTEGRITY_FAILED -- verify no longer leaves it to H15.
+ * H15 DENYs a LASTING tampering, but after a TRANSIENT corrupt or truncated read it reads the content intact and
+ * would replay a record whose integrity this pre-check never established (a break visible only in that content, or
+ * a silence hidden behind it, could replay as PASS). Never replayed, never PASS, never valid form.
  */
 async function currentRecordIntegrityRefusal(
   assessment: LocalizationAssessmentArtifact,
@@ -767,7 +767,7 @@ async function currentRecordIntegrityRefusal(
   path: 'verify' | 'map',
 ): Promise<GovernedRecordIntegrityFailure | GovernedEvidenceIntegrityFailure | PinnedEvidenceUnreadableRefusal | null> {
   const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
-  if (details.integrity.ok === false && path === 'map') return governedEvidenceIntegrityFailure(details.integrity);
+  if (details.integrity.ok === false) return governedEvidenceIntegrityFailure(details.integrity);
   const statement = governedOverallStatement(
     governedVerdictFromFindings(assessment.payload.findings).overallRisk,
     details.governedLayerChecks,
@@ -776,8 +776,6 @@ async function currentRecordIntegrityRefusal(
   if (statement.coverage_state === 'RECORD_INTEGRITY_ERROR') {
     return recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings);
   }
-  // Verify only: content that failed its own identity, and no break visible without it -- H15 decides (DENY).
-  if (details.integrity.ok === false) return null;
   if (statement.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') return pinnedEvidenceUnreadableRefusal(statement, path);
   return null;
 }
@@ -1697,10 +1695,11 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
     }
   | { ok: false; status: number; error: string }
   | GovernedRecordIntegrityFailure
+  | GovernedEvidenceIntegrityFailure
   | PinnedEvidenceUnreadableRefusal
 > {
-  // U20-D: identity resolution only (plus the optional explicit-id binding) -- not the evidence
-  // details, so a tampered evidence still reaches H15 and comes back as DENY/TAMPERED_EVIDENCE.
+  // U20-D: identity resolution only (plus the optional explicit-id binding) -- the evidence details are read by the
+  // integrity pre-check below (W-U20CDF5-R2: a tampered evidence no longer reaches H15, see currentRecordIntegrityRefusal).
   const core = await resolveCurrentLuAssessmentCore(input);
   if (core.ok === false) {
     return core;
@@ -1708,9 +1707,11 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
 
   // U20CDF4 (owner decision 2026-10-03 (4) point 1; coordinator clarification 2: verify must never give
   // PASS for such a record): a current record that fails its integrity check is the same 424 as the
-  // read-back -- never replayed and never "Reproducerbarhet verifierad" next to an integrity error. A
-  // tampered/corrupted pinned evidence is left to H15 as before (DENY/TAMPERED_EVIDENCE).
+  // read-back -- never replayed and never "Reproducerbarhet verifierad" next to an integrity error.
   // W-U20CDF5 (U20CDF4 verification M1): nor when the pre-check could not read every pinned evidence.
+  // W-U20CDF5-R2 (U20CDF5 verification M1-rest): nor when content it read failed its own identity -- the read-back's
+  // 424 GOVERNED_EVIDENCE_INTEGRITY_FAILED, as on the map (it used to be left to H15: DENY, or after a transient
+  // fault a replay of a record whose integrity was never established).
   const recordRefusal = await currentRecordIntegrityRefusal(core.assessment, core.artifactRepository, 'verify');
   if (recordRefusal) return recordRefusal;
 

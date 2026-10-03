@@ -1118,13 +1118,6 @@ export async function resolveGovernedAssessmentDetails(input: {
     if (detail.integrity === 'TAMPERED' && integrityFailure.ok) {
       integrityFailure = { ok: false, failureClass: 'EVIDENCE_TAMPERED', artifactId: ref.artifact_id };
     }
-    if (detail.integrity === 'TAMPERED' && ref.artifact_type === 'SPATIAL_EVIDENCE') {
-      // W-U20CDF5-R2 (U20CDF5 verification M1-rest): spatial content that failed its own identity says nothing about
-      // its layer. For the checks a layer without readable evidence is then unreadable (a technical error), never
-      // "no evidence" -- so the record checks verify classifies before it leaves a tampered record to H15 never read
-      // a silent layer out of it. (The read-back, the PDF and the map fail closed on `integrity` before any check.)
-      spatialEvidenceUnreadable = true;
-    }
     evidenceDetails.push(detail);
   }
 
