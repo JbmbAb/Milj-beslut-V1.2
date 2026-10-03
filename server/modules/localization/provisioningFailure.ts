@@ -91,6 +91,13 @@ const EXISTING_SUBJECT_SV: Readonly<Record<string, string>> = {
   'execution-identity-attestation': 'Exekveringsidentitetens befintliga attestering',
 };
 
+/**
+ * W-CATCH3-R2 (OD-C3-2): an existing ISSUER is verified against the configured key, so a refusal can be
+ * a damaged object OR a misconfigured verification key; the text names both (the system cannot tell).
+ */
+const ISSUER_SUBJECTS: ReadonlySet<string> = new Set(['viewer-capability-issuer', 'geometry-supersession-issuer']);
+const ISSUER_REFUSED_CAUSES_SV = 'skadat objekt eller felkonfigurerad verifieringsnyckel';
+
 /** Literal codes (so the error-code inventory sees each one): class -> code, per kind of subject. */
 const CODES = {
   EXISTING: { READ_ERROR: 'EXISTING_ARTIFACT_READ_ERROR', REFUSED: 'EXISTING_ARTIFACT_REFUSED', LASTING: 'EXISTING_ARTIFACT_INTEGRITY_FAULT' },
@@ -123,7 +130,10 @@ export function provisioningFailure(error: unknown, writes: ProvisioningWrites):
     if (existing) {
       return {
         failureCode: codeFor('EXISTING', error),
-        failureDetail: withWrites(`${readFaultSentenceSv(error, existing)} Inget utfärdades i dess ställe.`, writes),
+        failureDetail: withWrites(
+          `${readFaultSentenceSv(error, existing, ISSUER_SUBJECTS.has(error.subject) ? ISSUER_REFUSED_CAUSES_SV : undefined)} Inget utfärdades i dess ställe.`,
+          writes,
+        ),
         diagnostic,
       };
     }
@@ -137,7 +147,14 @@ export function provisioningFailure(error: unknown, writes: ProvisioningWrites):
   }
   const ownCode = (error as { failureCode?: unknown } | null)?.failureCode;
   if (typeof ownCode === 'string') {
-    return { failureCode: ownCode, failureDetail: withWrites(error instanceof Error ? error.message : String(error), writes) };
+    // W-CATCH3-R2 (CATCH3 verifier Low 5): the stored text of an own code is Swedish; its ids and technical
+    // detail travel as the internal diagnostic (log only).
+    const ownDiagnostic = (error as { diagnostic?: unknown }).diagnostic;
+    return {
+      failureCode: ownCode,
+      failureDetail: withWrites(error instanceof Error ? error.message : String(error), writes),
+      ...(typeof ownDiagnostic === 'string' ? { diagnostic: ownDiagnostic } : {}),
+    };
   }
   const fault = classifyReadFault(error);
   if (mayHaveWritten(writes)) {

@@ -71,9 +71,14 @@ export type GeometrySupersessionProvisioningOutcome =
       readonly diagnostic?: string;
     };
 
-function fail(code: string, detail: string): never {
-  const error = new Error(detail) as Error & { failureCode: string };
+/**
+ * W-CATCH3-R2 (CATCH3 verifier Low 5): `detail` is the stored, neutral Swedish text of the code; ids and
+ * the technical detail go to `diagnostic` (the worker's log only, never stored, never sent).
+ */
+function fail(code: string, detail: string, diagnostic?: string): never {
+  const error = new Error(detail) as Error & { failureCode: string; diagnostic?: string };
   error.failureCode = code;
+  if (diagnostic !== undefined) error.diagnostic = diagnostic;
   throw error;
 }
 
@@ -160,7 +165,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
       where: { id: input.requestedByUserId },
       select: { id: true, organisationId: true, bankidId: true, role: true, identityEnvironment: true },
     });
-    if (!requester?.organisationId) fail('REQUESTER_NOT_AUTHORIZED', `requesting user ${input.requestedByUserId} has no organisation membership`);
+    if (!requester?.organisationId) fail('REQUESTER_NOT_AUTHORIZED', 'Den som begärde ändringen saknar organisationstillhörighet. Inget utfärdades.', `requesting user ${input.requestedByUserId} has no organisation membership`);
     try {
       await assertProjectAccess(
         { ...requester, identityEnvironment: requester.identityEnvironment as 'MOCK' | 'TEST' | 'PRODUCTION' | 'LEGACY' | undefined },
@@ -170,7 +175,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
     } catch (error) {
       // W-CATCH2 (#14 class): only the access check's own denial is "not authorized".
       if (!isProjectAccessDenied(error)) throw toReadFaultError('project-access', error);
-      fail('REQUESTER_NOT_AUTHORIZED', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
+      fail('REQUESTER_NOT_AUTHORIZED', 'Den som begärde ändringen har inte behörighet till projektet. Inget utfärdades.', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
     }
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
@@ -190,7 +195,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
       // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
       fail('PREDECESSOR_GEOMETRY_UNAVAILABLE', provisioningReadFaultDetailSv(error, 'Den tidigare kontrollpunkten'));
     }
-    if (predecessor!.payload.project_id !== input.projectId) fail('PREDECESSOR_GEOMETRY_PROJECT_MISMATCH', 'predecessor geometry does not belong to this project');
+    if (predecessor!.payload.project_id !== input.projectId) fail('PREDECESSOR_GEOMETRY_PROJECT_MISMATCH', 'Den tidigare kontrollpunkten hör till ett annat projekt. Inget utfärdades.', 'predecessor geometry does not belong to this project');
 
     let successor: LocalizationGeometryArtifact;
     try {
@@ -199,7 +204,7 @@ export async function executeGeometrySupersessionProvisioning(input: {
       // W-CATCH2: same code, a neutral text with the fault's class instead of the raw message.
       fail('SUCCESSOR_GEOMETRY_UNAVAILABLE', provisioningReadFaultDetailSv(error, 'Den nya kontrollpunkten'));
     }
-    if (successor!.payload.project_id !== input.projectId) fail('SUCCESSOR_GEOMETRY_PROJECT_MISMATCH', 'successor geometry does not belong to this project');
+    if (successor!.payload.project_id !== input.projectId) fail('SUCCESSOR_GEOMETRY_PROJECT_MISMATCH', 'Den nya kontrollpunkten hör till ett annat projekt. Inget utfärdades.', 'successor geometry does not belong to this project');
 
     const issuer = await getOrMintIssuer(repo, verification);
     const signing = getLocalizationGeometrySupersessionSigningProvider();

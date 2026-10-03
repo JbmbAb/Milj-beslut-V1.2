@@ -339,14 +339,16 @@ function sortedJson(value: unknown): string {
 /**
  * Swedish, neutral: what the fault means for `subjectSv` (a capitalised noun phrase such as
  * "Projektets koppling till fastigheten") and whether a retry can help. No id, path or code.
+ * W-CATCH3-R2 (OD-C3-2): `refusedCausesSv` names the possible causes of a refusal, e.g. "skadat objekt
+ * eller felkonfigurerad verifieringsnyckel" for an issuer verified against the configured key.
  */
-export function readFaultSentenceSv(readFault: ReadFault, subjectSv: string): string {
+export function readFaultSentenceSv(readFault: ReadFault, subjectSv: string, refusedCausesSv?: string): string {
   const cause: Record<ReadFaultClass, string> = {
     READ_ERROR: 'kunde inte läsas (tekniskt fel).',
     STORAGE_INTEGRITY_FAULT: 'kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
     MISSING_FROM_CAS: 'kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
     BINDING_INDEX_INCONSISTENT: 'kunde inte fastställas: bindningsindexet motsäger sig självt (bestående integritetsfel).',
-    REFUSED: 'underkändes vid verifieringen.',
+    REFUSED: refusedCausesSv ? `underkändes vid verifieringen (${refusedCausesSv}).` : 'underkändes vid verifieringen.',
   };
   const contact = readFault.retryable ? [] : ['Kontakta systemets administratör.'];
   return [`${subjectSv} ${cause[readFault.faultClass]}`, retrySentenceSv(readFault.retryable), ...contact].join(' ');

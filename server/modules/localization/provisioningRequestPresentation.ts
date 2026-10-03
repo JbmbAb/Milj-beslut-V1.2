@@ -31,7 +31,10 @@ export const PROVISIONING_REQUEST_FAILURE_PRESENTATION: Readonly<Record<string, 
     causeSv: 'ett befintligt objekt som begäran bygger på saknas, är skadat eller är ett annat objekt än det som begärdes (bestående lagrings- eller integritetsfel).',
     retryable: false,
   },
-  EXISTING_ARTIFACT_REFUSED: { causeSv: 'ett befintligt objekt som begäran bygger på underkändes vid verifieringen.', retryable: false },
+  EXISTING_ARTIFACT_REFUSED: {
+    causeSv: 'ett befintligt objekt som begäran bygger på underkändes vid verifieringen (skadat objekt eller felkonfigurerad verifieringsnyckel).',
+    retryable: false,
+  },
   // provisioningFailure.ts: the project's current binding
   CURRENT_BINDING_READ_ERROR: { causeSv: 'projektets koppling till fastigheten kunde inte läsas (tekniskt fel).', retryable: true },
   CURRENT_BINDING_INTEGRITY_FAULT: {
@@ -77,24 +80,34 @@ export const PROVISIONING_REQUEST_FAILURE_PRESENTATION: Readonly<Record<string, 
 const CURRENTNESS_REASON_PREFIX = 'LOCALIZATION_GEOMETRY_';
 const CURRENTNESS_CAUSE_SV = 'projektets aktuella kontrollpunkt kunde inte fastställas.';
 
-/** A stored request, or a view this process built itself (no failureCode field: its text is neutral by construction). */
+/**
+ * W-CATCH3-R2 (CATCH3 verifier Low 3): the explicit mark of a view this process built itself
+ * (localizationGeometryService.ts unenqueuedRequest), whose text is neutral by construction. Before,
+ * the ABSENCE of a failureCode field was that mark -- a stored record read without its failureCode
+ * column (a future select, an inherited field) would have passed its raw text. A record never carries
+ * this symbol.
+ */
+export const PROCESS_BUILT_REQUEST_VIEW: unique symbol = Symbol('lu.process-built-request-view');
+
+/** A stored request, or a view this process built itself (marked PROCESS_BUILT_REQUEST_VIEW). */
 export type ProvisioningRequestLike = {
   readonly status: string | null;
   readonly failureCode?: string | null;
   readonly failureDetail?: string | null;
+  readonly [PROCESS_BUILT_REQUEST_VIEW]?: true;
 };
 
 /**
  * The text the geometry view shows for a request: null unless it FAILED or was SUPERSEDED; then the
- * neutral text of its stored code -- never the stored failureDetail. A view built by this process
- * (unenqueuedRequest: no failureCode field) keeps its own neutral text.
+ * neutral text of its OWN stored code (an inherited or missing field is no code) -- never the stored
+ * failureDetail. Only a view marked PROCESS_BUILT_REQUEST_VIEW (exactly true) keeps its own text.
  */
 export function presentProvisioningRequestDetail(kind: ProvisioningRequestKind, request: ProvisioningRequestLike | null | undefined): string | null {
   if (!request) return null;
-  if (!Object.prototype.hasOwnProperty.call(request, 'failureCode')) return request.failureDetail ?? null;
+  if (request[PROCESS_BUILT_REQUEST_VIEW] === true) return request.failureDetail ?? null;
   if (request.status !== 'FAILED' && request.status !== 'SUPERSEDED') return null;
   const lead = LEAD_SV[kind];
-  const code = request.failureCode;
+  const code = Object.prototype.hasOwnProperty.call(request, 'failureCode') ? request.failureCode : undefined;
   if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(PROVISIONING_REQUEST_FAILURE_PRESENTATION, code)) {
     const known = PROVISIONING_REQUEST_FAILURE_PRESENTATION[code]!;
     return known.retryable === null ? `${lead}: ${known.causeSv}` : `${lead}: ${known.causeSv} ${retrySentenceSv(known.retryable)}`;

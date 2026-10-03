@@ -153,6 +153,25 @@ export async function verifyProductViewerCapability(args: {
     throw new Error("REJECT_VIEWER_CAPABILITY_ISSUER_TRUST");
   }
 
+  // W-CATCH3-R2 (CATCH3 verifier Low 1): the capability is AUTHENTIC before anything else is decided
+  // about it. Its attestation is checked here, before the subject, supersession and validity-window
+  // refusals -- otherwise a capability with no, a garbled or a forged attestation whose own window had
+  // passed was refused as EXPIRED, which the viewer runtime reads as "not current" (null / skipped)
+  // instead of a verification failure.
+  const t = c.attestation;
+  if (
+    !t ||
+    t.signer !== issuer.payload.issuer_key_id ||
+    t.subjectDigest !== c.content_hash.value ||
+    t.predicateType !== CAPABILITY_PREDICATE_TYPE ||
+    JSON.stringify(t.predicate) !== JSON.stringify(capabilityPredicate(issuer, c))
+  ) {
+    throw new Error("REJECT_VIEWER_CAPABILITY_TAMPERED");
+  }
+  if (!(await verifyArtifactAttestation(t, args.verification))) {
+    throw new Error("REJECT_VIEWER_CAPABILITY_SIGNATURE");
+  }
+
   if (c.payload.subject_project_id !== args.projectId) throw new Error("REJECT_VIEWER_CAPABILITY_PROJECT");
   if (c.payload.project_context_binding_ref.artifact_id !== args.bindingId) throw new Error("REJECT_VIEWER_CAPABILITY_CONTEXT_BINDING");
   if (c.payload.viewer_identity_ref.artifact_id !== args.viewerIdentityId) throw new Error("REJECT_VIEWER_CAPABILITY_VIEWER_IDENTITY");
@@ -203,18 +222,4 @@ export async function verifyProductViewerCapability(args: {
   }
   if (now < from) throw new Error("REJECT_VIEWER_CAPABILITY_NOT_YET_VALID");
   if (now > until) throw new Error("REJECT_VIEWER_CAPABILITY_EXPIRED");
-
-  const t = c.attestation;
-  if (
-    !t ||
-    t.signer !== issuer.payload.issuer_key_id ||
-    t.subjectDigest !== c.content_hash.value ||
-    t.predicateType !== CAPABILITY_PREDICATE_TYPE ||
-    JSON.stringify(t.predicate) !== JSON.stringify(capabilityPredicate(issuer, c))
-  ) {
-    throw new Error("REJECT_VIEWER_CAPABILITY_TAMPERED");
-  }
-  if (!(await verifyArtifactAttestation(t, args.verification))) {
-    throw new Error("REJECT_VIEWER_CAPABILITY_SIGNATURE");
-  }
 }

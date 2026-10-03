@@ -79,15 +79,20 @@ export type ProvisioningOutcome =
       readonly diagnostic?: string;
     };
 
-function fail(code: string, detail: string): never {
-  const error = new Error(detail) as Error & { failureCode: string };
+/**
+ * W-CATCH3-R2 (CATCH3 verifier Low 5): `detail` is the stored, neutral Swedish text of the code; ids and
+ * the technical detail go to `diagnostic` (the worker's log only, never stored, never sent).
+ */
+function fail(code: string, detail: string, diagnostic?: string): never {
+  const error = new Error(detail) as Error & { failureCode: string; diagnostic?: string };
   error.failureCode = code;
+  if (diagnostic !== undefined) error.diagnostic = diagnostic;
   throw error;
 }
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
-  if (!value) fail('TEMPORAL_AUTHORITY_CONFIGURATION_MISSING', `${name} is required`);
+  if (!value) fail('TEMPORAL_AUTHORITY_CONFIGURATION_MISSING', 'Systemets tidsbehörighet för körningar är inte konfigurerad (konfigurationsfel). Inget utfärdades.', `${name} is required`);
   return value;
 }
 
@@ -110,7 +115,7 @@ async function runFreshVerifier(identityArtifactId: string, projectId: string, g
     child.once('error', reject);
     child.once('exit', (code) => resolve(code ?? 1));
   });
-  if (exitCode !== 0) fail('FRESH_VERIFICATION_FAILED', 'fresh public-key-only verification of the newly issued identity failed');
+  if (exitCode !== 0) fail('FRESH_VERIFICATION_FAILED', 'Den oberoende kontrollen av den nyss utfärdade exekveringsidentiteten misslyckades.', 'fresh public-key-only verification of the newly issued identity failed');
 }
 
 async function ensureTemporalAuthorization(args: {
@@ -198,11 +203,11 @@ async function ensureTemporalAuthorization(args: {
     decision_time: decisionTime,
   });
   if (bareStatus.artifact_id !== expectedRef.artifact_id) {
-    fail('TEMPORAL_AUTHORITY_IDENTITY_MISMATCH', 'derived temporal status identity mismatch');
+    fail('TEMPORAL_AUTHORITY_IDENTITY_MISMATCH', 'Tidsbehörigheten för körningen fick inte den förväntade identiteten. Inget utfärdades.', 'derived temporal status identity mismatch');
   }
   const signing = getLuExecutionAuthoritySigningProvider();
   if (signing.keyId !== verifiedIssuer.payload.issuer_key_id) {
-    fail('TEMPORAL_AUTHORITY_SIGNER_MISMATCH', 'provisioned signing key is not the verified LU issuer');
+    fail('TEMPORAL_AUTHORITY_SIGNER_MISMATCH', 'Den konfigurerade signeringsnyckeln hör inte till den verifierade utfärdaren (konfigurationsfel). Inget utfärdades.', 'provisioned signing key is not the verified LU issuer');
   }
   const status: LuSourceAuthorityTemporalStatusArtifact = {
     ...bareStatus,
@@ -237,14 +242,14 @@ export async function executeLocalizationIdentityProvisioning(input: {
   const writes: ProvisioningWrites = { written: false };
   try {
     const issuerArtifactId = process.env[ISSUER_ARTIFACT_ID_ENV]?.trim();
-    if (!issuerArtifactId) fail('ISSUER_CONFIGURATION_MISSING', `${ISSUER_ARTIFACT_ID_ENV} is required`);
+    if (!issuerArtifactId) fail('ISSUER_CONFIGURATION_MISSING', 'Systemets utfärdare av exekveringsbehörighet är inte konfigurerad (konfigurationsfel). Inget utfärdades.', `${ISSUER_ARTIFACT_ID_ENV} is required`);
     const issuerRef = { artifact_id: issuerArtifactId, artifact_type: LU_EXECUTION_AUTHORITY_ISSUER_TYPE } as const;
 
     const requester = await prisma.user.findUnique({
       where: { id: input.requestedByUserId },
       select: { id: true, organisationId: true, bankidId: true, role: true, identityEnvironment: true },
     });
-    if (!requester?.organisationId) fail('REQUESTER_NOT_AUTHORIZED', `requesting user ${input.requestedByUserId} has no organisation membership`);
+    if (!requester?.organisationId) fail('REQUESTER_NOT_AUTHORIZED', 'Den som begärde ändringen saknar organisationstillhörighet. Inget utfärdades.', `requesting user ${input.requestedByUserId} has no organisation membership`);
     try {
       await assertProjectAccess(
         { ...requester, identityEnvironment: requester.identityEnvironment as 'MOCK' | 'TEST' | 'PRODUCTION' | 'LEGACY' | undefined },
@@ -254,7 +259,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
     } catch (error) {
       // W-CATCH2 (#14 class): only the access check's own denial is "not authorized".
       if (!isProjectAccessDenied(error)) throw toReadFaultError('project-access', error);
-      fail('REQUESTER_NOT_AUTHORIZED', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
+      fail('REQUESTER_NOT_AUTHORIZED', 'Den som begärde ändringen har inte behörighet till projektet. Inget utfärdades.', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
     }
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
@@ -276,7 +281,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
       fail('GEOMETRY_UNAVAILABLE_OR_TAMPERED', provisioningReadFaultDetailSv(error, 'Den begärda kontrollpunkten'));
     }
     if (geometry!.payload.project_id !== input.projectId) {
-      fail('GEOMETRY_PROJECT_MISMATCH', `geometry ${input.geometryArtifactId} belongs to project ${geometry!.payload.project_id}, not ${input.projectId}`);
+      fail('GEOMETRY_PROJECT_MISMATCH', 'Kontrollpunkten hör till ett annat projekt. Inget utfärdades.', `geometry ${input.geometryArtifactId} belongs to project ${geometry!.payload.project_id}, not ${input.projectId}`);
     }
 
     let canonicalContext: Awaited<ReturnType<typeof resolveCanonicalProjectContext>>;
@@ -291,7 +296,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
       geometry!.payload.property_context_ref.artifact_id !== canonicalContext.propertyContextRef.artifact_id ||
       geometry!.payload.property_context_ref.artifact_type !== canonicalContext.propertyContextRef.artifact_type
     ) {
-      fail('GEOMETRY_PROPERTY_MISMATCH', `geometry ${input.geometryArtifactId} is not bound to project ${input.projectId}'s current property context`);
+      fail('GEOMETRY_PROPERTY_MISMATCH', 'Kontrollpunkten är inte bunden till projektets aktuella fastighet. Inget utfärdades.', `geometry ${input.geometryArtifactId} is not bound to project ${input.projectId}'s current property context`);
     }
 
     const canonicalRelease = await resolveCanonicalProductRelease({ artifactRepository: repo });
@@ -301,7 +306,7 @@ export async function executeLocalizationIdentityProvisioning(input: {
     };
     const registry = createLuRegistryRuntime();
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY);
-    if (!capability) fail('CAPABILITY_UNAVAILABLE', 'LU site-assessment capability is not registered');
+    if (!capability) fail('CAPABILITY_UNAVAILABLE', 'Analysfunktionen är inte registrerad i systemet (konfigurationsfel). Inget utfärdades.', 'LU site-assessment capability is not registered');
 
     const geometryRef = { artifact_id: geometry!.artifact_id, artifact_type: geometry!.artifact_type } as const;
     const subject: ExecutionIdentitySubjectV3 = {
@@ -342,13 +347,10 @@ export async function executeLocalizationIdentityProvisioning(input: {
       }),
     });
     if (reuseOutcome) {
-      const identity = await repo.resolve<ExecutionIdentityArtifact>({
-        artifact_id: reuseOutcome,
-        artifact_type: 'execution_identity',
-      });
-      assertReadUnderItsOwnId('execution-identity', identity, reuseOutcome); // W-CATCH3: the same binding on the re-read
-      await ensureTemporalAuthorization({ repo, identity, issuerRef, subject });
-      return { ok: true, executionIdentityArtifactId: reuseOutcome, reused: true };
+      // W-CATCH3-R2 (CATCH3 verifier Low 2): the very identity that was verified is used -- no second read
+      // (a second read was bound only by its id: an edited copy under the same id would have been used).
+      await ensureTemporalAuthorization({ repo, identity: reuseOutcome, issuerRef, subject });
+      return { ok: true, executionIdentityArtifactId: reuseOutcome.artifact_id, reused: true };
     }
 
     const identity = await issueExecutionIdentityV3({
@@ -383,7 +385,7 @@ async function tryReuseExistingIdentity(args: {
   readonly expectedIdentityId: string;
   readonly subject: ExecutionIdentitySubjectV3;
   readonly expectedPredicate: ReturnType<typeof buildExecutionIdentityAttestationPredicate>;
-}): Promise<string | null> {
+}): Promise<ExecutionIdentityArtifact | null> {
   // W-CATCH2 #12 (:348/:354, OD-R2): "not there" ONLY on the proven absence of exactly the deterministic
   // id. A read error or a damaged existing identity/attestation is a typed fault, never re-issued over.
   const identityRead = await readExistingOrProvenAbsent<ExecutionIdentityArtifact>(
@@ -423,5 +425,5 @@ async function tryReuseExistingIdentity(args: {
     // (the same id: either the same bytes, or a WORM/collision error) -- a typed refusal instead.
     throw new LuReadFaultError('execution-identity', { faultClass: 'REFUSED', retryable: false, refusalCode: null }, new Error(`identity attestation did not verify (${String((result as { reason?: unknown }).reason ?? 'UNVERIFIED')})`));
   }
-  return existing.artifact_id;
+  return existing; // W-CATCH3-R2: the verified object itself, so the caller never reads it again
 }

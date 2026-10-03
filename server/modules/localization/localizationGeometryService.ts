@@ -59,7 +59,7 @@ import {
   ensureLocalizationGeometrySupersessionRequested,
   type LocalizationGeometrySupersessionRequestRecord,
 } from './localizationGeometrySupersessionQueue';
-import { presentProvisioningRequestDetail } from './provisioningRequestPresentation';
+import { PROCESS_BUILT_REQUEST_VIEW, presentProvisioningRequestDetail } from './provisioningRequestPresentation';
 
 const DERIVED_LABEL = 'Fastighetens centrumpunkt (automatiskt härledd)';
 const USER_DEFINED_LABEL = 'Användardefinierad lokalisering';
@@ -93,7 +93,7 @@ export interface LocalizationGeometryView {
 }
 
 /** What the view reads of a request: its record, or (W-CATCH2) a request that could not be enqueued. */
-type RequestStatusView<S> = { readonly status: S; readonly failureDetail?: string | null };
+type RequestStatusView<S> = { readonly status: S; readonly failureDetail?: string | null; readonly [PROCESS_BUILT_REQUEST_VIEW]?: true };
 
 /**
  * W-CATCH2 (BOOT verifier finding 8, OD-R2): a provisioning or supersession request that could not be
@@ -113,6 +113,9 @@ function unenqueuedRequest(error: unknown, what: 'provisioning' | 'supersession'
       : 'Bytet till den nya kontrollpunkten kunde inte begäras';
   const unchanged = what === 'supersession' ? ' Projektets aktuella kontrollpunkt är oförändrad.' : '';
   return {
+    // W-CATCH3-R2: explicitly marked as built by this process (neutral by construction); a stored record
+    // never carries the mark, so its text is never shown.
+    [PROCESS_BUILT_REQUEST_VIEW]: true,
     status: 'FAILED',
     failureDetail: `${lead} (${fault.retryable ? 'tekniskt fel' : 'bestående fel'}).${unchanged} ${retrySentenceSv(fault.retryable)}`,
   };

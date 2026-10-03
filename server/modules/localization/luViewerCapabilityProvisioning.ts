@@ -72,9 +72,14 @@ export type ViewerCapabilityProvisioningOutcome =
       readonly diagnostic?: string;
     };
 
-function fail(code: string, detail: string): never {
-  const error = new Error(detail) as Error & { failureCode: string };
+/**
+ * W-CATCH3-R2 (CATCH3 verifier Low 5): `detail` is the stored, neutral Swedish text of the code; ids and
+ * the technical detail go to `diagnostic` (the worker's log only, never stored, never sent).
+ */
+function fail(code: string, detail: string, diagnostic?: string): never {
+  const error = new Error(detail) as Error & { failureCode: string; diagnostic?: string };
   error.failureCode = code;
+  if (diagnostic !== undefined) error.diagnostic = diagnostic;
   throw error;
 }
 
@@ -105,7 +110,7 @@ async function runFreshVerifier(args: {
     child.once('error', reject);
     child.once('exit', (code) => resolve(code ?? 1));
   });
-  if (exitCode !== 0) fail('FRESH_VERIFICATION_FAILED', 'fresh public-key-only verification of the capability failed');
+  if (exitCode !== 0) fail('FRESH_VERIFICATION_FAILED', 'Den oberoende kontrollen av den nyss utfärdade kartbehörigheten misslyckades.', 'fresh public-key-only verification of the capability failed');
 }
 
 async function getOrMintIssuer(repo: ArtifactRepositoryPort): Promise<ViewerCapabilityIssuerArtifact> {
@@ -177,7 +182,7 @@ export async function executeViewerCapabilityProvisioning(input: {
       where: { id: input.requestedByUserId },
       select: { id: true, organisationId: true, bankidId: true, role: true, identityEnvironment: true },
     });
-    if (!requester?.organisationId) fail('REQUESTER_NOT_AUTHORIZED', `requesting user ${input.requestedByUserId} has no organisation membership`);
+    if (!requester?.organisationId) fail('REQUESTER_NOT_AUTHORIZED', 'Den som begärde ändringen saknar organisationstillhörighet. Inget utfärdades.', `requesting user ${input.requestedByUserId} has no organisation membership`);
     try {
       await assertProjectAccess(
         { ...requester, identityEnvironment: requester.identityEnvironment as 'MOCK' | 'TEST' | 'PRODUCTION' | 'LEGACY' | undefined },
@@ -188,7 +193,7 @@ export async function executeViewerCapabilityProvisioning(input: {
       // W-CATCH2 (#14 class): only the access check's own denial is "not authorized"; a failed read of
       // the access facts is a technical failure (classified by the outer catch).
       if (!isProjectAccessDenied(error)) throw toReadFaultError('project-access', error);
-      fail('REQUESTER_NOT_AUTHORIZED', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
+      fail('REQUESTER_NOT_AUTHORIZED', 'Den som begärde ändringen har inte behörighet till projektet. Inget utfärdades.', `user ${input.requestedByUserId} is not a member of project ${input.projectId}`);
     }
 
     const mimers = await MimersIntegration.create({ env: { ...process.env, MIMERS_REQUIRED: '1' }, forceMimers: true });
@@ -238,6 +243,7 @@ export async function executeViewerCapabilityProvisioning(input: {
     if (viewerIdentity!.viewerIdentityRef.artifact_id !== input.viewerIdentityArtifactId) {
       fail(
         'VIEWER_IDENTITY_MISMATCH',
+        'Visningskomponentens identitet har bytts sedan begäran gjordes. Inget utfärdades.',
         `pinned viewer identity ${input.viewerIdentityArtifactId} does not match current ${viewerIdentity!.viewerIdentityRef.artifact_id}`,
       );
     }

@@ -80,7 +80,9 @@ export interface ViewerCapabilityCurrentnessDependencies {
  * started or has ended. Exactly these three, by the plain refusal itself (no cause). The content they
  * rest on is bound to the requested id first: the object read is checked to BE the requested capability
  * (assertReadUnderItsOwnId), and validateProductViewerCapabilityArtifact (the first step of the
- * verification) rebuilds its id and content hash from its payload. Every other refusal (tampered,
+ * verification) rebuilds its id and content hash from its payload; W-CATCH3-R2: its attestation is
+ * verified before any of these refusals, so an unsigned, garbled or forged capability is never
+ * "not current" (productViewerCapabilityAuthority.ts). Every other refusal (tampered,
  * forged, issuer, scope, release hash, malformed window, a viewer identity or current binding that
  * cannot be verified) and every read fault is not proof of anything, so it fails the resolution closed.
  */
