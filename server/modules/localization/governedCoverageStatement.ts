@@ -235,6 +235,27 @@ export interface GovernedStatementContext {
     readonly hasFindingsField: boolean;
     readonly contractVersion?: unknown;
   };
+  /**
+   * W-U20CDF6 (owner decision R2-5, 2026-10-03): whether the record's OWN `property_ref` is a well-formed artifact
+   * reference (isWellFormedArtifactRef) -- passed by every path that reads a record (the read-back, the PDF, verify,
+   * the map: storedRecordStatementContext) and by the fresh run for the record it wrote. `property_ref` is REQUIRED in
+   * LocalizationAssessmentPayload since the type's first version (61063241, 2026-08-04 -- V1, no
+   * assessment_contract_version) and every producer has written it (9c200a78 on; GovernedAssessmentPersistence since
+   * b2f7ea9b from the draft's required property_ref), so a record without it breaks a contract that EVERY version
+   * promised -- MALFORMED_RECORD_ENTRY:property_ref, a RECORD_INTEGRITY_ERROR, never "historical" (it is no metadata an
+   * older format never promised). Absent (a caller that holds checks and findings only): nothing is said about it.
+   */
+  readonly propertyRefWellFormed?: boolean;
+}
+
+/**
+ * W-U20CDF6 (R2-5): a well-formed artifact reference -- an object (not an array) with a non-empty string
+ * `artifact_id` and a non-empty string `artifact_type`, as every producer builds `property_ref` from an artifact.
+ */
+export function isWellFormedArtifactRef(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { artifact_id: id, artifact_type: type } = value as { artifact_id?: unknown; artifact_type?: unknown };
+  return typeof id === 'string' && id.length > 0 && typeof type === 'string' && type.length > 0;
 }
 
 export interface GovernedCoverageAssessment {
@@ -265,10 +286,16 @@ export interface GovernedCoverageAssessment {
  *    document evidence + verified fact it rests on.
  */
 export function assessGovernedCoverage(checks: unknown, context: GovernedStatementContext): GovernedCoverageAssessment {
+  // W-U20CDF6 (R2-5): the record names no well-formed property -- a break of the contract every version promised,
+  // established from the record alone (before anything is counted, also without checks).
+  const recordEntries = context?.propertyRefWellFormed === false ? ['MALFORMED_RECORD_ENTRY:property_ref'] : [];
   if (!Array.isArray(checks) || checks.length === 0) {
     // U20CDF4: a fresh run always writes its checks; without them its record is not established.
-    return context?.freshRun
-      ? { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: ['CHECKS_UNAVAILABLE'], coverage: null }
+    if (context?.freshRun) {
+      return { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: [...recordEntries, 'CHECKS_UNAVAILABLE'], coverage: null };
+    }
+    return recordEntries.length > 0
+      ? { coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: recordEntries, coverage: null }
       : { coverage_state: 'CHECKS_UNAVAILABLE', coverage_basis: [], coverage: null };
   }
   const pinned = context?.pinnedEvidence;
@@ -279,7 +306,7 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
   // established WITHOUT the evidence that could not be read -- from the record itself (findings, refs) or
   // from evidence that WAS read -- so a read fault never hides it: the record is a RECORD_INTEGRITY_ERROR
   // (not retryable), with what could not be read appended to its basis.
-  const integrity: string[] = [];
+  const integrity: string[] = [...recordEntries];
   for (const id of pinned?.outside_governed_layers_artifact_ids ?? []) integrity.push(`EVIDENCE_OUTSIDE_GOVERNED_LAYERS:${id}`);
   // U20CDF4 (U20CDF3 verification L6.2/L6.3; owner decision 2): entries that break the record's own
   // contract -- a malformed evidence ref (used to be dropped silently, the layer then read "historical"),

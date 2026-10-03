@@ -68,6 +68,7 @@ import {
   assessGovernedCoverage,
   governedLayerLabelSv,
   governedOverallStatementSv,
+  isWellFormedArtifactRef,
   RECORD_INTEGRITY_ERROR_SV,
   type GovernedRecordCoverageState,
 } from '../../server/modules/localization/governedCoverageStatement';
@@ -1005,9 +1006,11 @@ export function redactInternalDiagnostic(text: unknown): string | null {
 function freshGovernedCoverage(
   checks: readonly GovernedLayerCheck[],
   findings: readonly AssessmentFinding[],
+  /** W-U20CDF6 (R2-5): whether the record THIS run persisted names a well-formed property_ref. */
+  propertyRefWellFormed: boolean,
 ): Pick<ExecutionMotorMeta, 'governed_layer_checks' | 'governed_coverage_state' | 'governed_coverage_basis'> {
   // U20CDF4: the record of THIS run -- anything not DETERMINED is RECORD_INTEGRITY_ERROR, never historical.
-  const assessed = assessGovernedCoverage(checks, { findings, freshRun: true });
+  const assessed = assessGovernedCoverage(checks, { findings, freshRun: true, propertyRefWellFormed });
   return {
     governed_layer_checks: checks,
     governed_coverage_state: assessed.coverage_state,
@@ -1322,6 +1325,12 @@ async function analyzeSite(
     // evidence and findings this run persisted, and (K0) the PERSISTED assessment's pinned
     // evidence_refs for the document check. A layer whose query failed shows through its NOT_CHECKED
     // finding (coverage_state SOURCE_UNAVAILABLE), not through the provider's raw error text.
+    // W-U20CDF6 (owner decision R2-5): the PERSISTED record's own property_ref, the one every later path reads -- a
+    // record without a well-formed one is a RECORD_INTEGRITY_ERROR here exactly as on the read-back, the PDF, verify
+    // and the map (never ASSESSED, never ranked).
+    const persistedPropertyRefWellFormed = isWellFormedArtifactRef(
+      (kernelResult.assessment?.payload as { property_ref?: unknown } | undefined)?.property_ref,
+    );
     const freshCoverage =
       kernelResult.admitted && assessment_artifact_id
         ? freshGovernedCoverage(
@@ -1331,6 +1340,7 @@ async function analyzeSite(
               pinnedEvidenceRefs: kernelResult.assessment?.payload?.evidence_refs,
             }),
             mpsFindings,
+            persistedPropertyRefWellFormed,
           )
         : null;
     // U20CDF4 (owner decisions 2026-10-03 (4) points 1 and 3): an artifact whose record is not
@@ -1348,7 +1358,7 @@ async function analyzeSite(
       recordIntegritySummarySv = governedOverallStatementSv(
         governedVerdictFromFindings(mpsFindings).overallRisk,
         freshCoverage?.governed_layer_checks,
-        { findings: mpsFindings, freshRun: true },
+        { findings: mpsFindings, freshRun: true, propertyRefWellFormed: persistedPropertyRefWellFormed },
       );
     }
     if (recordIntegrityError) {

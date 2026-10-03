@@ -54,7 +54,7 @@ import {
   type PresentedGovernedLayerCheck,
   type PropertyRootDetails,
 } from './governedEvidenceDetails';
-import { governedLayerLabelSv, storedRiskFindingsSv } from './governedCoverageStatement';
+import { governedLayerLabelSv, isWellFormedArtifactRef, storedRiskFindingsSv } from './governedCoverageStatement';
 import { assertVerifyBootstrapFlagGate, presentVerifyResult, type LuVerifyAnswerFields } from './verifyPresentation';
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
@@ -194,7 +194,9 @@ async function resolveBoundLocalizationGeometry(
   if (geometry.artifact_id !== ref.artifact_id) return fail(424, 'LOCALIZATION_GEOMETRY_TAMPERED');
   if (
     geometry.payload.project_id !== projectId ||
-    geometry.payload.property_context_ref.artifact_id !== assessment.payload.property_ref.artifact_id
+    // W-U20CDF6 (R2-5): a record without a well-formed property_ref never gets here (its 424 comes first); read
+    // defensively all the same -- no property named is never "bound".
+    geometry.payload.property_context_ref.artifact_id !== (assessment.payload as { property_ref?: { artifact_id?: unknown } }).property_ref?.artifact_id
   ) {
     return fail(424, 'LOCALIZATION_GEOMETRY_NOT_BOUND');
   }
@@ -713,6 +715,9 @@ function storedRecordStatementContext(
       // L2 (owner decision 2026-10-02): the record's own contract version is the epoch marker.
       contractVersion: (assessment.payload as { assessment_contract_version?: unknown }).assessment_contract_version,
     },
+    // W-U20CDF6 (owner decision R2-5): a record without a well-formed property_ref is a RECORD_INTEGRITY_ERROR on every
+    // path that reads it -- the read-back, the PDF (built from the read-back), verify and the map (this context).
+    propertyRefWellFormed: isWellFormedArtifactRef((assessment.payload as { property_ref?: unknown }).property_ref),
   };
 }
 
@@ -1339,8 +1344,6 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
 
   const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
   if (details.integrity.ok === false) return governedEvidenceIntegrityFailure(details.integrity);
-  const boundGeometry = await resolveBoundLocalizationGeometry(assessment, artifactRepository, String(input.projectId || '').trim());
-  if (boundGeometry.ok === false) return boundGeometry;
   const verdict = governedVerdictFromFindings(assessment.payload.findings);
   // U20CDF2 (G1): coverage and risk from the same stored record -- its findings and its checks.
   // U20CDF2 (G2): and what this read could not read among the pinned refs (integrity/technical error).
@@ -1348,9 +1351,14 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
   // U20CDF4 (owner decision 2026-10-03 (4) point 1): a structurally inconsistent current record is not
   // returned as a 200 assessment (and so not as a PDF either, which is built from this answer). Its
   // stored findings stay in view only as non-authoritative diagnostic data (GovernedRecordIntegrityFailure).
+  // W-U20CDF6 (R2-5): decided BEFORE the bound point is read -- the integrity of the record rests on the record
+  // alone (as on verify and the map, which read no bound point), and a record that names no property cannot have
+  // its point checked against one.
   if (overallStatement.coverage_state === 'RECORD_INTEGRITY_ERROR') {
     return recordIntegrityFailure(assessment.artifact_id, overallStatement, assessment.payload.findings);
   }
+  const boundGeometry = await resolveBoundLocalizationGeometry(assessment, artifactRepository, String(input.projectId || '').trim());
+  if (boundGeometry.ok === false) return boundGeometry;
 
   return {
     ok: true,
