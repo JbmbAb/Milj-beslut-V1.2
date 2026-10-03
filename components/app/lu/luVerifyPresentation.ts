@@ -38,12 +38,24 @@ import type {
 /** The owner's exact text for a PASS over an older, unbound artifact form (U+2013 dash) -- one source. */
 export const LU_VERIFY_LEGACY_UNBOUND_FORM_TEXT_SV = LU_VERIFY_NOTICE_LEGACY_UNBOUND_FORM_SV;
 
-/** The head of a fully bound PASS -- consistency against the pinned artifacts, never authenticity. */
-export const LU_VERIFY_FULLY_BOUND_HEAD_SV = 'Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.';
+/**
+ * The head of a fully bound PASS -- reproducible consistency against the SAVED basis, never authenticity.
+ * W-T1TEXT (owner decision 2026-10-03; T1-ATTESTATION-REQUIREMENTS §2, §4.2): the head carries the reservation that
+ * authenticity, origin (the data source and who entered the basis) and current authority are NOT verified -- an
+ * authentic chain over fabricated input (F-T1-4) or a rolled-back older assessment (F-T1-5) is green all the same.
+ * Words only: the class logic, the tone and the colours are unchanged.
+ */
+export const LU_VERIFY_FULLY_BOUND_HEAD_SV =
+  'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna. ' +
+  'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.';
 
-/** Under every PASS form: what the check does and does not show. */
+/**
+ * Under every PASS form: what the check does and does not show -- not who created the basis, not that the basis
+ * agrees with the data sources, not that this is the latest assessment (W-T1TEXT; T1 F-T1-4, F-T1-5).
+ */
 export const LU_VERIFY_PASS_SCOPE_SV =
-  'Kontrollen visar att bedömningen kan återskapas ur sitt sparade underlag. Den intygar inte vem som har skapat underlaget.';
+  'Kontrollen visar att bedömningen kan återskapas ur sitt sparade underlag med dagens regelmotor och att underlagets delar hänger ihop. ' +
+  'Den intygar inte vem som har skapat underlaget, att underlaget stämmer med datakällorna, eller att detta är den senaste bedömningen.';
 
 /**
  * EXECUTION_SUBJECT_UNBOUND (U30-R5 / Ä-R5-4): the run behind the assessment has no governed execution

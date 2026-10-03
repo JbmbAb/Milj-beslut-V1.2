@@ -14,10 +14,12 @@
  * The route re-derives the same from the orchestrator's answer and requires the orchestrator's claimed presentation to
  * agree (verifyAnswerFields): a missing, unknown or contradicting claim is NOT_VERIFIED -- never upgraded.
  *
- * outcome_sv (the Swedish main text): FULLY_BOUND_GREEN -> the earlier PASS text (with the NOT_CHECKED clause);
- * LEGACY_UNBOUND_NOTICE -> EXACTLY the owner's text (the package's constant, the same as the notice's text_sv), never the
- * green sentence; NOT_VERIFIED -> a DENY keeps the DENY text (EXECUTION_SUBJECT_UNBOUND: its own text, the package's
- * constant), anything else that is not verified the neutral VERIFY_NOT_VERIFIED_SV. Never a tampering claim.
+ * outcome_sv (the Swedish main text): FULLY_BOUND_GREEN -> the green sentence (W-T1TEXT: reproducible consistency against
+ * the SAVED basis, with the NOT_CHECKED clause and the reservation that authenticity, origin and current authority are
+ * NOT verified); LEGACY_UNBOUND_NOTICE -> EXACTLY the owner's text (the package's constant, the same as the notice's
+ * text_sv), never the green sentence; NOT_VERIFIED -> a DENY keeps the DENY text (EXECUTION_SUBJECT_UNBOUND: its own
+ * text, the package's constant), anything else that is not verified the neutral VERIFY_NOT_VERIFIED_SV. Never a
+ * tampering claim.
  */
 import {
   assertBootstrapAdmitFlagOnlyInExplicitTestProcess,
@@ -40,6 +42,15 @@ const VERIFY_DENY_SV = 'Reproducerbarheten kunde inte bekräftas: återexekverin
 const NOT_CHECKED_FINDING_ID_PREFIX = 'finding-notchecked-';
 
 /**
+ * W-T1TEXT (owner decision 2026-10-03): the green sentence's head -- reproducible consistency against the SAVED basis --
+ * and the reservation every green sentence ends with (authenticity, origin, current authority NOT verified). See
+ * verifyOutcomeSv.
+ */
+const VERIFY_GREEN_HEAD_SV = 'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna';
+const VERIFY_GREEN_RESERVATION_SV =
+  'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.';
+
+/**
  * U20CDF (U30-R2 follow-up; U30R2-REPORT section 3, owner question 6): the Swedish result text of a
  * verification, on top of the machine outcome and notices (both returned unchanged). A PASS that
  * carries NOT_CHECKED_CAUSE_NOT_PINNED is identical in layer, rule, version, risk level and evidence,
@@ -48,12 +59,18 @@ const NOT_CHECKED_FINDING_ID_PREFIX = 'finding-notchecked-';
  *
  * U20CDF2 (coordinator add-on 3; owner 2026-10-02, U30R3 decision 2): verify is REPLAY/CONSISTENCY
  * verification -- the re-execution matches the pinned artifacts -- not proof of authenticity (no
- * attestation check yet). The text says exactly that ("Reproducerbarhet verifierad – resultatet
- * matchar de pinnade artefakterna"), never "verifierad/identisk/intakt" about the assessment itself;
+ * attestation check yet). The text never says "verifierad/identisk/intakt" about the assessment itself;
  * the notices are shown under it as before.
  *
  * W-PLUMB-S: moved here unchanged from localizationOrchestrator.ts (which re-exports it). Its PASS text is used ONLY for a
  * FULLY_BOUND_GREEN answer -- presentVerifyResult decides that, never `outcome === 'PASS'`.
+ *
+ * W-T1TEXT (owner decision 2026-10-03; T1-ATTESTATION-REQUIREMENTS §2, §4.2): the green sentence says no more than the
+ * system proves. It is reproducible consistency against the SAVED basis ("Reproducerbar konsistens verifierad mot
+ * sparat underlag – resultatet matchar de pinnade artefakterna") and ALWAYS ends in the reservation that authenticity,
+ * origin (the data source and who entered the basis) and current authority are not verified: an authentic chain over
+ * fabricated input (F-T1-4) or a rolled-back older assessment (F-T1-5) is green all the same, and no signature is read
+ * at verify. Words only -- the class, the machine fields and the codes are unchanged.
  */
 export function verifyOutcomeSv(
   outcome: 'PASS' | 'DENY',
@@ -65,13 +82,15 @@ export function verifyOutcomeSv(
   const unpinned = notices
     .filter((notice) => notice.code === 'NOT_CHECKED_CAUSE_NOT_PINNED')
     .flatMap((notice) => notice.finding_ids);
-  const passed = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna';
-  if (unpinned.length === 0) return `${passed}.`;
+  if (unpinned.length === 0) return `${VERIFY_GREEN_HEAD_SV}. ${VERIFY_GREEN_RESERVATION_SV}`;
   const layers = unpinned
     .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
     .map((id) => governedLayerLabelSv(id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length)));
   const named = layers.length > 0 ? ` (${layers.join(', ')})` : '';
-  return `${passed}, men orsaken till att ${unpinned.length > 1 ? 'lagren' : 'lagret'} inte kontrollerades sparades inte${named}.`;
+  return (
+    `${VERIFY_GREEN_HEAD_SV}, men orsaken till att ${unpinned.length > 1 ? 'lagren' : 'lagret'} inte kontrollerades sparades inte${named}. ` +
+    VERIFY_GREEN_RESERVATION_SV
+  );
 }
 
 /** The machine fields and texts of a verify answer (see verifyPresentationContract.ts). */
