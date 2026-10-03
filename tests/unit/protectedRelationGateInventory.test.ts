@@ -239,6 +239,12 @@ function retiredRefusesFirst(file: string, text: string): string | null {
   return null;
 }
 
+/**
+ * U30F7 (owner decision 2026-10-03): retired entry points that are NOTHING but their refusal, pinned by content
+ * (sha256 of the text, line endings normalised): a line added to them -- a new CASCADE site, a DROP -- fails.
+ */
+const RETIRED_ENTRYPOINT_ONLY: Readonly<Record<string, string>> = {};
+
 /** Every problem of one file, given its scan. */
 function evaluateFile(file: string, text: string, scan: FileScan, ctx: EvaluationContext): Problem[] {
   const problems: Problem[] = [];
@@ -1532,6 +1538,45 @@ describe('canaries: U30F6 mutation round 1 -- what the first canaries left unexe
     ['F5-2 deno run -r <file>: no preload, the file is the script (harmless here)', { 'tools/u9q2/package.json': npm6({ x: 'deno run -r scripts/w6rogue/ok-q.ts' }), 'scripts/w6rogue/ok-q.ts': 'console.log(1);\n' }],
   ] as const)('control: %s passes', (_label, files) => {
     expect(problemsOfTree(files)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U30F7 (owner decision 2026-10-03): the three CASCADE scripts of BLOCKERARE D-7 -- two retired entry points that are
+// nothing but their refusal, one gated without CASCADE
+// ---------------------------------------------------------------------------------------------
+
+const U30F7_RETIRED = ['scripts/db/cleanup-db.ts', 'scripts/import/sanitize-postgis-failed-imports.ps1'] as const;
+const U30F7_GATED = 'scripts/import/fill-empty-gaps-from-archive.ts';
+
+/** The code of a script without its comments (TS: // and /* */; PowerShell: #). */
+function codeOf(file: string, text: string): string {
+  return file.endsWith('.ps1') ? text.replace(/<#[\s\S]*?#>/g, '').replace(/^\s*#.*$/gm, '') : text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
+describe('U30F7: the CASCADE scripts are retired entry points or gated (owner decision 2026-10-03)', () => {
+  it.each(U30F7_RETIRED)('%s is a retired entry point: listed, refused before anything, nothing but its refusal (content pinned), no DROP and no CASCADE left', (file) => {
+    expect(RETIRED_DESTRUCTIVE_SCRIPTS.some((r) => r.script === file), `${file} in RETIRED_DESTRUCTIVE_SCRIPTS`).toBe(true);
+    const text = realText(file);
+    expect(retiredRefusesFirst(file, text)).toBeNull();
+    expect(RETIRED_ENTRYPOINT_ONLY[file], `${file}: its content is pinned`).toBe(normalisedSha(text));
+    expect(codeOf(file, text)).not.toMatch(/\b(CASCADE|DROP)\b/i);
+  });
+
+  it('fill-empty-gaps-from-archive.ts holds no CASCADE, and each of its two DROPs is inside gatedSql, the gate of its other protected-relation operations', () => {
+    const code = codeOf(U30F7_GATED, realText(U30F7_GATED));
+    expect(code).not.toMatch(/\bCASCADE\b/i);
+    const drops = [...code.matchAll(/DROP TABLE/gi)].map((m) => m.index!);
+    expect(drops.length).toBe(2);
+    for (const at of drops) expect(code.slice(Math.max(0, at - 90), at)).toMatch(/gatedSql\(\s*'scripts\/import\/fill-empty-gaps-from-archive\.ts',\s*[`']$/);
+  });
+
+  it.each([
+    ['scripts/db/cleanup-db.ts', "\nconst p2 = new PrismaClient();\nawait p2.$executeRawUnsafe('DROP TABLE IF EXISTS public.u30f7 CASCADE');\n"],
+    ['scripts/import/sanitize-postgis-failed-imports.ps1', "\ndocker exec miljobeslut-postgres psql -c 'DROP TABLE IF EXISTS public.u30f7 CASCADE;'\n"],
+    ['scripts/import/fill-empty-gaps-from-archive.ts', "\npsql('DROP TABLE IF EXISTS env.u30f7 CASCADE;', 'drop env.u30f7');\n"],
+  ] as const)('a NEW CASCADE site in %s still fails', (file, append) => {
+    expect(problemsOf(file, `${realText(file)}${append}`).length).toBeGreaterThan(0);
   });
 });
 

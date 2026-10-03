@@ -85,6 +85,8 @@ const RETIRED_TS = [
   'scripts/db/repair-flood-staging-geometries-fast.ts',
   'scripts/db/repair-flood-staging-geometries-batched.ts',
   'scripts/db/repair-marktacke-staging.ts',
+  // U30F7 (owner decision 2026-10-03): DROP TABLE ... CASCADE of 8 Prisma-owned product tables, ungated.
+  'scripts/db/cleanup-db.ts',
 ] as const;
 
 const RETIRED_SQL = [
@@ -94,6 +96,9 @@ const RETIRED_SQL = [
   // U30F2 H1: creates protected relations as empty stubs (found by the channel inventory).
   'scripts/db/create_extended_schemas.sql',
 ] as const;
+
+// U30F7 (owner decision 2026-10-03): schema and table drops with CASCADE after an aborted import. Never run here: read.
+const RETIRED_PS = ['scripts/import/sanitize-postgis-failed-imports.ps1'] as const;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const savedArgv = process.argv;
@@ -136,5 +141,13 @@ describe('retired destructive scripts refuse before any statement (U30F F1)', ()
     const begin = code.indexOf('BEGIN;');
     expect(begin).toBeGreaterThan(1);
     expect(code[begin + 1]).toMatch(/^DO \$\$ BEGIN RAISE EXCEPTION 'REJECT_RETIRED_DESTRUCTIVE_SCRIPT: /);
+  });
+
+  it.each(RETIRED_PS)('%s writes its refusal to stderr and exits non-zero before any other statement, and holds nothing else', (script) => {
+    const lines = readFileSync(path.join(repoRoot, script), 'utf8').split(/\r?\n/);
+    const code = lines.map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    expect(code[0]!.startsWith(`[Console]::Error.WriteLine('REJECT_RETIRED_DESTRUCTIVE_SCRIPT: ${script} `), code[0]).toBe(true);
+    expect(code[1]).toMatch(/^exit\s+[1-9][0-9]*$/);
+    expect(code.length, 'the retired entry point holds nothing but its refusal').toBe(2);
   });
 });
