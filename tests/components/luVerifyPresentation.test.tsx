@@ -198,6 +198,16 @@ describe('W-UI1 A: presentLuVerifyResult -- green only for a well-formed FULLY_B
     expect(kindOf(legacy('V1_FORM', { authenticity_verified: true }))).toBe('LEGACY_UNBOUND_NOTICE');
   });
 
+  it('an answer that is no object is NOT_VERIFIED for that reason -- never "another assessment", also an array carrying the green fields (mutation A18)', () => {
+    const arrayWithFields = Object.assign([], green());
+    for (const raw of [null, undefined, 'PASS', 1, true, [], [green()], arrayWithFields]) {
+      const v = presentLuVerifyResult(raw, SHOWN);
+      expect(v.kind, String(raw)).toBe('NOT_VERIFIED');
+      expect(v.tone).toBe('neutral');
+      expect(v.technical).toContainEqual({ label: 'Svar', value: 'inte ett objekt' });
+    }
+  });
+
   it('the result survives a JSON round trip identically (the wire form)', () => {
     for (const raw of [green(), legacy('V1_FORM'), legacy('LEGACY_UNBOUND'), green({ presentation: 'NOT_VERIFIED' })]) {
       expect(presentLuVerifyResult(JSON.parse(JSON.stringify(raw)), SHOWN)).toEqual(presentLuVerifyResult(raw, SHOWN));

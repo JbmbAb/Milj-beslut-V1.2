@@ -121,6 +121,24 @@ describe('W-UI1 B: "Försök igen" is the SERVER\'s retryable -- no client code 
     expect(presentLuError(new TypeError('Failed to fetch'), 'current-assessment').retryable).toBe(true);
   });
 
+  it('an error without an HTTP status that still names a code keeps its text\'s verdict: an integrity fault, a refusal or a lasting fault is never retried (mutation B27)', () => {
+    const noStatus = (extra: Record<string, unknown>) => Object.assign(new Error('raw'), extra);
+    // INTEGRITY: the record's integrity cannot be attested -- no flag and no missing status makes that retryable.
+    const integrity = presentLuError(noStatus({ code: 'ASSESSMENT_RECORD_INTEGRITY_ERROR', failureClass: 'RECORD_INTEGRITY_ERROR', retryable: true }), 'current-assessment');
+    expect(integrity.kind).toBe('INTEGRITY');
+    expect(integrity.retryable).toBe(false);
+    // REFUSED: a presentation the server refused.
+    const refused = presentLuError(noStatus({ code: 'VIEWER_PRESENTATION_UNRESOLVED', failureClass: 'REFUSED', retryable: true }), 'viewer-evidence');
+    expect(refused.kind).toBe('REFUSED');
+    expect(refused.retryable).toBe(false);
+    // A text that calls the fault lasting.
+    const lasting = presentLuError(noStatus({ code: 'ASSESSMENT_BINDING_UNRESOLVED', failureClass: 'STORAGE_INTEGRITY_FAULT', retryable: true }), 'current-assessment');
+    expect(lasting.messageSv).toContain('Felet försvinner inte vid ett nytt försök');
+    expect(lasting.retryable).toBe(false);
+    // The same code with a transient class may be tried again (nothing was decided by a server).
+    expect(presentLuError(noStatus({ code: 'ASSESSMENT_BINDING_UNRESOLVED', failureClass: 'READ_ERROR' }), 'current-assessment').retryable).toBe(true);
+  });
+
   it('a run\'s FAILED_CLOSED record: the server\'s flag, or nothing claimed when it sends none', () => {
     expect(presentCurrentnessFailureClass('CURRENTNESS_RESOLUTION_ERROR', true)?.retryable).toBe(true);
     expect(presentCurrentnessFailureClass('CURRENTNESS_RESOLUTION_ERROR', false)?.retryable).toBe(false);
