@@ -6,7 +6,7 @@
  */
 import { logger } from '../logger';
 import { startGeometrySupersessionProvisioningWorker } from '../services/luGeometrySupersessionProvisioningWorker';
-import { assertLuWorkerDurableCas, bootstrapWorkerProcess } from './bootstrap';
+import { assertLuWorkerDurableCas, assertLuWorkerProductReleaseIdentity, bootstrapWorkerProcess } from './bootstrap';
 
 bootstrapWorkerProcess();
 
@@ -16,6 +16,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   await assertLuWorkerDurableCas('lu-geometry-supersession-worker');
+  // W-U42: the worker runs only the build its configured product release was issued for.
+  await assertLuWorkerProductReleaseIdentity('lu-geometry-supersession-worker');
   logger.info('lu-geometry-supersession-worker: Starting LU geometry supersession provisioning worker...');
   const pollMs = Math.max(1000, Number(process.env.LU_GEOMETRY_SUPERSESSION_WORKER_POLL_MS || 5000));
   startGeometrySupersessionProvisioningWorker(pollMs);

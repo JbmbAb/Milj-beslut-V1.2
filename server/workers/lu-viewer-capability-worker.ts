@@ -6,7 +6,7 @@
  */
 import { logger } from '../logger';
 import { startViewerCapabilityProvisioningWorker } from '../services/luViewerCapabilityProvisioningWorker';
-import { assertLuWorkerDurableCas, bootstrapWorkerProcess } from './bootstrap';
+import { assertLuWorkerDurableCas, assertLuWorkerProductReleaseIdentity, bootstrapWorkerProcess } from './bootstrap';
 
 bootstrapWorkerProcess();
 
@@ -16,6 +16,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   await assertLuWorkerDurableCas('lu-viewer-capability-worker');
+  // W-U42: the worker runs only the build its configured product release was issued for.
+  await assertLuWorkerProductReleaseIdentity('lu-viewer-capability-worker');
   logger.info('lu-viewer-capability-worker: Starting LU ViewerCapability provisioning worker...');
   const pollMs = Math.max(1000, Number(process.env.LU_VIEWER_CAPABILITY_WORKER_POLL_MS || 5000));
   startViewerCapabilityProvisioningWorker(pollMs);

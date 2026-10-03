@@ -6,7 +6,7 @@
  */
 import { logger } from '../logger';
 import { startLuProjectContextBootstrapWorker } from '../services/luProjectContextBootstrapWorker';
-import { assertLuWorkerDurableCas, bootstrapWorkerProcess } from './bootstrap';
+import { assertLuWorkerDurableCas, assertLuWorkerProductReleaseIdentity, bootstrapWorkerProcess } from './bootstrap';
 
 bootstrapWorkerProcess();
 
@@ -16,6 +16,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   await assertLuWorkerDurableCas('lu-bootstrap-worker');
+  // W-U42: the worker runs only the build its configured product release was issued for.
+  await assertLuWorkerProductReleaseIdentity('lu-bootstrap-worker');
   logger.info('lu-bootstrap-worker: Starting LU project-context bootstrap worker...');
   const pollMs = Math.max(1000, Number(process.env.LU_BOOTSTRAP_WORKER_POLL_MS || 5000));
   startLuProjectContextBootstrapWorker(pollMs);

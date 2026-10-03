@@ -7,7 +7,7 @@
  */
 import { logger } from '../logger';
 import { startLocalizationIdentityProvisioningWorker } from '../services/luExecutionIdentityV3ProvisioningWorker';
-import { assertLuWorkerDurableCas, bootstrapWorkerProcess } from './bootstrap';
+import { assertLuWorkerDurableCas, assertLuWorkerProductReleaseIdentity, bootstrapWorkerProcess } from './bootstrap';
 
 bootstrapWorkerProcess();
 
@@ -21,6 +21,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   await assertLuWorkerDurableCas('lu-identity-v3-worker');
+  // W-U42: the worker runs only the build its configured product release was issued for.
+  await assertLuWorkerProductReleaseIdentity('lu-identity-v3-worker');
 
   logger.info('lu-identity-v3-worker: Starting LU ExecutionIdentity V3 + lifecycle-bound temporal-authority provisioning worker...');
   const pollMs = Math.max(1000, Number(process.env.LU_IDENTITY_V3_WORKER_POLL_MS || 5000));

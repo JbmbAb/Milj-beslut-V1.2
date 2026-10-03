@@ -28,6 +28,7 @@ import sewageDocumentRouter from './routes/sewage.routes';
 import sewageApplicationsRouter from './routes/sewage.applications.routes';
 import sewageLegacyAliasRouter from './routes/sewage.legacy-alias.routes';
 import { governanceRouter } from './routes/governance.routes';
+import releaseRouter from './routes/release.routes';
 
 import cNotificationMassRouter from './routes/cNotificationMass.routes';
 import hydroRouter from './routes/hydro.routes';
@@ -115,16 +116,11 @@ export function createApp() {
   });
 
   /**
-   * GET /health — liveness
+   * GET /health — liveness. Minimal on purpose (W-U42, owner decision 2026-10-02 row 7 / DP-23): no release
+   * detail and no timestamp; the running release is served by the authenticated GET /api/release only.
    */
   app.get('/health', (_req, res) => {
-    res.status(200).json({
-      ok: true,
-      liveness: 'up',
-      service: 'miljobeslut-secure-backend',
-      version: process.env.npm_package_version ?? 'unknown',
-      ts: new Date().toISOString(),
-    });
+    res.status(200).json({ ok: true, liveness: 'up', service: 'miljobeslut-secure-backend' });
   });
 
   /**
@@ -202,6 +198,8 @@ export function createApp() {
   app.use(legalRetrievalRouter);
   app.use(legalAnswerRouter);
   app.use('/api/governance', governanceRouter);
+  // W-U42: the running release identity, authenticated (owner decision row 7 / DP-23).
+  app.use(releaseRouter);
 
   // Refactored V1 Routes
   app.use(authRouter);

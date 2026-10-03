@@ -35,3 +35,25 @@ export async function assertLuWorkerDurableCas(
     });
   }
 }
+
+/**
+ * W-U42 release-identity start gate for the LU workers -- the same gate as the web process
+ * (`assertProductReleaseIdentityAtStartup`): the worker re-measures the files it runs and refuses to START unless
+ * they are the build the configured product release (PRODUCT_RELEASE_ARTIFACT_ID) was issued for; without
+ * release-identity.json and release id only an explicit development/test process starts, and then without identity.
+ * Logs the worker's release id, digest and CAS root at start (no secrets). Imported lazily like the CAS gate.
+ */
+export async function assertLuWorkerProductReleaseIdentity(
+  workerName: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const { assertProductReleaseIdentityAtStartup } = await import('../modules/release/productReleaseStartup');
+  try {
+    await assertProductReleaseIdentityAtStartup({ role: workerName, env });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`${workerName}: release identity check failed -- refusing to start. ${detail}`, {
+      cause: error,
+    });
+  }
+}
