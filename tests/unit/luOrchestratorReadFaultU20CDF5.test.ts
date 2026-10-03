@@ -1057,6 +1057,14 @@ describe('W-U20CDF5-R3 R2-3: a truncated root context or observation is a damage
     expect(read.propertyRoot.message_sv).not.toMatch(/äldre kontrakt|kontraktsversion tolkas inte/);
   });
 
+  it.each(['context', 'observation'] as const)('the %s whose payload is an ARRAY (not an object) -> the same TAMPERED (surviving mutation R3-R23-ARRAY)', async (link) => {
+    const root = await productRoot();
+    const object = root[link] as { artifact_id: string; artifact_type: string };
+    await root.repository.put({ artifact_id: object.artifact_id, body: { artifact_id: object.artifact_id, artifact_type: object.artifact_type, payload: ['x'] } });
+    const read = await root.details();
+    expect(read.propertyRoot).toMatchObject({ status: 'TAMPERED', technical_error_class: 'ROOT_PROVENANCE_TAMPERED' });
+  });
+
   it('control: an observation of another contract version (payload intact) stays NOT_RECORDED -- only a missing payload is damage', async () => {
     const root = await productRoot();
     const stored = root.repository.values.get(root.observation.artifact_id) as { payload: Record<string, unknown> };
