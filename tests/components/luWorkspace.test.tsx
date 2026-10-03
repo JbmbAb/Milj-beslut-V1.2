@@ -358,7 +358,7 @@ describe('LuWorkspace', () => {
         return Promise.resolve(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
       }
       if (url.includes('/verify-assessment')) {
-        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [] });
+        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
       }
       return Promise.resolve({
         ok: true,
@@ -663,7 +663,7 @@ describe('LuWorkspace', () => {
     await user.click(button); // second click while still pending -- must not fire a second request
     expect(callApi.mock.calls.length - callsBeforeVerifyClicks).toBe(1);
 
-    resolveVerify({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [] });
+    resolveVerify({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-export-abc', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
     await waitFor(() => expect(screen.getByTestId('lu-verify-assessment')).not.toBeDisabled());
   });
 
@@ -675,7 +675,7 @@ describe('LuWorkspace', () => {
     });
     callApi.mockImplementation((url: string) => {
       if (url.includes('/verify-assessment')) {
-        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-restored-verify', mismatches: [] });
+        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assess-restored-verify', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
       }
       if (url.includes('/current-assessment')) {
         return Promise.resolve({
@@ -781,7 +781,7 @@ describe('LuWorkspace', () => {
         });
       }
       if (url.includes('/verify-assessment')) {
-        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-governed-1', mismatches: [] });
+        return Promise.resolve({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-governed-1', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
       }
       if (url.includes('/generate-report')) {
         ran = true;
@@ -1261,7 +1261,7 @@ describe('LuWorkspace DEMO M2b', () => {
     const user = userEvent.setup();
     mockM2b({
       currentAssessment: () => persisted('assessment-shown'),
-      verify: () => ({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-someone-else', mismatches: [] }),
+      verify: () => ({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-someone-else', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' }),
     });
     await openM2b(user);
     await user.click(await screen.findByTestId('lu-verify-assessment'));
@@ -1931,6 +1931,9 @@ describe('LuWorkspace W-M2d', () => {
         assessmentArtifactId: 'assessment-shown',
         mismatches: [],
         notices: [],
+        // W-UI1 (U30R6 K18): the contract's binding strength and the server-computed presentation.
+        verification_binding: 'FULLY_BOUND',
+        presentation: 'FULLY_BOUND_GREEN',
         outcome_sv: 'Bedömningen har verifierats genom deterministisk återexekvering. Resultatet är identiskt.',
       }),
     });
@@ -1960,10 +1963,10 @@ describe('LuWorkspace W-M2d', () => {
         outcome: 'PASS',
         assessmentArtifactId: 'assessment-shown',
         mismatches: [],
-        notices: [
-          { code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-ebh'] },
-          { code: 'SOMETHING_NEW', finding_ids: [] },
-        ],
+        notices: [{ code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-ebh'] }],
+        // W-UI1 (U30R6 K18): the contract's binding strength and the server-computed presentation.
+        verification_binding: 'FULLY_BOUND',
+        presentation: 'FULLY_BOUND_GREEN',
       }),
     });
     await openM2b(user);
@@ -1974,9 +1977,33 @@ describe('LuWorkspace W-M2d', () => {
     expect(notices).toHaveTextContent(
       'Orsaken till att lagren Natura 2000, Potentiellt förorenade områden (EBH) inte kontrollerades sparades inte vid bedömningen och kan inte återskapas.',
     );
-    expect(notices).toHaveTextContent('Kontrollen gav en notis som inte kan visas här – se teknisk information.');
     expect(notices).not.toHaveTextContent('NOT_CHECKED_CAUSE_NOT_PINNED');
     expect(screen.getByTestId('lu-verify-result-technical')).toHaveTextContent('NOT_CHECKED_CAUSE_NOT_PINNED');
+  });
+
+  it('W-UI1 (A, R6b-2 c): a notice this UI cannot show is never next to a green result -- the result is not shown as verified', async () => {
+    const user = userEvent.setup();
+    mockM2b({
+      currentAssessment: () => persisted('assessment-shown'),
+      verify: () => ({
+        ok: true,
+        outcome: 'PASS',
+        assessmentArtifactId: 'assessment-shown',
+        mismatches: [],
+        notices: [
+          { code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-ebh'] },
+          { code: 'SOMETHING_NEW', finding_ids: [] },
+        ],
+        verification_binding: 'FULLY_BOUND',
+        presentation: 'FULLY_BOUND_GREEN',
+      }),
+    });
+    await openM2b(user);
+    await user.click(await screen.findByTestId('lu-verify-assessment'));
+    const result = await screen.findByTestId('lu-verify-result-not-verified');
+    expect(result).toHaveTextContent('Kontrollen gav en notis som inte kan visas här, så resultatet visas inte som verifierat');
+    expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lu-verify-result-technical')).toHaveTextContent('SOMETHING_NEW');
   });
 
   it('item 4: DENY, an unknown outcome and another assessment say reproducibility could not be confirmed -- in plain Swedish', async () => {
@@ -1990,10 +2017,11 @@ describe('LuWorkspace W-M2d', () => {
     );
     verify = { ok: true, outcome: 'SOMETHING', assessmentArtifactId: 'assessment-shown', mismatches: [] };
     await user.click(screen.getByTestId('lu-verify-assessment'));
+    // W-UI1 (A): an unknown outcome is no deviation -- it is "not verified", neutral, never green.
     await waitFor(() =>
-      expect(screen.getByTestId('lu-verify-result-mismatch-summary')).toHaveTextContent('Kontrollen gav ett okänt utfall. Reproducerbarheten kunde inte bekräftas.'),
+      expect(screen.getByTestId('lu-verify-result-not-verified-head')).toHaveTextContent('Kontrollen gav ett okänt utfall. Reproducerbarheten kunde inte bekräftas.'),
     );
-    verify = { ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-other', mismatches: [] };
+    verify = { ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-other', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' };
     await user.click(screen.getByTestId('lu-verify-assessment'));
     expect(await screen.findByTestId('lu-verify-result-other')).toHaveTextContent(
       'Kontrollen gällde en annan bedömning än den som visas och räknas inte för den här. Läs in bedömningen på nytt.',
@@ -2282,7 +2310,7 @@ describe('LuWorkspace W-M2d', () => {
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     mockM2b({
       currentAssessment: () => persisted('assessment-shown'),
-      verify: () => ({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-shown', mismatches: [], notices: [] }),
+      verify: () => ({ ok: true, outcome: 'PASS', assessmentArtifactId: 'assessment-shown', mismatches: [], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' }),
     });
     await openM2b(user);
     await user.click(await screen.findByTestId('lu-verify-assessment'));
