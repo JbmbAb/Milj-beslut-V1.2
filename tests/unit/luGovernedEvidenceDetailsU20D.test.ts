@@ -126,6 +126,7 @@ import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@mi
 import type { ArtifactReference } from '../../packages/mps-compliance/src/artifacts/ArtifactReference';
 import {
   buildSpatialEvidenceContentHash,
+  classifyVerifyPresentation,
   createCanonicalPropertyGeometryArtifact,
   createGovernedLocalizationAssessment,
   createLocalizationGeometryArtifact,
@@ -161,6 +162,10 @@ import { createTokenPair } from '../../server/security/auth';
 import localizationRoutes from '../../server/routes/localization.routes';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 import { LuReExecutionStorageError } from '../../packages/mps-lu/src/execution/LuReExecutionStorageError';
+
+/** U30-R6 / W-PLUMB-S: the owner's exact wording (2026-10-02), written out here independently of the code (an oracle). */
+const OWNER_TEXT_SV =
+  'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -1065,11 +1070,23 @@ describe('U20-D: export and verify bound to an explicit assessment id', () => {
     const verifyOk = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set(auth).send({ assessmentArtifactId: currentId });
     expect(verifyOk.status).toBe(200);
     expect(verifyOk.body).toMatchObject({ ok: true, outcome: 'PASS', assessmentArtifactId: currentId });
-    // U20CDF (U30-R2 follow-up): the machine notices travel with the answer; none here.
-    expect(verifyOk.body.notices).toEqual([]);
-    // U20CDF2 (add-on 3; owner): consistency/replay wording -- never "verifierad/identisk/intakt".
-    expect(verifyOk.body.outcome_sv).toBe('Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna.');
-    expect(verifyOk.body.outcome_sv).not.toMatch(/identisk|intakt|äkt|har verifierats/i);
+    // U20CDF (U30-R2 follow-up): the machine notices travel with the answer.
+    // U30-R6 / W-PLUMB-S (owner 2026-10-02): this fresh run is a legacy site-scoped bootstrap execution, accepted only in
+    // the explicit test bootstrap -- its PASS carries the mandatory legacy-unbound notice, and only that, with the
+    // strength LEGACY_UNBOUND_FORM (marking it FULLY_BOUND would be a false machine claim: the same execution is
+    // EXECUTION_SUBJECT_UNBOUND in the product configuration).
+    expect(verifyOk.body.notices).toEqual([
+      expect.objectContaining({ code: 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY', basis: 'LEGACY_UNBOUND', authenticity_verified: false, current_authority_verified: false }),
+    ]);
+    expect(verifyOk.body.verification_binding).toBe('LEGACY_UNBOUND_FORM');
+    expect(verifyOk.body.presentation).toBe('LEGACY_UNBOUND_NOTICE');
+    // U20CDF2 (add-on 3; owner): consistency/replay wording -- never "verifierad/identisk/intakt". W-PLUMB-S: over a
+    // legacy-unbound form the main text is exactly the owner's, never the green sentence (it names authenticity only as
+    // NOT verified).
+    expect(verifyOk.body.outcome_sv).toBe(OWNER_TEXT_SV);
+    expect(verifyOk.body.outcome_sv).not.toContain('Reproducerbarhet verifierad');
+    expect(verifyOk.body.outcome_sv).not.toMatch(/identisk|intakt|har verifierats/i);
+    expect(classifyVerifyPresentation(verifyOk.body)).toBe('LEGACY_UNBOUND_NOTICE');
 
     const malformed = await request(app()).get(`/api/localization/${PROJECT_ID}/export-assessment-pdf?assessmentArtifactId=${encodeURIComponent('a b;c')}`).set(auth);
     expect(malformed.status).toBe(400);
@@ -1131,13 +1148,16 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
       finding_ids: ['finding-notchecked-protected_area'],
       detail: 'reproduced from the attested execution; the stored cause text was never pinned',
     };
-    state.reExecute = async (real, args) => ({ ...((await real(args)) as object), notices: [notice] });
+    // W-PLUMB-S: the wrapped result is a FULLY BOUND PASS with the NOT_CHECKED notice (as a genuine V4 gives it, the
+    // package's 19b) -- this fixture's own run is legacy-unbound, and a LEGACY_UNBOUND_FORM strength without its
+    // mandatory notice is never verified (asserted in the matrix below).
+    state.reExecute = async (real, args) => ({ ...((await real(args)) as object), verification_binding: 'FULLY_BOUND', notices: [notice] });
 
     const direct = await verifyCurrentLuAssessment(s.deps());
-    expect(direct).toMatchObject({ ok: true, outcome: 'PASS', notices: [notice] });
+    expect(direct).toMatchObject({ ok: true, outcome: 'PASS', notices: [notice], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
     const res = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', `Bearer ${token()}`).send({ assessmentArtifactId: currentId });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, outcome: 'PASS', mismatches: [], notices: [notice] });
+    expect(res.body).toMatchObject({ ok: true, outcome: 'PASS', mismatches: [], notices: [notice], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
     expect(res.body.outcome_sv).toBe(
       'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att ' +
         'lagret inte kontrollerades sparades inte (Skyddad natur).',
@@ -1147,6 +1167,7 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
     // Two layers -> plural, both named.
     state.reExecute = async (real, args) => ({
       ...((await real(args)) as object),
+      verification_binding: 'FULLY_BOUND',
       notices: [{ ...notice, finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-water'] }],
     });
     const two = await verifyCurrentLuAssessment(s.deps());
@@ -1154,6 +1175,94 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
       'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att ' +
         'lagren inte kontrollerades sparades inte (Natura 2000, Brunnar).',
     );
+
+    // W-PLUMB-S: the same NOT_CHECKED notice on this fixture's own (legacy-unbound) PASS, after its mandatory notice:
+    // the owner's text is the main text, the NOT_CHECKED notice travels in `notices` -- never the green sentence.
+    state.reExecute = async (real, args) => {
+      const r = (await real(args)) as { notices: unknown[] };
+      return { ...r, notices: [...r.notices, notice] };
+    };
+    const legacy = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', `Bearer ${token()}`).send({ assessmentArtifactId: currentId });
+    expect(legacy.status).toBe(200);
+    expect(legacy.body).toMatchObject({ outcome: 'PASS', verification_binding: 'LEGACY_UNBOUND_FORM', presentation: 'LEGACY_UNBOUND_NOTICE', outcome_sv: OWNER_TEXT_SV });
+    expect(legacy.body.notices.map((n: { code: string }) => n.code)).toEqual(['LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY', 'NOT_CHECKED_CAUSE_NOT_PINNED']);
+  });
+});
+
+/**
+ * W-PLUMB-S (owner decision 2026-10-02, BINDING; U30R6-REPORT K2-K4, K21): the verify answer's presentation is decided in
+ * the SERVER by classifyVerifyPresentation (the package root) -- one source, fail-closed -- and the route's JSON
+ * classifies exactly as the package's result does. Through the REAL orchestrator and route; only the re-execution's
+ * result is replaced (state.reExecute), so every form of result can be presented.
+ */
+describe('W-PLUMB-S: the verify answer is never green unless the result is a well-formed FULLY_BOUND PASS', () => {
+  const NEUTRAL_SV =
+    'Reproducerbarheten kan inte visas som verifierad: kontrollens svar är ofullständigt eller motsägelsefullt (utfall, ' +
+    'bindningsstyrka eller obligatorisk notis saknas eller stämmer inte överens). Det är inget fynd om att underlaget har ändrats.';
+  const DENY_SV = 'Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.';
+  const UNBOUND_SV =
+    'Reproducerbarheten kan inte bekräftas: körningen bakom bedömningen saknar ett styrt exekveringssubjekt (äldre eller ' +
+    'obunden körningsform) och kan inte bindas till bedömningen. Resultatet påstår inte att underlaget har ändrats.';
+  const GREEN_SV = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna.';
+  const legacyNotice = (overrides: Record<string, unknown> = {}) => ({
+    code: 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY', basis: 'V1_FORM', authenticity_verified: false, current_authority_verified: false,
+    text_sv: OWNER_TEXT_SV, finding_ids: [], detail: 'the pinned execution outcome is a V1-format outcome', ...overrides,
+  });
+  const notCheckedNotice = { code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-ebh'], detail: 'x' };
+  const pass = (overrides: Record<string, unknown>) => ({ outcome: 'PASS', mismatches: [], notices: [], fresh_findings: [], fresh_rule_refs: [], ...overrides });
+  const deny = (mismatches: unknown[], overrides: Record<string, unknown> = {}) => ({ outcome: 'DENY', verification_binding: null, mismatches, notices: [], fresh_findings: [], fresh_rule_refs: [], ...overrides });
+
+  type Expected = { presentation: string; binding: string | null; outcome_sv: string };
+  const cases: Array<[string, () => Record<string, unknown>, Expected]> = [
+    ['a fully bound PASS', () => pass({ verification_binding: 'FULLY_BOUND' }), { presentation: 'FULLY_BOUND_GREEN', binding: 'FULLY_BOUND', outcome_sv: GREEN_SV }],
+    ['a fully bound PASS with NOT_CHECKED', () => pass({ verification_binding: 'FULLY_BOUND', notices: [notCheckedNotice] }),
+      { presentation: 'FULLY_BOUND_GREEN', binding: 'FULLY_BOUND', outcome_sv: 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att lagret inte kontrollerades sparades inte (Potentiellt förorenade områden (EBH)).' }],
+    ['a V1-form PASS with its notice', () => pass({ verification_binding: 'LEGACY_UNBOUND_FORM', notices: [legacyNotice()] }),
+      { presentation: 'LEGACY_UNBOUND_NOTICE', binding: 'LEGACY_UNBOUND_FORM', outcome_sv: OWNER_TEXT_SV }],
+    ['a legacy-unbound PASS with its notice and NOT_CHECKED', () => pass({ verification_binding: 'LEGACY_UNBOUND_FORM', notices: [legacyNotice({ basis: 'LEGACY_UNBOUND' }), notCheckedNotice] }),
+      { presentation: 'LEGACY_UNBOUND_NOTICE', binding: 'LEGACY_UNBOUND_FORM', outcome_sv: OWNER_TEXT_SV }],
+    ['a PASS with a null strength (strictNullChecks off)', () => pass({ verification_binding: null }), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['a PASS without a strength (the answer before U30-R6)', () => pass({}), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['a PASS with an unknown strength', () => pass({ verification_binding: 'FULLY_BOUND ' }), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['FULLY_BOUND WITH the legacy notice', () => pass({ verification_binding: 'FULLY_BOUND', notices: [legacyNotice()] }), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['LEGACY_UNBOUND_FORM WITHOUT the notice', () => pass({ verification_binding: 'LEGACY_UNBOUND_FORM' }), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['the notice with the green sentence as its text', () => pass({ verification_binding: 'LEGACY_UNBOUND_FORM', notices: [legacyNotice({ text_sv: GREEN_SV })] }), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['FULLY_BOUND with an unknown notice', () => pass({ verification_binding: 'FULLY_BOUND', notices: [{ code: 'SOMETHING_NEW' }] }), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['a strength only inherited (in process)', () => Object.assign(Object.create({ verification_binding: 'FULLY_BOUND' }), pass({})), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: NEUTRAL_SV }],
+    ['a DENY (findings)', () => deny([{ code: 'FINDINGS_MISMATCH', detail: 'x' }]), { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: DENY_SV }],
+    ['a DENY that claims FULLY_BOUND (the `!== LEGACY_UNBOUND_FORM` consumer)', () => deny([{ code: 'FINDINGS_MISMATCH', detail: 'x' }], { verification_binding: 'FULLY_BOUND' }),
+      { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: DENY_SV }],
+    ['a DENY EXECUTION_SUBJECT_UNBOUND (its own text)', () => deny([{ code: 'EXECUTION_SUBJECT_UNBOUND', detail: 'execution subject binding: x', text_sv: UNBOUND_SV }]),
+      { presentation: 'NOT_VERIFIED', binding: null, outcome_sv: UNBOUND_SV }],
+  ];
+
+  it.each(cases)('%s', async (_label, make, expected) => {
+    const s = await setup();
+    const fresh = await s.runFresh();
+    const currentId = fresh.executionMotor!.assessment_artifact_id!;
+    const seen: { produced?: Record<string, unknown> } = {};
+    state.reExecute = async () => {
+      const produced = make();
+      produced.assessment_artifact_id = currentId;
+      seen.produced = produced;
+      return produced;
+    };
+
+    const direct = (await verifyCurrentLuAssessment(s.deps())) as Record<string, unknown>;
+    const packageClass = classifyVerifyPresentation(seen.produced);
+    expect(packageClass).toBe(expected.presentation);
+    expect(direct).toMatchObject({ ok: true, presentation: expected.presentation, verification_binding: expected.binding, outcome_sv: expected.outcome_sv });
+    expect(classifyVerifyPresentation(JSON.parse(JSON.stringify(direct)))).toBe(expected.presentation);
+
+    const res = await request(app()).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', `Bearer ${token()}`).send({ assessmentArtifactId: currentId });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, assessmentArtifactId: currentId, presentation: expected.presentation, verification_binding: expected.binding, outcome_sv: expected.outcome_sv });
+    // The route's JSON classifies exactly as the package's result.
+    expect(classifyVerifyPresentation(res.body)).toBe(packageClass);
+    if (expected.presentation !== 'FULLY_BOUND_GREEN') expect(res.body.outcome_sv).not.toContain('Reproducerbarhet verifierad');
+    // The existing machine fields are kept.
+    expect(res.body.outcome).toBe(seen.produced!.outcome);
+    expect(Array.isArray(res.body.mismatches) && Array.isArray(res.body.notices)).toBe(true);
   });
 });
 

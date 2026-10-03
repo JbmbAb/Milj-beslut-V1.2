@@ -38,6 +38,7 @@ import {
   createProjectContextBindingIssuerArtifact,
   createProjectContextBindingSupersessionIssuerArtifact,
     buildSpatialEvidenceContentHash,
+  classifyVerifyPresentation,
   SPATIAL_STACK_V1,
   type AssessmentFinding,
   type SpatialEvidenceArtifact,
@@ -62,10 +63,43 @@ import { registerAssessmentProjection } from '../../server/modules/localization/
 import { verifyCurrentLuAssessment } from '../../server/modules/localization/localizationOrchestrator';
 import type { AuthUser } from '../../server/security/types';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
+import { assertProjectMembership } from '../../server/repositories/projectAccessRepository';
 
 afterEach(() => {
   expect(hermeticPrismaTouches).toEqual([]);
 });
+
+/**
+ * W-PLUMB-S (K19; owner decision 2026-10-02, BINDING): the fixture's runs below are legacy site-scoped bootstrap
+ * executions, accepted only in the explicit test bootstrap -- their PASS rests on a legacy-unbound form, so it carries the
+ * mandatory notice and the strength LEGACY_UNBOUND_FORM, and is NEVER presented as the green verification: presentation
+ * LEGACY_UNBOUND_NOTICE and the owner's exact text as outcome_sv. Written out here independently of the code (an oracle).
+ */
+const OWNER_TEXT_SV =
+  'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
+const GREEN_SENTENCE_SV = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna';
+
+function expectLegacyUnboundAnswer(result: Record<string, unknown>) {
+  expect(result.outcome).toBe('PASS');
+  expect(result.verification_binding).toBe('LEGACY_UNBOUND_FORM');
+  expect(result.presentation).toBe('LEGACY_UNBOUND_NOTICE');
+  const notices = result.notices as Array<Record<string, unknown>>;
+  expect(notices[0]).toEqual({
+    code: 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY',
+    basis: 'LEGACY_UNBOUND',
+    authenticity_verified: false,
+    current_authority_verified: false,
+    text_sv: OWNER_TEXT_SV,
+    finding_ids: [],
+    detail: expect.any(String),
+  });
+  expect(notices.filter((n) => n.code === 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY')).toHaveLength(1);
+  // Exactly the owner's text -- never the green sentence.
+  expect(result.outcome_sv).toBe(OWNER_TEXT_SV);
+  expect(result.outcome_sv).not.toContain(GREEN_SENTENCE_SV);
+  // The class is the class of the answer's OWN machine fields, as the route's JSON carries them.
+  expect(classifyVerifyPresentation(JSON.parse(JSON.stringify(result)))).toBe('LEGACY_UNBOUND_NOTICE');
+}
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -274,6 +308,8 @@ describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
     expect(result.assessmentArtifactId).toBe(assessment.artifact_id);
     expect(result.outcome).toBe('PASS');
     expect(result.mismatches).toEqual([]);
+    // W-PLUMB-S (K19): notice AND strength, and never the green presentation.
+    expectLegacyUnboundAnswer(result as unknown as Record<string, unknown>);
   });
 
   it('proof 3: a tampered finding reports mismatch/DENY, never PASS', async () => {
@@ -311,6 +347,12 @@ describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
     const outcomeSv = (result as unknown as { outcome_sv: string }).outcome_sv;
     expect(outcomeSv).toBe('Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.');
     expect(outcomeSv).not.toMatch(/verifierats|identisk|intakt|äkt|manipul|förfalsk/i);
+    // W-PLUMB-S (K19): a DENY has no strength and is NOT_VERIFIED -- on the answer and on its JSON alike.
+    const answer = result as unknown as Record<string, unknown>;
+    expect(answer.verification_binding).toBeNull();
+    expect(answer.presentation).toBe('NOT_VERIFIED');
+    expect(classifyVerifyPresentation(JSON.parse(JSON.stringify(answer)))).toBe('NOT_VERIFIED');
+    expect((answer.notices as Array<{ code: string }>).some((n) => n.code === 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY')).toBe(false);
   });
 
   it('proof 5: client-supplied findings/evidence cannot influence the result -- no such parameter exists to supply them through', async () => {
@@ -333,6 +375,8 @@ describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
     expect(result.outcome).toBe('PASS');
     expect(result.assessmentArtifactId).toBe(assessment.artifact_id);
     expect(JSON.stringify(result.mismatches)).not.toContain('fabricated');
+    // W-PLUMB-S (K19): a client-supplied "expectedOutcome" cannot buy the green presentation either.
+    expectLegacyUnboundAnswer(result as unknown as Record<string, unknown>);
   });
 
   it('proof 8: unauthorized user -> DENY (403), H15 never invoked', async () => {
@@ -360,5 +404,48 @@ describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
       assessmentProjectionIndex: projectionIndex,
     });
     expect(result).toMatchObject({ ok: false, status: 404 });
+  });
+
+  /**
+   * W-PLUMB-S (U30R5-VERIFICATION finding 4): the bootstrap-flag gate guarded the re-execution only, so verify read the
+   * project access, the projection and CAS first and could answer 404/409/424 instead of the configuration error. The
+   * gate now runs FIRST: with MPS_LU_BOOTSTRAP_ADMIT set outside an explicit test process verify reads NOTHING and
+   * rejects with the typed configuration error -- also where a read would have answered 404 or a PASS.
+   */
+  it.each([
+    ['development, flag "1", nothing registered (a read would answer 404)', { NODE_ENV: 'development', APP_ENV: undefined, MPS_LU_BOOTSTRAP_ADMIT: '1' }, false],
+    ['production, empty flag, a current assessment (a read would replay it)', { NODE_ENV: 'production', APP_ENV: 'production', MPS_LU_BOOTSTRAP_ADMIT: '' }, true],
+    ['test without APP_ENV, flag "1", a current assessment', { NODE_ENV: 'test', APP_ENV: undefined, MPS_LU_BOOTSTRAP_ADMIT: '1' }, true],
+  ] as const)('the flag outside an explicit test process (%s) -> BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST before ANY read', async (_label, env, registered) => {
+    const s = await setup();
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    if (registered) {
+      const assessment = await s.buildAndPersistAssessment();
+      await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    }
+    // Every access of any kind to the repository, the binding provider and the projection index is counted.
+    const accesses: string[] = [];
+    const counted = <T extends object>(name: string, target: T): T =>
+      new Proxy(target, {
+        get(t, key, receiver) { accesses.push(`${name}.${String(key)}`); return Reflect.get(t, key, receiver); },
+        has(t, key) { accesses.push(`${name} has ${String(key)}`); return Reflect.has(t, key); },
+      });
+    vi.mocked(assertProjectMembership).mockClear();
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+
+    const refused = await verifyCurrentLuAssessment({
+      authUser: AUTH_USER, projectId: PROJECT_ID,
+      artifactRepository: counted('repository', s.repository) as never,
+      currentBindingProvider: counted('bindingProvider', s.currentBindingProvider()),
+      assessmentProjectionIndex: counted('projectionIndex', projectionIndex),
+    }).then(
+      (answer) => ({ answered: answer }),
+      (error: unknown) => ({ error }),
+    );
+    expect(refused, JSON.stringify(refused)).toMatchObject({ error: { code: 'BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST', gate: 'reexecution' } });
+    expect(accesses, 'nothing was read before the configuration error').toEqual([]);
+    expect(vi.mocked(assertProjectMembership)).not.toHaveBeenCalled();
   });
 });

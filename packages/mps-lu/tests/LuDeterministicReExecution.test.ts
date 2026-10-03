@@ -2142,6 +2142,12 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     expect(marker!.residuals[5]!.form_sv).toContain("ANNAT id");
     expect(marker!.residuals[5]!.form_sv).toContain("LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY");
     expect(marker!.residuals[3]!.form_sv).toContain("uppgraderad till V4");
+    // W-PLUMB-S (U30R6b-verification finding R6b-3): rest 8 names the execution MANIFEST explicitly -- rewritten in place
+    // to name a minted identity, or swapped between the replay's read and the binding's read, it makes even the F11 form
+    // FULLY_BOUND; both need the write protection (WORM) bypassed.
+    for (const fragment of ["körningsmanifestet", "skrivs om på plats", "mellan replayens och bindningens läsning", "F11", "FULLY_BOUND", "WORM"]) {
+      expect(marker!.residuals[7]!.form_sv, fragment).toContain(fragment);
+    }
     // U30R5-VERIFICATION finding 6: the V1 cut-off is the committer time of d8b18cd9, not a date.
     expect(marker!.residuals[0]!.form_sv).toContain("före 2026-08-24 14:17:46");
     expect(marker!.residuals[4]!.form_sv).toContain("före 2026-08-24 14:17:46");
@@ -2674,6 +2680,36 @@ describe("U30-R4: a canonical V4 assessment cannot be rewritten to V1-V3 and red
     });
     expectLegacyUnboundForm(await verify(repo, A), "LEGACY_UNBOUND");
   });
+
+  // W-PLUMB-S (U30R6b-verification finding R6b-1; the verifier's mutant VB03 -- ids trimmed before the comparison --
+  // survived): the manifest's identity reference is compared EXACTLY, never normalized. An identity minted at "X " is
+  // another CAS object than X, so a trimmed, case-folded or otherwise normalized comparison would silently reopen F11.
+  for (const [label, variant] of [
+    ["a trailing space", (id: string) => `${id} `],
+    ["a leading space", (id: string) => ` ${id}`],
+    ["upper case", (id: string) => id.toUpperCase()],
+    ["a zero-width space", (id: string) => `${id}​`],
+    ["a no-break space", (id: string) => `${id} `],
+  ] as const) {
+    it(`28v (W-PLUMB-S, R6b-1): the manifest names the authority identity's id with ${label} (rewritten in place) -> not the identity the authority binds: the notice, never FULLY_BOUND`, async () => {
+      const { repo, A } = await twoCanonical();
+      const outcome = await repo.resolve<{ attempt_ref: Ref }>(A.payload.execution_outcome_ref);
+      const attempt = await repo.resolve<{ manifest_ref: Ref }>(outcome.attempt_ref);
+      const store = (repo as unknown as { store: Map<string, { content_hash: unknown; body: Record<string, unknown> }> }).store;
+      const entry = store.get(attempt.manifest_ref.artifact_id)!;
+      const named = entry.body.execution_identity_ref as Ref;
+      const altered = variant(named.artifact_id);
+      expect(altered, "precondition: the variant is another id").not.toBe(named.artifact_id);
+      store.set(attempt.manifest_ref.artifact_id, {
+        content_hash: entry.content_hash,
+        body: { ...entry.body, execution_identity_ref: { artifact_id: altered, artifact_type: named.artifact_type } },
+      });
+      strictProduction();
+      const r = await verify(repo, A);
+      expectLegacyUnboundForm(r, "LEGACY_UNBOUND");
+      expect(legacyNoticesOf(r)[0]!.detail).toContain(`names execution identity ${altered}, not the authority subject ${named.artifact_id}`);
+    });
+  }
 
   // ---------------------------------------------------------------------------------------------
   // U30-R6b (U30R6-VERIFICATION finding 3): strictNullChecks is off in this repository, so the result type alone cannot
