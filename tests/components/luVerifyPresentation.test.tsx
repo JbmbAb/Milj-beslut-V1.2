@@ -208,6 +208,23 @@ describe('W-UI1 A: presentLuVerifyResult -- green only for a well-formed FULLY_B
     }
   });
 
+  it('owner decision R3-1: next to a displayed root that is a technical error or tampered, no PASS form is a confirmation; a DENY stays a DENY', () => {
+    for (const raw of [green(), legacy('V1_FORM'), legacy('LEGACY_UNBOUND')]) {
+      const v = presentLuVerifyResult(raw, SHOWN, { rootUnresolved: true });
+      expect(v.kind).toBe('NOT_VERIFIED');
+      expect(v.tone).toBe('neutral');
+      expect(v.headSv).toMatch(/^Reproducerbarheten visas inte som bekräftad: fastighetsrotens proveniens/);
+      expect(v.headSv).toContain('ingen slutsats kan dras om dess äkthet');
+      expect([v.headSv, ...v.lines].join(' ')).not.toMatch(/äkta|verifierad proveniens|aktuell/i);
+      expect(v.scopeSv).toBeNull();
+      expect(v.technical).toContainEqual({ label: 'Fastighetsrot', value: 'tekniskt fel eller integritetsfel i den visade bedömningen' });
+    }
+    expect(presentLuVerifyResult(green(), SHOWN, { rootUnresolved: false }).kind).toBe('FULLY_BOUND_GREEN');
+    expect(presentLuVerifyResult(green(), SHOWN).kind).toBe('FULLY_BOUND_GREEN');
+    const deny = { ...green(), outcome: 'DENY', presentation: 'NOT_VERIFIED', verification_binding: null, mismatches: [{ code: 'TAMPERED_EVIDENCE', detail: 'x' }] };
+    expect(presentLuVerifyResult(deny, SHOWN, { rootUnresolved: true }).kind).toBe('DENY');
+  });
+
   it('the result survives a JSON round trip identically (the wire form)', () => {
     for (const raw of [green(), legacy('V1_FORM'), legacy('LEGACY_UNBOUND'), green({ presentation: 'NOT_VERIFIED' })]) {
       expect(presentLuVerifyResult(JSON.parse(JSON.stringify(raw)), SHOWN)).toEqual(presentLuVerifyResult(raw, SHOWN));

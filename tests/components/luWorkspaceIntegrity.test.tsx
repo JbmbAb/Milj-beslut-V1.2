@@ -233,7 +233,9 @@ describe('W-UI1: integrity, ranking and visible text in the workspace', () => {
     const chip = await screen.findByTestId('lu-check-state-property');
     await waitFor(() => expect(chip).toHaveTextContent('Hittad · fastighetsunderlagets proveniens kunde inte läsas just nu'));
     expect(screen.getByTestId('lu-check-property')).toHaveTextContent('Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); försök igen.');
-    expect(screen.getByTestId('lu-check-property')).not.toHaveTextContent(/äkthet|äkta|ROOT_READ_ERROR/);
+    // Owner decision R3-1 (2026-10-03): it says that NO conclusion about authenticity can be drawn -- never a claim of one.
+    expect(screen.getByTestId('lu-check-property')).toHaveTextContent('Ingen slutsats kan dras om fastighetsrotens äkthet eller om dess proveniens gäller nu.');
+    expect(screen.getByTestId('lu-check-property')).not.toHaveTextContent(/äkta|verifierad proveniens|aktuell|ROOT_READ_ERROR/i);
     rootFault = false;
     await user.click(screen.getByTestId('lu-control-retry'));
     await waitFor(() => expect(screen.getByTestId('lu-check-state-property')).toHaveTextContent('Hittad · lägre säkerhet i fastighetsunderlaget'));
