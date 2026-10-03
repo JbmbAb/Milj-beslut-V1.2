@@ -27,6 +27,8 @@ const h = vi.hoisted(() => ({
   isTokenRevoked: 0,
   casOpened: 0,
   membership: 0,
+  /** W-PLUMB-S mutant S16: a gate check that fails in an unexpected way. */
+  gateOverride: null as null | (() => void),
 }));
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
@@ -62,6 +64,14 @@ vi.mock('../../server/modules/localization/localizationOrchestrator', async (imp
       if (!h.verify) throw new Error('no verify stand-in');
       return h.verify(input);
     },
+  };
+});
+vi.mock('../../server/modules/localization/verifyPresentation', async (importOriginal) => {
+  const original = await importOriginal<Record<string, unknown>>();
+  const realGate = original.assertVerifyBootstrapFlagGate as (...args: unknown[]) => void;
+  return {
+    ...original,
+    assertVerifyBootstrapFlagGate: (...args: unknown[]) => (h.gateOverride ? h.gateOverride() : realGate(...args)),
   };
 });
 vi.mock('../../server/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -111,6 +121,7 @@ beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv.set(key, process.env[key]);
   setEnv({ MPS_LU_BOOTSTRAP_ADMIT: undefined, NODE_ENV: 'test', APP_ENV: undefined });
   h.verify = null;
+  h.gateOverride = null;
   h.verifyCalls = 0;
   h.isTokenRevoked = 0;
   h.casOpened = 0;
@@ -152,6 +163,12 @@ describe('W-PLUMB-S (K4, K21): the route re-derives the presentation and fails c
       'NOT_VERIFIED', null, NEUTRAL_SV],
     ['an unknown presentation value',
       () => ({ ...orchestratorAnswer({ outcome: 'PASS', verification_binding: 'FULLY_BOUND', mismatches: [], notices: [] }), presentation: 'GREEN' }), 'NOT_VERIFIED', null, NEUTRAL_SV],
+    // W-PLUMB-S mutant S08 survived without this: fields that serialize differently than they read (a toJSON putting the
+    // legacy notice into the JSON beside FULLY_BOUND) are never green, whatever the orchestrator claims.
+    ['a green claim whose notices serialize to the legacy notice',
+      () => ({ ok: true, outcome: 'PASS', assessmentArtifactId: 'a', mismatches: [], notices: Object.assign([] as unknown[], { toJSON: () => [legacyNotice()] }),
+        verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN', outcome_sv: GREEN_SV }),
+      'NOT_VERIFIED', null, NEUTRAL_SV],
     ['a DENY that claims green',
       () => ({ ok: true, outcome: 'DENY', assessmentArtifactId: 'a', mismatches: [{ code: 'FINDINGS_MISMATCH', detail: 'x' }], notices: [], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN', outcome_sv: GREEN_SV }),
       'NOT_VERIFIED', null, DENY_SV],
@@ -201,6 +218,17 @@ describe('W-PLUMB-S (U30R5-VERIFICATION finding 4, K5): the bootstrap-flag gate 
       expect(res.body.presentation).toBe('FULLY_BOUND_GREEN');
     }
     expect(h.verifyCalls).toBe(3);
+  });
+
+  it('a gate check that fails in any other way fails closed: a technical error, never verify (W-PLUMB-S mutant S16)', async () => {
+    h.verify = async () => orchestratorAnswer({ outcome: 'PASS', verification_binding: 'FULLY_BOUND', mismatches: [], notices: [] });
+    h.gateOverride = () => {
+      throw new TypeError('the gate could not be evaluated');
+    };
+    const res = await post();
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body ?? {})).not.toMatch(/FULLY_BOUND_GREEN|Reproducerbarhet verifierad/);
+    expect({ tokenChecks: h.isTokenRevoked, verifyCalls: h.verifyCalls, casOpened: h.casOpened }).toEqual({ tokenChecks: 0, verifyCalls: 0, casOpened: 0 });
   });
 
   it('the same refusal thrown INSIDE verify (H15\'s own gate, e.g. after the environment changed) is the same typed 503, never a sanitized 500', async () => {
@@ -255,6 +283,21 @@ describe('W-PLUMB-S (K3, K21): presentVerifyResult -- the orchestrator\'s one pr
       if (expected === 'NOT_VERIFIED' && outcome !== 'DENY') expect(answer.outcome_sv).toBe(NEUTRAL_SV);
     }
     expect([...seen].sort()).toEqual(['FULLY_BOUND_GREEN', 'LEGACY_UNBOUND_NOTICE', 'NOT_VERIFIED']);
+  });
+
+  it('a DENY gets the EXECUTION_SUBJECT_UNBOUND text only when that is its one and only deviation (W-PLUMB-S mutant S06)', () => {
+    const present = (localizationPublic as Record<string, unknown>).presentVerifyResult as ((r: unknown) => Record<string, unknown>) | undefined;
+    expect(typeof present).toBe('function');
+    const UNBOUND_SV =
+      'Reproducerbarheten kan inte bekräftas: körningen bakom bedömningen saknar ett styrt exekveringssubjekt (äldre eller ' +
+      'obunden körningsform) och kan inte bindas till bedömningen. Resultatet påstår inte att underlaget har ändrats.';
+    const unbound = { code: 'EXECUTION_SUBJECT_UNBOUND', detail: 'execution subject binding: x', text_sv: UNBOUND_SV };
+    const deny = (mismatches: unknown[]) => present!({ outcome: 'DENY', verification_binding: null, mismatches, notices: [] });
+    expect(deny([unbound]).outcome_sv).toBe(UNBOUND_SV);
+    expect(deny([unbound, { code: 'MANIFEST_ATTEMPT_MISMATCH', detail: 'x' }]).outcome_sv).toBe(DENY_SV);
+    expect(deny([{ code: 'MANIFEST_ATTEMPT_MISMATCH', detail: 'x' }, unbound]).outcome_sv).toBe(DENY_SV);
+    expect(deny([{ ...unbound, text_sv: 'något annat' }]).outcome_sv).toBe(DENY_SV);
+    expect(deny([]).outcome_sv).toBe(DENY_SV);
   });
 
   it('a result that is not an object, or whose fields read differently than their JSON, is NOT_VERIFIED -- never green', () => {

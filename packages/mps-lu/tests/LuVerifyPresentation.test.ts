@@ -212,6 +212,21 @@ describe("W-PLUMB-S (R6b-2): classifyVerifyPresentation reads own data only and 
     expect(classifyVerifyPresentation(legacyPass({ notices: [legacy({ text_sv: new String(OWNER_TEXT_SV) })] })), "the owner's text as a String object").toBe("NOT_VERIFIED");
     // The strength itself as a String object is not the strength.
     expect(classifyVerifyPresentation(greenPass({ verification_binding: new String("FULLY_BOUND") })), "a String object strength").toBe("NOT_VERIFIED");
+    // W-PLUMB-S mutant C06 survived without these: a notice with an UNKNOWN code is refused by its code alone, also when
+    // it otherwise carries the legacy notice's whole shape (a renamed or future notice is never accepted silently).
+    for (const code of [`${LEGACY_CODE}_V2`, "LEGACY_UNBOUND_FORM_CONSISTENCY", "legacy_unbound_form_consistency_only"]) {
+      expect(classifyVerifyPresentation(greenPass({ notices: [legacy({ code })] })), `${code} beside FULLY_BOUND`).toBe("NOT_VERIFIED");
+      expect(classifyVerifyPresentation(legacyPass({ notices: [legacy(), legacy({ code })] })), `${code} after the legacy notice`).toBe("NOT_VERIFIED");
+    }
+  });
+
+  it("(a) an ARRAY is never a notice or a result, even one carrying their fields as own properties (its JSON is a list, not them)", () => {
+    // W-PLUMB-S mutant C20 survived without this.
+    const arrayNotice = Object.assign([] as unknown[], notChecked());
+    expect(JSON.parse(JSON.stringify(arrayNotice)), "precondition: the JSON of such an array is an empty list").toEqual([]);
+    expect(classifyVerifyPresentation(greenPass({ notices: [arrayNotice] }))).toBe("NOT_VERIFIED");
+    expect(classifyVerifyPresentation(legacyPass({ notices: [Object.assign([] as unknown[], legacy())] }))).toBe("NOT_VERIFIED");
+    expect(classifyVerifyPresentation(Object.assign([] as unknown[], greenPass()))).toBe("NOT_VERIFIED");
   });
 
   it("(d) cyclic and enormous structures are safe: no exception, no walk over an over-long array", () => {
