@@ -391,7 +391,11 @@ describe('P3-LU-CESIUM-PRESENTATION-WIRING-01: resolveLuViewerPresentation', () 
     expect(result).toMatchObject({ ok: false, status: 404 });
   });
 
-  it('missing CAS evidence referenced by the assessment -> DENY (424)', async () => {
+  // W-U20CDF5-R2 (U20CDF5 verification L5.1; B2): a pinned evidence the CAS cannot produce is a read fault
+  // (VIEWER_PRESENTATION_UNRESOLVED, 503), never a 424 -- this memory repository's "not found: <id>" is not the exact
+  // never-stored signal, so it is a read of unknown persistence (READ_ERROR). Expectations only: this suite is
+  // DB-dependent (knownDatabaseDependentTests) and is not run hermetically.
+  it('missing CAS evidence referenced by the assessment -> DENY (503 VIEWER_PRESENTATION_UNRESOLVED)', async () => {
     const s = await setup();
     const capability = await s.buildCapability(s.newBindingRef);
     const assessment = await s.buildAndPersistAssessment(contextNew, [{ artifact_id: 'spatial-evidence-never-persisted', artifact_type: 'SPATIAL_EVIDENCE' }]);
@@ -403,10 +407,10 @@ describe('P3-LU-CESIUM-PRESENTATION-WIRING-01: resolveLuViewerPresentation', () 
       artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex, config: s.configFor(capability.artifact_id, s.newBindingRef),
     });
-    expect(result).toMatchObject({ ok: false, status: 424 });
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'VIEWER_PRESENTATION_UNRESOLVED', failureClass: 'READ_ERROR' });
   });
 
-  it('tampered CAS evidence -> DENY (424)', async () => {
+  it('tampered CAS evidence -> DENY (424 VIEWER_PRESENTATION_UNRESOLVED, REFUSED)', async () => {
     const s = await setup();
     const evidence = existenceEvidence('spatial-evidence-cesium-tampered');
     const tampered = { ...evidence, payload: { ...evidence.payload, result_semantics: { ...evidence.payload.result_semantics, result: { ...evidence.payload.result_semantics.result, exists: false } } } };
@@ -421,7 +425,7 @@ describe('P3-LU-CESIUM-PRESENTATION-WIRING-01: resolveLuViewerPresentation', () 
       artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
       assessmentProjectionIndex: projectionIndex, config: s.configFor(capability.artifact_id, s.newBindingRef),
     });
-    expect(result).toMatchObject({ ok: false, status: 424 });
+    expect(result).toMatchObject({ ok: false, status: 424, code: 'VIEWER_PRESENTATION_UNRESOLVED', failureClass: 'REFUSED' });
   });
 
   it('PostGIS unavailable: already-captured governed presentation still renders (zero PostGIS dependency)', async () => {
