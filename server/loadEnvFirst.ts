@@ -1,4 +1,5 @@
 import { loadEnvFile } from './loadEnv';
+import { isRuntimeEnvironmentAuthoritative } from './modules/runtime-env/runtimeDatabaseUrl';
 import { installTestDatabaseConnectionGuard } from './modules/test-db-guard/installTestDatabaseConnectionGuard';
 import { installTestDataRootWriteGuard } from './modules/test-db-guard/installTestDataRootWriteGuard';
 import { removeTestRemoteStoreEnv } from './modules/test-db-guard/testDataRootIsolation';
@@ -19,11 +20,17 @@ if (testRuntime) {
   removeTestRemoteStoreEnv(process.env);
 }
 
+// W-U402 (U40-2): decided once, on the environment the process was STARTED with, before any env file is read.
+const runtimeEnvironmentAuthoritative = isRuntimeEnvironmentAuthoritative(process.env);
+
 // Force delete any system-level DATABASE_URL on startup to ensure
 // local .env and .env.local file settings take absolute precedence!
 // Not in a test runtime: there an explicitly set DATABASE_URL is the only allowed source (and
 // loadEnvFile never reads .env.local nor takes database settings from any env file there).
-if (!testRuntime) {
+// W-U402 (U40-2, spec §1.3): nor where the process environment is authoritative (NODE_ENV=production or
+// PRESERVE_RUNTIME_ENV=true -- the product composition): there the injected DATABASE_URL is the configuration, and
+// deleting it left a container without a database URL (the clients then fell back to localhost:5432).
+if (!testRuntime && !runtimeEnvironmentAuthoritative) {
   delete process.env.DATABASE_URL;
 }
 
