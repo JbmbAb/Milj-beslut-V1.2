@@ -9,6 +9,7 @@ import { shouldStartWorkersInProcess, startInProcessWorkers } from './workers/re
 import { assertSecurityEnv } from './security/env';
 import { ExporterAdapter, validateObservabilityStartup } from './observability';
 import { prisma } from './db/prisma';
+import { assertExecutionAttestationSecretAtStartup } from './modules/release/executionAttestationStartupGate';
 
 warnProductionDevFlags();
 
@@ -29,6 +30,20 @@ const server = http.createServer(app);
 // Skapa servern men starta den bara om vi inte är i testmiljö.
 // Vitest importerar denna fil för att få 'app'-instansen.
 if (process.env.NODE_ENV !== 'test') {
+  // W-U42 (owner 2026-10-03 (5), BINDING): outside an explicit development/test process the web process must not
+  // start on the built-in development HMAC secret for outcome attestations; it needs its own
+  // (MPS_EXECUTION_ATTESTATION_HMAC_SECRET), which the LU kernel client then signs with. Decided before anything
+  // listens. Not a statement about authenticity: an outcome attestation stays the producing process's own.
+  try {
+    const attestationSigner = assertExecutionAttestationSecretAtStartup(process.env, 'web');
+    logger.info('execution attestation signer', { process_role: 'web', ...attestationSigner });
+  } catch (error) {
+    logger.error('execution attestation secret: refusing to start', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    process.exit(1);
+  }
+
   initializeWebSocketServer(server);
 
   // Bakgrundsjobb: kör separat via `npm run worker:all` i produktion (START_WORKERS_IN_PROCESS=false).
