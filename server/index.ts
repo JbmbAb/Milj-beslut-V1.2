@@ -102,6 +102,12 @@ if (process.env.NODE_ENV !== 'test') {
         '../packages/mps-runtime/src/repository/createKernelArtifactRepository.js'
       );
       await assertMimersCasReady(process.env);
+      // W-U42: the web process binds the files it runs to the configured product release before it listens
+      // (re-measured source digest vs release-identity.json vs the signed release manifest in the CAS). A
+      // deviation, or a product process without a release identity, refuses to start; only an explicit
+      // development/test process (NODE_ENV and APP_ENV both set exactly) may run without one.
+      const { assertProductReleaseIdentityAtStartup } = await import('./modules/release/productReleaseStartup');
+      await assertProductReleaseIdentityAtStartup({ role: 'web' });
     })
     .then(() => {
       server.listen(port, () => {
