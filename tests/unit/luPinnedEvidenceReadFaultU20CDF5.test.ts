@@ -468,32 +468,47 @@ describe('W-U20CDF5 M1 (mutation M1-DOCREFS): the read path itself knows the pin
   });
 });
 
-describe('W-U20CDF5-R2 M1-rest (verifier probe R1): a CORRUPT or TRUNCATED read in the verify pre-check never replays a record whose break is visible without that content', () => {
+describe('W-U20CDF5-R2 M1-rest (verifier probe R1): a pre-check whose read content fails its own identity (a CORRUPT or TRUNCATED read) is answered on verify exactly as on the read-back and the map -- 424, never replayed', () => {
   const corrupt = () => Object.assign(new Error('digest mismatch for C:\\cas\\objects\\ab'), { name: 'CASIntegrityError' });
   const truncated = { artifact_id: WATER_EVIDENCE.artifact_id, artifact_type: 'SPATIAL_EVIDENCE' };
+  const CLASS = { corrupt: 'EVIDENCE_CORRUPTED', truncated: 'EVIDENCE_TAMPERED' } as const;
+  const inject = (repository: FaultyMemoryRepository, kind: 'corrupt' | 'truncated') =>
+    kind === 'corrupt' ? repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt) : repository.serveFirstRead(WATER_EVIDENCE.artifact_id, truncated);
 
-  it.each(['corrupt', 'truncated'] as const)('%s first read of a pinned evidence, a record with an unknown severity: verify -> 424 RECORD_INTEGRITY_ERROR, never replayed (it was 200 PASS)', async (kind) => {
+  it.each(['corrupt', 'truncated'] as const)('%s first read of a pinned evidence, a record with an unknown severity: verify -> 424 GOVERNED_EVIDENCE_INTEGRITY_FAILED, never replayed (it was 200 PASS)', async (kind) => {
     const { repository } = await provision({ findings: [UNKNOWN_SEVERITY] });
-    if (kind === 'corrupt') repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
-    else repository.serveFirstRead(WATER_EVIDENCE.artifact_id, truncated);
+    inject(repository, kind);
     const res = await PATHS.verify();
-    expectIntegrity424(res);
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: CLASS[kind] });
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(JSON.stringify(res.body)).not.toMatch(/PASS|Reproducerbarhet verifierad|cas\\\\objects/);
+  });
+
+  it.each(['corrupt', 'truncated'] as const)('a CLEAN record, the same %s read: verify -> the same 424, never replayed -- a pre-check that could not establish the record never hands it to H15, which after a transient fault reads it intact and could replay a break visible only in that content', async (kind) => {
+    const { repository } = await provision({ findings: [] });
+    inject(repository, kind);
+    const res = await PATHS.verify();
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: CLASS[kind] });
     expect(spies.reExecute).not.toHaveBeenCalled();
   });
 
-  it.each(['readBack', 'map', 'pdf'] as const)('the same corrupt read: %s -> 424 (unchanged), never 200, no PDF', async (path) => {
+  it.each(['readBack', 'map', 'verify'] as const)('one answer on every path for the same corrupt read: %s -> 424 GOVERNED_EVIDENCE_INTEGRITY_FAILED / EVIDENCE_CORRUPTED; the PDF builds nothing', async (path) => {
     const { repository } = await provision({ findings: [UNKNOWN_SEVERITY] });
-    repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
+    inject(repository, 'corrupt');
     const res = await PATHS[path]();
     expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: 'EVIDENCE_CORRUPTED' });
     expect(spies.reExecute).not.toHaveBeenCalled();
+    const { repository: again } = await provision({ findings: [UNKNOWN_SEVERITY] });
+    inject(again, 'corrupt');
+    expect((await PATHS.pdf()).status).toBe(424);
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 
-  it.each(['corrupt', 'truncated'] as const)('control (no over-closing): a CLEAN record with a %s first read -- verify still hands it to H15 (mocked here; the real H15 re-reads and DENYs a lasting tampering), never an invented break', async (kind) => {
-    const { repository } = await provision({ findings: [] });
-    if (kind === 'corrupt') repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
-    else repository.serveFirstRead(WATER_EVIDENCE.artifact_id, truncated);
+  it('control (no over-closing): the same clean record without a fault -> verify hands it to the (MOCKED) H15 once, 200', async () => {
+    await provision({ findings: [] });
     const res = await PATHS.verify();
     expect(res.status).toBe(200);
     expect(spies.reExecute).toHaveBeenCalledTimes(1);

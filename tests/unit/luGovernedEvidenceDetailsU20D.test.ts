@@ -730,7 +730,10 @@ describe('U20-D: the same governed details live, after read-back and in the PDF'
 });
 
 describe('U20-D: failure is a class, never a silently missing field', () => {
-  it('a manipulated evidence fails the read-back, HTTP and PDF closed (424); verify still reaches H15 and DENYs', async () => {
+  // W-U20CDF5-R2 (U20CDF5 verification M1-rest): verify answers a manipulated evidence like the read-back and the map
+  // (424) and no longer replays it -- after a TRANSIENT fault H15 reads the content intact and could replay a record whose
+  // break is visible only in that content. H15's DENY text is pinned in verifyCurrentLuAssessment.test.ts proof 3.
+  it('a manipulated evidence fails the read-back, HTTP, PDF and verify closed (424), verify without a replay', async () => {
     const s = await setup();
     const fresh = await s.runFresh();
     const ebhId = fresh.executionMotor!.evidence_details!.find((d) => d.layer === 'ebh')!.evidence_artifact_id;
@@ -746,14 +749,8 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     expect(capturedPdfData).toBeUndefined();
 
     const verified = await verifyCurrentLuAssessment(s.deps());
-    expect(verified).toMatchObject({ ok: true, outcome: 'DENY', notices: [] });
-    // U20CDF: a neutral Swedish result text on top of the machine outcome (no manipulation tone).
-    // U20CDF2 (add-on 3; owner): verify is replay/consistency verification, not proof of authenticity.
-    expect((verified as { outcome_sv: string }).outcome_sv).toBe(
-      'Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.',
-    );
-    expect((verified as { outcome_sv: string }).outcome_sv).not.toMatch(/verifierats|identisk|intakt|äkt|manipul|förfalsk/i);
-    expect((verified as unknown as { mismatches: Array<{ code: string }> }).mismatches.map((m) => m.code)).toContain('TAMPERED_EVIDENCE');
+    expect(verified).toMatchObject({ ok: false, status: 424, code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: 'EVIDENCE_TAMPERED' });
+    expect(verified).not.toHaveProperty('outcome');
   });
 
   it('an evidence missing from CAS is a technical error with a class; its layer is TECHNICAL_ERROR, never "no evidence"', async () => {

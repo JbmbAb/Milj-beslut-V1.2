@@ -302,6 +302,12 @@ describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
     if (!result.ok) throw new Error('expected ok');
     expect(result.outcome).toBe('DENY');
     expect(result.mismatches.some((m) => m.code === 'FINDINGS_MISMATCH')).toBe(true);
+    // W-U20CDF5-R2: H15's DENY text, pinned here since the U20-D tampered-evidence case now fails closed before H15.
+    // U20CDF: a neutral Swedish result text on top of the machine outcome (no manipulation tone).
+    // U20CDF2 (add-on 3; owner): verify is replay/consistency verification, not proof of authenticity.
+    const outcomeSv = (result as unknown as { outcome_sv: string }).outcome_sv;
+    expect(outcomeSv).toBe('Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.');
+    expect(outcomeSv).not.toMatch(/verifierats|identisk|intakt|äkt|manipul|förfalsk/i);
   });
 
   it('proof 5: client-supplied findings/evidence cannot influence the result -- no such parameter exists to supply them through', async () => {
