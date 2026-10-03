@@ -164,6 +164,7 @@ import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 import { ProjectAccessDeniedError } from '../../server/repositories/projectAccessRepository';
 import { LuReadFaultError, readFaultOfClass } from '../../server/modules/localization/readFaultClassification';
 import { resolveLocalizationViewerRuntimeConfigForProject } from '../../server/modules/localization/createLocalizationViewerRuntime';
+import { resolveLuViewerPresentation } from '../../server/modules/localization/localizationOrchestrator';
 
 /** In-memory CAS. `failFirstRead` makes the next N reads of one id fail with the given error. */
 class FaultyMemoryRepository {
@@ -381,6 +382,8 @@ const app = express();
 app.use(express.json());
 app.use(localizationRoutes);
 const token = createTokenPair({ id: 'user-u20cdf5-epoch', organisationId: 'org-u20cdf5', bankidId: 'bankid:u20cdf5-epoch', role: 'ADMIN' }).accessToken;
+/** W-U20CDF6: the same user, for a direct orchestrator call. */
+const AUTH = { id: 'user-u20cdf5-epoch', organisationId: 'org-u20cdf5', bankidId: 'bankid:u20cdf5-epoch', role: 'ADMIN' } as const;
 const get = (path: string) => request(app).get(path).set('Authorization', `Bearer ${token}`);
 const post = (path: string) => request(app).post(path).set('Authorization', `Bearer ${token}`).send({});
 const PATHS = {
@@ -1217,6 +1220,15 @@ describe('W-U20CDF6 item 4: the orchestrator states retryable on its own failure
     const res = await PATHS.map();
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ ok: false, error: 'Governed viewer capability is not configured for this project.', retryable: false });
+    // W-U20CDF6 mutation R4-M19: the orchestrator states it itself (the route would derive the same false for a 404) --
+    // also when the capability resolved belongs to another project.
+    vi.mocked(resolveLocalizationViewerRuntimeConfigForProject).mockResolvedValueOnce(null);
+    expect(await resolveLuViewerPresentation({ authUser: AUTH, projectId: PROJECT_ID })).toEqual({
+      ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.', retryable: false,
+    });
+    expect(
+      await resolveLuViewerPresentation({ authUser: AUTH, projectId: PROJECT_ID, config: { expectedProjectId: 'another-project' } as never }),
+    ).toEqual({ ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.', retryable: false });
   });
 
   it('read-back: the bound point could not be read (EIO) -> 503 ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED, READ_ERROR, retryable true; missing -> 424, retryable false', async () => {
