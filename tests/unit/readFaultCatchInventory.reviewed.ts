@@ -78,7 +78,9 @@ export const READ_FAULT_CATCH_REVIEWED: readonly ReviewedCatch[] = [
   // VIEWER_PRESENTATION_UNRESOLVED) -- accepted by the scanner, no longer listed here.
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '451e8918e6743c45', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure (the map\'s re-read of the selected assessment): W-GAP1 F1 -- exact not-found of the SELECTED id is the lasting 503 CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT (it was 404), read error 503 retryable, lasting storage fault 503' },
   { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: '76c1f80445ebfa62', count: 1, kind: 'OWN_CLASSIFICATION', note: 'W-APR/U20CDF2 assessmentResolutionFailure (see above)' },
-  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'b9fde1fe58ff150c', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure (core: the point-of-use re-read of the selected assessment; see above -- W-GAP1 F1: exact not-found is the lasting 503, never 404)' },
+  // W-GAP1 (F1): the core catch's comment was rewritten (its body fingerprint was b9fde1fe58ff150c); the handler itself still
+  // only calls assessmentArtifactReadFailure -- re-reviewed under its new fingerprint.
+  { file: 'server/modules/localization/localizationOrchestrator.ts', fingerprint: 'e32705f64b157f10', count: 1, kind: 'OWN_CLASSIFICATION', note: 'U20CDF2 assessmentArtifactReadFailure (core: the point-of-use re-read of the selected assessment; see above -- W-GAP1 F1: exact not-found is the lasting 503, never 404)' },
   // W-U20CDF5 (B3): the contract-version catch (former OPEN_NOT_FIXED 4eac7eeebe7aa444) answers the selection's
   // typed ASSESSMENT_CONTRACT_REFUSED via classifyReadFault -- accepted by the scanner, no longer listed here.
   // W-U20CDF5 (B4): the authorizeAssessmentPresentation catch (former OPEN_NOT_FIXED 78beea267442af8c) now
