@@ -773,6 +773,18 @@ describe('W-U20CDF5-R2 G (verifier probes B5b, Gc): a context object read under 
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 
+  it('PDF: the project context is filed under ANOTHER artifact_type (same id) -> the same typed 503; no PDF', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    const stored = repository.values.get(CONTEXT.artifact_id) as Record<string, unknown>;
+    await repository.put({ artifact_id: CONTEXT.artifact_id, body: { ...stored, artifact_type: 'MISFILED_TYPE' } });
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+    expect(res.body.error).toMatch(/^Bedömningens projektkontext /);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
   it('read-back: the property root reads ANOTHER property context -> never its designation; the read-back fails closed (424 ROOT_PROVENANCE_TAMPERED)', async () => {
     const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
     await putContexts(repository);
