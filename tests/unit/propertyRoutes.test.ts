@@ -18,7 +18,8 @@ vi.mock('../../server/services/propertyUnitService', () => ({
   lookupPropertyByDesignationFromPostgis: mocks.lookupPropertyByDesignationFromPostgis,
 }));
 
-import propertyRoutes from '../../server/routes/property.routes';
+import propertyRoutes, { propertyLookupFailure } from '../../server/routes/property.routes';
+import { SecureError } from '../../server/security/secureErrors';
 
 const app = express();
 app.use(express.json());
@@ -178,15 +179,39 @@ describe('property.routes', () => {
       expect(res.status, message).toBe(400);
       expect(res.body.retryable, message).toBe(false);
     }
-    // The route's own normaliser: a body that is no object (server/security/propertyLookupNormalize.ts).
-    const noBody = await request(app)
-      .post('/api/property/lookup')
-      .set('Authorization', authHeader())
-      .set('Content-Type', 'application/json')
-      .send('"not an object"');
+    // The route's own normaliser (server/security/propertyLookupNormalize.ts): no body at all -- Express 5 leaves
+    // req.body undefined when nothing was parsed. (A JSON body that is no object never reaches the route: the strict
+    // body parser answers that 400 itself, before any handler.)
+    const noBody = await request(app).post('/api/property/lookup').set('Authorization', authHeader());
     expect(noBody.status).toBe(400);
-    expect(noBody.body.retryable).toBe(false);
+    expect(noBody.body).toMatchObject({ ok: false, retryable: false });
     expect(mocks.lookupPropertyByDesignationFromPostgis).not.toHaveBeenCalled();
+  });
+
+  describe('W-TEXT2 (3): propertyLookupFailure (pure) -- the branches the HTTP cases above do not reach', () => {
+    it('a typed SecureError below 500 (the shape of PROPERTY_LOOKUP_AMBIGUOUS, 409) keeps the 400 answer with its public text and code, retryable false', () => {
+      const ambiguous = new SecureError('2 rows matched', 'Fastighetsbeteckningen matchar flera fastighetsytor. Ingen fastighet valdes.', 409, 'PROPERTY_LOOKUP_AMBIGUOUS');
+      expect(propertyLookupFailure(ambiguous)).toEqual({
+        status: 400,
+        body: { ok: false, error: 'Fastighetsbeteckningen matchar flera fastighetsytor. Ingen fastighet valdes.', code: 'PROPERTY_LOOKUP_AMBIGUOUS', retryable: false },
+      });
+    });
+    it('a typed SecureError of 500 or above keeps its public text as 503, retryable false (a deliberate refusal promises nothing)', () => {
+      expect(propertyLookupFailure(new SecureError('db exploded', 'Tjänsten är tillfälligt otillgänglig.', 503))).toEqual({
+        status: 503,
+        body: { ok: false, error: 'Tjänsten är tillfälligt otillgänglig.', code: '503', retryable: false },
+      });
+      expect(propertyLookupFailure(new SecureError('internal detail'))).toEqual({
+        status: 503,
+        body: { ok: false, error: 'Internal server error', code: '500', retryable: false },
+      });
+    });
+    it('a non-Error throw is a read fault of unknown persistence: 503, retryable true, the neutral Swedish text', () => {
+      expect(propertyLookupFailure('plain-string-error')).toEqual({
+        status: 503,
+        body: { ok: false, error: 'Fastighetsuppslaget kunde inte genomföras på grund av ett tekniskt fel. Ett nytt försök kan lyckas.', retryable: true },
+      });
+    });
   });
 
   it('W-TEXT2 (3): a denial behind the lookup keeps its answer, retryable false', async () => {
