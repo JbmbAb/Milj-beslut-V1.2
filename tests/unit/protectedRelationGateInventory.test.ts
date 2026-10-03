@@ -1584,6 +1584,17 @@ describe('U30F7: the CASCADE scripts are retired entry points or gated (owner de
   ] as const)('a NEW CASCADE site in %s still fails', (file, append) => {
     expect(problemsOf(file, `${realText(file)}${append}`).length).toBeGreaterThan(0);
   });
+
+  // U30F7 mutation round 1: the PowerShell refusal form itself, on a retired script that is not content-pinned
+  it('a retired PowerShell script must refuse first and exit non-zero: exit 0, or a statement before the refusal, fails; the proper form passes', () => {
+    const file = 'scripts/vrogue/u7r.ps1';
+    const retired = [...RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script), file];
+    const refusal = `[Console]::Error.WriteLine('REJECT_RETIRED_DESTRUCTIVE_SCRIPT: ${file} -- retired')\n`;
+    const why = 'retired PowerShell without its refusal first (REJECT_RETIRED_DESTRUCTIVE_SCRIPT to stderr, then exit non-zero)';
+    expect(problemsOf(file, `# retired\n${refusal}exit 2\n`, { retired })).toEqual([]);
+    expect(problemsOf(file, `# retired\n${refusal}exit 0\n`, { retired }).map((p) => p.problem)).toEqual([why]);
+    expect(problemsOf(file, `Write-Host 'first'\n${refusal}exit 2\n`, { retired }).map((p) => p.problem)).toEqual([why]);
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
