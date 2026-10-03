@@ -2010,8 +2010,18 @@ function writeCapable(tool: string, rest: readonly string[], ctx: SegmentContext
     return spec.commands.ogrinfo.sql_flags.some((f) => lower.includes(f)) && !spec.commands.ogrinfo.read_only_flags.some((f) => lower.includes(f));
   }
   if (tool === "GDAL") {
-    const formats = flagValues(rest, spec.ogr2ogr.format_flags, true).values.map((f) => asciiLower(f.trim()));
-    return rest.some(isPgDatasource) || formats.some((f) => dynamicHint(f) !== null || spec.ogr2ogr.database_formats.includes(f) || f.includes("postgis"));
+    // (the format values are read for a placeholder BEFORE lower-casing: a placeholder is recognised in its own spelling only)
+    const given = flagValues(rest, spec.ogr2ogr.format_flags, true).values;
+    const formats = given.map((f) => asciiLower(f.trim()));
+    const positional = rest.filter((a) => !a.startsWith("-"));
+    const destination = positional[positional.length - 1];
+    return (
+      rest.some(isPgDatasource) ||
+      given.some((f) => containsDynamic(f)) ||
+      formats.some((f) => spec.ogr2ogr.database_formats.includes(f) || f.includes("postgis")) ||
+      // no format named: the tool infers it from the destination -- a destination the text does not hold may be PG:
+      (given.length === 0 && destination !== undefined && containsDynamic(destination))
+    );
   }
   if (tool === "OGR2OGR") return analyzeOgr2ogrArgs(rest).database;
   if (tool === "PRISMA") {
@@ -2080,7 +2090,8 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
       const words = argv.slice(n + 1);
       if (words.length > 0) {
         substituted(k, "a remote command");
-        merge(out, analyzeCommandAt(words.join(" "), options, depth + 1, ctx.stdin, ctx.stdinFile));
+        // (the words are re-quoted: `psql -c "TRUNCATE env.sgu_well"` stays one -c value on the other host too)
+        merge(out, analyzeCommandAt(words.map(requote).join(" "), options, depth + 1, ctx.stdin, ctx.stdinFile));
       } else if (ctx.stdin !== null) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1));
       else if (ctx.stdinFile !== null) out.unresolved.push({ operation: "COMMAND", reason: "a remote shell reads its script from a file the text does not hold" });
       return out;

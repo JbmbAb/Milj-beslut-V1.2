@@ -2066,9 +2066,14 @@ def _write_capable(tool, rest, ctx, spec):
         lower = [_ascii_lower(a.strip()) for a in rest]
         return any(f in lower for f in c['ogrinfo']['sql_flags']) and not any(f in lower for f in c['ogrinfo']['read_only_flags'])
     if tool == 'GDAL':
-        formats = [_ascii_lower(f.strip()) for f in _flag_values(rest, spec['ogr2ogr']['format_flags'], True)[0]]
-        return any(_is_pg_datasource(a, spec) for a in rest) or any(
-            _dynamic_hint(spec, f) is not None or f in spec['ogr2ogr']['database_formats'] or 'postgis' in f for f in formats)
+        # (the format values are read for a placeholder BEFORE lower-casing: a placeholder is recognised in its own spelling only)
+        given = _flag_values(rest, spec['ogr2ogr']['format_flags'], True)[0]
+        formats = [_ascii_lower(f.strip()) for f in given]
+        positional = [a for a in rest if not a.startswith('-')]
+        destination = positional[-1] if positional else None
+        return any(_is_pg_datasource(a, spec) for a in rest) or any(_contains_dynamic(spec, f) for f in given) \
+            or any(f in spec['ogr2ogr']['database_formats'] or 'postgis' in f for f in formats) \
+            or (not given and destination is not None and _contains_dynamic(spec, destination))  # no format named: the destination may be PG:
     if tool == 'OGR2OGR':
         return analyze_ogr2ogr_args(rest, spec)[2]
     if tool == 'PRISMA':
@@ -2139,7 +2144,8 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
             words = argv[n + 1:]
             if words:
                 pre = substituted(k, 'a remote command')
-                t, u = _analyze_command_at(' '.join(words), read_sql_file, depth + 1, spec, ctx['stdin'], ctx['stdin_file'])
+                # (the words are re-quoted: psql -c "TRUNCATE env.sgu_well" stays one -c value on the other host too)
+                t, u = _analyze_command_at(' '.join(_requote(a) for a in words), read_sql_file, depth + 1, spec, ctx['stdin'], ctx['stdin_file'])
                 return targets + t, unresolved + pre + u
             if ctx['stdin'] is not None:
                 t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec)

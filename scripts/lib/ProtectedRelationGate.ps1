@@ -1705,9 +1705,17 @@ function PrgWriteCapable([string]$tool, [string[]]$rest, $ctx) {
     }
     if ($tool -ceq 'GDAL') {
         foreach ($a in $rest) { if (PrgIsPgDatasource $a) { return $true } }
-        foreach ($f in (PrgFlagValues $rest $spec.OgrFormatFlags $true)) {
+        # (the format values are read for a placeholder BEFORE lower-casing: a placeholder is recognised in its own spelling only)
+        $given = @((PrgFlagValues $rest $spec.OgrFormatFlags $true).ToArray())
+        foreach ($f in $given) {
+            if (PrgContainsDynamic $f) { return $true }
             $lf = PrgLower $f.Trim()
-            if ($null -ne (PrgDynamicHint $lf) -or $spec.OgrDatabaseFormats -ccontains $lf -or $lf.Contains('postgis')) { return $true }
+            if ($spec.OgrDatabaseFormats -ccontains $lf -or $lf.Contains('postgis')) { return $true }
+        }
+        # no format named: the tool infers it from the destination -- a destination the text does not hold may be PG:
+        if ($given.Count -eq 0) {
+            $positional = @($rest | Where-Object { -not $_.StartsWith('-', [StringComparison]::Ordinal) })
+            if ($positional.Count -gt 0 -and (PrgContainsDynamic $positional[$positional.Count - 1])) { return $true }
         }
         return $false
     }
@@ -1777,7 +1785,8 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             if ($n -lt $argv.Count -and $argv[$n] -ceq '--') { $n += 1 }
             $words = if ($n + 1 -lt $argv.Count) { [string[]]$argv[($n + 1)..($argv.Count - 1)] } else { [string[]]@() }
             if ($words.Count -gt 0) {
-                $sub = PrgAnalyzeCommandAt ($words -join ' ') $readSqlFile ($depth + 1) $ctx.stdin $ctx.stdinFile
+                # (the words are re-quoted: psql -c "TRUNCATE env.sgu_well" stays one -c value on the other host too)
+                $sub = PrgAnalyzeCommandAt ((@($words | ForEach-Object { PrgRequote $_ })) -join ' ') $readSqlFile ($depth + 1) $ctx.stdin $ctx.stdinFile
                 if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $sub.Unres('COMMAND', "a remote command run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
                 $acc.Merge($sub)
             }
