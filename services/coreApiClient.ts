@@ -198,6 +198,38 @@ export function luRecordIntegrityWire(code: unknown, raw: unknown): LuRecordInte
   }
 }
 
+/**
+ * W-TEXT2 (5; UI1-R2 finding L2, owner decision): the server's raw `error` text becomes Error.message only after a cap
+ * on its length and a check of its FORM. A text that looks like a file path (Windows drive, UNC or any backslash, an
+ * absolute POSIX path), a URL or connection string, a host:port, SQL or a database/ORM diagnostic, a stack frame, or that
+ * holds a control character is replaced by one neutral Swedish sentence naming the HTTP status and the code. Plain server
+ * sentences -- and the exact texts the UI matches (components/app/lu/luErrorPresentation.ts LU_SERVER_MESSAGE) -- pass
+ * unchanged. The codes travel in their own fields and are untouched; the UI shows the message only under "Teknisk
+ * information".
+ */
+export const LU_SERVER_MESSAGE_MAX_LENGTH = 600;
+const SERVER_MESSAGE_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const SERVER_MESSAGE_FORBIDDEN_FORMS: readonly RegExp[] = [
+  /[\\\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/, // a backslash (Windows or UNC path) or a control character
+  /\b[A-Za-z]:[\\/]/, // a drive-letter path
+  /(?:^|[\s"'(=:,])\/(?:[\w.-]+\/)+[\w.-]*/, // an absolute POSIX path of two segments or more
+  /\b[a-z][a-z0-9+.-]*:\/\/\S/i, // a URL or a connection string
+  /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+:\d{2,5}\b/i, // a host:port
+  /\b(?:select|insert|update|delete|drop|alter|truncate|create)\b[\s\S]{0,300}?\b(?:from|into|set|table|where|index|schema)\b/i, // SQL
+  /\brelation "|\bsyntax error at\b|\bprisma\b|PrismaClient/i, // database engine and ORM diagnostics
+  /\bat\s+(?:async\s+)?[\w$.<>[\]]+\s*\(|\n\s*at\s/, // a stack frame
+];
+
+/** The message the thrown error carries for a failed answer: the server text, capped and checked by form (see above). */
+export function presentServerErrorMessage(raw: string, status: number, code: unknown): string {
+  const codeSv = typeof code === 'string' && SERVER_MESSAGE_CODE.test(code) ? `, kod ${code}` : '';
+  if (SERVER_MESSAGE_FORBIDDEN_FORMS.some((form) => form.test(raw))) {
+    return `Serverns felmeddelande kan inte visas (HTTP ${status}${codeSv}).`;
+  }
+  const text = raw.replace(/\s+/g, ' ').trim();
+  return text.length > LU_SERVER_MESSAGE_MAX_LENGTH ? `${text.slice(0, LU_SERVER_MESSAGE_MAX_LENGTH - 1)}…` : text;
+}
+
 function buildUrl(endpoint: string, query?: Record<string, unknown>): string {
   const baseOrigin =
     typeof window !== 'undefined' && typeof window.location?.origin === 'string'
@@ -265,10 +297,13 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
     const raw = err.error;
     const fromError =
       typeof raw === 'string' ? raw : raw && typeof raw === 'object' ? String(raw.message || '') : '';
-    const msg = (fromError || err.message || '').trim() || `HTTP ${response.status}`;
-    // DEMO M2b: the message stays exactly as before; the HTTP status and the machine-readable codes
-    // the server sends (code / failureClass / reasonCode) are attached so the UI can show plain
-    // Swedish text and keep the codes for "Teknisk information" instead of the raw server text.
+    const rawMessage = (fromError || (typeof err.message === 'string' ? err.message : '')).trim();
+    // W-TEXT2 (5; UI1-R2 finding L2): the server text capped and checked by form (presentServerErrorMessage) -- never
+    // the raw text as sent; an empty text still falls back to the HTTP status, as before.
+    const msg = rawMessage ? presentServerErrorMessage(rawMessage, response.status, err.code) : `HTTP ${response.status}`;
+    // DEMO M2b: the HTTP status and the machine-readable codes the server sends (code / failureClass / reasonCode)
+    // are attached so the UI can show plain Swedish text and keep the codes for "Teknisk information" instead of
+    // the raw server text.
     // W-M2d item 5: so is the server's own `retryable` flag (OD-R3, M1a-F1), when it is a boolean --
     // whether a retry is offered is the server's statement, not a guess from the HTTP status.
     // W-UI1-R2: the 424 ASSESSMENT_RECORD_INTEGRITY_ERROR's record_integrity only, rebuilt from the whitelist
