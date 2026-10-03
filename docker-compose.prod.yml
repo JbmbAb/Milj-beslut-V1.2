@@ -15,15 +15,20 @@ services:
       - '8080:3000'
     env_file:
       - .env.production
+    # W-U402 (U40-2 punkt 5, ägarbeslut Round 20 alt. C): uttrycklig säkerhetsspärr. Filen får aldrig köras mot den
+    # delade/live-PostGIS:en. (a) Ingen databas i filen: DATABASE_URL måste anges uttryckligen; (b) inga in-process-
+    # arbetare och inget GDPR-underhåll i denna konfiguration; (c) obligatorisk kvittens: saknad/tom => compose vägrar
+    # rendera, fel värde => app-processen vägrar i server/loadEnvFirst.ts innan något når databasen.
+    # Värdena här går före env_file (.env.production). Följd: lokal prod kör inte GDPR-underhåll via denna fil.
     environment:
       NODE_ENV: production
       PORT: '3000'
-      # Huvud-PostGIS (miljobeslut-postgres :5432, ~61 GB geodata) — inte tomma miljobeslut-db
-      DATABASE_URL: postgresql://miljobeslut:miljobeslut@miljobeslut-postgres:5432/miljobeslut?sslmode=disable
+      DATABASE_URL: ${MILJOBESLUT_PROD_DATABASE_URL:?ange MILJOBESLUT_PROD_DATABASE_URL uttryckligen -- aldrig den delade live-databasen (miljobeslut-postgres)}
+      MILJOBESLUT_PROD_COMPOSE_ACK: ${MILJOBESLUT_PROD_COMPOSE_ACK:?docker-compose.prod.yml är spärrad (U40-2) -- kvittera med MILJOBESLUT_PROD_COMPOSE_ACK=not-the-shared-live-database}
       BACKUP_DIR: /app/storage/backups
       SEARCH_WORKER_ENABLED: 'true'
-      GDPR_CRON_IN_PROCESS: 'true'
-      START_WORKERS_IN_PROCESS: 'true'
+      GDPR_CRON_IN_PROCESS: 'false'
+      START_WORKERS_IN_PROCESS: 'false'
     volumes:
       # Master Archive — justera host-path (Mimers Brunn canonical)
       - ${IMPORT_ARCHIVE_HOST_PATH:-./storage}:/data/geo_master:ro
