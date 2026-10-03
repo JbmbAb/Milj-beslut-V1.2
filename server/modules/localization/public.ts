@@ -13,6 +13,25 @@ export {
   ASSESSMENT_RECORD_INTEGRITY_CODE,
   recordIntegrityDiagnosticWire,
 } from './localizationOrchestrator';
+// W-PLUMB-S (U30R6-REPORT K20, K21): the verify answer's presentation (decided in the server) and its contract.
+export {
+  assertVerifyBootstrapFlagGate,
+  presentVerifyResult,
+  verifyAnswerFields,
+  VERIFY_NOT_VERIFIED_SV,
+  type LuVerifyAnswerFields,
+} from './verifyPresentation';
+export type {
+  LuVerifyAssessmentAnswer,
+  LuVerifyBinding,
+  LuVerifyConfigurationErrorAnswer,
+  LuVerifyLegacyUnboundBasis,
+  LuVerifyLegacyUnboundFormNotice,
+  LuVerifyMismatch,
+  LuVerifyNotCheckedCauseNotPinnedNotice,
+  LuVerifyNotice,
+  LuVerifyPresentation,
+} from './verifyPresentationContract';
 export { generateLocalizationReportLegacy } from '../../services/localizationReportService';
 export type { SiteAlternative } from '../../services/localizationReportService';
 export {

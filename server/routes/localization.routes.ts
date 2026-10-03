@@ -28,6 +28,8 @@ import {
   ensureViewerCapabilityProvisioningEnqueuedForCompletedBootstrap,
   ASSESSMENT_RECORD_INTEGRITY_CODE,
   recordIntegrityDiagnosticWire,
+  assertVerifyBootstrapFlagGate,
+  verifyAnswerFields,
   type SiteAlternative,
 } from '../modules/localization/public';
 import { logger } from '../logger';
@@ -91,7 +93,53 @@ function isReExecutionStorageFault(error: unknown): error is { code: string; sta
   return Boolean(error) && typeof error === 'object' && (error as { code?: unknown }).code === LU_REEXECUTION_STORAGE_FAULT;
 }
 
+/**
+ * W-PLUMB-S (U30R6-REPORT K5; U30R5-VERIFICATION finding 4): packages/mps-lu's LuBootstrapAdmitFlagOutsideTestError --
+ * MPS_LU_BOOTSTRAP_ADMIT set in a process that is not an explicit test process -- is recognized by its stable code (the
+ * class is deliberately not exported). A configuration error of the PROCESS: never a verification outcome, never a
+ * statement about the assessment, never retryable; a fixed Swedish text without any environment value.
+ */
+const BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST = 'BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST';
+
+function isBootstrapAdmitFlagOutsideTest(error: unknown): error is { code: string; gate?: unknown } {
+  return Boolean(error) && typeof error === 'object' && (error as { code?: unknown }).code === BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST;
+}
+
+function bootstrapAdmitFlagOutsideTestBody(error: { gate?: unknown }): Record<string, unknown> {
+  const lead = error.gate === 'reexecution' ? 'Verifieringen kunde inte genomföras' : 'Begäran kunde inte genomföras';
+  return {
+    ok: false,
+    error:
+      `${lead}: servern har ett konfigurationsfel (en flagga som bara får vara satt i en uttrycklig testprocess är satt). ` +
+      `Det är inget kontrollutfall och inget fel i bedömningen. ${retrySentenceSv(false)}`,
+    code: BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST,
+    retryable: false,
+  };
+}
+
+/**
+ * W-PLUMB-S (U30R5-VERIFICATION finding 4): the verify route's bootstrap-flag gate, FIRST in its chain -- before
+ * authentication (whose token check reads the database) and before verify reads the project access, the projection or
+ * CAS -- so the flag outside an explicit test process is always the typed 503 configuration error, never a 401/404/409/424
+ * a read would have given. The package's own rule (assertBootstrapAdmitFlagOnlyInExplicitTestProcess, gate
+ * "reexecution"); not the server's start-up gate (U40-2).
+ */
+function refuseVerifyWithBootstrapFlagOutsideTest(_req: express.Request, res: express.Response, next: express.NextFunction): void {
+  try {
+    assertVerifyBootstrapFlagGate();
+  } catch (error) {
+    if (handleOrchestratorError(error, res)) return;
+    next(error);
+    return;
+  }
+  next();
+}
+
 function handleOrchestratorError(error: unknown, res: express.Response): boolean {
+  if (isBootstrapAdmitFlagOutsideTest(error)) {
+    res.status(503).json(bootstrapAdmitFlagOutsideTestBody(error));
+    return true;
+  }
   if (error instanceof LocalizationDataUnavailableError) {
     res.status(503).json({
       ok: false,
@@ -554,6 +602,7 @@ router.get(
  */
 router.post(
   '/api/localization/:projectId/verify-assessment',
+  refuseVerifyWithBootstrapFlagOutsideTest,
   requireAuth,
   rateLimitByUser(15, 60_000),
   async (req, res, next) => {
@@ -572,14 +621,20 @@ router.post(
         res.status(result.status).json(failureBody(result));
         return;
       }
+      // W-PLUMB-S (U30R6-REPORT K4, K21; contract server/modules/localization/verifyPresentationContract.ts): the
+      // presentation is re-derived from the answer's own machine fields and must agree with the orchestrator's claim --
+      // a missing, unknown or contradicting value is NOT_VERIFIED (strength null, neutral text), never green.
+      const answer = verifyAnswerFields(result);
       res.status(200).json({
         ok: true,
-        outcome: result.outcome,
+        outcome: answer.outcome,
         assessmentArtifactId: result.assessmentArtifactId,
-        mismatches: result.mismatches,
+        mismatches: answer.mismatches,
         // U20CDF (U30-R2 follow-up): machine notices unchanged, Swedish text on top.
-        notices: result.notices,
-        outcome_sv: result.outcome_sv,
+        notices: answer.notices,
+        verification_binding: answer.verification_binding,
+        presentation: answer.presentation,
+        outcome_sv: answer.outcome_sv,
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;

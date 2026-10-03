@@ -31,6 +31,9 @@
  * U30-R6b: a V4 counts as bound only when its authority subject IS the identity the manifest names; rest 6 therefore
  * needs the identity AT the named id (elsewhere -> the notice), and a minted authority evidence over a genuine run (a V3
  * upgraded to V4 naming its real identity) is FULLY_BOUND under rest 4.
+ * W-PLUMB-S (U30R6b-verification finding R6b-3): rest 8 names the execution manifest explicitly -- rewritten in place to
+ * name the minted identity, or swapped between the replay's read and the binding's read (TOCTOU), it makes even the F11
+ * form FULLY_BOUND; both need the WORM protection bypassed.
  */
 export const LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION = Object.freeze({
   code: "KNOWN_LIMITATION",
@@ -90,7 +93,7 @@ export const LU_REEXECUTION_CONSISTENCY_KNOWN_LIMITATION = Object.freeze({
     Object.freeze({
       id: "in-place-overwrite",
       form_sv:
-        "Ett utfall eller en körningspost som skrivs över på plats till en ny självkonsistent post ger PASS; utfallet pinnar körningsposten med 48 bitars hashprefix (R-3 för V3, R-4 för V4)",
+        "Ett utfall eller en körningspost som skrivs över på plats till en ny självkonsistent post ger PASS; utfallet pinnar körningsposten med 48 bitars hashprefix (R-3 för V3, R-4 för V4). Detsamma gäller körningsmanifestet: om det skrivs om på plats till att namnge en präglad identitet, eller byts ut mellan replayens och bindningens läsning av manifestet, ger även F11-formen (en V4 vars auktoritet inte binder den identitet manifestet namnger) FULLY_BOUND utan notis (U30R6b-verifieringen, fynd R6b-3); båda kräver att skrivskyddet (WORM) kringgås",
       requires_sv: "överskrivning på plats (WORM-förbikoppling); ingen DB-rad om bedömningen redan är aktuell",
       verify_pass_marking: "DEPENDS_ON_FORM",
     }),

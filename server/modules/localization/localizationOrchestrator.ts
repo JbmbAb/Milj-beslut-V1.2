@@ -23,8 +23,6 @@ import {
   validateLocalizationGeometryArtifact,
   type LocalizationAssessmentArtifact,
   type LocalizationGeometryArtifact,
-  type LuReExecutionMismatch,
-  type LuReExecutionResult,
 } from '@miljobeslut/mps-lu';
 import { PrismaProjectContextBindingIndex } from '../../repositories/projectContextBindingRepository';
 import { getProjectContextBindingIssuerVerifier } from '../../security/projectContextBindingIssuerKey';
@@ -57,6 +55,7 @@ import {
   type PropertyRootDetails,
 } from './governedEvidenceDetails';
 import { governedLayerLabelSv, storedRiskFindingsSv } from './governedCoverageStatement';
+import { assertVerifyBootstrapFlagGate, presentVerifyResult, type LuVerifyAnswerFields } from './verifyPresentation';
 import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
@@ -1681,6 +1680,12 @@ function pdfPropertyRoot(root: PropertyRootDetails) {
 }
 
 /**
+ * W-PLUMB-S: the Swedish result text moved with the presentation to ./verifyPresentation.ts (unchanged; re-exported
+ * here under its old name). Its PASS text is used only for a FULLY_BOUND_GREEN answer.
+ */
+export { verifyOutcomeSv } from './verifyPresentation';
+
+/**
  * LU-REEXECUTION-VERIFY-UI-V1.
  *
  * The narrowest possible authenticated wrapper around H15's existing, already-PROVEN
@@ -1698,57 +1703,29 @@ function pdfPropertyRoot(root: PropertyRootDetails) {
  * or in H15 itself. No PostGIS/current-runtime-state dependency is introduced: H15 resolves
  * everything it needs from CAS-pinned artifacts only, exactly as it already did before this unit.
  */
-const NOT_CHECKED_FINDING_ID_PREFIX = 'finding-notchecked-';
-
-/**
- * U20CDF (U30-R2 follow-up; U30R2-REPORT section 3, owner question 6): the Swedish result text of a
- * verification, on top of the machine outcome and notices (both returned unchanged). A PASS that
- * carries NOT_CHECKED_CAUSE_NOT_PINNED is identical in layer, rule, version, risk level and evidence,
- * but the cause text of the listed NOT_CHECKED layers was never saved -- the text says so instead of
- * an unqualified "identiskt". Neutral wording; nothing here suggests tampering.
- *
- * U20CDF2 (coordinator add-on 3; owner 2026-10-02, U30R3 decision 2): verify is REPLAY/CONSISTENCY
- * verification -- the re-execution matches the pinned artifacts -- not proof of authenticity (no
- * attestation check yet). The text says exactly that ("Reproducerbarhet verifierad – resultatet
- * matchar de pinnade artefakterna"), never "verifierad/identisk/intakt" about the assessment itself;
- * the notices are shown under it as before. The machine fields (outcome, mismatches, notices) are
- * unchanged.
- */
-export function verifyOutcomeSv(
-  outcome: 'PASS' | 'DENY',
-  notices: LuReExecutionResult['notices'],
-): string {
-  if (outcome !== 'PASS') {
-    return 'Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.';
-  }
-  const unpinned = notices
-    .filter((notice) => notice.code === 'NOT_CHECKED_CAUSE_NOT_PINNED')
-    .flatMap((notice) => notice.finding_ids);
-  const passed = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna';
-  if (unpinned.length === 0) return `${passed}.`;
-  const layers = unpinned
-    .filter((id) => id.startsWith(NOT_CHECKED_FINDING_ID_PREFIX))
-    .map((id) => governedLayerLabelSv(id.slice(NOT_CHECKED_FINDING_ID_PREFIX.length)));
-  const named = layers.length > 0 ? ` (${layers.join(', ')})` : '';
-  return `${passed}, men orsaken till att ${unpinned.length > 1 ? 'lagren' : 'lagret'} inte kontrollerades sparades inte${named}.`;
-}
-
 export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): Promise<
-  | {
+  | ({
       ok: true;
-      outcome: 'PASS' | 'DENY';
       assessmentArtifactId: string;
-      mismatches: readonly LuReExecutionMismatch[];
-      /** U30-R2: machine-readable statuses that are not deviations (e.g. NOT_CHECKED_CAUSE_NOT_PINNED). */
-      notices: LuReExecutionResult['notices'];
-      /** U20CDF: Swedish presentation of outcome + notices (verifyOutcomeSv). */
-      outcome_sv: string;
-    }
+      /**
+       * W-PLUMB-S (owner decision 2026-10-02, BINDING; U30R6-REPORT K2-K4, K21; contract ./verifyPresentationContract.ts):
+       * outcome, mismatches and notices as before (U30-R2: notices are machine-readable statuses that are not deviations),
+       * plus verification_binding (null unless presented), presentation (classifyVerifyPresentation, computed here --
+       * green ONLY for a well-formed FULLY_BOUND PASS) and outcome_sv per presentation (the owner's exact text over a
+       * V1/legacy-unbound form, never the green sentence).
+       */
+    } & LuVerifyAnswerFields)
   | { ok: false; status: number; error: string }
   | GovernedRecordIntegrityFailure
   | GovernedEvidenceIntegrityFailure
   | PinnedEvidenceUnreadableRefusal
 > {
+  // W-PLUMB-S (U30R5-VERIFICATION finding 4): the bootstrap-flag gate guarded only the re-execution, so with
+  // MPS_LU_BOOTSTRAP_ADMIT set outside an explicit test process verify read the project access, the projection and CAS
+  // first and could answer 404/409/424 instead of the configuration error. It now runs FIRST, before any read: the typed
+  // LuBootstrapAdmitFlagOutsideTestError (BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST), answered by the route as a 503.
+  assertVerifyBootstrapFlagGate();
+
   // U20-D: identity resolution only (plus the optional explicit-id binding) -- the evidence details are read by the
   // integrity pre-check below (W-U20CDF5-R2: a tampered evidence no longer reaches H15, see currentRecordIntegrityRefusal).
   const core = await resolveCurrentLuAssessmentCore(input);
@@ -1771,14 +1748,12 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
     artifactRepository: core.artifactRepository,
   });
 
-  const notices = Array.isArray(result.notices) ? result.notices : [];
+  // W-PLUMB-S: the presentation is decided here, once, by the package's fail-closed classifier -- never by
+  // `outcome === 'PASS'`; the verdict (PASS/DENY) is H15's, unchanged.
   return {
     ok: true,
-    outcome: result.outcome,
     assessmentArtifactId: result.assessment_artifact_id,
-    mismatches: result.mismatches,
-    notices,
-    outcome_sv: verifyOutcomeSv(result.outcome, notices),
+    ...presentVerifyResult(result),
   };
 }
 
