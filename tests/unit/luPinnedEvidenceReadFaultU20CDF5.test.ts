@@ -322,7 +322,7 @@ function expectIntegrity424(res: request.Response) {
   expect(res.status).toBe(424);
   expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_RECORD_INTEGRITY_ERROR', failureClass: 'RECORD_INTEGRITY_ERROR', reasonCode: 'UNKNOWN_SEVERITY', retryable: false });
   expect(res.body.record_integrity).toMatchObject({ authoritative: false, verified: false });
-  expect(JSON.stringify(res.body)).not.toMatch(/PASS|Reproducerbarhet verifierad|EIO|cas\\\\objects/);
+  expect(JSON.stringify(res.body)).not.toMatch(/PASS|verifierad mot sparat underlag|EIO|cas\\\\objects/);
 }
 
 describe('W-U20CDF5 M1 (verifier probe B1): a TRANSIENT read fault during the integrity pre-check never opens verify or the map for a record with an integrity error', () => {
@@ -374,7 +374,7 @@ describe('W-U20CDF5 M1: with no visible break, an incomplete pre-check stops ver
       retryable: true,
     });
     expect(res.body.error).toMatch(/^Den pinnade evidensen som bedömningen är bunden till kunde inte läsas \(tekniskt fel\)\. Ett nytt försök kan lyckas\./);
-    expect(JSON.stringify(res.body)).not.toMatch(/PASS|Reproducerbarhet verifierad|EIO|cas\\\\objects|evidence-water/);
+    expect(JSON.stringify(res.body)).not.toMatch(/PASS|verifierad mot sparat underlag|EIO|cas\\\\objects|evidence-water/);
     expect(spies.reExecute).not.toHaveBeenCalled();
   });
 
@@ -482,7 +482,7 @@ describe('W-U20CDF5-R2 M1-rest (verifier probe R1): a pre-check whose read conte
     expect(res.status).toBe(424);
     expect(res.body).toMatchObject({ ok: false, code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: CLASS[kind] });
     expect(spies.reExecute).not.toHaveBeenCalled();
-    expect(JSON.stringify(res.body)).not.toMatch(/PASS|Reproducerbarhet verifierad|cas\\\\objects/);
+    expect(JSON.stringify(res.body)).not.toMatch(/PASS|verifierad mot sparat underlag|cas\\\\objects/);
   });
 
   it.each(['corrupt', 'truncated'] as const)('a CLEAN record, the same %s read: verify -> the same 424, never replayed -- a pre-check that could not establish the record never hands it to H15, which after a transient fault reads it intact and could replay a break visible only in that content', async (kind) => {

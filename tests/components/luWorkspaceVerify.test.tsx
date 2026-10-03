@@ -36,7 +36,13 @@ vi.mock('../../components/CesiumMapView', () => ({ default: () => <div data-test
 
 const SHOWN = 'assessment-shown';
 const OWNER_TEXT = 'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
-const GREEN_HEAD = 'Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.';
+// W-T1TEXT (owner decision 2026-10-03): the green head carries the reservation; the scope line names the data sources and currency.
+const GREEN_HEAD =
+  'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna. ' +
+  'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.';
+const SCOPE =
+  'Kontrollen visar att bedömningen kan återskapas ur sitt sparade underlag med dagens regelmotor och att underlagets delar hänger ihop. ' +
+  'Den intygar inte vem som har skapat underlaget, att underlaget stämmer med datakällorna, eller att detta är den senaste bedömningen.';
 
 const apiError = (status: number, message: string, extra: Record<string, unknown> = {}) => Object.assign(new Error(message), { status, ...extra });
 
@@ -57,7 +63,7 @@ const green = (extra: Record<string, unknown> = {}) => ({
   notices: [],
   verification_binding: 'FULLY_BOUND',
   presentation: 'FULLY_BOUND_GREEN',
-  outcome_sv: 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna.',
+  outcome_sv: GREEN_HEAD,
   ...extra,
 });
 const legacy = (basis: string, extra: Record<string, unknown> = {}) =>
@@ -116,7 +122,7 @@ describe('W-UI1 A: the verify presentation in the workspace', () => {
     expect(pass).toHaveAttribute('data-verify-presentation', 'FULLY_BOUND_GREEN');
     expect(pass).toHaveAttribute('data-tone', 'verified');
     expect(screen.getByTestId('lu-verify-result-pass-head').textContent).toBe(GREEN_HEAD);
-    expect(pass).toHaveTextContent('Den intygar inte vem som har skapat underlaget.');
+    expect(pass).toHaveTextContent(SCOPE);
     expect(screen.getByTestId('lu-results')).not.toHaveTextContent(OWNER_TEXT);
   });
 
@@ -128,7 +134,7 @@ describe('W-UI1 A: the verify presentation in the workspace', () => {
     expect(screen.getByTestId('lu-verify-result-legacy-head').textContent).toBe(OWNER_TEXT);
     expect(notice).toHaveStyle({ color: '#FDBA74' });
     expect(notice).not.toHaveStyle({ color: '#A5F3FC' });
-    expect(notice).toHaveTextContent('Den intygar inte vem som har skapat underlaget.');
+    expect(notice).toHaveTextContent(SCOPE);
     // No machine code in the visible lines; the code and basis only under Teknisk information.
     const technical = screen.getByTestId('lu-verify-result-technical');
     expect(technical).not.toHaveAttribute('open');

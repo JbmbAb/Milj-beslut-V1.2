@@ -209,7 +209,7 @@ describe('DEMO M2b presentLuError', () => {
     }
     // verify's storage fault: the route sends code LU_REEXECUTION_STORAGE_FAULT with an honest flag.
     const lastingVerify = presentLuError(
-      httpError(503, 'Verifieringen kunde inte genomföras: ...', { code: 'LU_REEXECUTION_STORAGE_FAULT', failureClass: 'REEXECUTION_STORAGE_FAULT', reasonCode: 'EXECUTION_OUTCOME', retryable: false }),
+      httpError(503, 'Reproducerbarhetskontrollen kunde inte genomföras: ...', { code: 'LU_REEXECUTION_STORAGE_FAULT', failureClass: 'REEXECUTION_STORAGE_FAULT', reasonCode: 'EXECUTION_OUTCOME', retryable: false }),
       'verify',
     );
     expect(lastingVerify.retryable).toBe(false);

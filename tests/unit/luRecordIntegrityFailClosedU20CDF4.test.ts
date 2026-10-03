@@ -323,7 +323,7 @@ describe('U20CDF4 (owner decision (4) point 1): a current record with an integri
     const res = await post(`/api/localization/${PROJECT_ID}/verify-assessment`);
     expectRecordIntegrity424(res, assessment.artifact_id);
     expect(spies.reExecute).not.toHaveBeenCalled();
-    expect(JSON.stringify(res.body)).not.toMatch(/PASS|Reproducerbarhet verifierad/);
+    expect(JSON.stringify(res.body)).not.toMatch(/PASS|verifierad mot sparat underlag/);
   });
 
   it('GET viewer/evidence (the map) -> the same 424 after the presentation itself passed: never a valid current assessment on the map', async () => {

@@ -85,13 +85,19 @@ import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 const PROJECT_ID = 'project-w-plumbs';
 const OWNER_TEXT_SV =
   'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
-const GREEN_SV = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna.';
+// W-T1TEXT (owner decision 2026-10-03): the green sentence is consistency against the SAVED basis, with the reservation.
+const GREEN_SV =
+  'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna. ' +
+  'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.';
+/** The part of the green sentence no other result text has (the legacy text says "för äldre obunden artefaktform"). */
+const GREEN_MARKER_SV = 'verifierad mot sparat underlag';
 const NEUTRAL_SV =
   'Reproducerbarheten kan inte visas som verifierad: kontrollens svar är ofullständigt eller motsägelsefullt (utfall, ' +
   'bindningsstyrka eller obligatorisk notis saknas eller stämmer inte överens). Det är inget fynd om att underlaget har ändrats.';
 const DENY_SV = 'Reproducerbarheten kunde inte bekräftas: återexekveringen gav inte samma resultat som den sparade bedömningen.';
+// W-T1TEXT (T1-WORDING-AUDIT top 6): the check is a reproducibility check, not a "verification".
 const CONFIGURATION_SV =
-  'Verifieringen kunde inte genomföras: servern har ett konfigurationsfel (en flagga som bara får vara satt i en uttrycklig ' +
+  'Reproducerbarhetskontrollen kunde inte genomföras: servern har ett konfigurationsfel (en flagga som bara får vara satt i en uttrycklig ' +
   'testprocess är satt). Det är inget kontrollutfall och inget fel i bedömningen. Felet är bestående och löses inte av ett nytt försök.';
 
 const legacyNotice = (overrides: Record<string, unknown> = {}) => ({
@@ -179,7 +185,7 @@ describe('W-PLUMB-S (K4, K21): the route re-derives the presentation and fails c
     expect(res.body).toMatchObject({ ok: true, presentation, verification_binding: binding, outcome_sv: outcomeSv });
     // The route's JSON classifies exactly as it says, with the package's own classifier.
     expect(classifyVerifyPresentation(res.body)).toBe(presentation);
-    if (presentation !== 'FULLY_BOUND_GREEN') expect(res.body.outcome_sv).not.toContain('Reproducerbarhet verifierad');
+    if (presentation !== 'FULLY_BOUND_GREEN') expect(res.body.outcome_sv).not.toContain(GREEN_MARKER_SV);
   });
 });
 
@@ -197,6 +203,9 @@ describe('W-PLUMB-S (U30R5-VERIFICATION finding 4, K5): the bootstrap-flag gate 
     const res = await (t ? req.set('Authorization', `Bearer ${t}`) : req).send({});
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ ok: false, code: 'BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST', retryable: false, error: CONFIGURATION_SV });
+    // W-T1TEXT: the lead names the check for what it is; "Verifieringen"/"verifieringsutfall" never appear.
+    expect(res.body.error).toMatch(/^Reproducerbarhetskontrollen kunde inte genomföras/);
+    expect(res.body.error).not.toMatch(/Verifieringen|verifieringsutfall/);
     expect({ tokenChecks: h.isTokenRevoked, verifyCalls: h.verifyCalls, casOpened: h.casOpened, membership: h.membership }).toEqual({
       tokenChecks: 0, verifyCalls: 0, casOpened: 0, membership: 0,
     });
@@ -227,7 +236,7 @@ describe('W-PLUMB-S (U30R5-VERIFICATION finding 4, K5): the bootstrap-flag gate 
     };
     const res = await post();
     expect(res.status).toBe(500);
-    expect(JSON.stringify(res.body ?? {})).not.toMatch(/FULLY_BOUND_GREEN|Reproducerbarhet verifierad/);
+    expect(JSON.stringify(res.body ?? {})).not.toMatch(/FULLY_BOUND_GREEN|verifierad mot sparat underlag/);
     expect({ tokenChecks: h.isTokenRevoked, verifyCalls: h.verifyCalls, casOpened: h.casOpened }).toEqual({ tokenChecks: 0, verifyCalls: 0, casOpened: 0 });
   });
 
@@ -250,7 +259,7 @@ describe('W-PLUMB-S (U30R5-VERIFICATION finding 4, K5): the bootstrap-flag gate 
     expect(res.status).toBe(503);
     expect(res.body).toEqual({
       ok: false, code: 'BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST', retryable: false,
-      error: CONFIGURATION_SV.replace('Verifieringen kunde inte genomföras', 'Begäran kunde inte genomföras'),
+      error: CONFIGURATION_SV.replace('Reproducerbarhetskontrollen kunde inte genomföras', 'Begäran kunde inte genomföras'),
     });
   });
 });
@@ -278,7 +287,8 @@ describe('W-PLUMB-S (K3, K21): presentVerifyResult -- the orchestrator\'s one pr
       expect(Array.isArray(answer.mismatches) && Array.isArray(answer.notices)).toBe(true);
       expect(typeof answer.outcome_sv).toBe('string');
       if (expected === 'LEGACY_UNBOUND_NOTICE') expect(answer.outcome_sv).toBe(OWNER_TEXT_SV);
-      if (expected !== 'FULLY_BOUND_GREEN') expect(answer.outcome_sv).not.toContain('Reproducerbarhet verifierad');
+      if (expected !== 'FULLY_BOUND_GREEN') expect(answer.outcome_sv).not.toContain(GREEN_MARKER_SV);
+      if (expected === 'FULLY_BOUND_GREEN') expect(answer.outcome_sv).toContain('och aktuell authority är inte verifierade.');
       if (expected === 'NOT_VERIFIED' && outcome === 'DENY') expect(answer.outcome_sv).toBe(DENY_SV);
       if (expected === 'NOT_VERIFIED' && outcome !== 'DENY') expect(answer.outcome_sv).toBe(NEUTRAL_SV);
     }

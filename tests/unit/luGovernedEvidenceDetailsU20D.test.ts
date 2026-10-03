@@ -166,6 +166,13 @@ import { LuReExecutionStorageError } from '../../packages/mps-lu/src/execution/L
 /** U30-R6 / W-PLUMB-S: the owner's exact wording (2026-10-02), written out here independently of the code (an oracle). */
 const OWNER_TEXT_SV =
   'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
+/**
+ * W-T1TEXT (owner decision 2026-10-03): the green sentence -- consistency against the SAVED basis, with the reservation
+ * (authenticity, origin, current authority NOT verified) -- and the part of it no other result text has.
+ */
+const GREEN_HEAD_SV = 'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna';
+const RESERVATION_SV = 'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.';
+const GREEN_MARKER_SV = 'verifierad mot sparat underlag';
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
@@ -1084,7 +1091,7 @@ describe('U20-D: export and verify bound to an explicit assessment id', () => {
     // legacy-unbound form the main text is exactly the owner's, never the green sentence (it names authenticity only as
     // NOT verified).
     expect(verifyOk.body.outcome_sv).toBe(OWNER_TEXT_SV);
-    expect(verifyOk.body.outcome_sv).not.toContain('Reproducerbarhet verifierad');
+    expect(verifyOk.body.outcome_sv).not.toContain(GREEN_MARKER_SV);
     expect(verifyOk.body.outcome_sv).not.toMatch(/identisk|intakt|har verifierats/i);
     expect(classifyVerifyPresentation(verifyOk.body)).toBe('LEGACY_UNBOUND_NOTICE');
 
@@ -1159,10 +1166,10 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, outcome: 'PASS', mismatches: [], notices: [notice], verification_binding: 'FULLY_BOUND', presentation: 'FULLY_BOUND_GREEN' });
     expect(res.body.outcome_sv).toBe(
-      'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att ' +
-        'lagret inte kontrollerades sparades inte (Skyddad natur).',
+      `${GREEN_HEAD_SV}, men orsaken till att lagret inte kontrollerades sparades inte (Skyddad natur). ${RESERVATION_SV}`,
     );
-    expect(res.body.outcome_sv).not.toMatch(/manipul|förfalsk|identisk|intakt|äkt/i);
+    // W-T1TEXT: apart from the negated reservation, nothing claims manipulation, forgery, identity, integrity or authenticity.
+    expect(res.body.outcome_sv.split(RESERVATION_SV).join('')).not.toMatch(/manipul|förfalsk|identisk|intakt|äkt/i);
 
     // Two layers -> plural, both named.
     state.reExecute = async (real, args) => ({
@@ -1172,8 +1179,7 @@ describe('U20CDF (U30-R2 follow-up): verify carries the re-execution notices and
     });
     const two = await verifyCurrentLuAssessment(s.deps());
     expect((two as { outcome_sv: string }).outcome_sv).toBe(
-      'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att ' +
-        'lagren inte kontrollerades sparades inte (Natura 2000, Brunnar).',
+      `${GREEN_HEAD_SV}, men orsaken till att lagren inte kontrollerades sparades inte (Natura 2000, Brunnar). ${RESERVATION_SV}`,
     );
 
     // W-PLUMB-S: the same NOT_CHECKED notice on this fixture's own (legacy-unbound) PASS, after its mandatory notice:
@@ -1203,7 +1209,7 @@ describe('W-PLUMB-S: the verify answer is never green unless the result is a wel
   const UNBOUND_SV =
     'Reproducerbarheten kan inte bekräftas: körningen bakom bedömningen saknar ett styrt exekveringssubjekt (äldre eller ' +
     'obunden körningsform) och kan inte bindas till bedömningen. Resultatet påstår inte att underlaget har ändrats.';
-  const GREEN_SV = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna.';
+  const GREEN_SV = `${GREEN_HEAD_SV}. ${RESERVATION_SV}`;
   const legacyNotice = (overrides: Record<string, unknown> = {}) => ({
     code: 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY', basis: 'V1_FORM', authenticity_verified: false, current_authority_verified: false,
     text_sv: OWNER_TEXT_SV, finding_ids: [], detail: 'the pinned execution outcome is a V1-format outcome', ...overrides,
@@ -1216,7 +1222,7 @@ describe('W-PLUMB-S: the verify answer is never green unless the result is a wel
   const cases: Array<[string, () => Record<string, unknown>, Expected]> = [
     ['a fully bound PASS', () => pass({ verification_binding: 'FULLY_BOUND' }), { presentation: 'FULLY_BOUND_GREEN', binding: 'FULLY_BOUND', outcome_sv: GREEN_SV }],
     ['a fully bound PASS with NOT_CHECKED', () => pass({ verification_binding: 'FULLY_BOUND', notices: [notCheckedNotice] }),
-      { presentation: 'FULLY_BOUND_GREEN', binding: 'FULLY_BOUND', outcome_sv: 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna, men orsaken till att lagret inte kontrollerades sparades inte (Potentiellt förorenade områden (EBH)).' }],
+      { presentation: 'FULLY_BOUND_GREEN', binding: 'FULLY_BOUND', outcome_sv: `${GREEN_HEAD_SV}, men orsaken till att lagret inte kontrollerades sparades inte (Potentiellt förorenade områden (EBH)). ${RESERVATION_SV}` }],
     ['a V1-form PASS with its notice', () => pass({ verification_binding: 'LEGACY_UNBOUND_FORM', notices: [legacyNotice()] }),
       { presentation: 'LEGACY_UNBOUND_NOTICE', binding: 'LEGACY_UNBOUND_FORM', outcome_sv: OWNER_TEXT_SV }],
     ['a legacy-unbound PASS with its notice and NOT_CHECKED', () => pass({ verification_binding: 'LEGACY_UNBOUND_FORM', notices: [legacyNotice({ basis: 'LEGACY_UNBOUND' }), notCheckedNotice] }),
@@ -1259,7 +1265,8 @@ describe('W-PLUMB-S: the verify answer is never green unless the result is a wel
     expect(res.body).toMatchObject({ ok: true, assessmentArtifactId: currentId, presentation: expected.presentation, verification_binding: expected.binding, outcome_sv: expected.outcome_sv });
     // The route's JSON classifies exactly as the package's result.
     expect(classifyVerifyPresentation(res.body)).toBe(packageClass);
-    if (expected.presentation !== 'FULLY_BOUND_GREEN') expect(res.body.outcome_sv).not.toContain('Reproducerbarhet verifierad');
+    if (expected.presentation !== 'FULLY_BOUND_GREEN') expect(res.body.outcome_sv).not.toContain(GREEN_MARKER_SV);
+    if (expected.presentation === 'FULLY_BOUND_GREEN') expect(res.body.outcome_sv.endsWith(RESERVATION_SV)).toBe(true);
     // The existing machine fields are kept.
     expect(res.body.outcome).toBe(seen.produced!.outcome);
     expect(Array.isArray(res.body.mismatches) && Array.isArray(res.body.notices)).toBe(true);
@@ -1352,11 +1359,13 @@ describe('U20CDF2 (coordinator add-on 1; OD-R2): a storage fault during re-execu
       failureClass: 'REEXECUTION_STORAGE_FAULT',
       reasonCode: 'PINNED_EVIDENCE',
       retryable,
+      // W-T1TEXT (T1-WORDING-AUDIT top 6): a reproducibility check, not a "verification"; the code is unchanged.
       error:
-        'Verifieringen kunde inte genomföras: ett tekniskt lagringsfel uppstod vid återexekveringen (steg: pinned_evidence). ' +
-        'Det är inget verifieringsutfall. ' +
+        'Reproducerbarhetskontrollen kunde inte genomföras: ett tekniskt lagringsfel uppstod vid återexekveringen (steg: pinned_evidence). ' +
+        'Det är inget kontrollutfall. ' +
         (retryable ? 'Ett nytt försök kan lyckas.' : 'Felet är bestående och löses inte av ett nytt försök.'),
     });
+    expect(res.body.error).not.toMatch(/Verifieringen|verifieringsutfall/);
     expect(JSON.stringify(res.body)).not.toMatch(/EIO|C:\/cas|digest mismatch|torn|evidence-water-x/);
   });
 });

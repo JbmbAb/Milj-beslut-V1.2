@@ -367,7 +367,7 @@ function expectIntegrity424(res: request.Response, reasonCode: string) {
   expect(res.status, JSON.stringify(res.body).slice(0, 400)).toBe(424);
   expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_RECORD_INTEGRITY_ERROR', failureClass: 'RECORD_INTEGRITY_ERROR', reasonCode, retryable: false });
   expect(res.body.record_integrity).toMatchObject({ authoritative: false, verified: false });
-  expect(JSON.stringify(res.body)).not.toMatch(/PASS|Reproducerbarhet verifierad|historisk/);
+  expect(JSON.stringify(res.body)).not.toMatch(/PASS|verifierad mot sparat underlag|historisk/);
 }
 
 const FINDINGS_UNREADABLE_SV = 'Den lagrade postens fynd kan inte läsas: fältet saknas eller är inte en lista.';

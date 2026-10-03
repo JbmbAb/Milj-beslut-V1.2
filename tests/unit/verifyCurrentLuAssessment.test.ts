@@ -77,7 +77,8 @@ afterEach(() => {
  */
 const OWNER_TEXT_SV =
   'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
-const GREEN_SENTENCE_SV = 'Reproducerbarhet verifierad – resultatet matchar de pinnade artefakterna';
+// W-T1TEXT (owner 2026-10-03): the green sentence's own head (no other result text says "verifierad mot sparat underlag").
+const GREEN_SENTENCE_SV = 'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna';
 
 function expectLegacyUnboundAnswer(result: Record<string, unknown>) {
   expect(result.outcome).toBe('PASS');

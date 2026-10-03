@@ -613,8 +613,11 @@ describe('LuWorkspace', () => {
       expect.objectContaining({ method: 'POST' }),
     );
     // W-M2d item 4: reproducibility against the pinned artifacts -- never "identiskt", never authenticity.
+    // W-T1TEXT (owner 2026-10-03): consistency against the SAVED basis, with the reservation (authenticity, origin,
+    // current authority NOT verified).
     expect(await screen.findByTestId('lu-verify-result-pass-head')).toHaveTextContent(
-      'Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.',
+      'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna. ' +
+        'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.',
     );
     // Proof 11: the assessment itself remains visible after verification.
     expect(screen.getByTestId('lu-results')).toBeInTheDocument();
@@ -1957,9 +1960,13 @@ describe('LuWorkspace W-M2d', () => {
     await user.click(button);
     const pass = await screen.findByTestId('lu-verify-result-pass');
     expect(screen.getByTestId('lu-verify-result-pass-head').textContent).toBe(
-      'Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.',
+      'Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna. ' +
+        'Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.',
     );
-    expect(pass).toHaveTextContent('Den intygar inte vem som har skapat underlaget.');
+    expect(pass).toHaveTextContent(
+      'Kontrollen visar att bedömningen kan återskapas ur sitt sparade underlag med dagens regelmotor och att underlagets delar hänger ihop. ' +
+        'Den intygar inte vem som har skapat underlaget, att underlaget stämmer med datakällorna, eller att detta är den senaste bedömningen.',
+    );
     // The server's older wording is technical only; nothing in the result claims identity or authenticity.
     const visible = screen.getByTestId('lu-results').textContent ?? '';
     expect(visible.replace(screen.getByTestId('lu-verify-result-technical').textContent ?? '', '')).not.toMatch(
