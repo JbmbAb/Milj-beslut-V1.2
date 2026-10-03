@@ -340,8 +340,13 @@ describe('W-T1TEXT: the green display is consistency against the saved basis -- 
     const notice = screen.getByTestId('lu-verify-result-legacy');
     expect(notice).toHaveAttribute('data-tone', 'notice');
     expect(screen.getByTestId('lu-verify-result-legacy-head').textContent).toBe(OWNER_TEXT);
-    expect(notice).not.toHaveTextContent(GREEN_MARKER_SV);
-    expect(notice).toHaveTextContent(SCOPE_SV);
+    // The visible part (head, lines, scope) never carries the green sentence; the collapsed "Teknisk information" is
+    // left out, since its labelled row "Serverns text" echoes this fixture's (contradictory) outcome_sv verbatim.
+    const technical = screen.getByTestId('lu-verify-result-technical');
+    expect(technical).not.toHaveAttribute('open');
+    const visible = (notice.textContent ?? '').replace(technical.textContent ?? '', '');
+    expect(visible).not.toContain(GREEN_MARKER_SV);
+    expect(visible).toContain(SCOPE_SV);
     expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   });
 });
