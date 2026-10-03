@@ -126,6 +126,11 @@ def load_spec(path=CLASSIFICATION_FILE):
     exempt = doc['commands'].get('non_literal_exempt_tools_unless_piped_to')
     if not isinstance(exempt, dict) or not all(isinstance(v, str) and v for v in exempt.values()):
         raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.non_literal_exempt_tools_unless_piped_to')
+    # U30G814 (G8-14): the connection vocabulary is required -- a missing list would read as "no connection is ever chosen"
+    for key5 in ('connection_env_variables', 'env_assignment_words'):
+        v5 = doc['commands'].get(key5)
+        if not isinstance(v5, list) or not v5 or not all(isinstance(x, str) and x for x in v5):
+            raise RuntimeError(f'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.{key5}')
     doc['_lengths'] = lengths
     _SPEC_CACHE[key] = doc
     return doc
@@ -2082,6 +2087,70 @@ def _write_capable(tool, rest, ctx, spec):
     return True
 
 
+def _env_assignment_at(argv, i, spec):
+    # U30G814 (G8-14): the environment assignment at argv[i] -- NAME=value (an sh env prefix; an argument of env, sudo,
+    # cross-env, docker -e; a bare, export, declare or cmd set statement) or PowerShell $env:NAME=value / $env:NAME = value
+    # (the placeholder of $env:NAME carries NAME as its hint; the rest of the statement is the value) -- or None
+    t = argv[i] if 0 <= i < len(argv) else None
+    if t is None:
+        return None
+    plain = re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]*)=(.*)', t, re.S)
+    if plain:
+        return (plain.group(1), plain.group(2), i + 1)
+    o, c = spec['dynamic_placeholder_open'], spec['dynamic_placeholder_close']
+    if not t.startswith(o + ':'):
+        return None
+    end = t.find(c)
+    if end < 0:
+        return None
+    name = t[len(o) + 1:end]
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
+        return None
+    after = t[end + len(c):]
+    if after.startswith('='):
+        value = after[1:]
+        return (name, value, i + 1) if value != '' else (name, ' '.join(argv[i + 1:]), len(argv))
+    if after == '' and i + 1 < len(argv) and argv[i + 1].startswith('='):
+        return (name, ' '.join([argv[i + 1][1:]] + list(argv[i + 2:])), len(argv))
+    return None
+
+
+def _dynamic_connection(a, spec):
+    # U30G814 (G8-14): the assignment chooses the connection (case-insensitive: Windows reads its environment so) with a
+    # value the text does not hold
+    return a is not None and _contains_dynamic(spec, a[1]) and any(_ascii_lower(v) == _ascii_lower(a[0]) for v in spec['commands']['connection_env_variables'])
+
+
+def _dynamic_connection_prefix(argv, k, spec):
+    # U30G814 (G8-14): an env prefix of argv[k] -- an assignment among argv[0..k-1] -- chooses the connection dynamically
+    before = list(argv[:k])
+    return any(_dynamic_connection(_env_assignment_at(before, n, spec), spec) for n in range(len(before)))
+
+
+def _sets_dynamic_connection(argv, spec):
+    # U30G814 (G8-14): the segment runs no program and only assigns (after { / ( and an assignment word: export, declare -x,
+    # cmd set ...), and one assignment chooses the connection dynamically: every later command of the text runs with it
+    words = spec['commands']['env_assignment_words']
+    i = 0
+    while i < len(argv) and argv[i] in ('{', '('):
+        i += 1
+    if i < len(argv) and _ascii_lower(argv[i]) in words:
+        i += 1
+        while i < len(argv) and argv[i].startswith('-'):
+            i += 1
+    found = False
+    assigned = False
+    while i < len(argv):
+        a = _env_assignment_at(argv, i, spec)
+        if a is None:
+            return False
+        assigned = True
+        if _dynamic_connection(a, spec):
+            found = True
+        i = a[2]
+    return assigned and found
+
+
 def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
     targets, unresolved = [], []
     if depth > spec['sql']['max_nesting']:
@@ -2097,7 +2166,7 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
 
     cmds = spec['commands']
 
-    def non_literal(tool, program, rest):
+    def non_literal(tool, program, rest, connection):
         # U30F9 default-deny (owner decision 2026-10-03): a DB-capable tool run with ANY value the text does not hold -- the
         # program, an argument, stdin or the stdin file -- is NON_LITERAL, whatever the other arguments say
         if not _write_capable(tool, rest, ctx, spec):
@@ -2106,7 +2175,13 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
                 or (ctx['stdin'] is not None and _contains_dynamic(spec, ctx['stdin'])) \
                 or (ctx['stdin_file'] is not None and _contains_dynamic(spec, ctx['stdin_file'])):
             return [('NON_LITERAL', f'{tool.lower()} runs with a value the text does not hold (default-deny: a non-literal program, argument, stdin or stdin file)')]
+        if connection:
+            return [('NON_LITERAL', f'{tool.lower()} connects where an environment assignment the text does not hold points it (G8-14: a connection variable before the tool)')]
         return []
+
+    def connection_at(k):
+        # U30G814 (G8-14): what argv[k] inherits -- the connection of the text so far, or an env prefix of its own
+        return ctx['connection'] or _dynamic_connection_prefix(argv, k, spec)
 
     for k in range(len(argv)):
         wrapper = _shell_wrapper(argv[k], spec)
@@ -2119,12 +2194,12 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
                 # U30F6 (F5-1): a shell running a command whose program is a value runs what the text does not hold
                 if any(seg['argv'] and _dynamic_hint(spec, seg['argv'][0]) is not None for pipeline in split_command_line(command, spec) for seg in pipeline):
                     pre = pre + [('COMMAND', 'a shell runs a command the text does not hold')]
-                t, u = _analyze_command_at(command, read_sql_file, depth + 1, spec)
+                t, u = _analyze_command_at(command, read_sql_file, depth + 1, spec, None, None, connection_at(k))
                 return targets + t, unresolved + pre + u
             # U30F8 (G6-1): a shell fed a here-document / here-string runs it as its script when it names none
             if ctx['stdin'] is not None:
                 if not any(not a.startswith('-') for a in argv[k + 1:]):
-                    t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec)
+                    t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec, None, None, connection_at(k))
                     return targets + t, unresolved + u
                 if _contains_dynamic(spec, ctx['stdin']):
                     unresolved.append(('COMMAND', 'a script reads a here-document with values the text does not hold'))
@@ -2145,17 +2220,17 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
             if words:
                 pre = substituted(k, 'a remote command')
                 # (the words are re-quoted: psql -c "TRUNCATE env.sgu_well" stays one -c value on the other host too)
-                t, u = _analyze_command_at(' '.join(_requote(a) for a in words), read_sql_file, depth + 1, spec, ctx['stdin'], ctx['stdin_file'])
+                t, u = _analyze_command_at(' '.join(_requote(a) for a in words), read_sql_file, depth + 1, spec, ctx['stdin'], ctx['stdin_file'], connection_at(k))
                 return targets + t, unresolved + pre + u
             if ctx['stdin'] is not None:
-                t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec)
+                t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec, None, None, connection_at(k))
                 return targets + t, unresolved + u
             if ctx['stdin_file'] is not None:
                 unresolved.append(('COMMAND', 'a remote shell reads its script from a file the text does not hold'))
             return targets, unresolved
         tool = tool_of(argv[k], spec)
         if tool:
-            pre = substituted(k, tool.lower()) + non_literal(tool, argv[k], argv[k + 1:])
+            pre = substituted(k, tool.lower()) + non_literal(tool, argv[k], argv[k + 1:], connection_at(k))
             t, u = _analyze_tool(tool, argv[k + 1:], ctx, read_sql_file, depth, spec)
             return targets + t, unresolved + pre + u
         name = _program_name(argv[k], spec)
@@ -2186,12 +2261,12 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
     flag_set = set(_ascii_lower(a.strip()) for a in argv)
     o = spec['ogr2ogr']
     if any(f in flag_set for f in o['layer_name_flags']) or any(f in flag_set for f in o['sql_flags']) or any(_is_pg_datasource(a, spec) for a in argv):
-        pre = non_literal('OGR2OGR', argv[0] if argv else '', argv[1:])
+        pre = non_literal('OGR2OGR', argv[0] if argv else '', argv[1:], ctx['connection'])
         t, u, _ = analyze_ogr2ogr_args(argv[1:], spec)
         return targets + t, unresolved + pre + u
-    for a in argv:
+    for n, a in enumerate(argv):
         if re.search(r'\s', a) and any(name in _ascii_lower(a) for name in spec['commands']['tools'].keys()):
-            t, u = _analyze_command_at(a, read_sql_file, depth + 1, spec)
+            t, u = _analyze_command_at(a, read_sql_file, depth + 1, spec, None, None, connection_at(n))
             targets += t
             unresolved += u
     return targets, unresolved
@@ -2201,11 +2276,14 @@ def _at_list(items, n):
     return items[n] if 0 <= n < len(items) else None
 
 
-def _analyze_command_at(command, read_sql_file, depth, spec, inherited_stdin=None, inherited_stdin_file=None):
+def _analyze_command_at(command, read_sql_file, depth, spec, inherited_stdin=None, inherited_stdin_file=None, inherited_connection=False):
     # inherited_stdin / inherited_stdin_file (U30F9, G8-5): what a remote shell (ssh) hands its remote command -- the first
     # segment of the first pipeline reads them when the command names no stdin of its own
     targets, unresolved = [], []
     first = True
+    # U30G814 (G8-14): a connection chosen by a value the text does not hold -- inherited, or set by an assignment statement
+    # earlier in the text (export PGHOST="$H"; psql ..., PowerShell $env:PGDATABASE = $db; psql ...) -- holds for the rest
+    connection = inherited_connection
     for pipeline in split_command_line(command, spec):
         tools = []
         for seg in pipeline:
@@ -2223,10 +2301,13 @@ def _analyze_command_at(command, read_sql_file, depth, spec, inherited_stdin=Non
                 unresolved.append(('COMMAND', 'the program is a value the text does not hold'))
             inherits = first and n == 0 and seg['stdin'] is None and seg['stdin_file'] is None
             ctx = {'stdin': inherited_stdin if inherits else seg['stdin'], 'stdin_file': inherited_stdin_file if inherits else seg['stdin_file'],
-                   'piped_from': tools[n - 1] if n > 0 else None, 'pipes_to': tools[n + 1] if n + 1 < len(tools) else None}
+                   'piped_from': tools[n - 1] if n > 0 else None, 'pipes_to': tools[n + 1] if n + 1 < len(tools) else None,
+                   'connection': connection}
             t, u = _analyze_argv_at(seg['argv'], ctx, read_sql_file, depth, spec)
             targets += t
             unresolved += u
+            if _sets_dynamic_connection(seg['argv'], spec):
+                connection = True
         first = False
     return targets, unresolved
 
@@ -2237,7 +2318,7 @@ def analyze_command_line(command, read_sql_file=None, spec=None):
 
 def analyze_command_argv(argv, read_sql_file=None, spec=None):
     spec = spec or load_spec()
-    return _analyze_argv_at(list(argv), {'stdin': None, 'stdin_file': None, 'piped_from': None, 'pipes_to': None}, read_sql_file, 0, spec)
+    return _analyze_argv_at(list(argv), {'stdin': None, 'stdin_file': None, 'piped_from': None, 'pipes_to': None, 'connection': False}, read_sql_file, 0, spec)
 
 
 # ------------------------------------------------------------------------------------------------

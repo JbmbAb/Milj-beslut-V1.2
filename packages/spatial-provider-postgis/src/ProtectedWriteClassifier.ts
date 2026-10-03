@@ -1824,6 +1824,73 @@ interface SegmentContext {
   readonly stdinFile: string | null;
   readonly pipedFromTool: string | null;
   readonly pipesToTool: string | null;
+  /**
+   * U30G814 (G8-14): the segment runs with a connection the text does not hold -- an earlier assignment statement of the
+   * text, or the env prefix of the enclosing shell / remote shell / program, set a connection variable to such a value.
+   */
+  readonly connection: boolean;
+}
+
+/**
+ * U30G814 (G8-14): the environment assignment at argv[i] -- `NAME=value` (an sh env prefix; an argument of env, sudo,
+ * cross-env, docker -e; a bare, export, declare or cmd set statement) or PowerShell `$env:NAME=value` / `$env:NAME = value`
+ * (the placeholder of `$env:NAME` carries NAME as its hint; the rest of the statement is the value) -- or null.
+ */
+function envAssignmentAt(argv: readonly string[], i: number): { name: string; value: string; next: number } | null {
+  const t = argv[i];
+  if (t === undefined) return null;
+  const plain = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(t);
+  if (plain) return { name: plain[1]!, value: plain[2]!, next: i + 1 };
+  const spec = classificationSpec();
+  if (!t.startsWith(`${spec.dynamic_placeholder_open}:`)) return null;
+  const end = t.indexOf(spec.dynamic_placeholder_close);
+  if (end < 0) return null;
+  const name = t.slice(spec.dynamic_placeholder_open.length + 1, end);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return null;
+  const after = t.slice(end + spec.dynamic_placeholder_close.length);
+  if (after.startsWith("=")) {
+    const value = after.slice(1);
+    return value !== "" ? { name, value, next: i + 1 } : { name, value: argv.slice(i + 1).join(" "), next: argv.length };
+  }
+  if (after === "" && argv[i + 1] !== undefined && argv[i + 1]!.startsWith("=")) {
+    return { name, value: [argv[i + 1]!.slice(1), ...argv.slice(i + 2)].join(" "), next: argv.length };
+  }
+  return null;
+}
+
+/** U30G814 (G8-14): the assignment chooses the connection (case-insensitive: Windows reads its environment so) with a value the text does not hold. */
+function dynamicConnection(a: { name: string; value: string } | null): boolean {
+  return a !== null && containsDynamic(a.value) && classificationSpec().commands.connection_env_variables.some((v: string) => asciiLower(v) === asciiLower(a.name));
+}
+
+/** U30G814 (G8-14): an env prefix of argv[k] -- an assignment among argv[0..k-1] -- chooses the connection dynamically. */
+function dynamicConnectionPrefix(argv: readonly string[], k: number): boolean {
+  const before = argv.slice(0, k);
+  return before.some((_a, n) => dynamicConnection(envAssignmentAt(before, n)));
+}
+
+/**
+ * U30G814 (G8-14): the segment runs no program and only assigns (after `{` / `(` and an assignment word: export, declare -x,
+ * cmd set ...), and one assignment chooses the connection dynamically: every later command of the text runs with it.
+ */
+function setsDynamicConnection(argv: readonly string[]): boolean {
+  const words = classificationSpec().commands.env_assignment_words;
+  let i = 0;
+  while (argv[i] === "{" || argv[i] === "(") i += 1;
+  if (argv[i] !== undefined && words.includes(asciiLower(argv[i]!))) {
+    i += 1;
+    while (argv[i] !== undefined && argv[i]!.startsWith("-")) i += 1;
+  }
+  let found = false;
+  let assigned = false;
+  while (i < argv.length) {
+    const a = envAssignmentAt(argv, i);
+    if (a === null) return false;
+    assigned = true;
+    if (dynamicConnection(a)) found = true;
+    i = a.next;
+  }
+  return assigned && found;
 }
 
 const GENERATORS = new Set(["SHP2PGSQL", "PG_DUMP", "PG_RESTORE", "OGR2OGR"]);
@@ -2049,12 +2116,16 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
    * argument, on its stdin or as its stdin file -- is NON_LITERAL, whatever the other arguments say. The exempt tools
    * (pg_dump) write nothing unless they pipe into the named tool.
    */
-  const nonLiteral = (tool: string, program: string, rest: readonly string[]) => {
+  const nonLiteral = (tool: string, program: string, rest: readonly string[], connection: boolean) => {
     if (!writeCapable(tool, rest, ctx)) return;
     if (containsDynamic(program) || rest.some((a) => containsDynamic(a)) || (ctx.stdin !== null && containsDynamic(ctx.stdin)) || (ctx.stdinFile !== null && containsDynamic(ctx.stdinFile))) {
       out.unresolved.push({ operation: "NON_LITERAL", reason: `${tool.toLowerCase()} runs with a value the text does not hold (default-deny: a non-literal program, argument, stdin or stdin file)` });
+    } else if (connection) {
+      out.unresolved.push({ operation: "NON_LITERAL", reason: `${tool.toLowerCase()} connects where an environment assignment the text does not hold points it (G8-14: a connection variable before the tool)` });
     }
   };
+  // U30G814 (G8-14): what argv[k] inherits -- the connection of the text so far, or an env prefix of its own
+  const connectionAt = (k: number) => ctx.connection || dynamicConnectionPrefix(argv, k);
   for (let k = 0; k < argv.length; k += 1) {
     const wrapper = shellWrapper(argv[k]!);
     if (wrapper) {
@@ -2066,12 +2137,12 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
         if (splitCommandLine(command).some((pipeline) => pipeline.some((seg) => seg.argv[0] !== undefined && dynamicHint(seg.argv[0]) !== null))) {
           out.unresolved.push({ operation: "COMMAND", reason: "a shell runs a command the text does not hold" });
         }
-        merge(out, analyzeCommandAt(command, options, depth + 1));
+        merge(out, analyzeCommandAt(command, options, depth + 1, null, null, connectionAt(k)));
         return out;
       }
       // U30F8 (G6-1): a shell fed a here-document / here-string runs it as its script when it names none
       if (ctx.stdin !== null) {
-        if (!argv.slice(k + 1).some((a) => !a.startsWith("-"))) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1));
+        if (!argv.slice(k + 1).some((a) => !a.startsWith("-"))) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1, null, null, connectionAt(k)));
         else if (containsDynamic(ctx.stdin)) out.unresolved.push({ operation: "COMMAND", reason: "a script reads a here-document with values the text does not hold" });
         return out;
       }
@@ -2091,15 +2162,15 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
       if (words.length > 0) {
         substituted(k, "a remote command");
         // (the words are re-quoted: `psql -c "TRUNCATE env.sgu_well"` stays one -c value on the other host too)
-        merge(out, analyzeCommandAt(words.map(requote).join(" "), options, depth + 1, ctx.stdin, ctx.stdinFile));
-      } else if (ctx.stdin !== null) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1));
+        merge(out, analyzeCommandAt(words.map(requote).join(" "), options, depth + 1, ctx.stdin, ctx.stdinFile, connectionAt(k)));
+      } else if (ctx.stdin !== null) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1, null, null, connectionAt(k)));
       else if (ctx.stdinFile !== null) out.unresolved.push({ operation: "COMMAND", reason: "a remote shell reads its script from a file the text does not hold" });
       return out;
     }
     const tool = toolOf(argv[k]!);
     if (tool) {
       substituted(k, tool.toLowerCase());
-      nonLiteral(tool, argv[k]!, argv.slice(k + 1));
+      nonLiteral(tool, argv[k]!, argv.slice(k + 1), connectionAt(k));
       merge(out, analyzeTool(tool, argv.slice(k + 1), ctx, options, depth));
       return out;
     }
@@ -2135,16 +2206,16 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
   const flagSet = new Set(argv.map((a) => asciiLower(a.trim())));
   const ogrSpec = classificationSpec().ogr2ogr;
   if (ogrSpec.layer_name_flags.some((f) => flagSet.has(f)) || ogrSpec.sql_flags.some((f) => flagSet.has(f)) || argv.some(isPgDatasource)) {
-    nonLiteral("OGR2OGR", argv[0] ?? "", argv.slice(1));
+    nonLiteral("OGR2OGR", argv[0] ?? "", argv.slice(1), ctx.connection);
     merge(out, analyzeOgr2ogrArgs(argv.slice(1), options));
     return out;
   }
   // Arguments that are themselves command lines (a wrapper this table does not know).
-  for (const a of argv) {
+  argv.forEach((a, n) => {
     if (/\s/.test(a) && Object.keys(classificationSpec().commands.tools).some((name) => asciiLower(a).includes(name))) {
-      merge(out, analyzeCommandAt(a, options, depth + 1));
+      merge(out, analyzeCommandAt(a, options, depth + 1, null, null, connectionAt(n)));
     }
-  }
+  });
   return out;
 }
 
@@ -2152,9 +2223,19 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
  * `inheritedStdin` (U30F9, G8-5): the stdin a remote shell (ssh) hands its remote command -- the first segment of the first
  * pipeline reads it when the command names no stdin of its own.
  */
-function analyzeCommandAt(command: string, options: ClassifierOptions, depth: number, inheritedStdin: string | null = null, inheritedStdinFile: string | null = null): WriteAnalysis {
+function analyzeCommandAt(
+  command: string,
+  options: ClassifierOptions,
+  depth: number,
+  inheritedStdin: string | null = null,
+  inheritedStdinFile: string | null = null,
+  inheritedConnection = false,
+): WriteAnalysis {
   const out = emptyAnalysis();
   let first = true;
+  // U30G814 (G8-14): a connection chosen by a value the text does not hold -- inherited, or set by an assignment statement
+  // earlier in the text (`export PGHOST="$H"; psql ...`, PowerShell `$env:PGDATABASE = $db; psql ...`) -- holds for the rest
+  let connection = inheritedConnection;
   for (const pipeline of splitCommandLine(command)) {
     const tools = pipeline.map((seg) => {
       for (const a of seg.argv) {
@@ -2172,7 +2253,8 @@ function analyzeCommandAt(command: string, options: ClassifierOptions, depth: nu
       const inherits = first && n === 0 && seg.stdin === null && seg.stdinFile === null;
       const stdin = inherits ? inheritedStdin : seg.stdin;
       const stdinFile = inherits ? inheritedStdinFile : seg.stdinFile;
-      merge(out, analyzeArgvAt(seg.argv, { stdin, stdinFile, pipedFromTool: n > 0 ? tools[n - 1]! : null, pipesToTool: tools[n + 1] ?? null }, options, depth));
+      merge(out, analyzeArgvAt(seg.argv, { stdin, stdinFile, pipedFromTool: n > 0 ? tools[n - 1]! : null, pipesToTool: tools[n + 1] ?? null, connection }, options, depth));
+      if (setsDynamicConnection(seg.argv)) connection = true;
     });
     first = false;
   }
@@ -2186,7 +2268,7 @@ export function analyzeCommandLine(command: string, options: ClassifierOptions =
 
 /** What an argument vector (argv[0] = the program) writes. */
 export function analyzeCommandArgv(argv: readonly string[], options: ClassifierOptions = {}): WriteAnalysis {
-  return analyzeArgvAt(argv, { stdin: null, stdinFile: null, pipedFromTool: null, pipesToTool: null }, options, 0);
+  return analyzeArgvAt(argv, { stdin: null, stdinFile: null, pipedFromTool: null, pipesToTool: null, connection: false }, options, 0);
 }
 
 // =============================================================================================

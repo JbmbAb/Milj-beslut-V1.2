@@ -109,6 +109,15 @@ export interface ProtectedRelationClassificationSpec {
      * writes nothing).
      */
     readonly non_literal_exempt_tools_unless_piped_to: Readonly<Record<string, string>>;
+    /**
+     * U30G814 (G8-14, owner decision Round 23): environment variables that choose the connection -- the server, the
+     * database, the role, the service or session definition, the TLS trust and identity (DATABASE_URL, PGHOST, PGDATABASE,
+     * PGSERVICE, PGSSLROOTCERT, ...). Assigned a value the text does not hold before a DB-capable tool (an env prefix, or an
+     * earlier assignment statement of the same text), the tool is NON_LITERAL. A credential alone (PGPASSWORD) is not one.
+     */
+    readonly connection_env_variables: readonly string[];
+    /** U30G814 (G8-14): words that make a segment an assignment statement (export, declare, typeset, local, readonly, cmd set). */
+    readonly env_assignment_words: readonly string[];
     readonly psql: { readonly command_flags: readonly string[]; readonly file_flags: readonly string[]; readonly value_flags: readonly string[] };
     /** U30F9: ogrinfo writes only through -sql, and never in read-only mode (-ro). */
     readonly ogrinfo: { readonly sql_flags: readonly string[]; readonly read_only_flags: readonly string[] };
@@ -200,6 +209,9 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   stringList((commands.prisma as Record<string, unknown> | undefined)?.database_subcommands, "commands.prisma.database_subcommands");
   const exempt = commands.non_literal_exempt_tools_unless_piped_to as Record<string, unknown> | undefined;
   if (!exempt || typeof exempt !== "object" || Object.values(exempt).some((v) => typeof v !== "string" || v.length === 0)) throw invalid("commands.non_literal_exempt_tools_unless_piped_to");
+  // U30G814 (G8-14): the connection vocabulary is required -- a missing list would read as "no connection is ever chosen"
+  stringList(commands.connection_env_variables, "commands.connection_env_variables");
+  stringList(commands.env_assignment_words, "commands.env_assignment_words");
   stringList(doc.schema_operations, "schema_operations");
   return Object.freeze({ ...(doc as object), relation_naming: Object.freeze({ current, legacy: Object.freeze(legacy), max_identifier_bytes: 63 }) }) as ProtectedRelationClassificationSpec;
 }

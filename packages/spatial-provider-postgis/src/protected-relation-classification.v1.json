@@ -112,6 +112,12 @@
     "remote_shells": { "ssh": { "value_flags": ["-b", "-B", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-P", "-Q", "-R", "-S", "-W", "-w"] } },
     "unread_code_runners": ["ruby", "perl", "php"],
     "non_literal_exempt_tools_unless_piped_to": { "PG_DUMP": "PSQL" },
+    "connection_env_variables": [
+      "DATABASE_URL", "PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER", "PGSERVICE", "PGSERVICEFILE", "PGSYSCONFDIR", "PGPASSFILE",
+      "PGOPTIONS", "PGTARGETSESSIONATTRS", "PGLOADBALANCEHOSTS", "PGSSLMODE", "PGSSLCERT", "PGSSLKEY", "PGSSLROOTCERT", "PGSSLCERTMODE",
+      "PGSSLCRL", "PGSSLCRLDIR", "PGSSLSNI"
+    ],
+    "env_assignment_words": ["export", "declare", "typeset", "local", "readonly", "set"],
     "psql": {
       "command_flags": ["-c", "--command"],
       "file_flags": ["-f", "--file"],

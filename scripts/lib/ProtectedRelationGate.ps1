@@ -118,6 +118,11 @@ function Get-ProtectedClassificationSpec {
         if ($p.Value -isnot [string] -or $p.Value.Length -eq 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.non_literal_exempt_tools_unless_piped_to' }
         $exempt[$p.Name] = [string]$p.Value
     }
+    # U30G814 (G8-14): the connection vocabulary is required -- a missing list would read as "no connection is ever chosen"
+    foreach ($k in @('connection_env_variables', 'env_assignment_words')) {
+        $v = @($doc.commands.$k)
+        if ($null -eq $doc.commands.$k -or $v.Count -eq 0 -or @($v | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw "PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.$k" }
+    }
     $codeRunners = [System.Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
     foreach ($p in $doc.commands.code_runners.PSObject.Properties) { $codeRunners[$p.Name] = [string[]]@($p.Value) }
     $tools = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
@@ -166,6 +171,8 @@ function Get-ProtectedClassificationSpec {
         RemoteShells = $remoteShells
         UnreadCodeRunners = [string[]]@($doc.commands.unread_code_runners)
         NonLiteralExempt = $exempt
+        ConnectionEnvVariables = [string[]]@($doc.commands.connection_env_variables)
+        EnvAssignmentWords = [string[]]@($doc.commands.env_assignment_words)
         OgrinfoReadOnlyFlags = [string[]]@($doc.commands.ogrinfo.read_only_flags)
         PrismaDatabaseSubcommands = [string[]]@($doc.commands.prisma.database_subcommands)
         OgrFormatFlags = [string[]]@($doc.ogr2ogr.format_flags)
@@ -1728,6 +1735,76 @@ function PrgWriteCapable([string]$tool, [string[]]$rest, $ctx) {
     return $true
 }
 
+# U30G814 (G8-14): the environment assignment at argv[i] -- NAME=value (an sh env prefix; an argument of env, sudo, cross-env,
+# docker -e; a bare, export, declare or cmd set statement) or PowerShell $env:NAME=value / $env:NAME = value (the placeholder of
+# $env:NAME carries NAME as its hint; the rest of the statement is the value) -- or $null
+function PrgEnvAssignmentAt([string[]]$argv, [int]$i) {
+    if ($i -lt 0 -or $i -ge $argv.Count) { return $null }
+    $t = $argv[$i]
+    if ($t -cmatch '^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)\z') { return [pscustomobject]@{ Name = $Matches[1]; Value = $Matches[2]; Next = $i + 1 } }
+    $spec = Get-ProtectedClassificationSpec
+    if (-not $t.StartsWith("$($spec.Open):", [StringComparison]::Ordinal)) { return $null }
+    $end = PrgIndexOf $t $spec.Close 0
+    if ($end -lt 0) { return $null }
+    $name = PrgSlice $t ($spec.Open.Length + 1) $end
+    if (-not ($name -cmatch '^[A-Za-z_][A-Za-z0-9_]*\z')) { return $null }
+    $after = $t.Substring($end + $spec.Close.Length)
+    if ($after.StartsWith('=', [StringComparison]::Ordinal)) {
+        $value = $after.Substring(1)
+        if ($value.Length -gt 0) { return [pscustomobject]@{ Name = $name; Value = $value; Next = $i + 1 } }
+        $rest = [System.Collections.Generic.List[string]]::new()
+        for ($n = $i + 1; $n -lt $argv.Count; $n++) { $rest.Add($argv[$n]) }
+        return [pscustomobject]@{ Name = $name; Value = ($rest -join ' '); Next = $argv.Count }
+    }
+    if ($after.Length -eq 0 -and $i + 1 -lt $argv.Count -and $argv[$i + 1].StartsWith('=', [StringComparison]::Ordinal)) {
+        $rest = [System.Collections.Generic.List[string]]::new()
+        $rest.Add($argv[$i + 1].Substring(1))
+        for ($n = $i + 2; $n -lt $argv.Count; $n++) { $rest.Add($argv[$n]) }
+        return [pscustomobject]@{ Name = $name; Value = ($rest -join ' '); Next = $argv.Count }
+    }
+    return $null
+}
+
+# U30G814 (G8-14): the assignment chooses the connection (case-insensitive: Windows reads its environment so) with a value the
+# text does not hold
+function PrgDynamicConnection($a) {
+    if ($null -eq $a -or -not (PrgContainsDynamic $a.Value)) { return $false }
+    $lname = PrgLower $a.Name
+    foreach ($v in (Get-ProtectedClassificationSpec).ConnectionEnvVariables) { if ((PrgLower $v) -ceq $lname) { return $true } }
+    return $false
+}
+
+# U30G814 (G8-14): an env prefix of argv[k] -- an assignment among argv[0..k-1] -- chooses the connection dynamically
+function PrgDynamicConnectionPrefix([string[]]$argv, [int]$k) {
+    $last = [Math]::Min($k, $argv.Count) - 1
+    $before = [string[]]@()
+    if ($last -ge 0) { $before = [string[]]@($argv[0..$last]) }
+    for ($n = 0; $n -lt $before.Count; $n++) { if (PrgDynamicConnection (PrgEnvAssignmentAt $before $n)) { return $true } }
+    return $false
+}
+
+# U30G814 (G8-14): the segment runs no program and only assigns (after { / ( and an assignment word: export, declare -x, cmd
+# set ...), and one assignment chooses the connection dynamically: every later command of the text runs with it
+function PrgSetsDynamicConnection([string[]]$argv) {
+    $words = (Get-ProtectedClassificationSpec).EnvAssignmentWords
+    $i = 0
+    while ($i -lt $argv.Count -and ($argv[$i] -ceq '{' -or $argv[$i] -ceq '(')) { $i++ }
+    if ($i -lt $argv.Count -and ($words -ccontains (PrgLower $argv[$i]))) {
+        $i++
+        while ($i -lt $argv.Count -and $argv[$i].StartsWith('-', [StringComparison]::Ordinal)) { $i++ }
+    }
+    $found = $false
+    $assigned = $false
+    while ($i -lt $argv.Count) {
+        $a = PrgEnvAssignmentAt $argv $i
+        if ($null -eq $a) { return $false }
+        $assigned = $true
+        if (PrgDynamicConnection $a) { $found = $true }
+        $i = $a.Next
+    }
+    return ($assigned -and $found)
+}
+
 function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
     $spec = Get-ProtectedClassificationSpec
     $acc = [PrgAcc]::new()
@@ -1738,14 +1815,17 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
     # U30F9 default-deny (owner decision 2026-10-03): a DB-capable tool run with ANY value the text does not hold -- the program,
     # an argument, stdin or the stdin file -- is NON_LITERAL, whatever the other arguments say
     $nonLiteral = {
-        param([string]$tool, [string]$program, [string[]]$rest)
+        param([string]$tool, [string]$program, [string[]]$rest, [bool]$connection)
         if (-not (PrgWriteCapable $tool $rest $ctx)) { return }
         $dyn = PrgContainsDynamic $program
         foreach ($a in $rest) { if (PrgContainsDynamic $a) { $dyn = $true } }
         if ($null -ne $ctx.stdin -and (PrgContainsDynamic $ctx.stdin)) { $dyn = $true }
         if ($null -ne $ctx.stdinFile -and (PrgContainsDynamic $ctx.stdinFile)) { $dyn = $true }
         if ($dyn) { $acc.Unres('NON_LITERAL', "$(PrgLower $tool) runs with a value the text does not hold (default-deny: a non-literal program, argument, stdin or stdin file)") }
+        elseif ($connection) { $acc.Unres('NON_LITERAL', "$(PrgLower $tool) connects where an environment assignment the text does not hold points it (G8-14: a connection variable before the tool)") }
     }
+    # U30G814 (G8-14): what argv[k] inherits -- the connection of the text so far, or an env prefix of its own
+    $connectionAt = { param([int]$k) return ([bool]$ctx.connection -or (PrgDynamicConnectionPrefix $argv $k)) }
     for ($k = 0; $k -lt $argv.Count; $k++) {
         $wrapper = PrgWrapper $argv[$k]
         if ($null -ne $wrapper) {
@@ -1753,7 +1833,7 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             for ($n = $k + 1; $n -lt $argv.Count; $n++) { if ($wrapper.Flags -ccontains (PrgLower $argv[$n])) { $at = $n; break } }
             if ($at -ge 0 -and $at + 1 -lt $argv.Count) {
                 $command = if ($wrapper.RestOfLine) { (@($argv[($at + 1)..($argv.Count - 1)] | ForEach-Object { PrgRequote $_ })) -join ' ' } else { $argv[$at + 1] }
-                $sub = PrgAnalyzeCommandAt $command $readSqlFile ($depth + 1)
+                $sub = PrgAnalyzeCommandAt $command $readSqlFile ($depth + 1) $null $null (& $connectionAt $k)
                 # U30F6 (F5-1): a shell running a command whose program is a value runs what the text does not hold
                 $dynProgram = $false
                 foreach ($pipeline in (Split-ProtectedCommandLine $command)) { foreach ($seg in $pipeline) { if ($seg.argv.Count -gt 0 -and $null -ne (PrgDynamicHint $seg.argv[0])) { $dynProgram = $true } } }
@@ -1766,7 +1846,7 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             if ($null -ne $ctx.stdin) {
                 $script = $false
                 for ($n = $k + 1; $n -lt $argv.Count; $n++) { if (-not $argv[$n].StartsWith('-', [StringComparison]::Ordinal)) { $script = $true } }
-                if (-not $script) { $acc.Merge((PrgAnalyzeCommandAt $ctx.stdin $readSqlFile ($depth + 1))) }
+                if (-not $script) { $acc.Merge((PrgAnalyzeCommandAt $ctx.stdin $readSqlFile ($depth + 1) $null $null (& $connectionAt $k))) }
                 elseif (PrgContainsDynamic $ctx.stdin) { $acc.Unres('COMMAND', 'a script reads a here-document with values the text does not hold') }
                 return $acc
             }
@@ -1786,18 +1866,18 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             $words = if ($n + 1 -lt $argv.Count) { [string[]]$argv[($n + 1)..($argv.Count - 1)] } else { [string[]]@() }
             if ($words.Count -gt 0) {
                 # (the words are re-quoted: psql -c "TRUNCATE env.sgu_well" stays one -c value on the other host too)
-                $sub = PrgAnalyzeCommandAt ((@($words | ForEach-Object { PrgRequote $_ })) -join ' ') $readSqlFile ($depth + 1) $ctx.stdin $ctx.stdinFile
+                $sub = PrgAnalyzeCommandAt ((@($words | ForEach-Object { PrgRequote $_ })) -join ' ') $readSqlFile ($depth + 1) $ctx.stdin $ctx.stdinFile (& $connectionAt $k)
                 if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $sub.Unres('COMMAND', "a remote command run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
                 $acc.Merge($sub)
             }
-            elseif ($null -ne $ctx.stdin) { $acc.Merge((PrgAnalyzeCommandAt $ctx.stdin $readSqlFile ($depth + 1))) }
+            elseif ($null -ne $ctx.stdin) { $acc.Merge((PrgAnalyzeCommandAt $ctx.stdin $readSqlFile ($depth + 1) $null $null (& $connectionAt $k))) }
             elseif ($null -ne $ctx.stdinFile) { $acc.Unres('COMMAND', 'a remote shell reads its script from a file the text does not hold') }
             return $acc
         }
         $tool = PrgToolOf $argv[$k]
         if ($null -ne $tool) {
             $rest = if ($k + 1 -lt $argv.Count) { [string[]]$argv[($k + 1)..($argv.Count - 1)] } else { [string[]]@() }
-            & $nonLiteral $tool $argv[$k] $rest
+            & $nonLiteral $tool $argv[$k] $rest (& $connectionAt $k)
             $res = PrgAnalyzeTool $tool $rest $ctx $readSqlFile $depth
             if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $res.Unres('COMMAND', "$(PrgLower $tool) run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
             $acc.Merge($res)
@@ -1846,16 +1926,17 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
     foreach ($a in $argv) { if (PrgIsPgDatasource $a) { $ogrEvidence = $true } }
     if ($ogrEvidence) {
         $rest = if ($argv.Count -gt 1) { [string[]]$argv[1..($argv.Count - 1)] } else { [string[]]@() }
-        & $nonLiteral 'OGR2OGR' $(if ($argv.Count -gt 0) { $argv[0] } else { '' }) $rest
+        & $nonLiteral 'OGR2OGR' $(if ($argv.Count -gt 0) { $argv[0] } else { '' }) $rest ([bool]$ctx.connection)
         $acc.Merge((PrgAnalyzeOgr2ogr $rest)[0])
         return $acc
     }
-    foreach ($a in $argv) {
+    for ($an = 0; $an -lt $argv.Count; $an++) {
+        $a = $argv[$an]
         if ($a -match '\s') {
             $lower = PrgLower $a
             $mentions = $false
             foreach ($name in $spec.Tools.Keys) { if ($lower.Contains($name)) { $mentions = $true } }
-            if ($mentions) { $acc.Merge((PrgAnalyzeCommandAt $a $readSqlFile ($depth + 1))) }
+            if ($mentions) { $acc.Merge((PrgAnalyzeCommandAt $a $readSqlFile ($depth + 1) $null $null (& $connectionAt $an))) }
         }
     }
     return $acc
@@ -1863,9 +1944,12 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
 
 # $inheritedStdin / $inheritedStdinFile (U30F9, G8-5): what a remote shell (ssh) hands its remote command -- the first segment of
 # the first pipeline reads them when the command names no stdin of its own
-function PrgAnalyzeCommandAt([string]$command, $readSqlFile, [int]$depth, $inheritedStdin = $null, $inheritedStdinFile = $null) {
+function PrgAnalyzeCommandAt([string]$command, $readSqlFile, [int]$depth, $inheritedStdin = $null, $inheritedStdinFile = $null, $inheritedConnection = $false) {
     $acc = [PrgAcc]::new()
     $first = $true
+    # U30G814 (G8-14): a connection chosen by a value the text does not hold -- inherited, or set by an assignment statement earlier
+    # in the text (export PGHOST="$H"; psql ..., PowerShell $env:PGDATABASE = $db; psql ...) -- holds for the rest
+    $connection = [bool]$inheritedConnection
     foreach ($pipeline in (Split-ProtectedCommandLine $command)) {
         $tools = [System.Collections.Generic.List[object]]::new()
         foreach ($seg in $pipeline) {
@@ -1883,8 +1967,9 @@ function PrgAnalyzeCommandAt([string]$command, $readSqlFile, [int]$depth, $inher
             $inherits = ($first -and $n -eq 0 -and $null -eq $seg.stdin -and $null -eq $seg.stdinFile)
             $stdin = if ($inherits) { $inheritedStdin } else { $seg.stdin }
             $stdinFile = if ($inherits) { $inheritedStdinFile } else { $seg.stdinFile }
-            $ctx = [pscustomobject]@{ stdin = $stdin; stdinFile = $stdinFile; pipedFrom = $(if ($n -gt 0) { $tools[$n - 1] } else { $null }); pipesTo = $(if ($n + 1 -lt $tools.Count) { $tools[$n + 1] } else { $null }) }
+            $ctx = [pscustomobject]@{ stdin = $stdin; stdinFile = $stdinFile; pipedFrom = $(if ($n -gt 0) { $tools[$n - 1] } else { $null }); pipesTo = $(if ($n + 1 -lt $tools.Count) { $tools[$n + 1] } else { $null }); connection = $connection }
             $acc.Merge((PrgAnalyzeArgvAt ([string[]]$seg.argv) $ctx $readSqlFile $depth))
+            if (PrgSetsDynamicConnection ([string[]]$seg.argv)) { $connection = $true }
         }
         $first = $false
     }
@@ -1892,7 +1977,7 @@ function PrgAnalyzeCommandAt([string]$command, $readSqlFile, [int]$depth, $inher
 }
 
 function PrgAnalyzeArgv([string[]]$argv, $readSqlFile) {
-    return (PrgAnalyzeArgvAt $argv ([pscustomobject]@{ stdin = $null; stdinFile = $null; pipedFrom = $null; pipesTo = $null }) $readSqlFile 0)
+    return (PrgAnalyzeArgvAt $argv ([pscustomobject]@{ stdin = $null; stdinFile = $null; pipedFrom = $null; pipesTo = $null; connection = $false }) $readSqlFile 0)
 }
 
 # ---------------------------------------------------------------------------------------------------------------
