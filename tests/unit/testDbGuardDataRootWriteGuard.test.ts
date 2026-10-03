@@ -1212,6 +1212,20 @@ describe('TDG-6: every path type reaches the same decision -- string, Buffer, Ui
     expect(listing(tree)).toEqual(before);
   });
 
+  it('a byte path that is not UTF-8 is undecidable: refused even outside every root', async () => {
+    const outsideDir = fs.mkdtempSync(path.join(area, 'outside-bytes-'));
+    const bytes = Buffer.concat([Buffer.from(path.join(outsideDir, 'bad-')), Buffer.from([0xff, 0xfe]), Buffer.from('.txt')]);
+    let error: unknown = null;
+    try {
+      fs.writeFileSync(bytes, 'x');
+    } catch (caught) {
+      error = caught;
+    }
+    expect(codeOf(error)).toBe(REFUSED);
+    expect(String((error as { undecidable?: unknown })?.undecidable ?? '')).not.toBe('');
+    expect(fs.readdirSync(outsideDir)).toEqual([]);
+  });
+
   it('a URL-like object whose href and hostname/pathname name different paths is refused (both ways); one whose getters change is judged once and written as judged', async () => {
     const tree = path.join(area, 'tree-urllike');
     const outside = path.join(area, 'outside-urllike');
@@ -1320,6 +1334,25 @@ describe('TDG-6: a link to an ANCESTOR of a root may exist, but no copy writes t
     expect(fs.existsSync(path.join(outside, 'sub', 'ok.txt'))).toBe(true);
   });
 
+  it('the link deeper in the destination (outside/sub/j-tree): the copy is judged at every level it descends, nothing lands', async () => {
+    const tree = path.join(area, 'tree-deep');
+    const outside = path.join(area, 'outside-deep');
+    const bundle = path.join(area, 'bundle-deep');
+    makeFakeProductTree(tree);
+    fs.mkdirSync(path.join(outside, 'sub'), { recursive: true });
+    fs.mkdirSync(path.join(bundle, 'sub', 'j-tree', 'storage', 'keep'), { recursive: true });
+    fs.writeFileSync(path.join(bundle, 'sub', 'j-tree', 'storage', 'keep', 'deep.pem'), 'planted');
+    const link = path.join(outside, 'sub', 'j-tree');
+    linkPathsToRemove.push(link);
+    fs.symlinkSync(tree, link, isWin ? 'junction' : 'dir');
+    const before = listing(tree);
+    vi.spyOn(process, 'cwd').mockReturnValue(tree);
+    const outcome = await outcomeOf(() => fsCall('sync', 'cp', bundle, outside, { recursive: true }));
+    vi.restoreAllMocks();
+    expect(outcome).toBe(REFUSED);
+    expect(listing(tree)).toEqual(before);
+  });
+
   it('decided: a recursive copy is refused for the destination path of every entry it would write, a link target that is the tree root is not', async () => {
     const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
     const tree = path.join(area, 'tree-decide');
@@ -1425,6 +1458,34 @@ describe('TDG-6: the real path is fail-closed and compared in its long form (fin
         testFile: null,
       }),
     ).toBeNull();
+  });
+
+  it.runIf(isWin)(
+    'a lookup error other than "not there" (an unreachable share: UNKNOWN) is undecidable, so refused',
+    async () => {
+      const { testDataRootWriteRefusal } = await import(GUARD_MODULE);
+      const refusal = testDataRootWriteRefusal('fs.writeFileSync', 'write', '\\\\wtdg6-nohost.invalid\\share\\x.txt', {
+        trees: [fakeTree],
+        testFile: null,
+      });
+      expect(String(refusal?.undecidable ?? '')).not.toBe('');
+    },
+  );
+
+  it('an exception still applies when its owner writes its file through a junction to the tree (the exception is compared by its real path too)', async () => {
+    const tree = path.join(area, 'tree-exception-alias');
+    makeFakeProductTree(tree);
+    const alias = path.join(area, 'alias-exception');
+    linkPathsToRemove.push(alias);
+    fs.symlinkSync(tree, alias, isWin ? 'junction' : 'dir');
+    const { testDataRootWriteRefusal, TEST_DATA_ROOT_WRITE_EXCEPTIONS } = await import(GUARD_MODULE);
+    const exception = (TEST_DATA_ROOT_WRITE_EXCEPTIONS as Array<{ path: string; testFile: string }>)[0];
+    const opts = { cwd: alias, trees: [alias], testFile: path.join(alias, exception.testFile) };
+    expect(testDataRootWriteRefusal('fs.writeFileSync', 'write', path.join(alias, exception.path), opts)).toBeNull();
+    // and nothing beside it
+    expect(
+      testDataRootWriteRefusal('fs.writeFileSync', 'write', path.join(alias, `${exception.path}.other`), opts),
+    ).not.toBeNull();
   });
 
   it.runIf(isWin)('a volume that does not exist is no target: nothing can land there, it is not refused', async () => {
