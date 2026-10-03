@@ -58,7 +58,13 @@ ENV NODE_ENV=production \
 # --chown i stället för chown -R: en rekursiv chown kopierar hela node_modules
 # till ett nytt lager.
 RUN chown appuser:appgroup /app
-COPY --from=builder --chown=appuser:appgroup /app/package.json /app/package-lock.json /app/tsconfig.json ./
+# package-lock.json tas från byggkontexten (git archive <SHA>: commitens bytes),
+# inte från byggsteget: npm prune --omit=dev skriver om låsfilen (omit-beroenden
+# skrivs tillbaka med andra flaggor), och release-identiteten
+# (ProductReleaseAuthority: package.json, package-lock.json, server/index.ts)
+# mäts över filerna i imagen. package.json och tsconfig.json rörs inte av bygget.
+COPY --chown=appuser:appgroup package-lock.json ./
+COPY --from=builder --chown=appuser:appgroup /app/package.json /app/tsconfig.json ./
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=builder --chown=appuser:appgroup /app/packages ./packages
 COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
