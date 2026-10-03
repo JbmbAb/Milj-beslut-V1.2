@@ -755,6 +755,10 @@ function pinnedEvidenceUnreadableRefusal(statement: GovernedOverallStatement, pa
  * W-U20CDF5 (U20CDF4 verification M1): a pre-check that could not read every pinned evidence never lets
  * either path go on -- a visible break is the 424 (assessGovernedCoverage puts it first), otherwise the
  * typed PinnedEvidenceUnreadableRefusal.
+ * W-U20CDF5-R2 (U20CDF5 verification M1-rest, probe R1): nor does a pre-check whose read content failed its own
+ * identity (a corrupt or truncated read) skip that classification on verify. H15 DENYs a LASTING tampering, but
+ * after a TRANSIENT one it reads the evidence intact and would replay the record: so a break visible without that
+ * content (an unknown severity, a malformed entry, ...) is the 424 first; only a record without one is left to H15.
  */
 async function currentRecordIntegrityRefusal(
   assessment: LocalizationAssessmentArtifact,
@@ -762,9 +766,7 @@ async function currentRecordIntegrityRefusal(
   path: 'verify' | 'map',
 ): Promise<GovernedRecordIntegrityFailure | GovernedEvidenceIntegrityFailure | PinnedEvidenceUnreadableRefusal | null> {
   const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
-  if (details.integrity.ok === false) {
-    return path === 'map' ? governedEvidenceIntegrityFailure(details.integrity) : null;
-  }
+  if (details.integrity.ok === false && path === 'map') return governedEvidenceIntegrityFailure(details.integrity);
   const statement = governedOverallStatement(
     governedVerdictFromFindings(assessment.payload.findings).overallRisk,
     details.governedLayerChecks,
@@ -773,6 +775,8 @@ async function currentRecordIntegrityRefusal(
   if (statement.coverage_state === 'RECORD_INTEGRITY_ERROR') {
     return recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings);
   }
+  // Verify only: content that failed its own identity, and no break visible without it -- H15 decides (DENY).
+  if (details.integrity.ok === false) return null;
   if (statement.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') return pinnedEvidenceUnreadableRefusal(statement, path);
   return null;
 }
