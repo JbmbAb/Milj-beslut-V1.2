@@ -24,7 +24,9 @@ describe('DEMO M2b presentLuError', () => {
     [httpError(424, 'REJECT_LOCALIZATION_PRESENTATION: assessment canonical_body_hash'), 'viewer-evidence', 'INTEGRITY', 'Kontrollunderlaget klarade inte integritetskontrollen'],
     [httpError(404, 'Governed viewer capability is not configured for this project.'), 'viewer-evidence', 'TECHNICAL', 'Kartvisningen för projektet är inte förberedd ännu'],
     [httpError(403, 'Not authorized for this project.'), 'verify', 'UNAUTHORIZED', 'Du saknar behörighet till det här projektet.'],
-    [httpError(401, 'Unauthorized'), 'export', 'UNAUTHORIZED', 'Sessionen har gått ut'],
+    // W-UI1-R2 (M2e verification finding 5): "expired" only where the server says so -- 'Unauthorized' is no such text.
+    [httpError(401, 'Unauthorized'), 'export', 'UNAUTHORIZED', 'Inloggningen kunde inte bekräftas – logga in igen.'],
+    [httpError(401, 'Token expired'), 'export', 'UNAUTHORIZED', 'Sessionen har gått ut – logga in igen.'],
     [httpError(500, 'Cannot read properties of undefined'), 'run', 'TECHNICAL', 'Bedömningen kunde inte köras. Ett tekniskt fel uppstod på servern.'],
     // W-M2e item 1-2 (M2d verification finding 1): a 424 without a code of its own names no cause --
     // this one is a contract-version failure, which the old text called an identity mismatch.

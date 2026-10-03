@@ -23,6 +23,8 @@ const getActiveProjectId = vi.fn(() => 'proj-1');
 // The exact string all 3 of resolveCurrentLuAssessmentSummary's 404 branches share -- this is
 // what the component matches on to distinguish "no persisted assessment yet" from a genuine error.
 const NO_CURRENT_ASSESSMENT_MESSAGE = 'No current governed LU assessment is available for this project.';
+/** W-UI1-R2 (finding 6): a property root the server sends for a record without a fault (RESOLVED, its known assurance). */
+const SOUND_ROOT = { status: 'RESOLVED', assurance: 'UNBOUND_METADATA', technical_error_class: null, message_sv: 'Rotens datasetbindning saknas (lägre säkerhet).' };
 
 // DEMO M2c: each layer's real dataset version (= source_sha256 in LAYER-ID-CONTRACTS-V1.md), as the
 // captured live payload carries it.
@@ -343,7 +345,8 @@ describe('LuWorkspace', () => {
     callApi.mockImplementation((url: string) => {
       if (url.includes('/current-assessment')) {
         return ran
-          ? Promise.resolve({ ok: true, assessmentArtifactId: 'assess-export-abc', findings: [], evidenceRefs: [], systemSummary: 's' })
+          ? // W-UI1-R2 (finding 6): the read-back carries its property root, as the server's always does.
+            Promise.resolve({ ok: true, assessmentArtifactId: 'assess-export-abc', findings: [], evidenceRefs: [], systemSummary: 's', propertyRoot: SOUND_ROOT })
           : Promise.reject(new Error(NO_CURRENT_ASSESSMENT_MESSAGE));
       }
       if (url.includes('/viewer/evidence')) return Promise.resolve(viewerEvidence([]));
@@ -683,6 +686,8 @@ describe('LuWorkspace', () => {
           assessmentArtifactId: 'assess-restored-verify',
           findings: [{ finding_id: 'LU-WATER-001', rule_id: 'LU-WATER-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'Restored finding' }],
           systemSummary: 'restored summary',
+          // W-UI1-R2 (finding 6): the read-back carries its property root, as the server's always does.
+          propertyRoot: SOUND_ROOT,
         });
       }
       if (url.includes('/geometry')) {
@@ -893,7 +898,8 @@ describe('LuWorkspace', () => {
     expect(screen.getByTestId('lu-check-detail-Metod')).toHaveTextContent('Förekomst inom sökradie');
     expect(screen.getByTestId('lu-check-detail-Källa')).toHaveTextContent('Länsstyrelsen – Potentiellt förorenade områden (EBH)');
     expect(screen.getByTestId('lu-check-detail-Källversion')).toHaveTextContent('2026-07-23');
-    expect(screen.getByTestId('lu-check-detail-Integritet')).toHaveTextContent('Innehållet stämmer med evidensens innehållshash');
+    // W-UI1-R2 (finding 8): "innehållskontroll", the server's word -- no "hash" in a visible row.
+    expect(screen.getByTestId('lu-check-detail-Integritet')).toHaveTextContent('Innehållet stämmer med evidensens innehållskontroll');
     // retrieved_at is now in the read-back (U20-D): it is shown, never "not sent".
     expect(screen.getByTestId('lu-check-detail-Hämtad')).not.toHaveTextContent(/Skickas inte med|Saknas i underlaget/);
     expect(screen.getByTestId('lu-check-technical')).toHaveTextContent('02fccffc07abaaf1775c8333d660fa60fdecea0c3bb664335892764c8486d186');
@@ -1971,7 +1977,7 @@ describe('LuWorkspace W-M2d', () => {
         outcome: 'PASS',
         assessmentArtifactId: 'assessment-shown',
         mismatches: [],
-        notices: [{ code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-ebh'] }],
+        notices: [{ code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-natura2000', 'finding-notchecked-ebh'], detail: 'd' }],
         // W-UI1 (U30R6 K18): the contract's binding strength and the server-computed presentation.
         verification_binding: 'FULLY_BOUND',
         presentation: 'FULLY_BOUND_GREEN',

@@ -170,8 +170,10 @@ describe('W-UI1 B: bootstrap -- retry from the server\'s flag on bootstrap-statu
     expect(view.reasonSv).toContain(text);
     expect(view.reasonSv).not.toMatch(RAW_CODE);
     expect(view.retryable).toBe(retryable);
-    // The same code with the opposite flag follows the flag, not a client list.
-    expect(presentBootstrapFailure({ status: 'FAILED', failureCode, failureDetail: null, retryable: !retryable }).retryable).toBe(!retryable);
+    // The same code with the opposite flag follows the flag, not a client list -- W-UI1-R2 (UI1-VERIFICATION finding 4):
+    // except where the reason itself says lasting or refused: no button beside that text, whatever the flag says.
+    const lastingText = /bestående|underkändes/.test(view.reasonSv);
+    expect(presentBootstrapFailure({ status: 'FAILED', failureCode, failureDetail: null, retryable: !retryable }).retryable).toBe(!retryable && !lastingText);
   });
 
   it('a flag-less (older) status offers no retry; an unknown code claims no cause -- not even for a code that says NOT_FOUND', () => {

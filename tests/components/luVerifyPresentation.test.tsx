@@ -115,7 +115,8 @@ describe('W-UI1 A: presentLuVerifyResult -- green only for a well-formed FULLY_B
   });
 
   it('a notice the UI knows (NOT_CHECKED_CAUSE_NOT_PINNED) stays next to a green result, in plain Swedish', () => {
-    const v = presentLuVerifyResult(green({ notices: [{ code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-ebh'] }] }), SHOWN);
+    // W-UI1-R2 (finding 7): a well-formed NOT_CHECKED notice carries its detail, as the package's classifier requires.
+    const v = presentLuVerifyResult(green({ notices: [{ code: 'NOT_CHECKED_CAUSE_NOT_PINNED', finding_ids: ['finding-notchecked-ebh'], detail: 'd' }] }), SHOWN);
     expect(v.kind).toBe('FULLY_BOUND_GREEN');
     expect(v.lines).toEqual(['Orsaken till att lagret Potentiellt förorenade områden (EBH) inte kontrollerades sparades inte vid bedömningen och kan inte återskapas.']);
   });
@@ -217,7 +218,7 @@ describe('W-UI1 A: presentLuVerifyResult -- green only for a well-formed FULLY_B
       expect(v.headSv).toContain('ingen slutsats kan dras om dess äkthet');
       expect([v.headSv, ...v.lines].join(' ')).not.toMatch(/äkta|verifierad proveniens|aktuell/i);
       expect(v.scopeSv).toBeNull();
-      expect(v.technical).toContainEqual({ label: 'Fastighetsrot', value: 'tekniskt fel eller integritetsfel i den visade bedömningen' });
+      expect(v.technical).toContainEqual({ label: 'Fastighetsrot', value: 'tekniskt fel, integritetsfel eller okänt läge i den visade bedömningen' });
     }
     expect(presentLuVerifyResult(green(), SHOWN, { rootUnresolved: false }).kind).toBe('FULLY_BOUND_GREEN');
     expect(presentLuVerifyResult(green(), SHOWN).kind).toBe('FULLY_BOUND_GREEN');

@@ -217,12 +217,12 @@ describe('W-UI1 D (owner decision R3-1): a root the read-back marks as a technic
     expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   });
 
-  it('which roots count: a technical error (any class) or tampered; a resolved, unrecorded, missing or malformed root does not', () => {
+  it('which roots count: a technical error (any class) or tampered; W-UI1-R2 (finding 6): a missing or malformed root too -- only RESOLVED/UNBOUND_METADATA and NOT_RECORDED are resolved', () => {
     expect(isLuRootUnresolved({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR' })).toBe(true);
     expect(isLuRootUnresolved({ status: 'TECHNICAL_ERROR' })).toBe(true);
     expect(isLuRootUnresolved({ status: 'TAMPERED', technical_error_class: 'ROOT_PROVENANCE_TAMPERED' })).toBe(true);
     expect(isLuRootUnresolved({ status: 'RESOLVED', assurance: 'UNBOUND_METADATA' })).toBe(false);
     expect(isLuRootUnresolved({ status: 'NOT_RECORDED' })).toBe(false);
-    for (const raw of [undefined, null, 'TECHNICAL_ERROR', [], {}]) expect(isLuRootUnresolved(raw)).toBe(false);
+    for (const raw of [undefined, null, 'TECHNICAL_ERROR', [], {}]) expect(isLuRootUnresolved(raw)).toBe(true);
   });
 });

@@ -123,6 +123,9 @@ const OWN_TEXT: ReadonlyMap<string, string> = (() => {
 })();
 
 /** One water check row from a minimal read-back: `check` overrides the server's check, `detail` its evidence detail. */
+/** W-UI1-R2 (M2e verification finding 4): a "no hit" rests on its own sound evidence detail. */
+const SOUND_DETAIL = { integrity: 'CONTENT_HASH_VERIFIED', result: { exists: false, match_count_observed: 0 } };
+
 function waterRow(check: Record<string, unknown>, detail: Record<string, unknown> | null = null) {
   const rows = presentLuControlChecks({
     property: { lookedUp: false },
@@ -293,7 +296,7 @@ describe('W-M2e item 2: exhaustive inventory of server error codes against the L
       expect(presentLuOverallStatement({ statement_sv: 'x', coverage_state: state }).stateLabelSv, state).not.toBe('Okänt täckningstillstånd');
     }
     for (const state of LU_CHECK_COVERAGE_STATES) {
-      expect(waterRow({ status: state, coverage_state: state }).summary, state).toBe('serverns rad');
+      expect(waterRow({ status: state, coverage_state: state }, SOUND_DETAIL).summary, state).toBe('serverns rad');
     }
     const integrityOf = (integrity: string) => waterRow({}, { integrity }).details.find((row) => row.label === 'Integritet')!.value;
     for (const value of LU_EVIDENCE_INTEGRITY_TEXTS) expect(integrityOf(value), value).not.toBe(integrityOf(UNKNOWN));
@@ -319,8 +322,8 @@ describe('W-M2e item 2: exhaustive inventory of server error codes against the L
       if (isClass) expect(propertyChip(root), token).not.toBe(propertyChip({ status: 'TECHNICAL_ERROR', technical_error_class: UNKNOWN }));
     }
     for (const assurance of LU_BINDING_ASSURANCE_TEXTS) {
-      expect(waterRow({}, { binding_assurance: assurance }).datasetVersionUnknown, assurance).toBe(true);
-      expect(waterRow({}, { binding_assurance: UNKNOWN }).datasetVersionUnknown).toBe(false);
+      expect(waterRow({}, { ...SOUND_DETAIL, binding_assurance: assurance }).datasetVersionUnknown, assurance).toBe(true);
+      expect(waterRow({}, { ...SOUND_DETAIL, binding_assurance: UNKNOWN }).datasetVersionUnknown).toBe(false);
     }
     for (const code of LU_VERIFY_NOTICE_TEXTS) {
       expect(presentLuVerifyNotice({ code, finding_ids: [] }), code).not.toBe(LU_VERIFY_NOTICE_UNKNOWN_SV);
@@ -334,6 +337,8 @@ describe('W-M2e item 2: exhaustive inventory of server error codes against the L
       current_authority_verified: false,
       text_sv: presentLuVerifyNotice({ code: 'LEGACY_UNBOUND_FORM_CONSISTENCY_ONLY', finding_ids: [] }),
       finding_ids: [],
+      // W-UI1-R2 (finding 7): a well-formed notice carries its detail, as the package's classifier requires.
+      detail: 'd',
     });
     expect(verifyKind({ outcome: 'PASS', presentation: 'FULLY_BOUND_GREEN', verification_binding: 'FULLY_BOUND' })).toBe('FULLY_BOUND_GREEN');
     for (const basis of LU_VERIFY_BASIS_TEXTS) {
