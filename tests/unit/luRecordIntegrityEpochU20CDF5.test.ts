@@ -476,3 +476,14 @@ describe('W-U20CDF5 L2 (owner decision 2026-10-02): assessment_contract_version 
     expect((await PATHS.map()).status).toBe(200);
   });
 });
+
+describe('W-U20CDF5-R2 L1 (verifier probe C): a V3/V4 record without a findings field is a lasting contract refusal (424), never a retryable 503', () => {
+  it.each<Version>(['V3', 'V4'])('%s without findings field: read-back -> 424 ASSESSMENT_CONTRACT_REFUSED, not retryable (it was 503 ASSESSMENT_RESOLUTION_ERROR, retryable)', async (version) => {
+    await provisionRecord({ version, negatives: ALL, findings: 'ABSENT' });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_CONTRACT_REFUSED', failureClass: 'ASSESSMENT_CONTRACT_INVALID', retryable: false });
+    expect(res.body.reasonCode).toMatch(/^REJECT_LOCALIZATION_ASSESSMENT/);
+    expect(JSON.stringify(res.body)).not.toMatch(/TypeError|Cannot read|undefined/);
+  });
+});

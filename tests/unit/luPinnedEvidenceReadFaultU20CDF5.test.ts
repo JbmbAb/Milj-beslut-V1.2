@@ -136,12 +136,22 @@ class FaultyMemoryRepository {
   failFirstRead(id: string, error: () => unknown, times = 1): void {
     this.failures.set(id, { remaining: times, error });
   }
+  /** W-U20CDF5-R2: the next read of `id` returns this body (e.g. a truncated object), once. */
+  readonly servedOnce = new Map<string, unknown>();
+  serveFirstRead(id: string, body: unknown): void {
+    this.servedOnce.set(id, body);
+  }
   async resolve<T>(reference: ArtifactReference): Promise<T> {
     this.reads.push(reference.artifact_id);
     const failure = this.failures.get(reference.artifact_id);
     if (failure && failure.remaining > 0) {
       failure.remaining -= 1;
       throw failure.error();
+    }
+    if (this.servedOnce.has(reference.artifact_id)) {
+      const served = this.servedOnce.get(reference.artifact_id);
+      this.servedOnce.delete(reference.artifact_id);
+      return structuredClone(served) as T;
     }
     const value = this.values.get(reference.artifact_id);
     if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
@@ -455,5 +465,37 @@ describe('W-U20CDF5 M1 (mutation M1-DOCREFS): the read path itself knows the pin
     const statement = governedOverallStatement('LOW', details.governedLayerChecks, { findings: findings as never, pinnedEvidence: details.pinnedEvidence });
     expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
     expect(statement.coverage_basis).toEqual(['NOT_CHECKED_FINDING_WITH_EVIDENCE:document', `PINNED_EVIDENCE_UNREADABLE:${DE_REF.artifact_id}`]);
+  });
+});
+
+describe('W-U20CDF5-R2 M1-rest (verifier probe R1): a CORRUPT or TRUNCATED read in the verify pre-check never replays a record whose break is visible without that content', () => {
+  const corrupt = () => Object.assign(new Error('digest mismatch for C:\\cas\\objects\\ab'), { name: 'CASIntegrityError' });
+  const truncated = { artifact_id: WATER_EVIDENCE.artifact_id, artifact_type: 'SPATIAL_EVIDENCE' };
+
+  it.each(['corrupt', 'truncated'] as const)('%s first read of a pinned evidence, a record with an unknown severity: verify -> 424 RECORD_INTEGRITY_ERROR, never replayed (it was 200 PASS)', async (kind) => {
+    const { repository } = await provision({ findings: [UNKNOWN_SEVERITY] });
+    if (kind === 'corrupt') repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
+    else repository.serveFirstRead(WATER_EVIDENCE.artifact_id, truncated);
+    const res = await PATHS.verify();
+    expectIntegrity424(res);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+  });
+
+  it.each(['readBack', 'map', 'pdf'] as const)('the same corrupt read: %s -> 424 (unchanged), never 200, no PDF', async (path) => {
+    const { repository } = await provision({ findings: [UNKNOWN_SEVERITY] });
+    repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
+    const res = await PATHS[path]();
+    expect(res.status).toBe(424);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it.each(['corrupt', 'truncated'] as const)('control (no over-closing): a CLEAN record with a %s first read -- verify still hands it to H15 (mocked here; the real H15 re-reads and DENYs a lasting tampering), never an invented break', async (kind) => {
+    const { repository } = await provision({ findings: [] });
+    if (kind === 'corrupt') repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
+    else repository.serveFirstRead(WATER_EVIDENCE.artifact_id, truncated);
+    const res = await PATHS.verify();
+    expect(res.status).toBe(200);
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
   });
 });

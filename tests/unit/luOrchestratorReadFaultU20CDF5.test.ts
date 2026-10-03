@@ -728,3 +728,93 @@ describe('W-U20CDF5-add: the assessment read under the selected id must BE that 
     expect(res.body).toMatchObject({ code: 'ASSESSMENT_CURRENT_UNRESOLVED', failureClass: 'ASSESSMENT_CURRENT_AMBIGUOUS' });
   });
 });
+
+/** W-U20CDF5-R2 (G): another, valid-looking context object -- what a misdirected index entry would hand back. */
+async function putOtherContexts(repository: FaultyMemoryRepository) {
+  await repository.put({
+    artifact_id: 'other-property-context',
+    body: { artifact_id: 'other-property-context', artifact_type: PROPERTY_REF.artifact_type, payload: { property_ref: 'FEL 9:9', official_name: 'Fel fastighet', municipality: 'Felkommun' } },
+  });
+  await repository.put({
+    artifact_id: 'other-project-context',
+    body: { artifact_id: 'other-project-context', artifact_type: CONTEXT.artifact_type, payload: { project_name: 'Fel projekt', description: 'Fel' } },
+  });
+}
+
+describe('W-U20CDF5-R2 G (verifier probes B5b, Gc): a context object read under another id never puts a wrong property or project into the PDF or the read-back', () => {
+  it('PDF: the property context read returns ANOTHER context -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED, STORAGE_INTEGRITY_FAULT, not retryable; no PDF with the wrong name', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await putOtherContexts(repository);
+    // Read 1 is the read-back's property root, read 2 the PDF's own context read.
+    repository.misdirectRead(PROPERTY_REF.artifact_id, 2, 'other-property-context');
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+    expect(res.body.error).toMatch(/^Bedömningens fastighetskontext /);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+    expect(JSON.stringify(res.body)).not.toMatch(/FEL 9:9|Fel fastighet|Felkommun/);
+  });
+
+  it('PDF: the project context read returns ANOTHER context -> the same typed 503; no PDF', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await putOtherContexts(repository);
+    repository.misdirectRead(CONTEXT.artifact_id, 1, 'other-project-context');
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+    expect(res.body.error).toMatch(/^Bedömningens projektkontext /);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('read-back: the property root reads ANOTHER property context -> never its designation; the read-back fails closed (424 ROOT_PROVENANCE_TAMPERED)', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await putOtherContexts(repository);
+    repository.misdirectRead(PROPERTY_REF.artifact_id, 1, 'other-property-context');
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: 'ROOT_PROVENANCE_TAMPERED' });
+    expect(JSON.stringify(res.body)).not.toMatch(/FEL 9:9|Fel fastighet/);
+  });
+
+  it('control (no over-closing): legitimate contexts -> 200 PDF with the right names; a proven absence still prints its note', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await putOtherContexts(repository);
+    expect((await PATHS.readBack()).status).toBe(200);
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(200);
+    expect(pdfDataOf()).toMatchObject({ property: { official_name: 'Gävle Test 1:1' }, project: { project_name: 'Projekt B-test' } });
+  });
+});
+
+describe('W-U20CDF5-R2 L4: a damaged context object or a record without its context ref is never printed as "saknas"', () => {
+  it('a truncated project context (no payload) -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED, STORAGE_INTEGRITY_FAULT; no PDF of empty fields', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await repository.put({ artifact_id: CONTEXT.artifact_id, body: { artifact_id: CONTEXT.artifact_id, artifact_type: CONTEXT.artifact_type } });
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('a V1 record without property_ref -> 409 ASSESSMENT_PDF_CONTEXT_UNRESOLVED (REFUSED, MALFORMED_RECORD_ENTRY); never "finns inte i arkivet (bevisat saknad)"', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V1', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    // The same record without its property_ref, re-identified (a V1 record carries no contract to refuse it earlier).
+    const { property_ref: _ref, ...payload } = (assessment as { payload: Record<string, unknown> }).payload;
+    const without = readdress({ ...(assessment as unknown as Stored), payload });
+    await repository.put({ artifact_id: without.artifact_id, body: without });
+    const [bindingRef] = await (state.bindingIndex as MemoryBindingIndex).listBindingRefs(PROJECT_ID);
+    const projectionIndex = new MemoryProjectionIndex();
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: without as never, contextBindingRef: { artifact_id: bindingRef!.artifact_id, artifact_type: bindingRef!.artifact_type }, releaseRef: RELEASE_REF, index: projectionIndex });
+    state.projectionIndex = projectionIndex;
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'REFUSED', reasonCode: 'MALFORMED_RECORD_ENTRY', retryable: false });
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+});
