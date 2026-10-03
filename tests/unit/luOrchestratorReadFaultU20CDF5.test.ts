@@ -979,6 +979,18 @@ describe('W-U20CDF6 R2-5: a record without a well-formed property_ref is a RECOR
       coverage_state: 'RECORD_INTEGRITY_ERROR',
       coverage_basis: ['MALFORMED_RECORD_ENTRY:property_ref', 'CHECKS_UNAVAILABLE'],
     });
+    // W-U20CDF6 mutation R25-M08: a STORED record without checks is still the integrity error when it names no
+    // property (never the softer CHECKS_UNAVAILABLE); without that break it stays CHECKS_UNAVAILABLE.
+    expect(assessGovernedCoverage([], { findings: [], propertyRefWellFormed: false } as never)).toEqual({
+      coverage_state: 'RECORD_INTEGRITY_ERROR',
+      coverage_basis: ['MALFORMED_RECORD_ENTRY:property_ref'],
+      coverage: null,
+    });
+    expect(assessGovernedCoverage([], { findings: [], propertyRefWellFormed: true } as never)).toEqual({
+      coverage_state: 'CHECKS_UNAVAILABLE',
+      coverage_basis: [],
+      coverage: null,
+    });
   });
 });
 
