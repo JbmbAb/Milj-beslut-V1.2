@@ -360,6 +360,10 @@ describe("W-TEXT2 (5; UI1-R2 finding L2): the server's raw error text is capped 
     ['a Prisma invocation', "Invalid `prisma.localizationAssessment.findMany()` invocation: Can't reach database server"],
     ['a host and port', "Can't reach database server at db.internal:5432"],
     ['a stack trace', 'TypeError: Cannot read properties of undefined\n    at readRecord (server/modules/x.ts:12:3)\n    at async handler'],
+    // Pinned after mutation round 1: the frame above is also a host:port form (x.ts:12), so the stack form alone needs
+    // frames with no file:line -- a multi-line one and a one-line one.
+    ['a stack trace without a file:line', 'Error: boom\n    at handler (<anonymous>)\n    at async run'],
+    ['a one-line stack frame', 'TypeError: boom at Object.handler (eval)'],
     ['a connection string', 'connect ECONNREFUSED postgresql://user:secret@127.0.0.1:5432/mimer'],
     ['a URL', 'fetch failed for https://internal.example/api/x'],
     ['a control character', 'Bedömningen\u0007 kunde inte läsas'],
