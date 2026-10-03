@@ -139,13 +139,18 @@ import type { ArtifactReference } from '../../packages/mps-compliance/src/artifa
 import { sha256ContentHash } from '../../packages/mps-compliance/src/canonical/sha256Canonical';
 import {
   buildSpatialEvidenceContentHash,
+  createCanonicalPropertyGeometryArtifact,
   createGovernedLocalizationAssessment,
+  createProductLuPropertyContextArtifact,
   createProjectContextBindingArtifact,
   createProjectContextBindingIssuerArtifact,
+  createProjectPropertyBindingArtifact,
+  createPropertyLookupObservationArtifact,
   localizationAssessmentCanonicalBody,
   SPATIAL_STACK_V1,
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
+import { resolveGovernedAssessmentDetails } from '../../server/modules/localization/governedEvidenceDetails';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
 import { installOwnerIssuedProjectContextBinding } from '../../server/modules/localization/installProjectContextBinding';
 import { attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
@@ -815,6 +820,78 @@ describe('W-U20CDF5-R2 L4: a damaged context object or a record without its cont
     const res = await PATHS.pdf();
     expect(res.status).toBe(409);
     expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'REFUSED', reasonCode: 'MALFORMED_RECORD_ENTRY', retryable: false });
+    expect(res.body.error).toBe(
+      'Bedömningens fastighetskontext underkändes vid verifieringen (bedömningen saknar en giltig referens till den). ' +
+        'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör. ' +
+        'Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.',
+    );
     expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * W-U20CDF5-R2 (G, the rest of the property root): the product root chain -- context -> project-property binding ->
+ * lookup observation -- as the bootstrap worker issues it, read by resolveGovernedAssessmentDetails over a CAS whose
+ * entry for one link holds ANOTHER valid object (or the object under another type).
+ */
+async function productRoot() {
+  const geometry = createCanonicalPropertyGeometryArtifact({ geometry: { type: 'Point', coordinates: [17.14, 60.67] } });
+  const geometryRef = { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
+  const observationFor = (designation: string, key: string) =>
+    createPropertyLookupObservationArtifact({
+      property_identity: `core.property_unit:${key}`, property_designation: designation, source_key: key,
+      source_dataset: 'core.property_unit', source_updated_at: '2026-06-28T00:00:00.000Z', municipality: 'Gävle', geometry_ref: geometryRef,
+    });
+  const bindingFor = (observation: ReturnType<typeof observationFor>) =>
+    createProjectPropertyBindingArtifact({
+      project_id: PROJECT_ID, property_identity: observation.payload.property_identity, property_designation: observation.payload.property_designation,
+      geometry_ref: geometryRef, source_refs: [{ artifact_id: observation.artifact_id, artifact_type: observation.artifact_type }],
+      resolver_id: 'postgis-property-unit-exact', resolver_version: 'canonical-property-observation-v1', contract_version: 'project-property-binding-v1',
+    });
+  const observation = observationFor('GÄVLE TEST 1:1', 'u20cdf5-r2-key');
+  const binding = bindingFor(observation);
+  const context = createProductLuPropertyContextArtifact({
+    property_identity: observation.payload.property_identity, property_ref: 'GÄVLE TEST 1:1', official_name: 'Gävle Test 1:1',
+    geometry_ref: geometryRef, municipality: 'Gävle', coordinates: [60.67, 17.14],
+    project_property_binding_ref: { artifact_id: binding.artifact_id, artifact_type: binding.artifact_type },
+  });
+  const otherObservation = observationFor('FEL 9:9', 'u20cdf5-r2-other');
+  const otherBinding = bindingFor(otherObservation);
+  const repository = new FaultyMemoryRepository();
+  for (const artifact of [geometry, observation, binding, context, otherObservation, otherBinding]) {
+    await repository.put({ artifact_id: artifact.artifact_id, body: artifact });
+  }
+  const details = () =>
+    resolveGovernedAssessmentDetails({
+      assessment: { payload: { property_ref: { artifact_id: context.artifact_id, artifact_type: context.artifact_type }, evidence_refs: [], findings: [] } } as never,
+      artifactRepository: repository as never,
+    });
+  return { repository, observation, binding, context, otherObservation, otherBinding, details };
+}
+
+describe('W-U20CDF5-R2 G (property root): every link of the root is the object it was read under -- id AND type', () => {
+  it('control: the intact chain resolves to its own designation', async () => {
+    const root = await productRoot();
+    const read = await root.details();
+    expect(read.integrity).toEqual({ ok: true });
+    expect(read.propertyRoot).toMatchObject({ status: 'RESOLVED', property_designation: 'GÄVLE TEST 1:1', observation_artifact_id: root.observation.artifact_id });
+  });
+
+  it('the binding entry holds ANOTHER valid binding (another property): TAMPERED, never its designation (it was RESOLVED "FEL 9:9")', async () => {
+    const root = await productRoot();
+    root.repository.misdirectRead(root.binding.artifact_id, 1, root.otherBinding.artifact_id);
+    const read = await root.details();
+    expect(read.integrity).toEqual({ ok: false, failureClass: 'ROOT_PROVENANCE_TAMPERED', artifactId: root.context.artifact_id });
+    expect(read.propertyRoot).toMatchObject({ status: 'TAMPERED', technical_error_class: 'ROOT_PROVENANCE_TAMPERED' });
+    expect(JSON.stringify(read.propertyRoot)).not.toMatch(/FEL 9:9|u20cdf5-r2-other/);
+  });
+
+  it.each(['context', 'binding', 'observation'] as const)('the %s is stored under its id with ANOTHER artifact_type (a misfiled object): TAMPERED', async (link) => {
+    const root = await productRoot();
+    const object = root[link] as { artifact_id: string };
+    await root.repository.put({ artifact_id: object.artifact_id, body: { ...object, artifact_type: 'MISFILED_TYPE' } });
+    const read = await root.details();
+    expect(read.propertyRoot).toMatchObject({ status: 'TAMPERED', technical_error_class: 'ROOT_PROVENANCE_TAMPERED' });
+    expect(read.integrity).toMatchObject({ ok: false, failureClass: 'ROOT_PROVENANCE_TAMPERED' });
   });
 });
