@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ProjectContextBootstrapBindingUnresolvedError } from '../../server/modules/localization/projectContextBootstrapBindingGate';
+import { LOCALIZATION_GEOMETRY_UNVERIFIED_SV } from '../../server/modules/localization/localizationOrchestrator';
 
 /** The same internal-term pattern as luServerTextsInternalTermsUI1: CAS as a word, a code in parentheses, a bare machine code. */
 const INTERNAL = /\bCAS\b|\((?:[A-Z][A-Z0-9]*_[A-Z0-9_]+)(?::[^)]*)?\)|[A-Z]{3,}_[A-Z0-9_]{3,}/;
@@ -40,6 +41,59 @@ describe("W-TEXT2: the bootstrap gate's binding-fault texts (the bootstrap-statu
         'projektets befintliga bindning kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
       );
     }
+  });
+});
+
+describe('W-TEXT2 delta (F5): the text of ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED names neither the bound point nor the class', () => {
+  // The behavioural proof (result + HTTP body on current-assessment and export-assessment-pdf, for all four classes,
+  // code/failureClass/reasonCode/status/retryable exactly unchanged) runs through the real hermetic chain in
+  // luGovernedEvidenceDetailsU20D.test.ts against this same map. Here: the map itself, one sentence per class.
+  const EXPECTED: Record<keyof typeof LOCALIZATION_GEOMETRY_UNVERIFIED_SV, string> = {
+    LOCALIZATION_GEOMETRY_MISSING:
+      'Bedömningens lokaliseringspunkt kunde inte verifieras: den punkt som bedömningen är bunden till finns inte i arkivet ' +
+      '(bestående fel). Felet är bestående och löses inte av ett nytt försök. Bedömningen visas inte.',
+    LOCALIZATION_GEOMETRY_TAMPERED:
+      'Bedömningens lokaliseringspunkt kunde inte verifieras: den punkt som bedömningen är bunden till klarade inte ' +
+      'integritetskontrollen (bestående fel). Felet är bestående och löses inte av ett nytt försök. Bedömningen visas inte.',
+    LOCALIZATION_GEOMETRY_NOT_BOUND:
+      'Bedömningens lokaliseringspunkt kunde inte verifieras: den punkt som bedömningen är bunden till hör till ett annat ' +
+      'projekt eller en annan fastighet (bestående fel). Felet är bestående och löses inte av ett nytt försök. Bedömningen visas inte.',
+    LOCALIZATION_GEOMETRY_READ_ERROR:
+      'Bedömningens lokaliseringspunkt kunde inte läsas (tekniskt fel). Ett nytt försök kan lyckas. Bedömningen visas inte.',
+  };
+
+  it('one Swedish sentence per class: exact, no internal terms, the retry meaning of its class, the consequence last', () => {
+    expect(Object.keys(LOCALIZATION_GEOMETRY_UNVERIFIED_SV ?? {}).sort()).toEqual(Object.keys(EXPECTED).sort());
+    for (const [failureClass, expected] of Object.entries(EXPECTED) as [keyof typeof EXPECTED, string][]) {
+      const text = LOCALIZATION_GEOMETRY_UNVERIFIED_SV[failureClass];
+      expect(text, failureClass).not.toMatch(INTERNAL);
+      expect(text, failureClass).not.toContain(failureClass);
+      expect(text, failureClass).toContain(
+        failureClass === 'LOCALIZATION_GEOMETRY_READ_ERROR' ? 'Ett nytt försök kan lyckas.' : 'Felet är bestående och löses inte av ett nytt försök.',
+      );
+      expect(text.endsWith(' Bedömningen visas inte.'), failureClass).toBe(true);
+      expect(text, failureClass).toBe(expected);
+    }
+  });
+});
+
+describe('W-TEXT2 delta (F5): drift guard -- no Swedish user text in the orchestrator interpolates an id or a class, or carries a code in parentheses', () => {
+  // General rule (the coordinator's F5 delta): every string or template literal with a Swedish letter in
+  // localizationOrchestrator.ts (comments stripped) is a user text. None may interpolate an expression ending in
+  // artifact_id, artifactId or failureClass, and none may hold a machine code in parentheses or a "(${" template.
+  // A lookup such as `${TEXT_SV[failureClass]}` is allowed: it yields Swedish text, not the class.
+  it('server/modules/localization/localizationOrchestrator.ts', () => {
+    const text = source('server/modules/localization/localizationOrchestrator.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+      .replace(/\s\/\/ .*$/gm, '');
+    const literals = [...text.matchAll(/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'/g)].map((match) => match[0]);
+    const swedish = literals.filter((literal) => /[åäöÅÄÖ]/.test(literal));
+    expect(swedish.length).toBeGreaterThan(20);
+    const idInterpolation = /\$\{[^}]*?(?:artifact_id|artifactId|failureClass)\s*\}/;
+    const codeInParentheses = /\((?:[A-Z][A-Z0-9]*_[A-Z0-9_]+)(?::|\))|\(\$\{/;
+    expect(swedish.filter((literal) => idInterpolation.test(literal))).toEqual([]);
+    expect(swedish.filter((literal) => codeInParentheses.test(literal))).toEqual([]);
   });
 });
 

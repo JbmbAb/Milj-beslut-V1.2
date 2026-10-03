@@ -12,6 +12,7 @@
  * CAS. server/db/prisma is the throwing guard; every index is in memory.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCALIZATION_GEOMETRY_UNVERIFIED_SV } from '../../server/modules/localization/localizationOrchestrator';
 
 vi.mock('../../server/db/prisma', async () => (await import('../helpers/hermeticPrismaGuard')).hermeticPrismaModule());
 vi.mock('../../server/repositories/localizationGeometryProjectionRepository', () => ({
@@ -882,17 +883,50 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     });
   });
 
-  it.each<[string, (repo: Map<string, unknown>, id: string) => void, string]>([
+  // W-TEXT2 delta (F5): the user text of ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED names neither the bound point's
+  // id nor the class -- on the result and on both HTTP routes; code, failureClass, reasonCode, status and retryable
+  // are exactly as before. The internal-terms pattern is luServerTextsInternalTermsUI1's.
+  const INTERNAL_TERMS = /\bCAS\b|\((?:[A-Z][A-Z0-9]*_[A-Z0-9_]+)(?::[^)]*)?\)|[A-Z]{3,}_[A-Z0-9_]{3,}/;
+  type GeometryFailureClass = keyof typeof LOCALIZATION_GEOMETRY_UNVERIFIED_SV;
+  function expectGeometryUnverifiedText(answer: unknown, failureClass: GeometryFailureClass, geometryId: string) {
+    const error = (answer as { error?: unknown }).error;
+    expect(typeof error).toBe('string');
+    expect(error).not.toMatch(INTERNAL_TERMS);
+    expect(error).not.toContain(geometryId);
+    expect(error).toBe(LOCALIZATION_GEOMETRY_UNVERIFIED_SV[failureClass]);
+  }
+  async function expectGeometryUnverifiedHttp(status: 424 | 503, failureClass: GeometryFailureClass, geometryId: string) {
+    for (const path of ['current-assessment', 'export-assessment-pdf']) {
+      const res = await request(app()).get(`/api/localization/${PROJECT_ID}/${path}`).set('Authorization', `Bearer ${token()}`);
+      expect(res.status, path).toBe(status);
+      expectGeometryUnverifiedText(res.body, failureClass, geometryId);
+      expect(res.body, path).toEqual({
+        ok: false,
+        error: LOCALIZATION_GEOMETRY_UNVERIFIED_SV[failureClass],
+        code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
+        failureClass,
+        reasonCode: failureClass,
+        retryable: status === 503,
+      });
+    }
+  }
+
+  it.each<[string, (repo: Map<string, unknown>, id: string) => void, GeometryFailureClass]>([
     ['manipulated', (values, id) => { (values.get(id) as { payload: { coordinates: number[] } }).payload.coordinates = [6640001, 648000]; }, 'LOCALIZATION_GEOMETRY_TAMPERED'],
     ['missing from CAS', (values, id) => { values.delete(id); }, 'LOCALIZATION_GEOMETRY_MISSING'],
   ])('a %s bound localization geometry fails the read-back and the PDF closed (424), never the current point instead', async (_label, damage, failureClass) => {
     const s = await setup();
     await s.runFresh();
     damage(s.repository.values, s.locationRef.artifact_id);
-    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
-      ok: false, status: 424, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass,
+    const result = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(result).toMatchObject({
+      ok: false, status: 424, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass, reasonCode: failureClass, retryable: false,
     });
-    expect(await exportCurrentLuAssessmentPdf(s.deps())).toMatchObject({ ok: false, status: 424 });
+    expectGeometryUnverifiedText(result, failureClass, s.locationRef.artifact_id);
+    await expectGeometryUnverifiedHttp(424, failureClass, s.locationRef.artifact_id);
+    const pdf = await exportCurrentLuAssessmentPdf(s.deps());
+    expect(pdf).toMatchObject({ ok: false, status: 424 });
+    expectGeometryUnverifiedText(pdf, failureClass, s.locationRef.artifact_id);
     expect(capturedPdfData).toBeUndefined();
   });
 
@@ -914,13 +948,19 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     const fresh = await s.runFresh();
     expect(fresh.executionMotor?.assessment_status).toBe('ASSESSED');
 
-    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
+    const result = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(result).toMatchObject({
       ok: false, status: 424, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass: 'LOCALIZATION_GEOMETRY_NOT_BOUND',
+      reasonCode: 'LOCALIZATION_GEOMETRY_NOT_BOUND', retryable: false,
     });
+    expectGeometryUnverifiedText(result, 'LOCALIZATION_GEOMETRY_NOT_BOUND', foreign.artifact_id);
     const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
     expect(res.status).toBe(424);
     expect(res.body).toMatchObject({ ok: false, failureClass: 'LOCALIZATION_GEOMETRY_NOT_BOUND' });
-    expect(await exportCurrentLuAssessmentPdf(s.deps())).toMatchObject({ ok: false, status: 424 });
+    await expectGeometryUnverifiedHttp(424, 'LOCALIZATION_GEOMETRY_NOT_BOUND', foreign.artifact_id);
+    const pdf = await exportCurrentLuAssessmentPdf(s.deps());
+    expect(pdf).toMatchObject({ ok: false, status: 424 });
+    expectGeometryUnverifiedText(pdf, 'LOCALIZATION_GEOMETRY_NOT_BOUND', foreign.artifact_id);
     expect(capturedPdfData).toBeUndefined();
   });
 
@@ -933,14 +973,20 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
       return (await realResolve(ref)) as T;
     };
 
-    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({
+    const result = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(result).toMatchObject({
       ok: false, status: 503, code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR',
+      reasonCode: 'LOCALIZATION_GEOMETRY_READ_ERROR', retryable: true,
     });
+    expectGeometryUnverifiedText(result, 'LOCALIZATION_GEOMETRY_READ_ERROR', s.locationRef.artifact_id);
     const res = await request(app()).get(`/api/localization/${PROJECT_ID}/current-assessment`).set('Authorization', `Bearer ${token()}`);
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ ok: false, failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR' });
     expect(JSON.stringify(res.body)).not.toContain('EIO');
-    expect(await exportCurrentLuAssessmentPdf(s.deps())).toMatchObject({ ok: false, status: 503 });
+    await expectGeometryUnverifiedHttp(503, 'LOCALIZATION_GEOMETRY_READ_ERROR', s.locationRef.artifact_id);
+    const pdf = await exportCurrentLuAssessmentPdf(s.deps());
+    expect(pdf).toMatchObject({ ok: false, status: 503 });
+    expectGeometryUnverifiedText(pdf, 'LOCALIZATION_GEOMETRY_READ_ERROR', s.locationRef.artifact_id);
     expect(capturedPdfData).toBeUndefined();
   });
 
