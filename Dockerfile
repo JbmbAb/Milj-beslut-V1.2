@@ -42,6 +42,19 @@ RUN npm run build
 # köra en andra npm ci utan packages/.
 RUN npm prune --omit=dev --legacy-peer-deps --ignore-scripts
 
+# Releaseidentiteten (product-release-v3) MÄTS över de filer bygget levererar
+# (server/, src/, packages/, prisma/, components/, dist/ samt de tre V1/V2-
+# filerna) och skrivs till release-identity.json, med samma algoritm som
+# varje process använder vid start (scripts/release/buildIdentityDigest.mjs).
+# Kontexten är git archive <SHA> utan .git, och Dockerfile/.dockerignore/
+# deploy/ ligger utanför den, så commit, träd och kompositionshash lämnas in
+# av deploy/onprem/build-image.sh som byggargument. Argumenten har ingen
+# default: ett bygge utan dem misslyckas i stället för att gissa en identitet.
+ARG SOURCE_COMMIT_SHA
+ARG SOURCE_TREE_SHA
+ARG COMPOSITION_MANIFEST_SHA256
+RUN node scripts/release/write-build-identity.mjs --source-commit "$SOURCE_COMMIT_SHA" --source-tree "$SOURCE_TREE_SHA" --composition-manifest-sha256 "$COMPOSITION_MANIFEST_SHA256"
+
 # Steg 2: Produktionsbas (gemensam för alla slutliga images)
 FROM base AS production-base
 # tsconfig.json följer med för tsconfig-paths: fem @miljobeslut-specifierare
@@ -65,10 +78,14 @@ RUN chown appuser:appgroup /app
 # package-lock.json tas från byggkontexten (git archive <SHA>: commitens bytes),
 # inte från byggsteget: npm prune --omit=dev skriver om låsfilen (omit-beroenden
 # skrivs tillbaka med andra flaggor), och release-identiteten
-# (ProductReleaseAuthority: package.json, package-lock.json, server/index.ts)
-# mäts över filerna i imagen. package.json och tsconfig.json rörs inte av bygget.
+# (ProductReleaseAuthority v3: package.json, package-lock.json, server/index.ts
+# och source_digest) mäts över filerna i imagen vid varje processstart.
+# package.json och tsconfig.json rörs inte av bygget.
 COPY --chown=appuser:appgroup package-lock.json ./
 COPY --from=builder --chown=appuser:appgroup /app/package.json /app/tsconfig.json ./
+# Identiteten bygget mätte; varje process räknar om digesten vid start och
+# vägrar starta vid avvikelse (REJECT_PRODUCT_RELEASE_BUILD_MISMATCH).
+COPY --from=builder --chown=appuser:appgroup /app/release-identity.json ./
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=builder --chown=appuser:appgroup /app/packages ./packages
 COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
