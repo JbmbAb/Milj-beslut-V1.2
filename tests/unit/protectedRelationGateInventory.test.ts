@@ -88,8 +88,8 @@ const LOCKS = {
   // U30F5 (D-7): the open owner decisions (BLOCKERARE, failed by their own test)
   openDecisionsSha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
   // U30F6 (F5-3): the reviewed launches that resolve to no repository file (and their category arguments)
-  unresolvedLaunches: 59,
-  unresolvedLaunchesSha256: 'b1d7a2b70a013183633d7bf7ce7869f49cdc439f43eaae431ad7a34e94aeb823',
+  unresolvedLaunches: 61,
+  unresolvedLaunchesSha256: 'c3bdd597f537b4de15842f312ef7fbcd2d44dbdd0fce3e64fb8345b9dac08ad4',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -1796,6 +1796,29 @@ describe('canaries: U30F8 -- G6-3 JSON configurations, G6-4 PowerShell dot-sourc
 
   it('KNOWN LIMIT (pinned, BLOCKERARE B3 in the report): E10 npm "yarn run <static unknown bin>" is not caught by this scan', () => {
     expect(problemsOfChange({ 'tools/w8k1/package.json': npm6({ x: 'yarn run pg-wipe-everything' }) })).toEqual([]);
+  });
+});
+
+describe('canaries: U30F8 mutation round 1 -- what the first canaries left unexercised', () => {
+  it.each([
+    ['sh: a here-string <<<WORD is no here-document: the next line is still a command', { 'scripts/w8m/m1.sh': '#!/bin/sh\ncat <<<WORD\npsql -c "$1"\n' }],
+    ['ts: spawnSync(python3, [-], { input }) -- the stdin script is scanned as Python', { 'scripts/w8m/m2.ts': "import { spawnSync } from 'node:child_process';\nspawnSync('python3', ['-'], { input: \"import os, psycopg2\\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\\n\" });\n" }],
+    ['devcontainer: containerEnv NODE_OPTIONS --require ./h.txt', { '.devcontainer/w8m3/devcontainer.json': `${JSON.stringify({ containerEnv: { NODE_OPTIONS: '--require ./scripts/w8m/h3.txt' }, postCreateCommand: 'node scripts/w8m/ok.mjs' })}\n`, 'scripts/w8m/h3.txt': EVIL8_CJS, 'scripts/w8m/ok.mjs': OK8 }],
+    ['sh: export NODE_OPTIONS="$OPTS" (a line that runs no program)', { 'scripts/w8m/m4.sh': sh8('export NODE_OPTIONS="$OPTS"') }],
+    ['npm: yarn $TASK (yarn runs a script by name)', { 'tools/w8m5/package.json': npm6({ x: 'yarn $TASK' }) }],
+    ['.env file: NODE_OPTIONS=${OPTS} (options the source does not hold)', { 'tools/w8m6/.env.w8': 'NODE_OPTIONS=${OPTS}\n' }],
+    ['sh: x=$(bash data file) -- a command substitution runs its command', { 'scripts/w8m/m7.sh': sh8('x=$(bash scripts/w8m/m7.txt)'), 'scripts/w8m/m7.txt': EVIL8_SH }],
+    ['sh: echo "$(psql -c "$1")"', { 'scripts/w8m/m8.sh': sh8('echo "$(psql -c "$1")"') }],
+    ['sh: diff <(psql -c TRUNCATE) expected', { 'scripts/w8m/m9.sh': sh8("diff <(psql -c 'TRUNCATE env.sgu_well') expected.txt") }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfChange(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["sh: cat <<\\EOF > notes (quoted by a backslash): its body is data, not commands", { 'scripts/w8m/c1.sh': '#!/bin/sh\ncat <<\\EOF > notes.txt\npsql -c "$1"\nEOF\n' }],
+    ["sh: n=$(psql -t -c 'SELECT 1') (a read in a substitution)", { 'scripts/w8m/c2.sh': sh8("n=$(psql -t -c 'SELECT 1')") }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfChange(files)).toEqual([]);
   });
 });
 

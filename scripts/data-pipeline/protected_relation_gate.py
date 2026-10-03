@@ -1473,6 +1473,8 @@ def split_command_line(command, spec=None):
     pipelines = []
     st = {'pipeline': [], 'argv': [], 'stdin': None, 'stdin_file': None, 'tok': '', 'started': False,
           'heredoc': None, 'here_string': False, 'expect_stdin_file': False, 'skip_next': False}
+    # U30F8: the commands of $(...), <(...), >(...) and here-document backticks run too -- split as pipelines of their own
+    nested = []
 
     def end_token():
         if st['started']:
@@ -1512,7 +1514,11 @@ def split_command_line(command, spec=None):
                 elif s[j] == ')':
                     depth -= 1
                     if depth == 0:
+                        if _at(s, i + 2) != '(':
+                            nested.append(s[i + 2:j])
                         return dyn(''), j + 1
+            if _at(s, i + 2) != '(':
+                nested.append(s[i + 2:])
             return dyn(''), len(s)
         if _at(s, i + 1) == '{':
             end = s.find('}', i + 2)
@@ -1543,6 +1549,7 @@ def split_command_line(command, spec=None):
                     continue
             if ch == '`':
                 end = body.find('`', j + 1)
+                nested.append(body[j + 1:(len(body) if end < 0 else end)])
                 out += dyn('')
                 j = len(body) if end < 0 else end + 1
                 continue
@@ -1663,7 +1670,9 @@ def split_command_line(command, spec=None):
             if _at(s, i + 1) == '(':
                 st['tok'] += dyn('')
                 st['started'] = True
-                i = skip_parens(s, i + 1)
+                end = skip_parens(s, i + 1)
+                nested.append(s[i + 2:max(i + 2, end - 1)])
+                i = end
                 continue
             if _at(s, i + 1) == '<':
                 if _at(s, i + 2) == '<':
@@ -1684,7 +1693,9 @@ def split_command_line(command, spec=None):
             end_token()
             st['tok'] += dyn('')
             st['started'] = True
-            i = skip_parens(s, i + 1)
+            end = skip_parens(s, i + 1)
+            nested.append(s[i + 2:max(i + 2, end - 1)])
+            i = end
             continue
         if c == '>':
             if re.fullmatch(r'[0-9]+', st['tok']):
@@ -1720,6 +1731,8 @@ def split_command_line(command, spec=None):
         st['started'] = True
         i += 1
     end_pipeline()
+    for inner in nested:
+        pipelines.extend(split_command_line(inner, spec))
     return pipelines
 
 

@@ -1380,6 +1380,8 @@ export function splitCommandLine(command: string): CommandSegment[][] {
   // U30F8 (G6-1): an unquoted delimiter expands the body ($1, $VAR, ${x}, $(...), `...`); 'EOF', "EOF" and \EOF do not
   let pendingHeredoc: { delim: string; expand: boolean } | null = null;
   let expectHereString = false;
+  // U30F8: the commands of $(...), <(...), >(...) and here-document backticks run too -- split as pipelines of their own
+  const nested: string[] = [];
   let expectStdinFile = false;
   let skipNext = false;
   const endToken = () => {
@@ -1415,9 +1417,13 @@ export function splitCommandLine(command: string): CommandSegment[][] {
         if (s[j] === "(") depth += 1;
         else if (s[j] === ")") {
           depth -= 1;
-          if (depth === 0) return [dyn(""), j + 1];
+          if (depth === 0) {
+            if (s[i + 2] !== "(") nested.push(s.slice(i + 2, j));
+            return [dyn(""), j + 1];
+          }
         }
       }
+      if (s[i + 2] !== "(") nested.push(s.slice(i + 2));
       return [dyn(""), s.length];
     }
     if (s[i + 1] === "{") {
@@ -1451,6 +1457,7 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       }
       if (ch === "`") {
         const end = body.indexOf("`", j + 1);
+        nested.push(body.slice(j + 1, end < 0 ? body.length : end));
         out += dyn("");
         j = end < 0 ? body.length : end + 1;
         continue;
@@ -1593,7 +1600,9 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       if (s[i + 1] === "(") {
         tok += dyn("");
         started = true;
-        i = skipParens(s, i + 1);
+        const end = skipParens(s, i + 1);
+        nested.push(s.slice(i + 2, Math.max(i + 2, end - 1)));
+        i = end;
         continue;
       }
       if (s[i + 1] === "<") {
@@ -1619,7 +1628,9 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       endToken();
       tok += dyn("");
       started = true;
-      i = skipParens(s, i + 1);
+      const end = skipParens(s, i + 1);
+      nested.push(s.slice(i + 2, Math.max(i + 2, end - 1)));
+      i = end;
       continue;
     }
     if (c === ">") {
@@ -1660,6 +1671,7 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     i += 1;
   }
   endPipeline();
+  for (const inner of nested) pipelines.push(...splitCommandLine(inner));
   return pipelines;
 }
 

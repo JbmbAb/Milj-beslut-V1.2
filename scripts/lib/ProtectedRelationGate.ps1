@@ -1248,14 +1248,16 @@ function PrgAnalyzeOgr2ogr([string[]]$argv) {
 # Command lines
 # ---------------------------------------------------------------------------------------------------------------
 
-function PrgReadVariable([string]$s, [int]$i) {
+# (U30F8: $nested collects the command of a $(...) -- it runs too)
+function PrgReadVariable([string]$s, [int]$i, $nested = $null) {
     $c1 = PrgAt $s ($i + 1)
     if ($c1 -ceq '(') {
         $depth = 0
         for ($j = $i + 1; $j -lt $s.Length; $j++) {
             if ([string]$s[$j] -ceq '(') { $depth += 1 }
-            elseif ([string]$s[$j] -ceq ')') { $depth -= 1; if ($depth -eq 0) { return , @((PrgDyn ''), ($j + 1)) } }
+            elseif ([string]$s[$j] -ceq ')') { $depth -= 1; if ($depth -eq 0) { if ($null -ne $nested -and (PrgAt $s ($i + 2)) -cne '(') { $nested.Add((PrgSlice $s ($i + 2) $j)) }; return , @((PrgDyn ''), ($j + 1)) } }
         }
+        if ($null -ne $nested -and (PrgAt $s ($i + 2)) -cne '(') { $nested.Add((PrgSlice $s ($i + 2) $s.Length)) }
         return , @((PrgDyn ''), $s.Length)
     }
     if ($c1 -ceq '{') {
@@ -1284,14 +1286,14 @@ function PrgCmdVariable([string]$s) {
 }
 
 # U30F8 (G6-1): the body of an unquoted here-document as the shell expands it -- every expansion is a value
-function PrgExpandHeredocBody([string]$body) {
+function PrgExpandHeredocBody([string]$body, $nested = $null) {
     $out = [System.Text.StringBuilder]::new()
     $j = 0
     while ($j -lt $body.Length) {
         $ch = [string]$body[$j]; $ch1 = PrgAt $body ($j + 1)
         if ($ch -ceq '\' -and ('$', '`', '\' -ccontains $ch1)) { [void]$out.Append($ch1); $j += 2; continue }
-        if ($ch -ceq '$') { $v = PrgReadVariable $body $j; if ($null -ne $v) { [void]$out.Append($v[0]); $j = $v[1]; continue } }
-        if ($ch -ceq '`') { $end = PrgIndexOf $body '`' ($j + 1); [void]$out.Append((PrgDyn '')); $j = if ($end -lt 0) { $body.Length } else { $end + 1 }; continue }
+        if ($ch -ceq '$') { $v = PrgReadVariable $body $j $nested; if ($null -ne $v) { [void]$out.Append($v[0]); $j = $v[1]; continue } }
+        if ($ch -ceq '`') { $end = PrgIndexOf $body '`' ($j + 1); if ($null -ne $nested) { $nested.Add((PrgSlice $body ($j + 1) $(if ($end -lt 0) { $body.Length } else { $end }))) }; [void]$out.Append((PrgDyn '')); $j = if ($end -lt 0) { $body.Length } else { $end + 1 }; continue }
         [void]$out.Append($ch); $j += 1
     }
     return $out.ToString()
@@ -1310,7 +1312,8 @@ function PrgSkipParens([string]$s, [int]$open) {
 function Split-ProtectedCommandLine([string]$Command) {
     $pipelines = [System.Collections.Generic.List[object]]::new()
     $st = @{ pipeline = [System.Collections.Generic.List[object]]::new(); argv = [System.Collections.Generic.List[string]]::new(); stdin = $null; stdinFile = $null
-        tok = [System.Text.StringBuilder]::new(); started = $false; heredoc = $null; hereString = $false; expectStdinFile = $false; skipNext = $false }
+        tok = [System.Text.StringBuilder]::new(); started = $false; heredoc = $null; hereString = $false; expectStdinFile = $false; skipNext = $false
+        nested = [System.Collections.Generic.List[string]]::new() }  # U30F8: the commands of $(...), <(...), >(...) and here-document backticks
     $endToken = {
         if ($st.started) {
             if ($st.skipNext) { $st.skipNext = $false }
@@ -1346,7 +1349,7 @@ function Split-ProtectedCommandLine([string]$Command) {
             while ($j -lt $n -and [string]$s[$j] -cne '"') {
                 $cj = [string]$s[$j]; $cj1 = PrgAt $s ($j + 1)
                 if (($cj -ceq '\' -or $cj -ceq '`') -and ('"', '\', '`', '$' -ccontains $cj1)) { [void]$st.tok.Append($cj1); $j += 2; continue }
-                if ($cj -ceq '$') { $v = PrgReadVariable $s $j; if ($null -ne $v) { [void]$st.tok.Append($v[0]); $j = $v[1]; continue } }
+                if ($cj -ceq '$') { $v = PrgReadVariable $s $j $st.nested; if ($null -ne $v) { [void]$st.tok.Append($v[0]); $j = $v[1]; continue } }
                 if ($cj -ceq '%') {
                     $m = PrgCmdVariable (PrgSlice $s $j $n)
                     if ($null -ne $m) { [void]$st.tok.Append((PrgDyn $m[1])); $j += $m[0].Length; continue }
@@ -1377,7 +1380,7 @@ function Split-ProtectedCommandLine([string]$Command) {
                     if ($clean.Trim() -ceq $delim) { $found = $true; break }
                     $body.Add($clean)
                 }
-                $st.stdin = if ($expand) { PrgExpandHeredocBody ($body -join "`n") } else { $body -join "`n" }
+                $st.stdin = if ($expand) { PrgExpandHeredocBody ($body -join "`n") $st.nested } else { $body -join "`n" }
                 & $endPipeline
                 $i = if ($found) { $consumed } else { $n }; continue
             }
@@ -1393,7 +1396,7 @@ function Split-ProtectedCommandLine([string]$Command) {
         if ($c -ceq ';') { & $endPipeline; $i += 1; continue }
         if ($c -ceq '<') {
             & $endToken
-            if ($c1 -ceq '(') { [void]$st.tok.Append((PrgDyn '')); $st.started = $true; $i = PrgSkipParens $s ($i + 1); continue }
+            if ($c1 -ceq '(') { [void]$st.tok.Append((PrgDyn '')); $st.started = $true; $end = PrgSkipParens $s ($i + 1); $st.nested.Add((PrgSlice $s ($i + 2) ([Math]::Max($i + 2, $end - 1)))); $i = $end; continue }
             if ($c1 -ceq '<') {
                 if ((PrgAt $s ($i + 2)) -ceq '<') { $st.hereString = $true; $i += 3; continue }
                 $m = [regex]::Match((PrgSlice $s $i $n), '^<<-?\s*(\\?)([''"]?)([A-Za-z_][A-Za-z0-9_]*)\2')
@@ -1402,7 +1405,7 @@ function Split-ProtectedCommandLine([string]$Command) {
             }
             $st.expectStdinFile = $true; $i += 1; continue
         }
-        if ($c -ceq '>' -and $c1 -ceq '(') { & $endToken; [void]$st.tok.Append((PrgDyn '')); $st.started = $true; $i = PrgSkipParens $s ($i + 1); continue }
+        if ($c -ceq '>' -and $c1 -ceq '(') { & $endToken; [void]$st.tok.Append((PrgDyn '')); $st.started = $true; $end = PrgSkipParens $s ($i + 1); $st.nested.Add((PrgSlice $s ($i + 2) ([Math]::Max($i + 2, $end - 1)))); $i = $end; continue }
         if ($c -ceq '>') {
             if ($st.tok.ToString() -cmatch '^[0-9]+\z') { [void]$st.tok.Clear(); $st.started = $false }
             & $endToken
@@ -1412,7 +1415,7 @@ function Split-ProtectedCommandLine([string]$Command) {
             else { $st.skipNext = $true }
             $i = $j; continue
         }
-        if ($c -ceq '$') { $v = PrgReadVariable $s $i; if ($null -ne $v) { [void]$st.tok.Append($v[0]); $st.started = $true; $i = $v[1]; continue } }
+        if ($c -ceq '$') { $v = PrgReadVariable $s $i $st.nested; if ($null -ne $v) { [void]$st.tok.Append($v[0]); $st.started = $true; $i = $v[1]; continue } }
         if ($c -ceq '%') {
             $m = PrgCmdVariable (PrgSlice $s $i $n)
             if ($null -ne $m) { [void]$st.tok.Append((PrgDyn $m[1])); $st.started = $true; $i += $m[0].Length; continue }
@@ -1420,6 +1423,7 @@ function Split-ProtectedCommandLine([string]$Command) {
         [void]$st.tok.Append($c); $st.started = $true; $i += 1
     }
     & $endPipeline
+    foreach ($inner in @($st.nested)) { foreach ($pl in (Split-ProtectedCommandLine $inner)) { $pipelines.Add($pl) } }
     return , $pipelines
 }
 
