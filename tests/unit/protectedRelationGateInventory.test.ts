@@ -1330,6 +1330,128 @@ describe('canaries: U30F5 -- D-2 inline code, D-5 substituted SQL, D-6 process a
 });
 
 // ---------------------------------------------------------------------------------------------
+// U30F6: the verifier's launch-smuggling cases (U30F5 verification, B01-B26: 23 forms, 3 controls) and the
+// forms F5-2 (preloaded modules), F5-3 (unresolved launches), F5-4 (dynamic launch paths), F5-6 (templates),
+// F5-7 (folded YAML), F5-10 (revoke on the literal surface)
+// ---------------------------------------------------------------------------------------------
+
+const EVIL6_SQL = 'TRUNCATE env.sgu_well';
+const EVIL6_TS = `${PG5}await pool.query('${EVIL6_SQL}');\n`;
+const EVIL6_SH = `psql "$DB" -c "${EVIL6_SQL}"\n`;
+const EVIL6_PY = `import psycopg2\npsycopg2.connect('').cursor().execute('${EVIL6_SQL}')\n`;
+const npm6 = (scripts: Record<string, string>, extra: Record<string, unknown> = {}) => `${JSON.stringify({ name: 'x', ...extra, scripts }, null, 2)}\n`;
+
+/**
+ * The verifier's B cases as written (v-attack.test.ts, U30F5 verification). `caught`: a violation the scan must
+ * catch; `control`: must pass; `B3`/`B7`: a KNOWN LIMIT the report lists under that blocker (unknown package code,
+ * runbook SQL) -- pinned as not caught here, so a change either way is a reviewed edit of this table.
+ */
+const SMUGGLING_CASES: readonly { id: string; expect: 'caught' | 'control' | 'B3' | 'B7'; files: Record<string, string> }[] = [
+  { id: 'B01 npm "tsx ./rel/unit/x.test.ts" (test source outside runner)', expect: 'caught', files: { 'tools/b01/package.json': npm6({ x: 'tsx ./scripts/brogue/unit/purge1.test.ts' }), 'scripts/brogue/unit/purge1.test.ts': EVIL6_TS } },
+  { id: 'B02 npm "npx tsx" test source', expect: 'caught', files: { 'tools/b02/package.json': npm6({ x: 'npx tsx scripts/brogue/unit/purge2.test.ts' }), 'scripts/brogue/unit/purge2.test.ts': EVIL6_TS } },
+  { id: 'B03 npm "pnpm exec tsx" test source', expect: 'caught', files: { 'tools/b03/package.json': npm6({ x: 'pnpm exec tsx scripts/brogue/unit/purge3.test.ts' }), 'scripts/brogue/unit/purge3.test.ts': EVIL6_TS } },
+  { id: 'B04 npm "node --require ./x.txt" (required file is code)', expect: 'caught', files: { 'tools/b04/package.json': npm6({ x: 'node --require ./scripts/brogue/hook4.txt scripts/brogue/ok4.mjs' }), 'scripts/brogue/hook4.txt': `require('child_process').execSync('psql -c "${EVIL6_SQL}"');\n`, 'scripts/brogue/ok4.mjs': 'console.log(1);\n' } },
+  { id: 'B05 npm "node --import ./hook.mjs" with a DATA-named hook', expect: 'caught', files: { 'tools/b05/package.json': npm6({ x: 'node --import ./scripts/brogue/hook5.json scripts/brogue/ok5.mjs' }), 'scripts/brogue/hook5.json': EVIL6_TS, 'scripts/brogue/ok5.mjs': 'console.log(1);\n' } },
+  { id: 'B06 npm "yarn dlx <unknown package>"', expect: 'B3', files: { 'tools/b06/package.json': npm6({ x: 'yarn dlx pg-wipe-everything --schema env' }) } },
+  { id: 'B07 CI step "bash scripts/x.txt"', expect: 'caught', files: { '.github/workflows/b07.yml': 'on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/brogue/purge7.txt\n', 'scripts/brogue/purge7.txt': EVIL6_SH } },
+  { id: 'B08 Dockerfile COPY data file + ENTRYPOINT sh /container/path', expect: 'caught', files: { 'deploy/b08/Dockerfile': 'FROM postgres:16\nCOPY scripts/brogue/purge8.txt /x.sh\nENTRYPOINT ["sh", "/x.sh"]\n', 'scripts/brogue/purge8.txt': EVIL6_SH } },
+  { id: 'B09 compose command bash /app/<abs container path>', expect: 'caught', files: { 'deploy/b09/docker-compose.yml': 'services:\n  m:\n    image: x\n    command: ["bash", "/app/scripts/brogue/purge9.txt"]\n', 'scripts/brogue/purge9.txt': EVIL6_SH } },
+  { id: 'B10 compose command bash relative path', expect: 'caught', files: { 'deploy/b10/docker-compose.yml': 'services:\n  m:\n    image: x\n    command: bash scripts/brogue/purge10.txt\n', 'scripts/brogue/purge10.txt': EVIL6_SH } },
+  { id: 'B11 .devcontainer postCreateCommand bash data file', expect: 'caught', files: { '.devcontainer/b11/devcontainer.json': `${JSON.stringify({ postCreateCommand: 'bash scripts/brogue/purge11.txt' })}\n`, 'scripts/brogue/purge11.txt': EVIL6_SH } },
+  { id: 'B12 package.json "bin" entry to a data file', expect: 'B3', files: { 'tools/b12/package.json': npm6({ ok: 'echo ok' }, { bin: { wipe: 'scripts/brogue/purge12.txt' } }), 'scripts/brogue/purge12.txt': `#!/usr/bin/env node\n${EVIL6_TS}` } },
+  { id: 'B13 sh chain bash "$(dirname "$0")/x.txt" (dynamic path)', expect: 'caught', files: { 'scripts/brogue/run13.sh': '#!/bin/sh\nbash "$(dirname "$0")/purge13.txt"\n', 'scripts/brogue/purge13.txt': EVIL6_SH } },
+  { id: 'B14 python chain subprocess python x.md', expect: 'caught', files: { 'scripts/brogue/run14.py': "import subprocess\nsubprocess.run(['python', 'scripts/brogue/purge14.md'])\n", 'scripts/brogue/purge14.md': EVIL6_PY } },
+  { id: 'B15 ps1 chain & pwsh -File (Join-Path $PSScriptRoot x.txt)', expect: 'caught', files: { 'scripts/brogue/run15.ps1': "& pwsh -File (Join-Path $PSScriptRoot 'purge15.txt')\n", 'scripts/brogue/purge15.txt': `psql -c "${EVIL6_SQL}"\n` } },
+  { id: 'B16 npm direct exec of an extensionless file', expect: 'caught', files: { 'tools/b16/package.json': npm6({ x: './scripts/brogue/purge16' }), 'scripts/brogue/purge16': `#!/bin/sh\n${EVIL6_SH}` } },
+  { id: 'B17 npm bash of a .json (wrong extension)', expect: 'caught', files: { 'tools/b17/package.json': npm6({ x: 'bash scripts/brogue/purge17.json' }), 'scripts/brogue/purge17.json': EVIL6_SH } },
+  { id: 'B18 runbook ```bash block runs a data file', expect: 'caught', files: { 'docs/brogue/runbook18.md': '# ops\n\n```bash\nbash scripts/brogue/purge18.txt\n```\n', 'scripts/brogue/purge18.txt': EVIL6_SH } },
+  { id: 'B19 runbook ```bash block with inline psql TRUNCATE', expect: 'B7', files: { 'docs/brogue/runbook19.md': `# ops\n\n\`\`\`bash\n${EVIL6_SH}\`\`\`\n` } },
+  { id: 'B20 tsx with a flag value then a test source', expect: 'caught', files: { 'tools/b20/package.json': npm6({ x: 'tsx --tsconfig tsconfig.json scripts/brogue/unit/purge20.test.ts' }), 'scripts/brogue/unit/purge20.test.ts': EVIL6_TS } },
+  { id: 'B21 control: a DATA file with SQL that nothing launches', expect: 'control', files: { 'scripts/brogue/notes21.txt': EVIL6_SH } },
+  { id: 'B22 control: a test source that only its runner runs', expect: 'control', files: { 'scripts/brogue/unit/only-runner22.test.ts': EVIL6_TS } },
+  { id: 'B23 control: npm script runs vitest on a test source (runner)', expect: 'control', files: { 'tools/b23/package.json': npm6({ t: 'vitest run scripts/brogue/unit/purge23.test.ts' }), 'scripts/brogue/unit/purge23.test.ts': EVIL6_TS } },
+  { id: 'B24 npm "node -r ts-node/register x.test.ts"', expect: 'caught', files: { 'tools/b24/package.json': npm6({ x: 'node -r ts-node/register scripts/brogue/unit/purge24.test.ts' }), 'scripts/brogue/unit/purge24.test.ts': EVIL6_TS } },
+  { id: 'B25 npm "sh -c \'bash scripts/x.txt\'"', expect: 'caught', files: { 'tools/b25/package.json': npm6({ x: "sh -c 'bash scripts/brogue/purge25.txt'" }), 'scripts/brogue/purge25.txt': EVIL6_SH } },
+  { id: 'B26 npm "source scripts/x.txt" via bash -c', expect: 'caught', files: { 'tools/b26/package.json': npm6({ x: "bash -c '. scripts/brogue/purge26.txt'" }), 'scripts/brogue/purge26.txt': EVIL6_SH } },
+  // the verifier's A forms this unit closes (A21, A30: F5-1/F5-5 in the gate; A41: F5-6)
+  { id: 'A21 psql -c "$1" (positional)', expect: 'caught', files: { 'scripts/arogue/a21.sh': '#!/bin/sh\npsql "$DB" -c "$1"\n' } },
+  { id: 'A30 pgbench -f custom SQL script', expect: 'caught', files: { 'scripts/arogue/a30.sh': '#!/bin/sh\npgbench -n -f /tmp/wipe.sql -t 1 "$DB"\n' } },
+  { id: 'A41 Taskfile.yml cmds: psql -c templated SQL', expect: 'caught', files: { 'tools/arogue2/Taskfile.yml': "version: '3'\ntasks:\n  wipe:\n    cmds:\n      - psql -c \"{{.SQL}}\"\n" } },
+];
+
+describe("canaries: U30F6 -- the verifier's launch-smuggling cases B01-B26 and A21/A30/A41", () => {
+  it('the table holds the 23 smuggling forms and 3 controls of B01-B26', () => {
+    const b = SMUGGLING_CASES.filter((c) => c.id.startsWith('B'));
+    expect(b.length).toBe(26);
+    expect(b.filter((c) => c.expect === 'control').length).toBe(3);
+  });
+
+  it.each(SMUGGLING_CASES.filter((c) => c.expect === 'caught').map((c) => [c.id, c] as const))('%s -> caught', (_id, c) => {
+    expect(problemsOfTree(c.files).length, `MISSED: ${c.id}`).toBeGreaterThan(0);
+  });
+
+  it.each(SMUGGLING_CASES.filter((c) => c.expect === 'control').map((c) => [c.id, c] as const))('%s passes', (_id, c) => {
+    expect(problemsOfTree(c.files)).toEqual([]);
+  });
+
+  it.each(SMUGGLING_CASES.filter((c) => c.expect === 'B3' || c.expect === 'B7').map((c) => [c.id, c] as const))('KNOWN LIMIT (pinned, BLOCKERARE B3/B7 in the report): %s is not caught by this scan', (_id, c) => {
+    expect(problemsOfTree(c.files)).toEqual([]);
+  });
+});
+
+describe('canaries: U30F6 -- F5-2 preloaded modules, F5-3 unresolved launches, F5-4 dynamic launch paths', () => {
+  const HOOK_TXT = `require('child_process').execSync('psql -c "${EVIL6_SQL}"');\n`;
+  it.each([
+    ['F5-2 npm: node -r ./hook.txt (short form)', { 'tools/u9a/package.json': npm6({ x: 'node -r ./scripts/w6rogue/hook-a.txt scripts/w6rogue/ok-a.mjs' }), 'scripts/w6rogue/hook-a.txt': HOOK_TXT, 'scripts/w6rogue/ok-a.mjs': 'console.log(1);\n' }],
+    ['F5-2 npm: node --loader ./hook.txt', { 'tools/u9b/package.json': npm6({ x: 'node --loader ./scripts/w6rogue/hook-b.txt scripts/w6rogue/ok-b.mjs' }), 'scripts/w6rogue/hook-b.txt': HOOK_TXT, 'scripts/w6rogue/ok-b.mjs': 'console.log(1);\n' }],
+    ['F5-2 npm: node --experimental-loader=./hook.txt (= form)', { 'tools/u9c/package.json': npm6({ x: 'node --experimental-loader=./scripts/w6rogue/hook-c.txt scripts/w6rogue/ok-c.mjs' }), 'scripts/w6rogue/hook-c.txt': HOOK_TXT, 'scripts/w6rogue/ok-c.mjs': 'console.log(1);\n' }],
+    ['F5-2 npm: tsx --import ./hook.json', { 'tools/u9d/package.json': npm6({ x: 'tsx --import ./scripts/w6rogue/hook-d.json scripts/w6rogue/ok-d.ts' }), 'scripts/w6rogue/hook-d.json': EVIL6_TS, 'scripts/w6rogue/ok-d.ts': 'console.log(1);\n' }],
+    ['F5-2 CI: node --require=./hook.txt (= form)', { '.github/workflows/u9e.yml': ci('      - run: node --require=./scripts/w6rogue/hook-e.txt scripts/w6rogue/ok-e.mjs\n'), 'scripts/w6rogue/hook-e.txt': HOOK_TXT, 'scripts/w6rogue/ok-e.mjs': 'console.log(1);\n' }],
+    ['F5-3 npm: bash of a repository path that does not exist', { 'tools/u9f/package.json': npm6({ x: 'bash scripts/w6rogue/no-such-file.sh' }) }],
+    ['F5-3 CI: python -m of a module that is not in the repository', { '.github/workflows/u9g.yml': ci('      - run: python -m w6rogue_no_such_module --wipe\n') }],
+    ['F5-3 Dockerfile: CMD runs a container path no COPY in the repository explains', { 'deploy/u9h/Dockerfile': 'FROM node:22\nCMD ["node", "/srv/w6rogue/wipe.js"]\n' }],
+    ['F5-4 sh: bash "$DIR/x.sh" with DIR not in the source', { 'scripts/w6rogue/f4a.sh': '#!/bin/sh\nbash "$DIR/wipe.sh"\n' }],
+    ['F5-4 npm: node "$SCRIPTS/x.js"', { 'tools/u9i/package.json': npm6({ x: 'node "$SCRIPTS/wipe.js"' }) }],
+    ['F5-4 ps1: pwsh -File "$env:TOOLS\\x.ps1"', { 'scripts/w6rogue/f4b.ps1': '& pwsh -File "$env:TOOLS\\wipe.ps1"\n' }],
+    ['F5-4 sh: a file executed directly at a dynamic directory', { 'scripts/w6rogue/f4c.sh': '#!/bin/sh\n"$TOOLS/wipe.sh" --all\n' }],
+    ['F5-4 npm: node -r with a dynamic preload', { 'tools/u9j/package.json': npm6({ x: 'node -r "$HOOK" scripts/w6rogue/ok-j.mjs' }), 'scripts/w6rogue/ok-j.mjs': 'console.log(1);\n' }],
+    ['F5-4 sh: SCRIPT_DIR from dirname "$0" then bash "$SCRIPT_DIR/x.txt" (resolved, scanned as sh)', { 'scripts/w6rogue/f4d.sh': '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nbash "$SCRIPT_DIR/f4d-purge.txt"\n', 'scripts/w6rogue/f4d-purge.txt': EVIL6_SH }],
+    ['F5-4 cmd: call "%~dp0x.txt" (resolved: a data file executed directly)', { 'scripts/w6rogue/f4e.cmd': '@echo off\r\ncall "%~dp0f4e-purge.txt"\r\n', 'scripts/w6rogue/f4e-purge.txt': EVIL6_SH }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['F5-2 npm: node -r of a package (dotenv/config) runs a harmless script', { 'tools/u9k/package.json': npm6({ x: 'node -r dotenv/config scripts/w6rogue/ok-k.mjs' }), 'scripts/w6rogue/ok-k.mjs': 'console.log(1);\n' }],
+    ['F5-2 npm: node --import ./hook.mjs that writes nothing', { 'tools/u9l/package.json': npm6({ x: 'node --import ./scripts/w6rogue/hook-l.mjs scripts/w6rogue/ok-l.mjs' }), 'scripts/w6rogue/hook-l.mjs': 'console.log(0);\n', 'scripts/w6rogue/ok-l.mjs': 'console.log(1);\n' }],
+    ['F5-4 sh: bash "$(dirname "$0")/ok.sh" that runs no DB tool', { 'scripts/w6rogue/f4f.sh': '#!/bin/sh\nbash "$(dirname "$0")/f4f-ok.sh"\n', 'scripts/w6rogue/f4f-ok.sh': 'echo ok\n' }],
+    ['F5-4 ps1: & pwsh -File (Join-Path $PSScriptRoot ok.ps1) that runs no DB tool', { 'scripts/w6rogue/f4g.ps1': "& pwsh -File (Join-Path $PSScriptRoot 'f4g-ok.ps1')\n", 'scripts/w6rogue/f4g-ok.ps1': "Write-Host 'ok'\n" }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfTree(files)).toEqual([]);
+  });
+});
+
+describe('canaries: U30F6 -- F5-6 template placeholders, F5-7 folded YAML blocks, F5-10 revoke and find', () => {
+  it.each([
+    ['F5-6 Taskfile: psql -c "{{ .SQL }}" (spaced)', { 'tools/u9m/Taskfile.yml': "version: '3'\ntasks:\n  wipe:\n    cmds:\n      - psql -c \"{{ .SQL }}\"\n" }],
+    ['F5-6 Taskfile: bash -c "{{.CMD}}"', { 'tools/u9n/Taskfile.yml': "version: '3'\ntasks:\n  wipe:\n    cmds:\n      - bash -c \"{{.CMD}}\"\n" }],
+    ['F5-7 CI run: > with node on one line and -e on the next', { '.github/workflows/u9o.yml': ci('      - run: >\n          node\n          -e "require(\'child_process\').execSync(process.env.X)"\n') }],
+    ['F5-7 CI run: >- with python on one line and -c on the next', { '.github/workflows/u9p.yml': ci(`      - run: >-\n          python\n          -c "import psycopg2; psycopg2.connect('').cursor().execute('${EVIL6_SQL}')"\n`) }],
+    ['F5-10 a literal holding only REVOKE ... ON a protected relation', { 'scripts/w6rogue/f10a.ts': "export const q = 'REVOKE ALL ON env.sgu_well FROM app_user';\n" }],
+    ['F5-10 sh: find -exec psql -c {} + (only the runner rule reads it)', { 'scripts/w6rogue/f10b.sh': "#!/bin/sh\nfind . -name '*.sql' -exec psql -c {} +\n" }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['F5-6 Taskfile: echo "{{.NAME}}" runs no DB tool', { 'tools/u9q/Taskfile.yml': "version: '3'\ntasks:\n  hello:\n    cmds:\n      - echo \"{{.NAME}}\"\n" }],
+    ['F5-7 CI run: > folding npx vitest run and a test source on the next line (its runner: no launch)', { '.github/workflows/u9r.yml': ci('      - run: >\n          npx vitest run\n          scripts/w6rogue/unit/purge-r.test.ts\n'), 'scripts/w6rogue/unit/purge-r.test.ts': EVIL6_TS }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfTree(files)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Generated violations: languages x channels x relations x obfuscations x paths
 // ---------------------------------------------------------------------------------------------
 
