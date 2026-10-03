@@ -42,19 +42,6 @@ RUN npm run build
 # köra en andra npm ci utan packages/.
 RUN npm prune --omit=dev --legacy-peer-deps --ignore-scripts
 
-# Releaseidentiteten (product-release-v3) MÄTS över de filer bygget levererar
-# (server/, src/, packages/, prisma/, components/, dist/ samt de tre V1/V2-
-# filerna) och skrivs till release-identity.json, med samma algoritm som
-# varje process använder vid start (scripts/release/buildIdentityDigest.mjs).
-# Kontexten är git archive <SHA> utan .git, och Dockerfile/.dockerignore/
-# deploy/ ligger utanför den, så commit, träd och kompositionshash lämnas in
-# av deploy/onprem/build-image.sh som byggargument. Argumenten har ingen
-# default: ett bygge utan dem misslyckas i stället för att gissa en identitet.
-ARG SOURCE_COMMIT_SHA
-ARG SOURCE_TREE_SHA
-ARG COMPOSITION_MANIFEST_SHA256
-RUN node scripts/release/write-build-identity.mjs --source-commit "$SOURCE_COMMIT_SHA" --source-tree "$SOURCE_TREE_SHA" --composition-manifest-sha256 "$COMPOSITION_MANIFEST_SHA256"
-
 # Steg 2: Produktionsbas (gemensam för alla slutliga images)
 FROM base AS production-base
 # tsconfig.json följer med för tsconfig-paths: fem @miljobeslut-specifierare
@@ -83,9 +70,6 @@ RUN chown appuser:appgroup /app
 # package.json och tsconfig.json rörs inte av bygget.
 COPY --chown=appuser:appgroup package-lock.json ./
 COPY --from=builder --chown=appuser:appgroup /app/package.json /app/tsconfig.json ./
-# Identiteten bygget mätte; varje process räknar om digesten vid start och
-# vägrar starta vid avvikelse (REJECT_PRODUCT_RELEASE_BUILD_MISMATCH).
-COPY --from=builder --chown=appuser:appgroup /app/release-identity.json ./
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=builder --chown=appuser:appgroup /app/packages ./packages
 COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
@@ -99,6 +83,23 @@ COPY --from=builder --chown=appuser:appgroup /app/config ./config
 COPY --from=builder --chown=appuser:appgroup /app/types ./types
 COPY --from=builder --chown=appuser:appgroup /app/stubs ./stubs
 COPY --from=builder --chown=appuser:appgroup /app/*.ts ./
+
+# Releaseidentiteten (product-release-v3) MÄTS här, efter sista COPY, över
+# exakt den /app imagen levererar (server/, src/, packages/, prisma/, dist/ och
+# de tre V1/V2-filerna, med package-lock.json ur kontexten) och skrivs till
+# release-identity.json, som själv inte ingår i digesten. Samma algoritm som
+# varje process använder vid start (scripts/release/buildIdentityDigest.mjs);
+# en avvikelse vid start är REJECT_PRODUCT_RELEASE_BUILD_MISMATCH. Inte i
+# builder: dess träd har components/ och den låsfil npm prune skrev om, och
+# ingen av dem levereras (W-U42B, R-U402-14). Dockerfile/.dockerignore/
+# deploy/ och .git kopieras inte hit, så commit, träd och kompositionshash
+# lämnas in av deploy/onprem/build-image.sh som byggargument. Argumenten har
+# ingen default: ett bygge utan dem misslyckas i stället för att gissa en
+# identitet. Inget steg efter detta får leverera eller ändra filer i /app.
+ARG SOURCE_COMMIT_SHA
+ARG SOURCE_TREE_SHA
+ARG COMPOSITION_MANIFEST_SHA256
+RUN node scripts/release/write-build-identity.mjs --source-commit "$SOURCE_COMMIT_SHA" --source-tree "$SOURCE_TREE_SHA" --composition-manifest-sha256 "$COMPOSITION_MANIFEST_SHA256"
 
 USER appuser
 
