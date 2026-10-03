@@ -576,10 +576,13 @@ function unreadableDetail(
     integrity: outcome === 'corrupted' ? 'CORRUPTED' : null,
     technical_error_class: technicalClass,
     binding_assurance: 'NONE',
+    // W-UI1 (C, owner decision 5): plain Swedish for the user; the class stays in technical_error_class.
     message_sv:
       outcome === 'corrupted'
-        ? 'Tekniskt fel: evidensens lagrade bytes stämmer inte med sin hash (EVIDENCE_CORRUPTED).'
-        : `Tekniskt fel: evidensen kunde inte läsas ur CAS (${technicalClass}).`,
+        ? 'Tekniskt fel: evidensens lagrade innehåll stämmer inte med sin innehållskontroll.'
+        : outcome === 'not_found'
+          ? 'Tekniskt fel: evidensen hittades inte i arkivet.'
+          : 'Tekniskt fel: evidensen kunde inte läsas ur arkivet (läsfel).',
     binding_note_sv: 'Ingen bindning kan redovisas: evidensen kunde inte läsas.',
   };
 }
@@ -591,7 +594,7 @@ function tamperedDetail(ref: { artifact_id: string; artifact_type: string }, cit
     integrity: 'TAMPERED',
     technical_error_class: 'EVIDENCE_TAMPERED',
     binding_assurance: 'NONE',
-    message_sv: 'Integritetsfel: den lagrade evidensen stämmer inte med sin egen identitet (hash/id/typ).',
+    message_sv: 'Integritetsfel: den lagrade evidensen stämmer inte med sin egen identitet (innehåll, id eller typ).',
     binding_note_sv: 'Ingen bindning kan redovisas: evidensen klarade inte integritetskontrollen.',
   };
 }
@@ -774,9 +777,10 @@ function documentDetail(
     content_hash: contentHash,
     binding_assurance: 'STRUCTURAL_ONLY',
     message_sv: 'Dokumentevidens knuten till bedömningen.',
+    // W-UI1 (C; coordinator 2026-10-03): verify checks consistency only -- never "fullständig", never authenticity.
     binding_note_sv:
-      'Dokumentevidensen kontrolleras här bara strukturellt (typ, id, innehållshash finns); fullständig ' +
-      'verifiering görs av verifiera/replay.',
+      'Dokumentevidensen kontrolleras här bara strukturellt (typ, id och innehållskontroll finns). ' +
+      'Reproducerbarhetskontrollen prövar konsistensen mot de pinnade artefakterna, inte äktheten.',
   };
 }
 
@@ -793,7 +797,8 @@ function notInterpretedDetail(
     technical_error_class: null,
     content_hash: typeof contentHash === 'string' ? contentHash : null,
     binding_assurance: 'NONE',
-    message_sv: `Evidenstypen ${ref.artifact_type} redovisas inte i denna vy.`,
+    // W-UI1 (C): the type code stays in artifact_type (technical); the sentence names no code.
+    message_sv: 'En evidenstyp som denna vy inte tolkar redovisas inte här.',
     binding_note_sv: 'Ingen bindning redovisas för en evidenstyp som inte tolkas här.',
   };
 }

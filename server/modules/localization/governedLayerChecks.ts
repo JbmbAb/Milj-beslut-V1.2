@@ -124,7 +124,7 @@ const DOCUMENT_CHECK_MESSAGE_SV: Readonly<Record<GovernedDocumentCheckReason | '
     'Dokument och tidigare beslut: inte kontrollerat. Bedömningens evidensreferenser kunde inte läsas.',
   PINNED_EVIDENCE_UNREADABLE:
     'Dokument och tidigare beslut: tekniskt fel. Dokumentunderlaget som bedömningen är bunden till kunde ' +
-    'inte läsas ur CAS och kan därför inte verifieras. Kontrollen redovisas inte som genomförd, och ingen ' +
+    'inte läsas ur arkivet och kan därför inte verifieras. Kontrollen redovisas inte som genomförd, och ingen ' +
     'slutsats dras om dokument eller tidigare beslut.',
   MALFORMED_DOCUMENT_REFS:
     'Dokument och tidigare beslut: inte kontrollerat. Bedömningens evidensreferenser innehåller felformade ' +
