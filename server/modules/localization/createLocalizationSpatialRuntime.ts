@@ -6,6 +6,7 @@ import {
 } from "@miljobeslut/mps-lu";
 import { MimersIntegration, type ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
 import { SpatialProviderPostGIS } from "@miljobeslut/spatial-provider-postgis";
+import { requireDatabaseUrl } from "../runtime-env/runtimeDatabaseUrl";
 
 export interface LocalizationSpatialRuntime {
   readonly artifactRepository: ArtifactRepositoryPort;
@@ -22,14 +23,17 @@ export interface LocalizationSpatialRuntime {
  * The application use case asks for a capability and never imports or constructs a vendor
  * provider. This module is the sole place where the registry-approved implementation id is
  * mapped to the concrete PostGIS adapter.
+ *
+ * W-U402 (U40-2, spec U40-U50B §0 point 4 / §1.3): there is no default database. Without DATABASE_URL (absent or
+ * blank) the runtime refuses with DATABASE_URL_REQUIRED before anything is opened -- no CAS, no provider, no pool --
+ * instead of querying a built-in credential URL on the local host. The caller's failure path stays fail-closed (no
+ * assessment, no verdict).
  */
 export async function createLocalizationSpatialRuntime(): Promise<LocalizationSpatialRuntime> {
+  const databaseUrl = requireDatabaseUrl(process.env, "the localization spatial runtime");
   const mimers = await MimersIntegration.create();
   const artifactRepository = mimers.artifactRepository;
-  const provider = new SpatialProviderPostGIS(
-    process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/mimer",
-    artifactRepository,
-  );
+  const provider = new SpatialProviderPostGIS(databaseUrl, artifactRepository);
   const resolver = new SpatialProviderResolver({
     registry: createLuRegistryRuntime(),
     providers: {
