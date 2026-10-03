@@ -531,16 +531,21 @@ export function realTargetPath(canonical: string): RealTarget {
 
 const rootRealForms = new Map<string, string | null>();
 /**
- * TDG-6 (finding 4): a protected root's own real path when it differs from the root as written (an 8.3 name
- * or a junction in the root's own path) -- the real target is compared with roots in their long form too.
- * Memoized per process; only a metadata lookup of the root's existing part, never a listing, never a write.
+ * TDG-6 (finding 4): a protected root in its long form when that differs from the root as written (an 8.3
+ * name or a junction in the path ABOVE the root, e.g. a home directory given by its short name) -- the real
+ * target is compared with roots in their long form too. Only the root's PARENT chain is looked up (a metadata
+ * lookup, memoized per process): the protected root itself -- D:\mimer-demo, ~/.mimers, a tree's .env.local --
+ * is never opened, listed or written.
  */
 function rootRealForm(root: string): string | null {
   const key = norm(root);
   if (!rootRealForms.has(key)) {
     if (rootRealForms.size > 20_000) rootRealForms.clear();
-    const real = realTargetPath(canonicalTargetPath(root));
-    rootRealForms.set(key, real !== null && 'path' in real && norm(real.path) !== key ? real.path : null);
+    const canonical = canonicalTargetPath(root);
+    const parent = path.dirname(canonical);
+    const real = parent === canonical ? null : realTargetPath(parent);
+    const long = real !== null && 'path' in real ? path.join(real.path, path.basename(canonical)) : null;
+    rootRealForms.set(key, long !== null && norm(long) !== key ? long : null);
   }
   return rootRealForms.get(key) ?? null;
 }
