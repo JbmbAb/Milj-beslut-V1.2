@@ -1598,6 +1598,155 @@ describe('U30F7: the CASCADE scripts are retired entry points or gated (owner de
 });
 
 // ---------------------------------------------------------------------------------------------
+// U30F8: the delta verifier's G6-1..G6-11 (U30F6+F7 verification) -- here-documents, content-pinned DYNAMIC entries,
+// JSON-config preloads, PowerShell dot-sourcing, NODE_OPTIONS, npm/yarn run of a value, a new unresolved launch of a
+// reviewed launcher
+// ---------------------------------------------------------------------------------------------
+
+/** As problemsOfTree, but a file may also REPLACE an existing repository file (an edit of a real file, in memory). */
+function problemsOfChange(files: Readonly<Record<string, string>>): Problem[] {
+  const realRead = readRepo(REPO_ROOT);
+  const read = (p: string): string | null => (Object.prototype.hasOwnProperty.call(files, p) ? files[p]! : realRead(p));
+  const texts = new Map(REPO.texts);
+  const scans = new Map(REPO.scans);
+  for (const [f, text] of Object.entries(files)) {
+    texts.set(f, text);
+    if (isScannedPath(f)) scans.set(f, scanFile(f, text, { readRepoFile: read }));
+  }
+  const overlay: RepositoryScan = { files: [...new Set([...REPO.files, ...Object.keys(files)])].sort(), scans, texts };
+  const ctx = contextFor(overlay);
+  const out: Problem[] = [];
+  for (const f of Object.keys(files)) {
+    const scan = scans.get(f);
+    if (scan) out.push(...evaluateFile(f, texts.get(f)!, scan, ctx));
+  }
+  const own = Object.keys(files);
+  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read)];
+  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx));
+  return out.filter((p) => !p.open);
+}
+
+const EVIL8_SQL = 'TRUNCATE env.sgu_well';
+const EVIL8_SH = `psql "$DB" -c "${EVIL8_SQL}"\n`;
+const EVIL8_CJS = `require('child_process').execSync('psql -c "${EVIL8_SQL}"');\n`;
+const EVIL8_TS = `${PG5}await pool.query('${EVIL8_SQL}');\n`;
+const EVIL8_PY = `import psycopg2\npsycopg2.connect('').cursor().execute('${EVIL8_SQL}')\n`;
+const OK8 = 'console.log(1);\n';
+const sh8 = (body: string) => `#!/bin/sh\n${body}\n`;
+
+describe('canaries: U30F8 -- G6-1 here-documents, here-strings and stdin carry values or code into a program', () => {
+  it.each([
+    ['P20 sh: psql "$DB" <<EOF with $1', { 'scripts/w8rogue/p20.sh': '#!/bin/sh\npsql "$DB" <<EOF\n$1\nEOF\n' }],
+    ['E7 sh: psql "$DB" <<EOF with $SQL', { 'scripts/w8rogue/e7.sh': '#!/bin/sh\npsql "$DB" <<EOF\n$SQL\nEOF\n' }],
+    ['sh: psql <<-EOF (tab-stripped) with "$@"', { 'scripts/w8rogue/g1a.sh': '#!/bin/sh\npsql <<-EOF\n\t$@\n\tEOF\n' }],
+    ['sh: psql <<< "$SQL" (here-string)', { 'scripts/w8rogue/g1b.sh': sh8('psql "$DB" <<< "$SQL"') }],
+    ['sh: docker exec -i db psql <<EOF with $1', { 'scripts/w8rogue/g1c.sh': '#!/bin/sh\ndocker exec -i db psql -U u <<EOF\n$1\nEOF\n' }],
+    ['sh: bash <<EOF running $CMD', { 'scripts/w8rogue/g1d.sh': '#!/bin/sh\nbash <<EOF\n$CMD\nEOF\n' }],
+    ['sh: docker exec -i db sh <<EOF running $CMD', { 'scripts/w8rogue/g1e.sh': '#!/bin/sh\ndocker exec -i db sh <<EOF\n$CMD\nEOF\n' }],
+    ['sh: python3 - <<EOF with $CODE', { 'scripts/w8rogue/g1f.sh': '#!/bin/sh\npython3 - <<EOF\n$CODE\nEOF\n' }],
+    ['sh: node <<< "$JS"', { 'scripts/w8rogue/g1g.sh': sh8('node <<< "$JS"') }],
+    ["sh: python3 - <<'PY' whose (unexpanded) body executes SQL from the environment", { 'scripts/w8rogue/g1h.sh': "#!/bin/sh\npython3 - <<'PY'\nimport os, psycopg2\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\nPY\n" }],
+    ['sh: bash < data file (stdin script)', { 'scripts/w8rogue/g1i.sh': sh8('bash < scripts/w8rogue/g1i.txt'), 'scripts/w8rogue/g1i.txt': EVIL8_SH }],
+    ['CI run: | with psql <<EOF and ${{ inputs.sql }}', { '.github/workflows/w8g1j.yml': 'on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          psql "$DB" <<EOF\n          $SQL\n          EOF\n' }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["E11 sh: psql <<'EOF' with a static SELECT (quoted: no expansion)", { 'scripts/w8rogue/c1.sh': "#!/bin/sh\npsql \"$DB\" <<'EOF'\nSELECT 1;\nEOF\n" }],
+    ["sh: psql <<'EOF' with a bind parameter $1 (quoted: no expansion)", { 'scripts/w8rogue/c2.sh': "#!/bin/sh\npsql \"$DB\" <<'EOF'\nDELETE FROM stage.x WHERE id = $1;\nEOF\n" }],
+    ['sh: cat <<EOF > file with $HOME (data, not code)', { 'scripts/w8rogue/c3.sh': '#!/bin/sh\ncat <<EOF > out.txt\nhome=$HOME\nEOF\n' }],
+    ["sh: python3 - <<'PY' that prints", { 'scripts/w8rogue/c4.sh': "#!/bin/sh\npython3 - <<'PY'\nprint(1)\nPY\n" }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfTree(files)).toEqual([]);
+  });
+});
+
+const ORCH8 = 'scripts/import/run-geodata-gap-pipeline.ts';
+const LMSTAC8 = 'scripts/import/run-lm-stac-librarian-pipeline.ts';
+const NAT8 = 'scripts/import/run-national-reharvest.ts';
+const SGUP8 = 'scripts/import/run-sgu-librarian-pipeline.ts';
+const FOCUS8 = 'scripts/import/run-import-focus.ps1';
+
+describe('canaries: U30F8 -- G6-2 a reviewed DYNAMIC file is pinned by content: a new call path in it fails until it is reviewed again', () => {
+  it.each([
+    ['O1 orchestrator: a new runTsx of a test source', { [ORCH8]: `${realText(ORCH8)}\nrunTsx('evil', 'scripts/w8o/unit/o1.test.ts');\n`, 'scripts/w8o/unit/o1.test.ts': EVIL8_TS }],
+    ['O2 orchestrator: a new runTsx of process.argv[2]', { [ORCH8]: `${realText(ORCH8)}\nrunTsx('evil', process.argv[2]!);\n` }],
+    ['O3 orchestrator: a new runTsx of a data file', { [ORCH8]: `${realText(ORCH8)}\nrunTsx('evil', 'scripts/w8o/o3.txt');\n`, 'scripts/w8o/o3.txt': EVIL8_TS }],
+    ['O4 lm-stac orchestrator: a new run of process.argv[3]', { [LMSTAC8]: `${realText(LMSTAC8)}\nrun('evil', [process.argv[3]!]);\n` }],
+    ['O5 national orchestrator: a new runPy of a data file', { [NAT8]: `${realText(NAT8)}\nrunPy('evil', 'scripts/w8o/o5.txt', 'x');\n`, 'scripts/w8o/o5.txt': EVIL8_PY }],
+    ['E8 run-sgu orchestrator: a new run of a test source', { [SGUP8]: `${realText(SGUP8)}\nrun('evil', ['scripts/w8o/unit/e8.test.ts']);\n`, 'scripts/w8o/unit/e8.test.ts': EVIL8_TS }],
+    ['E9 run-import-focus.ps1: a new Run-Step of a data file', { [FOCUS8]: `${realText(FOCUS8)}\nRun-Step 'evil' 'bash scripts/w8o/p9.txt'\n`, 'scripts/w8o/p9.txt': EVIL8_SH }],
+    ['a reviewed DYNAMIC file with only a comment changed (any change is a re-review)', { [ORCH8]: `${realText(ORCH8)}\n// u30f8\n` }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfChange(files).length).toBeGreaterThan(0);
+  });
+
+  it('every DYNAMIC_REVIEWED entry carries a content pin (sha256 of what the scan reads of the file)', () => {
+    const dynamicEntries = REVIEWED_CHANNELS.filter((e) => e.policy === 'DYNAMIC_REVIEWED');
+    expect(dynamicEntries.length).toBeGreaterThan(40);
+    for (const e of dynamicEntries) expect((e as { contentSha256?: string }).contentSha256, e.file).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('canaries: U30F8 -- G6-11 a new unresolved launch in a launcher that already has reviewed ones still fails as unresolved', () => {
+  it.each([
+    ['O6 package.json: a new npm script to a missing file', '"xo6": "tsx scripts/w8o/missing-o6.ts",'],
+    ['O7 package.json: a new package preload', '"xo7": "node -r dotenv/config scripts/import/run-geodata-gap-pipeline.ts",'],
+  ] as const)('%s', (_label, line) => {
+    const pkg8 = realText('package.json').replace('"scripts": {', `"scripts": {\n    ${line}`);
+    const problems = problemsOfChange({ 'package.json': pkg8 });
+    expect(problems.some((p) => /resolves to no repository file and is not a reviewed unresolved launch/.test(p.problem)), JSON.stringify(problems).slice(0, 600)).toBe(true);
+  });
+});
+
+describe('canaries: U30F8 -- G6-3 JSON configurations, G6-4 PowerShell dot-sourcing, G6-5 NODE_OPTIONS, G6-6 run of a value', () => {
+  it.each([
+    ['L20 devcontainer: node --import ./h.json', { '.devcontainer/w8l20/devcontainer.json': `${JSON.stringify({ name: 'x', postCreateCommand: 'node --import ./scripts/w8l/h20.json scripts/w8l/ok.mjs' }, null, 2)}\n`, 'scripts/w8l/h20.json': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['E1 devcontainer compact JSON: node --import ./h.json', { '.devcontainer/w8e1/devcontainer.json': `${JSON.stringify({ postCreateCommand: 'node --import ./scripts/w8l/h1.json scripts/w8l/ok.mjs' })}\n`, 'scripts/w8l/h1.json': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['E3 devcontainer array form: ["node","--import","./h.json",...]', { '.devcontainer/w8e3/devcontainer.json': `${JSON.stringify({ postCreateCommand: ['node', '--import', './scripts/w8l/h3.json', 'scripts/w8l/ok.mjs'] })}\n`, 'scripts/w8l/h3.json': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['E4 devcontainer: node -r ./h.txt', { '.devcontainer/w8e4/devcontainer.json': `${JSON.stringify({ postCreateCommand: 'node -r ./scripts/w8l/h4.txt scripts/w8l/ok.mjs' })}\n`, 'scripts/w8l/h4.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['devcontainer: postStartCommand as an object of commands', { '.devcontainer/w8e5/devcontainer.json': `${JSON.stringify({ postStartCommand: { hook: 'node -r ./scripts/w8l/h5.txt scripts/w8l/ok.mjs' } })}\n`, 'scripts/w8l/h5.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['.vscode/tasks.json: command node with args -r ./h.txt', { '.vscode/w8t/tasks.json': `${JSON.stringify({ version: '2.0.0', tasks: [{ label: 'x', type: 'process', command: 'node', args: ['-r', './scripts/w8l/h6.txt', 'scripts/w8l/ok.mjs'] }] })}\n`, 'scripts/w8l/h6.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['.vscode/launch.json: a node configuration with runtimeArgs -r ./h.txt', { '.vscode/w8u/launch.json': `${JSON.stringify({ version: '0.2.0', configurations: [{ type: 'node', request: 'launch', name: 'x', runtimeArgs: ['-r', './scripts/w8l/h7.txt'], program: '${workspaceFolder}/scripts/w8l/ok.mjs' }] })}\n`, 'scripts/w8l/h7.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['.vscode/launch.json: a node configuration whose program is a data file', { '.vscode/w8v/launch.json': `${JSON.stringify({ version: '0.2.0', configurations: [{ type: 'node', request: 'launch', name: 'x', program: '${workspaceFolder}/scripts/w8l/p8.txt' }] })}\n`, 'scripts/w8l/p8.txt': EVIL8_CJS }],
+    ['L29 ps1: . "$PSScriptRoot\\p29.txt" (dot-source of an anchored data file)', { 'scripts/w8l/l29.ps1': '. "$PSScriptRoot\\p29.txt"\n', 'scripts/w8l/p29.txt': `psql -c "${EVIL8_SQL}"\n` }],
+    ["E5 ps1: . (Join-Path $PSScriptRoot 'p5.txt')", { 'scripts/w8l/e5.ps1': ". (Join-Path $PSScriptRoot 'p5.txt')\n", 'scripts/w8l/p5.txt': `psql -c "${EVIL8_SQL}"\n` }],
+    ['ps1: . $PSScriptRoot/p30.txt (unquoted)', { 'scripts/w8l/l30.ps1': '. $PSScriptRoot/p30.txt\n', 'scripts/w8l/p30.txt': `psql -c "${EVIL8_SQL}"\n` }],
+    ['ps1: Import-Module of an anchored module that is not in the repository', { 'scripts/w8l/l31.ps1': 'Import-Module "$PSScriptRoot\\w8-missing.psm1"\n' }],
+    ['ps1: . of a path the source does not hold', { 'scripts/w8l/l32.ps1': '. "$env:TOOLS\\x.ps1"\n' }],
+    ["L06 npm: NODE_OPTIONS='--require ./h.txt' node ok", { 'tools/w8l06/package.json': npm6({ x: "NODE_OPTIONS='--require ./scripts/w8l/h06.txt' node scripts/w8l/ok.mjs" }), 'scripts/w8l/h06.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['L07 npm: cross-env NODE_OPTIONS=--require=./h.txt node ok', { 'tools/w8l07/package.json': npm6({ x: 'cross-env NODE_OPTIONS=--require=./scripts/w8l/h07.txt node scripts/w8l/ok.mjs' }), 'scripts/w8l/h07.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['sh: export NODE_OPTIONS="--import ./h.json", then node', { 'scripts/w8l/l08.sh': sh8('export NODE_OPTIONS="--import ./scripts/w8l/h08.json"\nnode scripts/w8l/ok.mjs'), 'scripts/w8l/h08.json': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['Dockerfile: ENV NODE_OPTIONS="--require ./h.txt"', { 'deploy/w8l09/Dockerfile': 'FROM node:22\nENV NODE_OPTIONS="--require ./scripts/w8l/h09.txt"\nCMD ["node", "scripts/w8l/ok.mjs"]\n', 'scripts/w8l/h09.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['compose: environment NODE_OPTIONS (mapping)', { 'deploy/w8l10/docker-compose.yml': 'services:\n  m:\n    image: node:22\n    environment:\n      NODE_OPTIONS: --require ./scripts/w8l/h10.txt\n    command: node scripts/w8l/ok.mjs\n', 'scripts/w8l/h10.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['compose: environment NODE_OPTIONS (list)', { 'deploy/w8l11/docker-compose.yml': 'services:\n  m:\n    image: node:22\n    environment:\n      - NODE_OPTIONS=--import ./scripts/w8l/h11.json\n    command: node scripts/w8l/ok.mjs\n', 'scripts/w8l/h11.json': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['CI: env NODE_OPTIONS on a step', { '.github/workflows/w8l12.yml': 'on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node scripts/w8l/ok.mjs\n        env:\n          NODE_OPTIONS: --require ./scripts/w8l/h12.txt\n', 'scripts/w8l/h12.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['.env file: NODE_OPTIONS=--require ./h.txt', { 'tools/w8l13/.env.w8': 'NODE_OPTIONS=--require ./scripts/w8l/h13.txt\n', 'scripts/w8l/h13.txt': EVIL8_CJS }],
+    ["ps1: $env:NODE_OPTIONS = '--require ./h.txt'", { 'scripts/w8l/l14.ps1': "$env:NODE_OPTIONS = '--require ./scripts/w8l/h14.txt'\nnode scripts/w8l/ok.mjs\n", 'scripts/w8l/h14.txt': EVIL8_CJS, 'scripts/w8l/ok.mjs': OK8 }],
+    ['sh: NODE_OPTIONS from a value the source does not hold', { 'scripts/w8l/l15.sh': sh8('NODE_OPTIONS="$OPTS" node scripts/w8l/ok.mjs'), 'scripts/w8l/ok.mjs': OK8 }],
+    ['L10 npm: yarn run $TASK', { 'tools/w8l16/package.json': npm6({ x: 'yarn run $TASK' }) }],
+    ['L11 npm: npm run "$npm_config_task"', { 'tools/w8l17/package.json': npm6({ x: 'npm run "$npm_config_task"' }) }],
+    ['sh: pnpm run "$X"', { 'scripts/w8l/l18.sh': sh8('pnpm run "$X"') }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfChange(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['devcontainer: postCreateCommand npm ci (no launch)', { '.devcontainer/w8c1/devcontainer.json': `${JSON.stringify({ postCreateCommand: 'npm ci' })}\n` }],
+    ['ps1: . "$PSScriptRoot\\lib-ok.ps1" of a harmless script beside it', { 'scripts/w8c/c2.ps1': '. "$PSScriptRoot\\lib-ok.ps1"\n', 'scripts/w8c/lib-ok.ps1': "Write-Host 'ok'\n" }],
+    ['npm: NODE_OPTIONS=--max-old-space-size=4096 node ok (no preload)', { 'tools/w8c3/package.json': npm6({ x: 'NODE_OPTIONS=--max-old-space-size=4096 node scripts/w8c/ok.mjs' }), 'scripts/w8c/ok.mjs': OK8 }],
+    ['npm: npm run build (a static script name)', { 'tools/w8c4/package.json': npm6({ x: 'npm run build' }) }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfChange(files)).toEqual([]);
+  });
+
+  it('KNOWN LIMIT (pinned, BLOCKERARE B3 in the report): E10 npm "yarn run <static unknown bin>" is not caught by this scan', () => {
+    expect(problemsOfChange({ 'tools/w8k1/package.json': npm6({ x: 'yarn run pg-wipe-everything' }) })).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Generated violations: languages x channels x relations x obfuscations x paths
 // ---------------------------------------------------------------------------------------------
 
