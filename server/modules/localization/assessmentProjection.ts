@@ -415,7 +415,13 @@ export async function resolveCurrentAssessmentProjection(args: {
       validateLocalizationAssessmentContractVersion(assessment.payload);
     } catch (error) {
       // CATCH-REVIEWED: DEFERRED_RETHROW: the contract-version refusal is thrown after every candidate was examined (fail closed, order-independent).
-      contractVersionRefusal ??= error;
+      // W-U20CDF5-R2 (U20CDF5 verification L1): validating content already read is not a read -- a validator that
+      // throws without a REJECT_* token (a V3/V4 record without findings: a TypeError) is the same lasting refusal
+      // as one with it, never a retryable technical error. The original stays in `cause`.
+      contractVersionRefusal ??=
+        error instanceof Error && /^REJECT_[A-Z0-9_]+/.test(error.message)
+          ? error
+          : new Error("REJECT_LOCALIZATION_ASSESSMENT: the stored assessment cannot be validated against its declared contract version", { cause: error });
       continue;
     }
 
