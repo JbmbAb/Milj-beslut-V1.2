@@ -165,6 +165,24 @@ type BoundGeometry = Pick<
 >;
 
 /**
+ * W-TEXT2 delta (F5): the user text of ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED, one sentence per class -- the cause
+ * in plain Swedish, the retry meaning of the class and the consequence. Never the point's id, never the class (both
+ * stay in the machine fields: failureClass / reasonCode, and the server log).
+ */
+export const LOCALIZATION_GEOMETRY_UNVERIFIED_SV: Readonly<Record<AssessmentGeometryFailure['failureClass'], string>> = {
+  LOCALIZATION_GEOMETRY_MISSING:
+    'Bedömningens lokaliseringspunkt kunde inte verifieras: den punkt som bedömningen är bunden till finns inte i arkivet ' +
+    `(bestående fel). ${retrySentenceSv(false)} Bedömningen visas inte.`,
+  LOCALIZATION_GEOMETRY_TAMPERED:
+    'Bedömningens lokaliseringspunkt kunde inte verifieras: den punkt som bedömningen är bunden till klarade inte ' +
+    `integritetskontrollen (bestående fel). ${retrySentenceSv(false)} Bedömningen visas inte.`,
+  LOCALIZATION_GEOMETRY_NOT_BOUND:
+    'Bedömningens lokaliseringspunkt kunde inte verifieras: den punkt som bedömningen är bunden till hör till ett annat ' +
+    `projekt eller en annan fastighet (bestående fel). ${retrySentenceSv(false)} Bedömningen visas inte.`,
+  LOCALIZATION_GEOMETRY_READ_ERROR: `${readFaultSentenceSv(readFaultOfClass('READ_ERROR'), 'Bedömningens lokaliseringspunkt')} Bedömningen visas inte.`,
+};
+
+/**
  * U20-D: resolves and verifies the localization geometry an assessment is bound to. Same
  * determined/technical split as elsewhere: missing, tampered or foreign -> 424; an unknown read
  * failure -> 503 (retryable). Never falls back to the project's current point.
@@ -184,7 +202,7 @@ async function resolveBoundLocalizationGeometry(
   const fail = (status: 424 | 503, failureClass: AssessmentGeometryFailure['failureClass']): AssessmentGeometryFailure => ({
     ok: false,
     status,
-    error: `Bedömningens lokaliseringspunkt (${ref.artifact_id}) kunde inte verifieras (${failureClass}). Bedömningen visas inte.`,
+    error: LOCALIZATION_GEOMETRY_UNVERIFIED_SV[failureClass],
     code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
     failureClass,
     reasonCode: failureClass,
