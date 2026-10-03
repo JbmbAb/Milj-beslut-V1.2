@@ -597,3 +597,17 @@ describe('W-CATCH3-R2 #13: a capability is authentic before it can be "not curre
     expect('config' in result && result.config?.capabilityArtifactId).toBe(capability.artifact_id);
   });
 });
+
+// W-CATCH3-R2 mutation R2-F: the shared id check also compares the requested artifact_type.
+describe('W-CATCH3-R2 #13: the object under the capability id must also be of the requested type', () => {
+  it('the right artifact_id but another artifact_type -> typed STORAGE_INTEGRITY_FAULT (not a REFUSED verification)', async () => {
+    const { capability } = await seed();
+    const envelope = JSON.parse(readFileSync(objectPath(capability.artifact_id), 'utf8')) as { body: Record<string, unknown> };
+    envelope.body = { ...envelope.body, artifact_type: 'viewer_identity' };
+    const cas = new FileCASRepository(casDir, { durabilityMode: 'none' });
+    await cas.initialize();
+    const { hash } = await cas.putBytes(Buffer.from(JSON.stringify(envelope), 'utf8'));
+    writeFileSync(indexEntryPath(capability.artifact_id), JSON.stringify({ artifact_id: capability.artifact_id, hash }));
+    expectIntegrity(await outcome([completedRequest(capability.artifact_id)]));
+  });
+});

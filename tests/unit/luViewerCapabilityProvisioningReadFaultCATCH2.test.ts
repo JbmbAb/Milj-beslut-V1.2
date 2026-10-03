@@ -493,3 +493,14 @@ describe('W-CATCH3-R2 #10: Swedish own-code texts; the refused issuer names both
     );
   });
 });
+
+// W-CATCH3-R2 mutation R2-M: the technical detail of an own code (ids, the English text) is kept as the
+// internal diagnostic the worker logs -- never stored, never lost.
+describe('W-CATCH3-R2 #10: an own code keeps its technical detail as the internal diagnostic', () => {
+  it('a typed denial -> the stored text is neutral Swedish, the diagnostic names the user and the project', async () => {
+    h.accessError = Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED' });
+    const outcome = (await executeViewerCapabilityProvisioning(input())) as { failureDetail?: string; diagnostic?: string };
+    expect(outcome.failureDetail).not.toMatch(/user-1|project-w-catch2/);
+    expect(outcome.diagnostic).toBe('user user-1 is not a member of project project-w-catch2-viewer-provisioning');
+  });
+});
