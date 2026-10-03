@@ -61,6 +61,7 @@ import type { KnownCoverageGap } from './knownCoverageGaps';
 import { presentGovernedFindings } from './presentedGovernedFindings';
 import { isPersistentStorageFault, retrySentenceSv } from './storageFaultClassification';
 import {
+  assertReadUnderItsOwnId,
   classifyReadFault,
   isProjectAccessDenied,
   LuReadFaultError,
@@ -1534,6 +1535,10 @@ async function readPdfContext(
   try {
     const read = await readExistingOrProvenAbsent<{ payload?: unknown }>(repository, target, subject);
     if (!read.found) return { ok: true, payload: null };
+    // W-U20CDF5-R2 (U20CDF5 verification G, probe B5b; the CATCH3 class): the context read under the record's ref
+    // must BE that context -- another property or project under a misdirected entry is a lasting integrity fault
+    // (STORAGE_INTEGRITY_FAULT, 503, not retryable), never its names in the PDF.
+    assertReadUnderItsOwnId(subject, read.value, target.artifact_id, target.artifact_type);
     const payload = read.value?.payload;
     return { ok: true, payload: payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {} };
   } catch (error) {

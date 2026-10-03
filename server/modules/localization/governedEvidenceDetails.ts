@@ -67,6 +67,7 @@ import {
   type PinnedEvidenceReadability,
 } from './governedCoverageStatement';
 import { declaresSpatialResultContract, readSpatialEvidenceForm } from './governedSpatialEvidenceForm';
+import { assertReadUnderItsOwnId, LuReadFaultError } from './readFaultClassification';
 import { knownCoverageGapsFor, knownCoverageLimitationSv, type KnownCoverageGap } from './knownCoverageGaps';
 
 /** The governed spatial layers of LU v1, in check order. The product query requests exactly these. */
@@ -845,6 +846,22 @@ function sameIdentity(stored: { artifact_id?: unknown; content_hash?: { value?: 
   return stored.artifact_id === rebuilt.artifact_id && stored.content_hash?.value === rebuilt.content_hash.value;
 }
 
+/**
+ * W-U20CDF5-R2 (U20CDF5 verification G, probe Gc; the CATCH3 class): a property-root artifact read under `ref` must
+ * BE that artifact -- the shared assertReadUnderItsOwnId (id and type). Another, self-consistent object under a
+ * misdirected index entry (a legacy context is not rebuilt, so nothing else catches it) is an integrity verdict,
+ * never its property designation.
+ */
+function isReadUnderItsOwnRef(artifact: unknown, ref: { artifact_id: string; artifact_type: string }): boolean {
+  try {
+    assertReadUnderItsOwnId('property-root', artifact, ref.artifact_id, ref.artifact_type);
+    return true;
+  } catch (error) {
+    if (error instanceof LuReadFaultError) return false;
+    throw error;
+  }
+}
+
 async function resolvePropertyRoot(
   repo: ArtifactRepositoryPort,
   propertyRef: unknown,
@@ -872,6 +889,7 @@ async function resolvePropertyRoot(
   if (contextRead.kind === 'not_found') return technical('ROOT_ARTIFACT_NOT_FOUND');
   if (contextRead.kind === 'corrupted') return tampered();
   if (contextRead.kind === 'error') return technical('ROOT_READ_ERROR');
+  if (!isReadUnderItsOwnRef(contextRead.artifact, ref)) return tampered();
   const context = contextRead.artifact as LUPropertyContextArtifact;
   const bindingRef = asRef(context?.payload?.project_property_binding_ref);
   if (
@@ -906,6 +924,7 @@ async function resolvePropertyRoot(
   if (bindingRead.kind === 'not_found') return technical('ROOT_ARTIFACT_NOT_FOUND');
   if (bindingRead.kind === 'corrupted') return tampered();
   if (bindingRead.kind === 'error') return technical('ROOT_READ_ERROR');
+  if (!isReadUnderItsOwnRef(bindingRead.artifact, bindingRef)) return tampered();
   let binding: ProjectPropertyBindingArtifact;
   try {
     binding = validateProjectPropertyBindingArtifact(bindingRead.artifact as ProjectPropertyBindingArtifact);
@@ -930,6 +949,7 @@ async function resolvePropertyRoot(
   if (observationRead.kind === 'not_found') return { ...technical('ROOT_ARTIFACT_NOT_FOUND'), ...base, observation_artifact_id: observationRef.artifact_id };
   if (observationRead.kind === 'corrupted') return tampered();
   if (observationRead.kind === 'error') return { ...technical('ROOT_READ_ERROR'), ...base, observation_artifact_id: observationRef.artifact_id };
+  if (!isReadUnderItsOwnRef(observationRead.artifact, observationRef)) return tampered();
   const observation = observationRead.artifact as PropertyLookupObservationArtifact;
   if (observation?.payload?.resolver_version !== CANONICAL_PROPERTY_OBSERVATION_CONTRACT_VERSION) {
     // A newer/older observation contract (e.g. U20-B's v2) is not interpreted by this version.
