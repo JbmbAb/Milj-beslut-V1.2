@@ -225,6 +225,14 @@ describe('W-UI1-R2 finding 7: notices as strict as the package\'s classifier', (
     expect(kind(Array.from({ length: 5000 }, () => notChecked()))).toBe('NOT_VERIFIED');
   });
 
+  it('a notice list longer than two is refused by its length alone: not verified, and no notice of it is read (mutation N1)', () => {
+    const three = [notChecked(), { code: 'SOMETHING_NEW', finding_ids: [], detail: 'd' }, { code: 'OTHER_NEW', finding_ids: [], detail: 'd' }];
+    const v = presentLuVerifyResult(greenPass('a', { notices: three }), 'a');
+    expect(v.kind).toBe('NOT_VERIFIED');
+    expect(v.lines).toEqual([]);
+    expect(v.technical.some((row) => row.label === 'Notis')).toBe(false);
+  });
+
   it('the legacy notice has no finding ids and a detail', () => {
     const owner = 'Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade.';
     const legacyNotice = (extra: Record<string, unknown> = {}) => ({
