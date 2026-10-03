@@ -3,6 +3,22 @@
 // Plain ESM (no TypeScript) so the same code can be imported by the test and run by node to print the
 // inventory -- one scanner, never two copies that drift. Reads source files as text; imports nothing
 // from the product, touches no network, database or environment.
+//
+// W-UI1 (M2e verification finding 1: the inventory was not exhaustive) -- what is collected now, and why:
+//  - every file of the LU reach is scanned, wherever it lives (C7: db.server.ts, src/infrastructure/...,
+//    scripts/ops/... were in the reach but never scanned);
+//  - the reach also starts at the middleware mounted in server/createApp.ts BEFORE the LU router (C8b:
+//    csrf, the error handler, request logging, tracing) and at createApp.ts's own literals (its imports --
+//    every router -- are not followed);
+//  - in every file of the reach, EVERY code-shaped literal (A_B[_C...]) is collected, not only those with a
+//    known prefix, suffix or carrier field (C3b, C9: a code pushed into a list, a neutral constant);
+//  - in the LU core, single-word upper-case literals in value positions are collected too (C6:
+//    `integrity: 'UNVERIFIABLE'`);
+//  - a constant used as the value of a wire field (`code: SOME_CONST`) is resolved to its literal (C3b);
+//  - code-shaped TEMPLATE literals in the reach (`ASSESSMENT_${kind}`) are reported separately: each one must
+//    be listed with its expansions in the reviewed list, or the test fails (C5);
+//  - the members of the `LuAssessmentStatus` union and values of `assessment_status` are marked, so the test
+//    can require a STATUS label for them, not just any text (U20CDF4 verification L6.1).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,10 +34,28 @@ export const LU_ENTRY_MODULES = Object.freeze([
 ]);
 
 /**
+ * W-UI1: middleware that server/createApp.ts mounts BEFORE `app.use(localizationRouter)` -- every LU request
+ * passes it, so its answers (a CSRF 403, the error handler's mapping) can reach the LU UI. Its imports are
+ * followed like an entry module's.
+ */
+export const LU_MIDDLEWARE_MODULES = Object.freeze([
+  'server/security/csrf.ts',
+  'server/security/secureErrors.ts',
+  'server/security/requestLogging.ts',
+  'server/observability/trace.ts',
+]);
+
+/** W-UI1: files whose OWN literals are in the reach, but whose imports (every router of the app) are not followed. */
+export const LU_SHELL_MODULES = Object.freeze(['server/createApp.ts']);
+
+/**
  * The LU core: here EVERY code-shaped literal and table key is collected (the reasons, states and
  * assurance values of the read-back are written as comparisons, call arguments and table keys too).
  */
 const LU_CORE = /^(server\/modules\/localization\/|server\/routes\/(localization|property)\.routes\.ts$|src\/application\/(generate-localization-report\.usecase|resolveCanonicalProjectContext|resolveCurrentViewerIdentity)\.ts$)/;
+
+/** W-UI1: union types whose members are presented as a STATUS label (U20CDF4 verification L6.1). */
+export const LU_STATUS_UNIONS = Object.freeze(['LuAssessmentStatus']);
 
 const posix = (p) => p.split(path.sep).join('/');
 
@@ -64,45 +98,23 @@ const PATTERNS = [
   // the code at the start of a message or basis entry ("REJECT_X: ...", `UNKNOWN_SEVERITY:${id}`)
   ['message-prefix', /['"`]([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+):/g],
 ];
-const CARRIER =
-  /\b(code|failureClass|reasonCode|failure_class|reason_code|technical_error_class|coverage_state|errorCode|failureCode|reason)\??\s*[:=]\s*((?:['"`][A-Z][A-Z0-9_]*[A-Z0-9]['"`]\s*\|?\s*)+)/g;
+/** The wire fields whose value is a code, state or status the UI may present. */
+const WIRE_FIELDS = 'code|failureClass|reasonCode|failure_class|reason_code|technical_error_class|coverage_state|errorCode|failureCode|reason|assessment_status';
+const CARRIER = new RegExp(`\\b(${WIRE_FIELDS})\\??\\s*[:=]\\s*((?:['"\`][A-Z][A-Z0-9_]*[A-Z0-9]['"\`]\\s*\\|?\\s*)+)`, 'g');
+/** W-UI1 (C3b): a wire field whose value is an identifier -- resolved through the constants below. */
+const CARRIER_IDENT = new RegExp(`\\b(${WIRE_FIELDS}|integrity|status)\\??\\s*:\\s*([A-Za-z_$][\\w$]*)\\b(?!\\s*[(.\\[])`, 'g');
+const CONST_DECL = /\b(export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*['"`]([A-Z][A-Z0-9_]*[A-Z0-9])['"`]/g;
 const ARRAY_CARRIER = /\breason_codes\??\s*:\s*\[([^\]]*)\]/g;
 const TYPE_UNION =
   /\btype\s+(\w*(?:FailureClass|ErrorClass|FaultReason|Reason|ReasonCode|CoverageState|Violation|ErrorCode|FailureCode))\s*(?:<[^>]*>)?\s*=\s*([^;]+);/g;
+const STATUS_UNION = /\btype\s+(\w+)\s*(?:<[^>]*>)?\s*=\s*([^;]+);/g;
 const LITERAL = /['"`]([A-Z][A-Z0-9_]*[A-Z0-9])['"`]/g;
 const CORE_LITERAL = /['"`]([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)['"`]/g;
 const CORE_KEY = /^\s*([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\s*:/gm;
-
-/**
- * Scans server/, src/application/ and packages/<pkg>/src (non-test sources, comments stripped).
- * @returns {{ tokens: Map<string, { files: Set<string>, how: Set<string> }>, files: string[] }}
- */
-export function scanServerTokens(root) {
-  const files = [];
-  walk(path.join(root, 'server'), files);
-  walk(path.join(root, 'src', 'application'), files);
-  for (const pkg of fs.readdirSync(path.join(root, 'packages'))) walk(path.join(root, 'packages', pkg, 'src'), files);
-  const tokens = new Map();
-  const add = (token, file, how) => {
-    let entry = tokens.get(token);
-    if (!entry) tokens.set(token, (entry = { files: new Set(), how: new Set() }));
-    entry.files.add(file);
-    entry.how.add(how);
-  };
-  for (const file of files) {
-    const rel = posix(path.relative(root, file));
-    const source = stripComments(fs.readFileSync(file, 'utf8'));
-    for (const [how, pattern] of PATTERNS) for (const m of source.matchAll(pattern)) add(m[1], rel, how);
-    for (const m of source.matchAll(CARRIER)) for (const t of m[2].matchAll(LITERAL)) add(t[1], rel, `field:${m[1]}`);
-    for (const m of source.matchAll(ARRAY_CARRIER)) for (const t of m[1].matchAll(LITERAL)) add(t[1], rel, 'field:reason_codes');
-    for (const m of source.matchAll(TYPE_UNION)) for (const t of m[2].matchAll(LITERAL)) add(t[1], rel, `type:${m[1]}`);
-    if (LU_CORE.test(rel)) {
-      for (const m of source.matchAll(CORE_LITERAL)) add(m[1], rel, 'lu-core');
-      for (const m of source.matchAll(CORE_KEY)) add(m[1], rel, 'lu-core-key');
-    }
-  }
-  return { tokens, files: files.map((f) => posix(path.relative(root, f))) };
-}
+/** W-UI1 (C6): a single upper-case word as a value (field value, comparison, argument, element, alternative). */
+const CORE_WORD = /(?:\b\w+\??\s*:\s*|[!=]==?\s*|\(\s*|,\s*|\[\s*|\?\s*|\|\s*)['"]([A-Z][A-Z0-9]{2,})['"]/g;
+/** W-UI1 (C5): a code-shaped template literal -- upper-case/underscore text around one or more `${...}`. */
+const CODE_TEMPLATE = /`([A-Z][A-Z0-9_]*\$\{[^}`]+\}[A-Z0-9_]*(?:\$\{[^}`]+\}[A-Z0-9_]*)*)`/g;
 
 function resolveFile(base) {
   const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`];
@@ -130,13 +142,14 @@ const IMPORT =
   /\b(import|export)\s+(type\s+)?(?:[^'"`;]*?\sfrom\s*)?['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)|\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 /**
- * The static value-import closure (`import type` carries no runtime value) of LU_ENTRY_MODULES: the
- * only modules whose codes can reach an answer the LU UI reads.
+ * The static value-import closure (`import type` carries no runtime value) of LU_ENTRY_MODULES and
+ * LU_MIDDLEWARE_MODULES, plus LU_SHELL_MODULES themselves: the only modules whose codes can reach an
+ * answer the LU UI reads.
  * @returns {Set<string>} repo-relative posix paths
  */
 export function luReachClosure(root) {
   const seen = new Set();
-  const stack = LU_ENTRY_MODULES.map((m) => path.join(root, m));
+  const stack = [...LU_ENTRY_MODULES, ...LU_MIDDLEWARE_MODULES].map((m) => path.join(root, m));
   while (stack.length > 0) {
     const file = stack.pop();
     if (seen.has(file)) continue;
@@ -148,5 +161,68 @@ export function luReachClosure(root) {
       if (resolved && !resolved.includes('node_modules')) stack.push(resolved);
     }
   }
+  for (const shell of LU_SHELL_MODULES) seen.add(path.join(root, shell));
   return new Set([...seen].map((f) => posix(path.relative(root, f))));
+}
+
+/**
+ * Scans server/, src/application/, packages/<pkg>/src and every file of the LU reach (non-test sources,
+ * comments stripped).
+ * @returns {{ tokens: Map<string, { files: Set<string>, how: Set<string> }>, files: string[], templates: { file: string, template: string }[] }}
+ */
+export function scanServerTokens(root) {
+  const closure = luReachClosure(root);
+  const absolute = [];
+  walk(path.join(root, 'server'), absolute);
+  walk(path.join(root, 'src', 'application'), absolute);
+  for (const pkg of fs.readdirSync(path.join(root, 'packages'))) walk(path.join(root, 'packages', pkg, 'src'), absolute);
+  const files = new Set(absolute.map((f) => posix(path.relative(root, f))));
+  for (const reached of closure) files.add(reached);
+  const tokens = new Map();
+  const add = (token, file, how) => {
+    let entry = tokens.get(token);
+    if (!entry) tokens.set(token, (entry = { files: new Set(), how: new Set() }));
+    entry.files.add(file);
+    entry.how.add(how);
+  };
+  const sources = new Map();
+  for (const rel of files) sources.set(rel, stripComments(fs.readFileSync(path.join(root, rel), 'utf8')));
+  // Constants with a code-shaped value, by name (for `code: SOME_CONST`): an EXPORTED constant can be imported
+  // anywhere; a local one counts only in its own file (a local `outcome` elsewhere is another variable).
+  const exported = new Map();
+  const local = new Map();
+  const remember = (map, key, value) => {
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(value);
+  };
+  for (const [rel, source] of sources) {
+    for (const m of source.matchAll(CONST_DECL)) {
+      if (m[1]) remember(exported, m[2], m[3]);
+      remember(local, `${rel}\0${m[2]}`, m[3]);
+    }
+  }
+  const constantsFor = (rel, name) => [...(exported.get(name) ?? []), ...(local.get(`${rel}\0${name}`) ?? [])];
+  const templates = [];
+  for (const [rel, source] of sources) {
+    for (const [how, pattern] of PATTERNS) for (const m of source.matchAll(pattern)) add(m[1], rel, how);
+    for (const m of source.matchAll(CARRIER)) for (const t of m[2].matchAll(LITERAL)) add(t[1], rel, `field:${m[1]}`);
+    for (const m of source.matchAll(ARRAY_CARRIER)) for (const t of m[1].matchAll(LITERAL)) add(t[1], rel, 'field:reason_codes');
+    for (const m of source.matchAll(TYPE_UNION)) for (const t of m[2].matchAll(LITERAL)) add(t[1], rel, `type:${m[1]}`);
+    for (const m of source.matchAll(STATUS_UNION)) {
+      if (LU_STATUS_UNIONS.includes(m[1])) for (const t of m[2].matchAll(LITERAL)) add(t[1], rel, `type:${m[1]}`);
+    }
+    if (LU_CORE.test(rel)) {
+      for (const m of source.matchAll(CORE_LITERAL)) add(m[1], rel, 'lu-core');
+      for (const m of source.matchAll(CORE_KEY)) add(m[1], rel, 'lu-core-key');
+      for (const m of source.matchAll(CORE_WORD)) add(m[1], rel, 'lu-core-word');
+    }
+    if (closure.has(rel)) {
+      for (const m of source.matchAll(CORE_LITERAL)) add(m[1], rel, 'reach-literal');
+      for (const m of source.matchAll(CARRIER_IDENT)) {
+        for (const value of constantsFor(rel, m[2])) add(value, rel, `field-const:${m[1]}`);
+      }
+      for (const m of source.matchAll(CODE_TEMPLATE)) templates.push({ file: rel, template: m[1] });
+    }
+  }
+  return { tokens, files: [...files].sort(), templates };
 }

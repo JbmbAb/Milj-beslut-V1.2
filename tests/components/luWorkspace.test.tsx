@@ -1748,7 +1748,8 @@ describe('LuWorkspace W-M2d', () => {
     expect(statement.textContent).toBe(readBack.overallStatement.statement_sv);
     expect(statement).toHaveTextContent('Täckningsgrad kan inte fastställas för denna historiska bedömning.');
     expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-coverage-state', 'HISTORICAL_COVERAGE_UNKNOWN');
-    expect(screen.getByTestId('lu-assessment-overall-state')).toHaveTextContent('Täckningsgrad okänd – historisk bedömning');
+    // W-UI1 (owner doctrine 2026-10-03): the owner's sentence is the state label of a historical record.
+    expect(screen.getByTestId('lu-assessment-overall-state')).toHaveTextContent('Täckningsgrad kan inte fastställas för denna historiska bedömning');
     expect(screen.getByTestId('lu-assessment-overall')).not.toHaveTextContent(/\d+ av \d+ kontroller/);
     expect(screen.getByTestId('lu-assessment-overall')).toHaveAttribute('data-tone', 'qualified');
   });
@@ -1765,7 +1766,12 @@ describe('LuWorkspace W-M2d', () => {
     expect(overall).toHaveAttribute('data-coverage-state', 'PINNED_EVIDENCE_UNREADABLE');
     expect(overall).toHaveAttribute('data-tone', 'technical');
     expect(screen.getByTestId('lu-assessment-overall-state')).toHaveTextContent('Tekniskt fel – den bundna evidensen kan inte läsas');
-    expect(screen.getByTestId('lu-assessment-overall-statement').textContent).toBe(lost.overallStatement.statement_sv);
+    // W-UI1 (C): the server's line without its internal terms ("ur CAS", the class in parentheses); the class stays technical.
+    expect(screen.getByTestId('lu-assessment-overall-statement').textContent).toBe(
+      lost.overallStatement.statement_sv.replace(' ur CAS (EVIDENCE_NOT_FOUND)', ' ur arkivet'),
+    );
+    expect(screen.getByTestId('lu-assessment-overall-statement')).not.toHaveTextContent(/CAS|EVIDENCE_NOT_FOUND/);
+    expect(screen.getByTestId('lu-assessment-overall-technical')).toHaveTextContent('EVIDENCE_NOT_FOUND');
     expect(screen.queryByTestId('lu-assessment-overall-retry')).not.toBeInTheDocument();
     view.unmount();
 

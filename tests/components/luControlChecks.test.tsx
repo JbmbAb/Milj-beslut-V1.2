@@ -453,9 +453,15 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
       expect(row.rootAssuranceQualified).toBe(true);
       expect(row.summary).toContain(lower);
     }
+    // W-UI1 (D): the root's READ error is marked as transient ("just nu; försök igen"), a proven absence as such,
+    // and any other technical class keeps the general mark.
     const unreadable = rowWith({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR', assurance: 'UNKNOWN' });
-    expect(unreadable.stateLabel).toBe('Hittad · fastighetsunderlagets ursprung kunde inte läsas');
+    expect(unreadable.stateLabel).toBe('Hittad · fastighetsunderlagets proveniens kunde inte läsas just nu');
     expect(unreadable.summary).not.toMatch(/ROOT_READ_ERROR/);
+    expect(unreadable.rootReadRetryable).toBe(true);
+    expect(rowWith({ status: 'TECHNICAL_ERROR', technical_error_class: 'SOMETHING_NEW', assurance: 'UNKNOWN' }).stateLabel).toBe(
+      'Hittad · fastighetsunderlagets ursprung kunde inte läsas',
+    );
     expect(rowWith({ status: 'TAMPERED', assurance: 'UNKNOWN' }).stateLabel).toBe('Hittad · fastighetsunderlagets ursprung klarade inte kontrollen');
     // A status or assurance this UI does not know is never shown as stronger than the server says.
     for (const root of [{ status: 'RESOLVED', assurance: 'SOMETHING_NEW' }, { status: 'BRAND_NEW', assurance: 'UNBOUND_METADATA' }, { status: 'constructor' }]) {

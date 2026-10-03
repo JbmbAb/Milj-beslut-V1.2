@@ -5,6 +5,7 @@ import {
   LuClientError,
   describeBootstrapFailure,
   isNoCurrentAssessmentError,
+  presentBootstrapFailure,
   presentCurrentnessFailureClass,
   presentLuError,
   presentLuRunReason,
@@ -130,9 +131,11 @@ describe('DEMO M2b presentLuError', () => {
       'Bedömningens kontrollpunkt saknas i arkivet',
     ],
     [
+      // W-UI1 (owner decision 2): "Försök igen" only when the server says retryable -- this answer says so.
       httpError(503, 'Bedömningens lokaliseringspunkt (x) kunde inte verifieras (LOCALIZATION_GEOMETRY_READ_ERROR). Bedömningen visas inte.', {
         code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
         failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR',
+        retryable: true,
       }),
       'current-assessment',
       'TECHNICAL',
@@ -160,7 +163,9 @@ describe('DEMO M2b presentLuError', () => {
       'inte längre projektets aktuella bedömning',
     ],
     [httpError(400, 'assessmentArtifactId must be a single artifact id.', { code: 'INVALID_ASSESSMENT_ARTIFACT_ID' }), 'verify', 'TECHNICAL', false, 'ogiltigt bedömnings-id'],
-    [httpError(503, 'storage', { code: 'LU_REEXECUTION_STORAGE_FAULT', stage: 'execution_outcome' }), 'verify', 'TECHNICAL', true, 'lagrade artefakter'],
+    // W-UI1: no server flag -> no "Försök igen" (the text still says a new attempt can help; the server did not).
+    [httpError(503, 'storage', { code: 'LU_REEXECUTION_STORAGE_FAULT', stage: 'execution_outcome' }), 'verify', 'TECHNICAL', false, 'lagrade artefakter'],
+    [httpError(503, 'storage', { code: 'LU_REEXECUTION_STORAGE_FAULT', stage: 'execution_outcome', retryable: true }), 'verify', 'TECHNICAL', true, 'lagrade artefakter'],
     [httpError(503, 'Live Lantmäteriet-uppslag är avstängt.', { code: 'LIVE_LANTMATERIET_DISABLED' }), 'property-lookup', 'TECHNICAL', false, 'lokala fastighetsunderlaget'],
     [httpError(404, 'Fastighet hittades inte i lokalt PostGIS-arkiv.', { code: 'LOCAL_PROPERTY_NOT_FOUND' }), 'property-lookup', 'NOT_FOUND', false, 'hittades inte i fastighetsunderlaget'],
   ] as const)('%s (%s) -> %s, retryable %s', (err, context, kind, retryable, text) => {
@@ -228,7 +233,9 @@ describe('DEMO M2b presentLuError', () => {
 
   it('item 5: the server\'s `retryable` decides -- a 503 it marks not retryable never offers "Försök igen"; a refusal never does', () => {
     expect(presentLuError(httpError(503, 'x', { retryable: false }), 'current-assessment').retryable).toBe(false);
-    expect(presentLuError(httpError(500, 'x'), 'current-assessment').retryable).toBe(true);
+    // W-UI1 (owner decision 2): an answer without the server's flag offers no "Försök igen".
+    expect(presentLuError(httpError(500, 'x'), 'current-assessment').retryable).toBe(false);
+    expect(presentLuError(httpError(500, 'x', { retryable: true }), 'current-assessment').retryable).toBe(true);
     // A refusal is never retryable, whatever a flag says.
     expect(presentLuError(currentness('AMBIGUOUS_CURRENT_GEOMETRY', 409, true), 'run').retryable).toBe(false);
     // The server's retryable is shown in the technical rows.
@@ -365,7 +372,8 @@ describe('DEMO M2b presentLuError', () => {
       expect(p.messageSv).toBe('Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.');
       expect(typeof p.kind).toBe('string');
       expect(presentCurrentnessFailureClass(failureClass, true)).toBeNull();
-      expect(describeBootstrapFailure(failureClass)).toEqual({ reasonSv: 'Fastigheten kunde inte knytas till lokaliseringen.', retryable: true });
+      // W-UI1: the reason only -- whether a retry is offered is the server's flag on bootstrap-status.
+      expect(describeBootstrapFailure(failureClass)).toEqual({ reasonSv: 'Fastigheten kunde inte knytas till lokaliseringen.' });
     }
     expect(presentLuError(httpError(503, 'x', { code: 'constructor' }), 'run').messageSv).toBe('Bedömningen kunde inte köras. Ett tekniskt fel uppstod på servern.');
   });
@@ -376,11 +384,11 @@ describe('DEMO M2b presentLuError', () => {
     ['CURRENT_BINDING_INTEGRITY_FAULT', 'bestående lagrings- eller integritetsfel', false],
     ['CURRENT_BINDING_REFUSED', 'underkändes vid kontrollen. Ingen ny koppling skapades i dess ställe.', false],
     ['PROPERTY_MISMATCH', 'stämmer inte med lokaliseringens egen fastighet', false],
-  ] as const)('W-M2e item 2 (W-BOOT): bootstrap failure %s has its own text and retry decision', (code, text, retryable) => {
+  ] as const)('W-M2e item 2 (W-BOOT): bootstrap failure %s has its own text; retry is the server flag (W-UI1)', (code, text, retryable) => {
     const d = describeBootstrapFailure(code);
     expect(d.reasonSv).toContain(text);
-    expect(d.retryable).toBe(retryable);
     expect(d.reasonSv).not.toMatch(/aldrig|signatur|[A-Z]{3,}_[A-Z_]{3,}/);
+    expect(presentBootstrapFailure({ status: 'FAILED', failureCode: code, retryable }).retryable).toBe(retryable);
   });
 
   it('W-M2e item 2 (U20CDF3): a rejected spatial form names its violation neutrally; LAYER_NOT_ANSWERED included', () => {
@@ -426,8 +434,7 @@ describe('DEMO M2b presentLuError', () => {
     ['ASSESSMENT_CONTRACT_REFUSED', 'ASSESSMENT_CONTRACT_INVALID', 'REJECT_LOCALIZATION_ASSESSMENT_V4', 424],
     ['GOVERNED_EVIDENCE_INTEGRITY_FAILED', 'EVIDENCE_TAMPERED', 'x', 424],
     ['ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', 'LOCALIZATION_GEOMETRY_MISSING', 'x', 424],
-    ['SOME_FUTURE_CODE', 'VERIFIER_CONFIGURATION', 'x', 503],
-  ] as const)('W-M2e item 3: %s / %s is never retried, even with retryable:true', (code, failureClass, reasonCode, status) => {
+  ] as const)('W-M2e item 3 / W-UI1: %s / %s says the fault is lasting, so it is never retried, even with retryable:true', (code, failureClass, reasonCode, status) => {
     for (const context of ['current-assessment', 'run', 'geometry-load', 'export', 'verify'] as const) {
       const p = presentLuError(httpError(status, 'x', { code, failureClass, reasonCode, retryable: true }), context);
       expect(p.retryable, `${code}/${failureClass} @${context}`).toBe(false);
@@ -451,11 +458,15 @@ describe('DEMO M2b presentLuError', () => {
         coverage_state: 'PINNED_EVIDENCE_UNREADABLE',
         pinned_evidence: { retryable, technical_error_class, unreadable_artifact_ids: ['e'] },
       }).retryable;
+    // W-UI1 (owner decision 2): the server's flag decides -- no client class list.
     expect(overall('EVIDENCE_READ_ERROR', true)).toBe(true);
-    expect(overall('EVIDENCE_NOT_FOUND', true)).toBe(false);
-    expect(overall(undefined, true)).toBe(false);
-    expect(overall('SOMETHING_NEW', true)).toBe(false);
+    expect(overall('EVIDENCE_NOT_FOUND', true)).toBe(true);
+    expect(overall(undefined, true)).toBe(true);
     expect(overall('EVIDENCE_READ_ERROR', false)).toBe(false);
+    expect(overall('EVIDENCE_READ_ERROR', undefined)).toBe(false);
+    // W-UI1: an unknown code is no longer refused by a client list -- the server's flag decides.
+    expect(presentLuError(httpError(503, 'x', { code: 'SOME_FUTURE_CODE', failureClass: 'VERIFIER_CONFIGURATION', retryable: true }), 'run').retryable).toBe(true);
+    expect(presentLuError(httpError(503, 'x', { code: 'SOME_FUTURE_CODE', failureClass: 'VERIFIER_CONFIGURATION', retryable: false }), 'run').retryable).toBe(false);
   });
 
   it('a client-side Swedish error is shown as written', () => {
@@ -465,7 +476,7 @@ describe('DEMO M2b presentLuError', () => {
   it('LuErrorNotice: Swedish line, retry only when retryable, raw text only in a collapsed "Teknisk information"', async () => {
     const onRetry = vi.fn();
     const { rerender } = render(
-      <LuErrorNotice testId="x" error={presentLuError(httpError(500, 'raw server text'), 'verify')} onRetry={onRetry} />,
+      <LuErrorNotice testId="x" error={presentLuError(httpError(500, 'raw server text', { retryable: true }), 'verify')} onRetry={onRetry} />,
     );
     expect(screen.getByTestId('x-message')).toHaveTextContent('Reproducerbarhetskontrollen kunde inte genomföras. Ett tekniskt fel uppstod på servern.');
     expect(screen.getByTestId('x-message')).not.toHaveTextContent('raw server text');

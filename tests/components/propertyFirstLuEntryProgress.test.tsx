@@ -74,6 +74,8 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
       status: 'FAILED',
       failureCode: 'PROPERTY_CENTROID_UNAVAILABLE',
       failureDetail: 'no centroidSweref99Tm in lookup',
+      // W-UI1: bootstrap-status sends the server's retryable for a FAILED request (W-CATCH2 #4).
+      retryable: false,
     });
     await searchAndCreate(user);
     expect(await screen.findByTestId('pf-bootstrap-failure-reason')).toHaveTextContent('Fastighetens mittpunkt kunde inte beräknas.');
@@ -91,6 +93,7 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
       status: 'FAILED',
       failureCode: 'PROPERTY_LOOKUP_AMBIGUOUS',
       failureDetail: 'PROPERTY_LOOKUP_AMBIGUOUS: exact designation "UPPSALA SVIA 1:111" matched 2 property_unit rows; refusing to choose one',
+      retryable: false,
     });
     await searchAndCreate(user);
     expect(await screen.findByTestId('pf-bootstrap-failure-reason')).toHaveTextContent(
@@ -105,7 +108,7 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
   it('W-M2d items 5+6: a technical bootstrap failure still offers a retry', async () => {
     const user = userEvent.setup();
     client.listPropertyProjects.mockResolvedValue([]);
-    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode: 'BOOTSTRAP_EXECUTION_ERROR', failureDetail: 'ECONNRESET' });
+    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode: 'BOOTSTRAP_EXECUTION_ERROR', failureDetail: 'ECONNRESET', retryable: true });
     await searchAndCreate(user);
     expect(await screen.findByTestId('pf-bootstrap-failure-reason')).toHaveTextContent('Ett tekniskt fel uppstod när fastigheten skulle knytas till lokaliseringen.');
     expect(screen.getByTestId('pf-retry')).toBeInTheDocument();
@@ -119,7 +122,7 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
   ] as const)('W-M2e item 2 (W-BOOT): bootstrap failure %s has its own reason; a lasting one offers no retry', async (failureCode, text, retry) => {
     const user = userEvent.setup();
     client.listPropertyProjects.mockResolvedValue([]);
-    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode, failureDetail: 'Projektets aktuella bindning ...' });
+    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode, failureDetail: 'Projektets aktuella bindning ...', retryable: retry });
     await searchAndCreate(user);
     const reason = await screen.findByTestId('pf-bootstrap-failure-reason');
     expect(reason).toHaveTextContent(text);
@@ -153,7 +156,8 @@ describe('DEMO M2a items 6+7: PropertyFirstLuEntry', () => {
   it('DEMO M2b: a failed bootstrap retry is shown (it used to be set but never displayed in that phase)', async () => {
     const user = userEvent.setup();
     client.listPropertyProjects.mockResolvedValue([]);
-    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode: 'X', failureDetail: null });
+    // W-UI1: an unknown code is never retryable on the server (retryable false); a retry needs a code the server marks retryable.
+    client.getBootstrapStatus.mockResolvedValue({ status: 'FAILED', failureCode: 'BOOTSTRAP_EXECUTION_ERROR', failureDetail: null, retryable: true });
     client.retryLocalizationBootstrap.mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }));
     await searchAndCreate(user);
     await user.click(await screen.findByTestId('pf-retry'));
