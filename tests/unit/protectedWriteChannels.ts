@@ -81,6 +81,20 @@ export interface FileScan {
   /** Sites that are PROTECTED, UNRESOLVABLE or DYNAMIC (gated and ALLOWED ones are only counted). */
   readonly sites: ChannelSite[];
   readonly counts: { channels: number; gated: number; allowed: number; literals: number };
+  /**
+   * U30F5 (D-1): the files this file's commands run (an interpreter's script, a sourced or directly executed file),
+   * with the language they are run as (null: executed directly, by its shebang). The inventory scans each as that
+   * language, whatever its extension, and a launched test source is no test source any more.
+   */
+  readonly launches: Launch[];
+}
+
+/** U30F5 (D-1): a file a command runs. `file` is as written (repository-relative or relative to the launcher). */
+export interface Launch {
+  readonly file: string;
+  readonly lang: Language | null;
+  /** The command that runs it. */
+  readonly via: string;
 }
 
 export type Language = "js" | "py" | "ps" | "sh" | "cmd" | "sql" | "yaml" | "toml" | "docker" | "json";
@@ -89,6 +103,8 @@ export interface ScanOptions {
   readonly definition?: ProtectedRelationsDefinition;
   /** psql -f / prisma db execute --file: read a repository file (repo-relative or relative to the scanned file). */
   readonly readRepoFile?: (repoRelative: string) => string | null;
+  /** U30F5 (D-1): scan the file as this language (the one it is launched as), not by its extension. */
+  readonly language?: Language;
 }
 
 // =============================================================================================
@@ -208,7 +224,7 @@ function classifySqlTextUncapped(text: string, def: ProtectedRelationsDefinition
   if (!hasTriggerWord(text)) return null;
   const { tokens, error } = tokenizeSql(text);
   if (!error && !statementLike(tokens)) return null;
-  return verdictOf(judgeWrites(analyzeSql(text), def));
+  return verdictOf(judgeWrites(analyzeSql(text, { ungated: true }), def));
 }
 
 /** Statement verbs: a literal whose first token is one of these reads as SQL, not as prose about SQL. */
@@ -270,8 +286,13 @@ function classifyLiteralUncapped(text: string, def: ProtectedRelationsDefinition
   let v: TextVerdict | null = null;
   if (hasTriggerWord(text) && sqlShaped(text)) v = classifySqlText(text, def);
   if (mentionsTool(text) && /\s/.test(text.trim())) {
-    const c = classifyCommandText(text, def, readSqlFile);
-    if (c && c.verdict === "PROTECTED") v = v ? worst(v, c) : c;
+    LITERAL_DEPTH += 1;
+    try {
+      const c = classifyCommandText(text, def, readSqlFile);
+      if (c && c.verdict === "PROTECTED") v = v ? worst(v, c) : c;
+    } finally {
+      LITERAL_DEPTH -= 1;
+    }
   }
   return v;
 }
@@ -306,9 +327,16 @@ function destroysVolume(argv: readonly string[]): boolean {
 const VOLUME_DESTROY: TextVerdict = { verdict: "UNRESOLVABLE", detail: "VOLUME_DESTROY" };
 
 function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  // U30F5 (D-1/D-2): what the command runs besides DB tools -- launched files (recorded) and inline code (scanned)
+  const extra = commandExtrasVerdict(splitCommandLine(text).flat().map((seg) => seg.argv), text, def, readSqlFile);
+  const gate = classifyCommandTextGate(text, def, readSqlFile);
+  return extra ? (gate ? worst(gate, extra) : extra) : gate;
+}
+
+function classifyCommandTextGate(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
   if (/\b(docker|podman)/i.test(text) && splitCommandLine(text).flat().some((seg) => destroysVolume(seg.argv))) return VOLUME_DESTROY;
   if (!mentionsTool(text)) return null;
-  const v = verdictOf(judgeWrites(analyzeCommandLine(text, { readSqlFile }), def));
+  const v = verdictOf(judgeWrites(analyzeCommandLine(text, { readSqlFile, ungated: true }), def));
   if (v.verdict === "ALLOWED") return v;
   // every segment that names a tool only looks it up (`which psql && echo ok`)
   const segments = splitCommandLine(text).flat().filter((seg) => seg.argv.some((a) => toolOf(a)));
@@ -317,7 +345,265 @@ function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefini
 }
 
 function classifyArgv(argv: readonly string[], def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict {
-  return withFoldCap(argv, (a) => (destroysVolume(a) ? VOLUME_DESTROY : lookupOnly(a) ? ALLOWED : verdictOf(judgeWrites(analyzeCommandArgv(a, { readSqlFile }), def)))) ?? ALLOWED;
+  return (
+    withFoldCap(argv, (a) => {
+      const gate = destroysVolume(a) ? VOLUME_DESTROY : lookupOnly(a) ? ALLOWED : verdictOf(judgeWrites(analyzeCommandArgv(a, { readSqlFile, ungated: true }), def));
+      // U30F5 (D-1/D-2): launched files and inline code of the argument vector
+      const extra = commandExtrasVerdict([a], a.join(" "), def, readSqlFile);
+      return extra ? worst(gate, extra) : gate;
+    }) ?? ALLOWED
+  );
+}
+
+// =============================================================================================
+// U30F5 (D-1/D-2): what a command runs that the scan must read too
+// =============================================================================================
+
+/** Interpreters by the language they run a script as. */
+const NODE_LIKE = new Set(["node", "nodejs", "tsx", "ts-node", "ts-node-esm", "bun", "deno", "vite-node", "esno", "esr", "babel-node", "sucrase-node", "swc-node"]);
+const PYTHON_LIKE = /^(python[0-9.]*|py|pypy[0-9.]*)$/;
+const SH_LIKE = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+const PS_LIKE = new Set(["pwsh", "powershell"]);
+/** Package runners: the program they run is their first positional argument (npm/pnpm/yarn only after exec/x/dlx). */
+const PKG_EXEC = new Set(["npx", "bunx", "pnpx"]);
+const PKG_MANAGERS = new Set(["npm", "pnpm", "yarn"]);
+const SUB_RUNNERS = new Set(["uv", "pipx", "poetry", "pdm", "hatch", "rye"]);
+const ENV_RUNNERS = new Set(["dotenv", "cross-env", "env", "env-cmd"]);
+const NODE_VALUE_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions", "--env-file", "--input-type", "--title", "--tsconfig"]);
+const NODE_INLINE_FLAGS = new Set(["-e", "--eval", "-p", "--print"]);
+const PY_VALUE_FLAGS = new Set(["-W", "-X", "--check-hash-based-pycs"]);
+const PKG_VALUE_FLAGS = new Set(["-p", "--package", "-c", "--call", "--prefix", "-w", "--workspace", "--filter", "-C", "--dir", "--cwd", "--with", "--python", "--project"]);
+const PS_VALUE_FLAGS = /^-(executionpolicy|ep|workingdirectory|wd|configurationname|outputformat|of|inputformat|if|windowstyle|settingsfile|encodedarguments)$/;
+
+/** A static argument that names a file (a path or a name with an extension), not a flag, URL or package. */
+function namesFile(a: string): boolean {
+  return a !== "" && !containsDynamic(a) && !a.startsWith("-") && !/^[a-z][a-z0-9+.-]*:\/\//i.test(a) && (/[\\/]/.test(a) || /\.[A-Za-z0-9]+$/.test(a));
+}
+
+function asLaunchPath(a: string): string {
+  return a.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+/** The first positional argument of `rest` from `from` on (flags and their values skipped), or -1. */
+function firstPositional(rest: readonly string[], valueFlags: ReadonlySet<string>, from = 0): number {
+  for (let i = from; i < rest.length; i += 1) {
+    const a = rest[i]!;
+    if (a === "--") continue;
+    if (a.startsWith("-")) {
+      if (valueFlags.has(a.split("=")[0]!) && !a.includes("=")) i += 1;
+      continue;
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(a)) continue;
+    return i;
+  }
+  return -1;
+}
+
+interface CommandRuns {
+  readonly launches: { file: string; lang: Language | null }[];
+  readonly inline: { lang: "js" | "py" | "ps"; code: string }[];
+}
+
+/**
+ * U30F5 (D-1/D-2): the files one argument vector runs (an interpreter's script, a sourced file, a file executed
+ * directly) and the code it evaluates inline (node -e / --eval / --print, deno eval, python -c, pwsh -Command), through
+ * package runners (npx, npm exec, uv run, ...), environment wrappers and shell wrappers (bash -c, cmd /c: their command).
+ */
+export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
+  const out: CommandRuns = { launches: [], inline: [] };
+  if (depth > 4) return out;
+  const p = programIndex(argv);
+  if (p < 0) return out;
+  const program = argv[p]!;
+  if (containsDynamic(program)) return out; // judged DYNAMIC as a program chosen at run time
+  const base = programBase(program);
+  const rest = argv.slice(p + 1);
+  const add = (r: CommandRuns) => {
+    out.launches.push(...r.launches);
+    out.inline.push(...r.inline);
+  };
+  const line = (command: string) => {
+    for (const pipeline of splitCommandLine(command)) for (const seg of pipeline) add(commandRuns(seg.argv, depth + 1));
+  };
+  const code = (lang: "js" | "py" | "ps", value: string | undefined) => {
+    if (value !== undefined && !containsDynamic(value)) out.inline.push({ lang, code: value });
+  };
+  if (NODE_LIKE.has(base)) {
+    for (let i = 0; i < rest.length; i += 1) {
+      const a = rest[i]!;
+      if (a === "--") continue;
+      const flag = a.split("=")[0]!;
+      if (NODE_INLINE_FLAGS.has(flag)) {
+        code("js", a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[i + 1]);
+        return out;
+      }
+      if (a.startsWith("-")) {
+        if (NODE_VALUE_FLAGS.has(flag) && !a.includes("=")) i += 1;
+        continue;
+      }
+      if ((base === "tsx" && a === "watch") || ((base === "bun" || base === "deno") && a === "run")) continue;
+      if (base === "deno" && a === "eval") {
+        code("js", rest[i + 1]);
+        return out;
+      }
+      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang: "js" });
+      return out;
+    }
+    return out;
+  }
+  if (PYTHON_LIKE.test(base)) {
+    for (let i = 0; i < rest.length; i += 1) {
+      const a = rest[i]!;
+      if (a === "-c") {
+        code("py", rest[i + 1]);
+        return out;
+      }
+      if (a === "-m") {
+        const mod = rest[i + 1];
+        if (mod !== undefined && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(mod)) {
+          const m = mod.replace(/\./g, "/");
+          out.launches.push({ file: `${m}.py`, lang: "py" }, { file: `${m}/__main__.py`, lang: "py" });
+        }
+        return out;
+      }
+      if (a.startsWith("-")) {
+        if (PY_VALUE_FLAGS.has(a)) i += 1;
+        continue;
+      }
+      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang: "py" });
+      return out;
+    }
+    return out;
+  }
+  if (SH_LIKE.has(base) || base === "source" || base === ".") {
+    for (let i = 0; i < rest.length; i += 1) {
+      const a = rest[i]!;
+      if (a === "-c" && SH_LIKE.has(base)) {
+        if (rest[i + 1] !== undefined) line(rest[i + 1]!);
+        return out;
+      }
+      if (a.startsWith("-") || a.startsWith("+")) {
+        if (a === "-o" || a === "+o") i += 1;
+        continue;
+      }
+      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang: "sh" });
+      return out;
+    }
+    return out;
+  }
+  if (PS_LIKE.has(base)) {
+    for (let i = 0; i < rest.length; i += 1) {
+      const a = rest[i]!.toLowerCase();
+      if (a === "-file" || a === "-f") {
+        if (rest[i + 1] !== undefined && namesFile(rest[i + 1]!)) out.launches.push({ file: asLaunchPath(rest[i + 1]!), lang: "ps" });
+        return out;
+      }
+      if (a === "-command" || a === "-c") {
+        code("ps", rest.slice(i + 1).join(" ") || undefined);
+        return out;
+      }
+      if (a.startsWith("-")) {
+        if (PS_VALUE_FLAGS.test(a)) i += 1;
+        continue;
+      }
+      if (namesFile(rest[i]!)) out.launches.push({ file: asLaunchPath(rest[i]!), lang: "ps" });
+      return out;
+    }
+    return out;
+  }
+  if (base === "cmd") {
+    const at = rest.findIndex((a) => /^\/[ck]$/i.test(a));
+    if (at >= 0) line(rest.slice(at + 1).join(" "));
+    return out;
+  }
+  if (PKG_EXEC.has(base)) {
+    const i = firstPositional(rest, PKG_VALUE_FLAGS);
+    if (i >= 0) add(commandRuns(rest.slice(i), depth + 1));
+    return out;
+  }
+  if (PKG_MANAGERS.has(base)) {
+    const i = firstPositional(rest, PKG_VALUE_FLAGS);
+    if (i >= 0 && /^(exec|x|dlx)$/.test(rest[i]!)) {
+      const j = firstPositional(rest, PKG_VALUE_FLAGS, i + 1);
+      if (j >= 0) add(commandRuns(rest.slice(j), depth + 1));
+    }
+    return out;
+  }
+  if (SUB_RUNNERS.has(base)) {
+    const i = firstPositional(rest, PKG_VALUE_FLAGS);
+    if (i >= 0 && rest[i] === "run") {
+      const j = firstPositional(rest, PKG_VALUE_FLAGS, i + 1);
+      if (j >= 0 && /\.py$/i.test(rest[j]!) && namesFile(rest[j]!)) out.launches.push({ file: asLaunchPath(rest[j]!), lang: "py" });
+      else if (j >= 0) add(commandRuns(rest.slice(j), depth + 1));
+    }
+    return out;
+  }
+  if (ENV_RUNNERS.has(base)) {
+    const dd = rest.indexOf("--");
+    const i = dd >= 0 ? dd + 1 : firstPositional(rest, new Set(["-e", "-f", "-c", "-v", "--env", "--file"]));
+    if (i >= 0 && i < rest.length) add(commandRuns(rest.slice(i), depth + 1));
+    return out;
+  }
+  // a program that is itself a repository file, executed directly (by its shebang)
+  if (/[\\/]/.test(program) && namesFile(program) && !toolOf(program)) out.launches.push({ file: asLaunchPath(program), lang: null });
+  return out;
+}
+
+/** U30F5: launches recorded by the scan of the current file (module state, set by scanFile). */
+let LAUNCH_COLLECTOR: Launch[] | null = null;
+/** U30F5: the literal surface classifies a string that mentions a tool -- it runs nothing, so it launches nothing. */
+let LITERAL_DEPTH = 0;
+/** U30F5: inline code inside inline code is read this deep. */
+let INLINE_DEPTH = 0;
+
+/**
+ * U30F5 (D-1/D-2): the launches of the command's argument vectors are recorded; its inline code is scanned as the
+ * language it is (node -e: JS, python -c: Python, pwsh -Command: PowerShell) and judged like any file -- a DYNAMIC site
+ * there makes the command UNRESOLVABLE.
+ */
+function commandExtrasVerdict(argvs: readonly (readonly string[])[], via: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  if (LITERAL_DEPTH > 0) return null;
+  let v: TextVerdict | null = null;
+  for (const argv of argvs) {
+    const runs = commandRuns(argv);
+    for (const l of runs.launches) {
+      if (LAUNCH_COLLECTOR && !LAUNCH_COLLECTOR.some((x) => x.file === l.file && x.lang === l.lang)) LAUNCH_COLLECTOR.push({ ...l, via: norm(via) });
+    }
+    for (const inl of runs.inline) {
+      const r = inlineVerdict(inl.code, inl.lang, def, readSqlFile);
+      if (r) v = v ? worst(v, r) : r;
+    }
+  }
+  return v;
+}
+
+function inlineVerdict(code: string, lang: "js" | "py" | "ps", def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  if (INLINE_DEPTH >= 2) return { verdict: "UNRESOLVABLE", detail: `inline ${lang} code nested deeper than the scan reads` };
+  INLINE_DEPTH += 1;
+  try {
+    const sites = scanEmbedded(code, lang, def, readSqlFile);
+    let v: TextVerdict | null = null;
+    for (const s of sites) {
+      const one: TextVerdict = { verdict: s.verdict === "PROTECTED" ? "PROTECTED" : "UNRESOLVABLE", detail: `inline ${lang}: ${s.detail}` };
+      v = v ? worst(v, one) : one;
+    }
+    return v;
+  } finally {
+    INLINE_DEPTH -= 1;
+  }
+}
+
+/** U30F5 (D-2): the sites of code embedded in a command or a CI step, scanned as its language. */
+function scanEmbedded(code: string, lang: Language, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): Omit<ChannelSite, "file">[] {
+  const sites: Omit<ChannelSite, "file">[] = [];
+  const sub: SiteSink = { counts: { channels: 0, gated: 0, allowed: 0, literals: 0 }, add: (s) => sites.push(s) };
+  const src = code.replace(/\r\n/g, "\n");
+  if (lang === "js") scanJs(src, sub, def, readSqlFile);
+  else if (lang === "py") scanPy(src, sub, def, readSqlFile);
+  else if (lang === "ps") scanPs(src, sub, def, readSqlFile);
+  else if (lang === "cmd") scanCommandScript(src, "cmd", sub, def, readSqlFile, {});
+  else scanCommandScript(src, "sh", sub, def, readSqlFile, {});
+  return sites;
 }
 
 /** The argv only looks a tool up (which/where/command -v/Get-Command), also inside `docker exec <container>`. */
@@ -524,7 +810,7 @@ function classifyArgvWithStdin(argv: readonly string[], stdin: string, def: Prot
   return (
     withFoldCap([...argv, stdin], (parts) => {
       const command = `${parts.slice(0, -1).map(requote).join(" ")} <<'${marker}'\n${parts[parts.length - 1]}\n${marker}`;
-      return verdictOf(judgeWrites(analyzeCommandLine(command, { readSqlFile }), def));
+      return verdictOf(judgeWrites(analyzeCommandLine(command, { readSqlFile, ungated: true }), def));
     }) ?? ALLOWED
   );
 }
@@ -1777,6 +2063,8 @@ const JS_UNREAD_MODULES = new Set([
   "shelljs", "cross-spawn", "node-pty", "tinyexec", "nano-spawn", "@npmcli/promise-spawn", "child-process-promise", "await-spawn", "spawn-sync",
   // U30F4 (B1): node:vm runs code the scan does not read -- any import of it fails closed
   "vm",
+  // U30F5 (D-6): process runners whose renamed functions and values the scan does not follow
+  "zx", "execa",
 ]);
 const JS_UNREAD_MODULE_SCOPES = ["@slonik/", "@mikro-orm/", "@databases/"];
 /** Modules whose process functions the scan reads -- but only in the forms it follows. */
@@ -2504,6 +2792,8 @@ const PY_PROCESS: Record<string, "auto"> = { run: "auto", call: "auto", check_ca
 const PY_UNREAD_MODULES = new Set([
   "pg8000", "postgresql", "aiopg", "databases", "records", "dataset", "peewee", "pony", "duckdb", "sqlmodel", "tortoise",
   "sh", "plumbum", "pexpect", "ptyprocess", "pty", "fabric", "invoke", "paramiko", "asyncssh", "commands", "popen2",
+  // U30F5 (D-6): GDAL for Python (the ogr2ogr family: VectorTranslate, write_dataframe, a PG: layer) and polars write_database
+  "osgeo", "gdal", "ogr", "pyogrio", "fiona", "rasterio", "polars",
 ]);
 /** Modules whose channels the scan reads (by method or function name): followed through `as` renames; `*` is not followed. */
 const PY_READ_MODULES = new Set(["subprocess", "os", "psycopg2", "psycopg", "asyncpg", "sqlalchemy", "asyncio", "importlib", "pandas"]);
@@ -3589,7 +3879,12 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
     const touchesTool = segments.some((s) => s.argv.some((a) => toolOf(a) || programKind(a) === "SHELL") || destroysVolume(s.argv));
     const dynamicWhy = commandContext ? commandDynamic(forSplit) : null;
     const evalLike = commandContext && segments.some((seg) => /^(eval|source|\.)$/.test(seg.argv[programIndex(seg.argv)] ?? "") && seg.argv.some((a) => dynamicHint(a) !== null));
-    if (!touchesTool && !dynamicWhy && !evalLike) continue;
+    // U30F5 (D-1/D-2): a line that runs a file (tsx x.ts, bash x.txt) or inline code (node -e, python -c) is a channel too
+    const runs = commandContext && segments.some((seg) => {
+      const r = commandRuns(seg.argv);
+      return r.launches.length + r.inline.length > 0;
+    });
+    if (!touchesTool && !dynamicWhy && !evalLike && !runs) continue;
     sink.counts.channels += 1;
     const v = classifyCommandText(text, def, readSqlFile) ?? ALLOWED;
     const channel = opts.channel ?? lang;
@@ -3728,12 +4023,73 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
     }
     return t;
   };
+  const LINE = /^(\s*)(-\s+)?(?:([^:'"\s][^:]*?|"[^"]*"|'[^']*'):(?:\s+|$))?(.*)$/;
+  // U30F5 (D-2): a step's `shell:` (python, pwsh, cmd, node {0} ...) decides the language of its `run:` -- also when it
+  // stands after run: -- and `defaults: run: shell:` for the steps without one
+  const keyLines: { k: number; col: number; key: string; value: string; dash: boolean }[] = [];
+  let defaultShell: string | null = null;
+  {
+    const parents: { col: number; key: string }[] = [];
+    for (let k = 0; k < raw.length; k += 1) {
+      const l = stripComment(raw[k]!);
+      if (l.trim() === "") continue;
+      const m = LINE.exec(l);
+      if (!m || m[3] === undefined) continue;
+      const col = m[1]!.length + (m[2] !== undefined ? m[2].length : 0);
+      const key = unquote(m[3]);
+      const value = m[4]!.trim();
+      keyLines.push({ k, col, key, value, dash: m[2] !== undefined });
+      while (parents.length && parents[parents.length - 1]!.col >= col) parents.pop();
+      if (key === "shell" && value && parents[parents.length - 1]?.key === "run" && parents.some((x) => x.key === "defaults")) defaultShell = unquote(value);
+      if (value === "") parents.push({ col, key });
+    }
+  }
+  const stepShell = (k: number, col: number): string | null => {
+    const at = keyLines.findIndex((x) => x.k === k);
+    for (let i = at; i >= 0; i -= 1) {
+      const x = keyLines[i]!;
+      if (x.col < col) break;
+      if (x.col !== col) continue;
+      if (x.key === "shell" && x.value) return unquote(x.value);
+      if (x.dash) break;
+    }
+    for (let i = at + 1; i < keyLines.length; i += 1) {
+      const x = keyLines[i]!;
+      if (x.col < col || (x.col === col && x.dash)) break;
+      if (x.col === col && x.key === "shell" && x.value) return unquote(x.value);
+    }
+    return defaultShell;
+  };
+  /** A run: body in the language its shell runs it as: true when it was read here (not as sh). */
+  const runAs = (body: string, k: number, col: number, lineOffset: number): boolean => {
+    const shell = stepShell(k, col);
+    if (shell === null) return false;
+    const s = shell.toLowerCase();
+    const lang: Language | "unknown" | null = /^python[0-9.]*\b/.test(s)
+      ? "py"
+      : /^(pwsh|powershell)\b/.test(s)
+        ? "ps"
+        : /^cmd\b/.test(s)
+          ? "cmd"
+          : /^node\b/.test(s)
+            ? "js"
+            : /^(bash|sh|zsh)\b/.test(s)
+              ? null
+              : "unknown";
+    if (lang === null) return false;
+    if (lang === "unknown") {
+      sink.add({ line: k + 1, kind: "PROCESS", channel: `yaml shell: ${shell}`, excerpt: norm(raw[k]!), verdict: "DYNAMIC", detail: `a CI step run by a shell the scan does not read (${shell})` });
+      return true;
+    }
+    for (const site of scanEmbedded(body, lang, def, readSqlFile)) sink.add({ ...site, line: site.line + lineOffset, channel: `yaml shell: ${shell} -> ${site.channel}` });
+    return true;
+  };
   // The keys of the enclosing mappings, by indentation of their content.
   const stack: { indent: number; key: string }[] = [];
   for (let k = 0; k < raw.length; k += 1) {
     const l = stripComment(raw[k]!);
     if (l.trim() === "") continue;
-    const m = /^(\s*)(-\s+)?(?:([^:'"\s][^:]*?|"[^"]*"|'[^']*'):(?:\s+|$))?(.*)$/.exec(l);
+    const m = LINE.exec(l);
     if (!m) continue;
     const indent = m[1]!.length;
     const dash = m[2] !== undefined;
@@ -3762,7 +4118,8 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       }
       const minIndent = Math.min(...body.filter((b) => b.trim()).map((b) => b.search(/\S/)));
       const text = body.map((b) => b.slice(Number.isFinite(minIndent) ? minIndent : 0)).join("\n");
-      scanCommandScript(text, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
+      const keyCol = indent + (dash ? m[2]!.length : 0);
+      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(text, k, keyCol, k + 1))) scanCommandScript(text, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
       k = n - 1;
       continue;
     }
@@ -3773,6 +4130,8 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       for (const item of items) scanCommandScript(item, "sh", sink, def, readSqlFile, { ...opts, commandContext: false });
       continue;
     }
+    const keyCol = indent + (dash ? m[2]!.length : 0);
+    if (commandContext && key !== null && key.toLowerCase() === "run" && runAs(unquote(value), k, keyCol, k)) continue;
     scanCommandScript(unquote(value), "sh", sink, def, readSqlFile, opts);
   }
 }
@@ -3827,7 +4186,7 @@ function scanJsonCommands(file: string, src: string, sink: SiteSink, def: Protec
 
 function scanSqlFile(src: string, sink: SiteSink, def: ProtectedRelationsDefinition): void {
   sink.counts.channels += 1;
-  const v = verdictOf(judgeWrites(analyzeSql(src), def));
+  const v = verdictOf(judgeWrites(analyzeSql(src, { ungated: true }), def));
   if (v.verdict === "ALLOWED") sink.counts.allowed += 1;
   else sink.add({ line: 1, kind: "SQL_FILE", channel: "sql file", excerpt: "(whole file)", verdict: v.verdict, detail: v.detail });
 }
@@ -3838,7 +4197,7 @@ function scanSqlFile(src: string, sink: SiteSink, def: ProtectedRelationsDefinit
 
 /** Scan one file's text. `rel` is its repository path (posix). */
 export function scanFile(rel: string, text: string, options: ScanOptions = {}): FileScan {
-  const language = languageOf(rel);
+  const language = options.language ?? languageOf(rel);
   const def = options.definition ?? PROTECTED_RELATIONS;
   const sites: ChannelSite[] = [];
   const counts = { channels: 0, gated: 0, allowed: 0, literals: 0 };
@@ -3857,6 +4216,10 @@ export function scanFile(rel: string, text: string, options: ScanOptions = {}): 
     return options.readRepoFile(path.posix.normalize(path.posix.join(dir, clean))) ?? options.readRepoFile(path.posix.normalize(clean));
   };
   const src = text.replace(/\r\n/g, "\n");
+  const outer = LAUNCH_COLLECTOR;
+  const launches: Launch[] = [];
+  LAUNCH_COLLECTOR = launches;
+  try {
   switch (language) {
     case "js":
       scanJs(src, sink, def, readSqlFile, options.readRepoFile);
@@ -3891,8 +4254,11 @@ export function scanFile(rel: string, text: string, options: ScanOptions = {}): 
     default:
       break;
   }
+  } finally {
+    LAUNCH_COLLECTOR = outer;
+  }
   sites.sort((a, b) => a.line - b.line || a.excerpt.localeCompare(b.excerpt));
-  return { file: rel, language: language ?? "js", sites, counts };
+  return { file: rel, language: language ?? "js", sites, counts, launches };
 }
 
 export interface WalkRules {

@@ -205,6 +205,12 @@ export const HISTORICAL_SQL: readonly { readonly file: string; readonly sha256: 
     justification: "Historical Prisma migration (by its name 2026-05-13): DROP of those GIS stubs (spatial DDL owns env/core, SPATIAL-SCHEMA-OWNERSHIP). Applied once by prisma migrate deploy; this content is pinned.",
   },
   {
+    file: "prisma/migrations/20260721180000_legal_corpus_chunks/migration.sql",
+    sha256: "8a9650524f29dbb3ad3ed95906a3c4a4f4ab92f5401378f6c4b81b2e0e89c0f8",
+    writes: "UNRESOLVABLE: CASCADE (DROP TABLE IF EXISTS public.legal_corpus_chunks CASCADE)",
+    justification: "U30F5 (D-7): historical Prisma migration (by its name 2026-07-21) of the public legal corpus (Prisma owns public). Only the prisma CLI runs it: migrate deploy applies it once (on a fresh database before anything depends on the table), and the commands that re-run applied migrations (migrate reset, migrate dev, db push) are classified UNRESOLVABLE wherever a scanned file holds them. This content is pinned.",
+  },
+  {
     file: "prisma/spatial/001_gist_indexes.sql",
     sha256: "c72a7eb7118c25610c6222fee9f68323b2e6a0fb5b970a4b66d68f11fab8c5d3",
     writes: "UNRESOLVABLE: DYNAMIC_SQL",
@@ -855,6 +861,11 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "PROTECTED SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"hydro\" CASCADE')",
       "UNRESOLVABLE SQL_TEXT literal | `TRUNCATE TABLE ${tablesToTruncate .map((name) => `\"public\".\"${name}\"`) .join(', ')} RESTART IDENTITY CASCADE;`",
       "UNRESOLVABLE SQL_CALL prisma.$executeRawUnsafe | prisma.$executeRawUnsafe(truncateQuery)",
+      // U30F5 (D-7): CASCADE drops of the admitted disposable test database, after the same admitDisposableGisTestDatabase door
+      "UNRESOLVABLE SQL_TEXT literal | 'DROP SCHEMA IF EXISTS \"topo10\" CASCADE'",
+      "UNRESOLVABLE SQL_CALL preClient.query | preClient.query('DROP SCHEMA IF EXISTS \"topo10\" CASCADE')",
+      "UNRESOLVABLE SQL_TEXT literal | `DROP TYPE IF EXISTS \"public\".\"${row.typname}\" CASCADE`",
+      "UNRESOLVABLE SQL_CALL preClient.query | preClient.query(`DROP TYPE IF EXISTS \"public\".\"${row.typname}\" CASCADE`)",
     ],
   },
   {

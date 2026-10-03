@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { splitCommandLine } from '../../packages/spatial-provider-postgis/src/ProtectedWriteClassifier';
 import { SPATIAL_LAYER_REGISTRY } from '../../packages/spatial-provider-postgis/src/SpatialLayerRegistry';
 import {
   PROTECTED_RELATIONS,
@@ -43,7 +44,7 @@ import {
   RETIRED_DESTRUCTIVE_SCRIPTS,
   validateRetiredDestructiveScripts,
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
-import { languageOf, scanFile, walkRepository, type ChannelSite, type FileScan } from './protectedWriteChannels';
+import { commandRuns, languageOf, scanFile, walkRepository, type ChannelSite, type FileScan, type Language, type Launch } from './protectedWriteChannels';
 import * as channels from './protectedWriteChannels';
 import {
   FILE_TYPE_DECISIONS,
@@ -66,10 +67,10 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 const LOCKS = {
   reviewedEntries: 60,
-  reviewedSites: 129,
-  reviewedSha256: '2ae336bc59532ef96270e1c93e71cbf198eb7eaf26195fe3861d98a13af1fa2f',
-  historicalFiles: 9,
-  historicalSha256: '7fdf49331e9dac4955408d0eb3a830eaabcceaf9e0aba7d6ba306a50e8cb4918',
+  reviewedSites: 133,
+  reviewedSha256: '3db8b7e492e7cf2632859d5e77a9343a51e27b3a87b72c6a0fc37c8708e1b218',
+  historicalFiles: 10,
+  historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
   pathExclusionsSha256: '4becd2b0307d48979f6cd9428aa35b4fff76df21c9bcd571effefaf2a67583f7',
   unscannedSha256: 'f860776a464e23399d4f996737d917154ef3cc12cd3a7f56b2e834d65d24fddd',
@@ -82,6 +83,8 @@ const LOCKS = {
   markerDoorsSha256: '806f99ebb2450096d501ba639356a17768d989e541c3a630c98d7ca04bab32a6',
   // U30F4 (B5): the file types decided to be data
   fileTypeDecisionsSha256: '490bbe38db7f2569773f3de5140e8135271c9bce57a5bbfd4e1578ed2819aa40',
+  // U30F5 (D-7): the open owner decisions (BLOCKERARE, failed by their own test)
+  openDecisionsSha256: '8b758f120f081e399f40afb73a84749980fa4d0a3edf8a5d413d5ea7958ad343',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -168,6 +171,50 @@ function testHarnessReach(file: string, ctx: EvaluationContext, seen: Set<string
 interface Problem {
   readonly file: string;
   readonly problem: string;
+  /** U30F5 (D-7): a site of OPEN_OWNER_DECISIONS -- failed by its own BLOCKERARE test, not by every other one. */
+  readonly open?: true;
+}
+
+/**
+ * U30F5 (D-7): the pre-existing CASCADE sites the new rule (a CASCADE outside the gate is UNRESOLVABLE) found in operator
+ * scripts. They are NOT reviewed -- nothing shows them unreachable -- and NOT changed here (operator scripts are outside
+ * this unit). Each awaits an owner decision: drop the CASCADE (PostgreSQL then refuses to drop a dependent object), gate
+ * the statement (the gate judges its named targets) or retire the script. Until then the BLOCKERARE test below fails on
+ * exactly these sites; every other test sees them as known, so a NEW site in these files still fails as before. A site
+ * is matched with its detail too: an open site whose verdict gains another reason is new.
+ */
+const OPEN_OWNER_DECISIONS: Readonly<Record<string, readonly string[]>> = {
+  'scripts/db/cleanup-db.ts': [
+    'CASCADE :: UNRESOLVABLE SQL_TEXT literal | `DROP TABLE IF EXISTS "${table}" CASCADE`',
+    'CASCADE :: UNRESOLVABLE SQL_CALL prisma.$executeRawUnsafe | prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}" CASCADE`)',
+  ],
+  'scripts/import/fill-empty-gaps-from-archive.ts': ["CASCADE :: UNRESOLVABLE SQL_TEXT literal | 'DROP TABLE IF EXISTS env.friluftsliv CASCADE;'"],
+  'scripts/import/sanitize-postgis-failed-imports.ps1': [
+    'CASCADE, DROP :: UNRESOLVABLE SQL_TEXT literal | "DROP TABLE IF EXISTS $t CASCADE;"',
+    'CASCADE, DROP :: UNRESOLVABLE SQL_TEXT literal | "DROP TABLE IF EXISTS $t CASCADE;"',
+    "CASCADE :: UNRESOLVABLE SQL_TEXT literal | 'DROP SCHEMA IF EXISTS stage CASCADE;'",
+    "CASCADE :: UNRESOLVABLE SQL_TEXT literal | 'DROP SCHEMA IF EXISTS transport CASCADE;'",
+  ],
+};
+
+/** The key of an open site: its detail (the verdict's reasons) and its site key. */
+function openKey(s: ChannelSite): string {
+  return `${s.detail} :: ${siteKey(s)}`;
+}
+
+/** The sites of a scan minus the open ones of OPEN_OWNER_DECISIONS (as multisets, matched by openKey). */
+function splitOpen(file: string, sites: readonly ChannelSite[]): { open: ChannelSite[]; rest: ChannelSite[] } {
+  const left = [...(OPEN_OWNER_DECISIONS[file] ?? [])];
+  const open: ChannelSite[] = [];
+  const rest: ChannelSite[] = [];
+  for (const s of sites) {
+    const at = left.indexOf(openKey(s));
+    if (at >= 0) {
+      left.splice(at, 1);
+      open.push(s);
+    } else rest.push(s);
+  }
+  return { open, rest };
 }
 
 /** A retired script refuses before anything runs (TS: its refusal call first; SQL: the refusal header). */
@@ -203,9 +250,12 @@ function evaluateFile(file: string, text: string, scan: FileScan, ctx: Evaluatio
     return problems;
   }
   const entry = ctx.reviewed.get(file);
-  const keys = scan.sites.map(siteKey);
+  // U30F5 (D-7): the pinned open sites are reported apart (open: true), every other site as before
+  const { open, rest } = splitOpen(file, scan.sites);
+  for (const s of open) problems.push({ file, problem: `OPEN owner decision (U30F5 D-7): line ${s.line}: ${s.verdict} ${s.kind} via ${s.channel} (${s.detail}): ${s.excerpt}`, open: true });
+  const keys = rest.map(siteKey);
   if (!entry) {
-    for (const s of scan.sites) {
+    for (const s of rest) {
       const where = /^prisma\/(migrations|spatial)\//.test(file) ? 'a migration that is not in the pinned historical list' : 'not gated, not ALLOWED, not reviewed';
       add(`line ${s.line}: ${s.verdict} ${s.kind} via ${s.channel} (${s.detail}) -- ${where}: ${s.excerpt}`);
     }
@@ -317,11 +367,132 @@ function contextFor(repo: RepositoryScan, overrides: { retired?: readonly string
 const REPO = scanRepository(REPO_ROOT);
 const CONTEXT = contextFor(REPO);
 
+// ---------------------------------------------------------------------------------------------
+// U30F5 (D-1): a file run by a scanned command or a runbook line is an executable entry, whatever its extension or name
+// ---------------------------------------------------------------------------------------------
+
+/** A launch's file in the repository: relative to the launcher's directory, else to the repository root. */
+function resolveLaunch(by: string, file: string, exists: (f: string) => boolean): string[] {
+  const candidates = [path.posix.normalize(path.posix.join(path.posix.dirname(by), file)), path.posix.normalize(file)];
+  return [...new Set(candidates)].filter((c) => !c.startsWith('..') && exists(c));
+}
+
+/**
+ * The command lines of a Markdown runbook's fenced blocks: a shell-tagged block (bash, sh, console, powershell, cmd ...)
+ * is commands; an untagged block may be a listing, so only its interpreter lines count (`tsx x`, `bash x`), not a bare path.
+ */
+function runbookCommands(text: string): { line: string; tagged: boolean }[] {
+  const out: { line: string; tagged: boolean }[] = [];
+  let inBlock = false;
+  let kind: 'shell' | 'untagged' | 'other' = 'other';
+  for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
+    const fence = /^\s*(```|~~~)\s*([A-Za-z0-9_+-]*)/.exec(raw);
+    if (fence) {
+      if (inBlock) inBlock = false;
+      else {
+        inBlock = true;
+        const tag = fence[2] ?? '';
+        kind = tag === '' ? 'untagged' : /^(bash|sh|shell|console|terminal|zsh|powershell|pwsh|ps1|ps|cmd|bat|batch)$/i.test(tag) ? 'shell' : 'other';
+      }
+      continue;
+    }
+    if (!inBlock || kind === 'other') continue;
+    const line = raw.replace(/^\s*(\$|PS [^>]*>|>)\s+/, '');
+    if (line.trim() && !line.trim().startsWith('#')) out.push({ line, tagged: kind === 'shell' });
+  }
+  return out;
+}
+
+/** The launches of runbook lines: every .md file of the repository (or the given texts). */
+function runbookLaunchers(files: readonly string[], read: (p: string) => string | null): { by: string; launches: Launch[] }[] {
+  const out: { by: string; launches: Launch[] }[] = [];
+  for (const f of files) {
+    if (!f.endsWith('.md') || EXCLUDED.some((re) => re.test(f))) continue;
+    const text = read(f);
+    if (text === null || !text.includes('```') && !text.includes('~~~')) continue;
+    const launches: Launch[] = [];
+    for (const { line: command, tagged } of runbookCommands(text)) {
+      for (const pipeline of splitCommandLine(command)) {
+        for (const seg of pipeline) {
+          for (const l of commandRuns(seg.argv).launches) if (tagged || l.lang !== null) launches.push({ ...l, via: command.trim().slice(0, 160) });
+        }
+      }
+    }
+    if (launches.length) out.push({ by: f, launches });
+  }
+  return out;
+}
+
+interface LaunchedScan {
+  readonly file: string;
+  readonly text: string;
+  readonly scan: FileScan;
+  readonly by: string;
+}
+
+/**
+ * U30F5 (D-1): every file a scanned command (npm script, CI step, Dockerfile, shell, process call) or a runbook line runs,
+ * closed over what those run in turn. A test source run so is no test source (no runner, no TEST-DB-GUARD): it is
+ * scanned. A data file or a script run by an interpreter of another language is scanned as what it runs as. A file of a
+ * type the scan does not read, executed directly, and a path the scan excludes, fail.
+ */
+function evaluateLaunches(
+  launchers: readonly { by: string; launches: readonly Launch[] }[],
+  read: (p: string) => string | null,
+  exists: (f: string) => boolean,
+): { launched: LaunchedScan[]; problems: Problem[] } {
+  const queue: { by: string; l: Launch }[] = launchers.flatMap((e) => e.launches.map((l) => ({ by: e.by, l })));
+  const seen = new Set<string>();
+  const launched: LaunchedScan[] = [];
+  const problems: Problem[] = [];
+  while (queue.length) {
+    const { by, l } = queue.shift()!;
+    for (const f of resolveLaunch(by, l.file, exists)) {
+      const where = `run by ${by} (${l.via})`;
+      if (EXCLUDED.some((re) => re.test(f))) {
+        problems.push({ file: by, problem: `runs ${f}, a path the scan excludes -- ${where}` });
+        continue;
+      }
+      const own = languageOf(f);
+      const lang: Language | null = l.lang ?? own;
+      if (lang === null) {
+        problems.push({ file: f, problem: `executed directly, but its type (${fileTypeKey(f)}) is not read by the scan -- ${where}` });
+        continue;
+      }
+      if (!TEST_SOURCE.test(f) && own === lang) continue; // a scanned file run as its own language
+      const key = `${f}|${lang}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const text = read(f);
+      if (text === null) continue;
+      const scan = scanFile(f, text, { readRepoFile: read, language: lang });
+      launched.push({ file: f, text, scan, by: where });
+      for (const next of scan.launches) queue.push({ by: f, l: next });
+    }
+  }
+  return { launched, problems };
+}
+
+/** The problems of the launched scans (each scanned as what it runs as) and of the launches themselves. */
+function launchProblems(result: { launched: LaunchedScan[]; problems: Problem[] }, ctx: EvaluationContext): Problem[] {
+  const out: Problem[] = [...result.problems];
+  for (const l of result.launched) out.push(...evaluateFile(l.file, l.text, l.scan, ctx).map((p) => ({ ...p, problem: `${p.problem} -- ${l.by}` })));
+  return out;
+}
+
+const REPO_FILES = new Set(REPO.files);
+const REPO_LAUNCHES = evaluateLaunches(
+  [...[...REPO.scans].map(([by, s]) => ({ by, launches: s.launches })), ...runbookLaunchers(REPO.files, readRepo(REPO_ROOT))],
+  readRepo(REPO_ROOT),
+  (f) => REPO_FILES.has(f),
+);
+
 /** The problems one (possibly new or changed) file would raise, scanned in memory against the real repository. */
 function problemsOf(file: string, text: string, opts: { definition?: ProtectedRelationsDefinition; retired?: readonly string[] } = {}): Problem[] {
   const ctx = opts.definition || opts.retired ? contextFor(REPO, opts) : CONTEXT;
   const scan = scanFile(file, text, { definition: opts.definition, readRepoFile: readRepo(REPO_ROOT) });
-  return evaluateFile(file, text, scan, ctx);
+  // U30F5: the pinned open sites (OPEN_OWNER_DECISIONS) are failed by their own BLOCKERARE test, not by every canary
+  return evaluateFile(file, text, scan, ctx).filter((p) => !p.open);
 }
 
 function realText(file: string): string {
@@ -358,7 +529,27 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
   it('every channel of every file is gated, statically allowed, retired, a pinned migration or reviewed exactly', () => {
     const problems: Problem[] = [];
     for (const [file, scan] of REPO.scans) problems.push(...evaluateFile(file, REPO.texts.get(file)!, scan, CONTEXT));
-    expect(problems).toEqual([]);
+    expect(problems.filter((p) => !p.open)).toEqual([]);
+  });
+
+  it('every file a scanned command or a runbook line runs is scanned as what it runs as (U30F5 D-1)', () => {
+    expect(launchProblems(REPO_LAUNCHES, CONTEXT).filter((p) => !p.open)).toEqual([]);
+    // the walk saw launches at all (it cannot pass vacuously): package.json scripts run tsx/node scripts
+    expect([...REPO.scans.values()].reduce((n, s) => n + s.launches.length, 0)).toBeGreaterThan(20);
+  });
+
+  it('the pinned open owner decisions are not stale: each site is still in its file, each file still scanned (U30F5 D-7)', () => {
+    expect(sha256Of(OPEN_OWNER_DECISIONS)).toBe(LOCKS.openDecisionsSha256);
+    for (const [file, keys] of Object.entries(OPEN_OWNER_DECISIONS)) {
+      expect(REPO.scans.has(file), file).toBe(true);
+      expect(splitOpen(file, REPO.scans.get(file)!.sites).open.length, `${file}: an open site is gone -- remove it from OPEN_OWNER_DECISIONS`).toBe(keys.length);
+    }
+  });
+
+  it('BLOCKERARE (U30F5 D-7): pre-existing CASCADE sites in operator scripts await an owner decision -- drop the CASCADE, gate it or retire the script', () => {
+    const open: Problem[] = [];
+    for (const [file, scan] of REPO.scans) open.push(...evaluateFile(file, REPO.texts.get(file)!, scan, CONTEXT).filter((p) => p.open));
+    expect(open).toEqual([]);
   });
 
   it('no reviewed entry, historical file or gate file is stale', () => {
@@ -580,7 +771,6 @@ describe('canaries: changes to real files and lists are caught', () => {
     ['a gatedSql removed (DROP of tables listed at run time)', 'scripts/import/sguBulkImportEngine.ts', '    await prisma.$executeRawUnsafe(gatedSql(GATE_CALLER, `DROP TABLE IF EXISTS ${table} CASCADE`));\n    dropped.push(table);', '    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table} CASCADE`);\n    dropped.push(table);'],
     ['an ogr2ogr command gate removed', 'scripts/import/bulk-import-sgu-api-all.ts', 'execSync(assertOgr2ogrCommandAllowed({ caller: GATE_CALLER, command: ogrCmd }), ', 'execSync(ogrCmd, '],
     ['an ogr2ogr argv gate removed (U30F2 H1 wrap)', 'scripts/import/import-viss-water.ts', "assertOgr2ogrWriteAllowed({ caller: 'scripts/import/import-viss-water.ts', args: pgArgs })", 'pgArgs'],
-    ['a PowerShell relation gate removed', 'scripts/import/sanitize-postgis-failed-imports.ps1', "        Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation $t\n", ''],
     ['a PowerShell ogr2ogr gate removed (U30F2 H1 wrap)', 'scripts/import-topo.ps1', "$ogrArgs = Assert-Ogr2ogrWriteAllowed -Caller $gateCaller -Arguments @(", '$ogrArgs = @('],
     ['a Python relation gate removed', 'scripts/data-pipeline/import_lm_stac.py', "    assert_ungoverned_write_allowed(GATE_CALLER, 'OGR2OGR_WRITE', table)\n    mode =", '    mode ='],
     ['a Python command gate removed (U30F2 H1 wrap)', 'scripts/data-pipeline/import_topo10_all.py', 'subprocess.run(assert_command_write_allowed(GATE_CALLER, argv=cmd), check=True)', 'subprocess.run(cmd, check=True)'],
@@ -1014,7 +1204,11 @@ function problemsOfTree(files: Readonly<Record<string, string>>): Problem[] {
     const scan = scans.get(f);
     if (scan) out.push(...evaluateFile(f, texts.get(f)!, scan, ctx));
   }
-  return out;
+  // U30F5 (D-1): what the new files launch (their commands and runbook lines), scanned as what it runs as
+  const own = Object.keys(files);
+  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read)];
+  out.push(...launchProblems(evaluateLaunches(launchers, read, (f) => REPO_FILES.has(f) || Object.prototype.hasOwnProperty.call(files, f)), ctx));
+  return out.filter((p) => !p.open);
 }
 
 const PG5 = "import pg from 'pg';\nconst pool = new pg.Pool();\n";
@@ -1091,6 +1285,15 @@ describe('canaries: U30F5 -- D-2 inline code, D-5 substituted SQL, D-6 process a
     ['D-7 SQL file: a foreign key ON DELETE CASCADE', 'docs/ops/u6q.sql', 'ALTER TABLE public.c ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES public.p (id) ON DELETE CASCADE;\n'],
   ])('control: %s passes', (_label, file, content) => {
     expect(problemsOf(file, content)).toEqual([]);
+  });
+
+  it("a PowerShell relation gate still counts -- shown on an appended drop without CASCADE (sanitize's own drops are open D-7 sites, UNRESOLVABLE with or without it)", () => {
+    const file = 'scripts/import/sanitize-postgis-failed-imports.ps1';
+    const original = realText(file);
+    const gate = "    Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation $u\n";
+    const appended = `${original}\nforeach ($u in $args) {\n${gate}    Invoke-DbSql "DROP TABLE IF EXISTS $u;" 'u30f5'\n}\n`;
+    expect(problemsOf(file, appended)).toEqual([]);
+    expect(problemsOf(file, appended.replace(gate, '')).length).toBeGreaterThan(0);
   });
 });
 
