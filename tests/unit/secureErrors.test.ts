@@ -63,6 +63,28 @@ describe('secureErrors', () => {
     expect(err.name).toBe('SecureError');
   });
 
+  it('W-TEXT2 (4; UI1-R2 finding L4): only a real session or token expiry is "Session expired"', () => {
+    // auth.ts 'Token expired', the BankID 'session expired' texts, jsonwebtoken's 'jwt expired', a refresh token.
+    for (const message of ['session expired', 'Token expired', 'jwt expired', 'Refresh token expired', 'BankID authentication session expired']) {
+      expect(toSafeErrorResponse(new Error(message)), message).toEqual({
+        ok: false,
+        error: 'Session expired',
+        code: undefined,
+        statusCode: 401,
+      });
+    }
+    // Another expired thing (a capability, a qualification, a lease, a ticket) is NOT the session: it must never be
+    // answered as 401 "Session expired" (the UI would say "Sessionen har gått ut – logga in igen").
+    for (const message of ['viewer capability expired', 'Qualification expired for layer water', 'the lease expired', 'ticket expired', 'EXPIRED']) {
+      expect(toSafeErrorResponse(new Error(message)), message).toEqual({
+        ok: false,
+        error: 'An error occurred processing your request',
+        code: undefined,
+        statusCode: 500,
+      });
+    }
+  });
+
   it('maps "unauthorized" keyword to Access denied', () => {
     expect(toSafeErrorResponse(new Error('unauthorized access'))).toEqual({
       ok: false,
