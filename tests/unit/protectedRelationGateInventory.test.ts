@@ -1512,6 +1512,7 @@ describe('canaries: U30F6 mutation round 1 -- what the first canaries left unexe
   it.each([
     ['F5-4 CI: python -m "$MOD" (a module the source does not hold)', { '.github/workflows/u9y.yml': ci('      - run: python -m "$MOD" --all\n') }],
     ['F5-7 CI run: > -- a more-indented line keeps its line break (psql is its own command)', { '.github/workflows/u9z.yml': ci('      - run: >\n          echo start\n            psql "$DB" -c "$SQL"\n') }],
+    ['F5-7 CI run: > -- two more-indented lines stay two commands (bash runs the data file)', { '.github/workflows/u9z2.yml': ci('      - run: >\n          echo start\n            echo safe\n            bash scripts/w6rogue/fold-z2.txt\n'), 'scripts/w6rogue/fold-z2.txt': EVIL6_SH }],
     ['F5-3 npm: node runs a package file by path (node_modules/...): unknown package code, not reviewed', { 'tools/u9t/package.json': npm6({ x: 'node node_modules/pg-wipe/bin/cli.js --all' }) }],
     ['F5-2/F5-3 npm: a package preload is the package even when a harmless file of that name sits beside the launcher', { 'tools/u9u/package.json': npm6({ x: 'node --import wipe-pkg scripts/w6rogue/ok-u.mjs' }), 'tools/u9u/wipe-pkg': 'console.log(0);\n', 'scripts/w6rogue/ok-u.mjs': 'console.log(1);\n' }],
     ['deno run -r <file>: -r is --reload (no value), the file is the script', { 'tools/u9v/package.json': npm6({ x: 'deno run -r scripts/w6rogue/deno-v.txt' }), 'scripts/w6rogue/deno-v.txt': EVIL6_TS }],
