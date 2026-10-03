@@ -10,6 +10,7 @@ import { assertSecurityEnv } from './security/env';
 import { ExporterAdapter, validateObservabilityStartup } from './observability';
 import { prisma } from './db/prisma';
 import { assertExecutionAttestationSecretAtStartup } from './modules/release/executionAttestationStartupGate';
+import { assertBootstrapAdmitFlagOnlyInExplicitTestProcess } from '@miljobeslut/mps-lu';
 
 warnProductionDevFlags();
 
@@ -30,6 +31,19 @@ const server = http.createServer(app);
 // Skapa servern men starta den bara om vi inte är i testmiljö.
 // Vitest importerar denna fil för att få 'app'-instansen.
 if (process.env.NODE_ENV !== 'test') {
+  // W-U402 (U40-2, U30R6 §9 K6; owner decision Round 2 row 12): MPS_LU_BOOTSTRAP_ADMIT present (any value) in a process
+  // that is not an explicit test process refuses the START -- mps-lu's own rule (package-root export, gate
+  // process_startup), decided before anything else starts here. A listening web process is never an explicit test
+  // process, so with the flag set it never serves (the verify route's 503 stays as defence in depth).
+  try {
+    assertBootstrapAdmitFlagOnlyInExplicitTestProcess(process.env, 'process_startup');
+  } catch (error) {
+    logger.error('bootstrap admission flag: refusing to start', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    process.exit(1);
+  }
+
   // W-U42 (owner 2026-10-03 (5), BINDING): outside an explicit development/test process the web process must not
   // start on the built-in development HMAC secret for outcome attestations; it needs its own
   // (MPS_EXECUTION_ATTESTATION_HMAC_SECRET), which the LU kernel client then signs with. Decided before anything
