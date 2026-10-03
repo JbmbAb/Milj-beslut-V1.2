@@ -174,9 +174,26 @@ describe('loadEnvFirst outside an authoritative environment is unchanged (develo
     expect(report.DATABASE_URL).toBeNull();
   });
 
-  it('NODE_ENV=production WITHOUT PRESERVE_RUNTIME_ENV: a .env.local in the cwd still overrides, as before (not deleted, overridden)', () => {
+  it('NODE_ENV=development: a .env.local still overrides an injected value, as before', () => {
+    const report = runLoadEnvFirst('local', { NODE_ENV: 'development', U402_LOCAL_SENTINEL: 'injected-sentinel' });
+    expect(report.U402_LOCAL_SENTINEL).toBe('loaded-from-the-fake-env-local');
+  });
+});
+
+describe('ÄF-U402-3 (owner Round 20): NODE_ENV=production alone keeps .env.local from overriding injected values', () => {
+  it('NODE_ENV=production WITHOUT PRESERVE_RUNTIME_ENV: neither the injected DATABASE_URL nor another injected value is overridden by .env.local', () => {
+    const report = runLoadEnvFirst('local', {
+      NODE_ENV: 'production',
+      DATABASE_URL: INJECTED_DATABASE_URL,
+      U402_LOCAL_SENTINEL: 'injected-sentinel',
+    });
+    expect(report.DATABASE_URL).toBe(INJECTED_DATABASE_URL);
+    expect(report.U402_LOCAL_SENTINEL).toBe('injected-sentinel');
+  });
+
+  it('NODE_ENV=production: .env.local still fills what was not injected', () => {
     const report = runLoadEnvFirst('local', { NODE_ENV: 'production', DATABASE_URL: INJECTED_DATABASE_URL });
-    expect(report.DATABASE_URL).toBe(FAKE_LOCAL_DATABASE_URL);
+    expect(report.U402_LOCAL_SENTINEL).toBe('loaded-from-the-fake-env-local');
   });
 });
 

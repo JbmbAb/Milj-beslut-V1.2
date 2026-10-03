@@ -142,7 +142,9 @@ describe('TEST-DB-GUARD: loadEnvFirst in a test runtime (NODE_ENV=test, own proc
 });
 
 describe('TEST-DB-GUARD: loadEnvFirst outside a test runtime is unchanged (dev/staging/prod)', () => {
-  it.each([['(unset)'], ['development'], ['production']])(
+  // W-U402 (U40-2; owner Round 20, ÄF-U402-3): 'production' is no longer in this row -- NODE_ENV=production keeps an
+  // injected DATABASE_URL (spec U40-U50B §1.3) and .env.local no longer overrides injected values (its own case below).
+  it.each([['(unset)'], ['development']])(
     'NODE_ENV=%s: deletes the inherited DATABASE_URL and loads .env.local over it, as before',
     (nodeEnv) => {
       const report = runLoadEnvFirstInChild({
@@ -157,4 +159,14 @@ describe('TEST-DB-GUARD: loadEnvFirst outside a test runtime is unchanged (dev/s
       expect(report.TEST_DATABASE_URL).toBe(FAKE_LOCAL_DATABASE_URL);
     },
   );
+
+  it('NODE_ENV=production (W-U402): the injected DATABASE_URL is kept and .env.local only fills what is still unset (like PRESERVE_RUNTIME_ENV=true)', () => {
+    const report = runLoadEnvFirstInChild({ NODE_ENV: 'production', DATABASE_URL: EXPLICIT_DEAD_DATABASE_URL });
+
+    expect(report.DATABASE_URL).toBe(EXPLICIT_DEAD_DATABASE_URL);
+    expect(report.WTDG_LOCAL_SENTINEL).toBe('loaded-from-the-fake-env-local');
+    expect(report.WTDG_DOTENV_SENTINEL).toBe('loaded-from-the-fake-env');
+    // .env is read first; in production .env.local no longer overrides it either (the PRESERVE_RUNTIME_ENV semantics).
+    expect(report.TEST_DATABASE_URL).toBe(FAKE_DOTENV_TEST_DATABASE_URL);
+  });
 });
