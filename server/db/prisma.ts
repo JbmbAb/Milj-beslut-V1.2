@@ -3,6 +3,7 @@ import { withAccelerate } from '@prisma/extension-accelerate';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { loadEnvFile } from '../loadEnv';
+import { isRuntimeEnvironmentAuthoritative, requireDatabaseUrl } from '../modules/runtime-env/runtimeDatabaseUrl';
 import { installTestDatabaseConnectionGuard } from '../modules/test-db-guard/installTestDatabaseConnectionGuard';
 import {
   isTestRuntime,
@@ -26,6 +27,13 @@ if (!process.env.DATABASE_URL) {
 }
 
 const prismaClientSingleton = (): PrismaClient => {
+  // W-U402 (U40-2, consistency with loadEnvFirst; U40-A F2): where the process environment is authoritative
+  // (NODE_ENV=production or PRESERVE_RUNTIME_ENV=true -- the product composition) and this is not a test runtime, a
+  // client without DATABASE_URL is a refusal (DATABASE_URL_REQUIRED) -- never libpq's default (localhost:5432, PG*
+  // variables). Development is unchanged.
+  if (!isTestRuntime(process.env) && isRuntimeEnvironmentAuthoritative(process.env)) {
+    requireDatabaseUrl(process.env, 'the database client (server/db/prisma)');
+  }
   const dbUrl = process.env.DATABASE_URL || '';
   const isAccelerate = dbUrl.startsWith('prisma');
   const isProduction = process.env.NODE_ENV === 'production';
