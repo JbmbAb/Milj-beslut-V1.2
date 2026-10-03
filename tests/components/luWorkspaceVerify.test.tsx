@@ -103,11 +103,23 @@ async function verify(answer: () => unknown) {
   return user;
 }
 
-/** Nothing in the visible results reads as the green verification. */
+/**
+ * Nothing in the VISIBLE results reads as the green verification. The collapsed "Teknisk information" is left out: its
+ * labelled row "Serverns text" echoes the server's own outcome_sv verbatim (these fixtures send the green sentence in a
+ * contradictory answer on purpose). W-T1TEXT: before, this passed only because the server's sentence
+ * ("Reproducerbarhet verifierad …") happened to differ from the UI head ("Reproducerbarheten verifierad …"); now the two
+ * are the same sentence, so the technical echo is excluded explicitly, as luWorkspace.test.tsx already does.
+ */
 function expectNoGreen() {
   expect(screen.queryByTestId('lu-verify-result-pass')).not.toBeInTheDocument();
   expect(screen.queryByTestId('lu-verify-result-pass-head')).not.toBeInTheDocument();
-  expect(screen.getByTestId('lu-results')).not.toHaveTextContent(GREEN_HEAD);
+  let visible = screen.getByTestId('lu-results').textContent ?? '';
+  for (const id of ['lu-verify-result-technical', 'lu-verify-result-mismatch-technical']) {
+    const technical = screen.queryByTestId(id)?.textContent ?? '';
+    if (technical) visible = visible.replace(technical, '');
+  }
+  expect(visible).not.toContain(GREEN_HEAD);
+  expect(visible).not.toContain('verifierad mot sparat underlag');
 }
 
 describe('W-UI1 A: the verify presentation in the workspace', () => {
