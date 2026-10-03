@@ -107,8 +107,19 @@ function send(method: 'GET' | 'POST', path: string, body: unknown, authenticated
   const withAuth = authenticated ? req.set('Authorization', `Bearer ${token}`) : req;
   return method === 'POST' ? withAuth.send((body ?? {}) as object) : withAuth;
 }
-/** The routes whose repeat after an unknown failure could act twice (create or move something): never promised. */
-const NON_REPEATABLE = new Set(['POST localization-projects', 'POST bootstrap-retry', 'POST geometry', 'POST geometry-identity-retry']);
+/**
+ * The routes whose repeat after an unknown failure could act twice (create or move something): never promised.
+ * W-TEXT2 (3; U6-4): generate-report and generate-pdf-data WRITE (runLocalizationReport persists an assessment), so they are
+ * not repeatable either.
+ */
+const NON_REPEATABLE = new Set([
+  'POST localization-projects',
+  'POST bootstrap-retry',
+  'POST geometry',
+  'POST geometry-identity-retry',
+  'POST generate-report',
+  'POST generate-pdf-data',
+]);
 
 beforeEach(() => {
   h.rateLimited = false;
@@ -233,12 +244,24 @@ describe('W-U20CDF6 item 4: luFailureRetryable (pure)', () => {
     expect(at(500, {}, 'GET', undefined, prismaDown())).toBe(true);
     expect(at(500, {}, 'GET', undefined, new CASIntegrityError())).toBe(false);
     expect(at(500, {}, 'GET', undefined, new Error('Artifact not found: x'))).toBe(false);
-    expect(at(500, {}, 'GET', undefined, undefined)).toBe(true);
-    for (const path of ['/api/localization/localization-projects', `/api/localization/${P}/bootstrap-retry`, `/api/localization/${P}/geometry`, `/api/localization/${P}/geometry-identity-retry`]) {
+    // W-TEXT2 (3; U6-4): a 5xx the router did not catch has no class -- fail closed, nothing is promised.
+    expect(at(500, {}, 'GET', undefined, undefined)).toBe(false);
+    expect(at(502, {}, 'GET', undefined, undefined)).toBe(false);
+    expect(at(503, {}, 'POST', `/api/localization/${P}/verify-assessment`, undefined)).toBe(false);
+    for (const path of [
+      '/api/localization/localization-projects',
+      `/api/localization/${P}/bootstrap-retry`,
+      `/api/localization/${P}/geometry`,
+      `/api/localization/${P}/geometry-identity-retry`,
+      // W-TEXT2 (3; U6-4): both run the report, which persists an assessment -- a repeat could write twice.
+      '/api/localization/generate-report',
+      '/api/localization/generate-pdf-data',
+    ]) {
       expect(at(500, {}, 'POST', path, prismaDown()), path).toBe(false);
       expect(at(500, {}, 'post', path, prismaDown()), path).toBe(false);
     }
-    for (const path of ['/api/localization/generate-report', `/api/localization/${P}/verify-assessment`]) expect(at(500, {}, 'POST', path, prismaDown()), path).toBe(true);
+    // verify-assessment reads and replays; it writes nothing, so a read fault behind it is repeatable.
+    expect(at(500, {}, 'POST', `/api/localization/${P}/verify-assessment`, prismaDown())).toBe(true);
     // A read of the same path is repeatable (GET geometry).
     expect(at(500, {}, 'GET', `/api/localization/${P}/geometry`, prismaDown())).toBe(true);
   });

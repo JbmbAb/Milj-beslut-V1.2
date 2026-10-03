@@ -90,7 +90,13 @@ describe('csrfProtection', () => {
     csrfProtection(req, res, next as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+    // W-TEXT2 (3): a CSRF rejection is an authorization-class failure -- retryable false, explicitly (the LU UI shows
+    // "Försök igen" only on the server's own true). The text is the one the UI matches exactly (LU_SERVER_MESSAGE.CSRF_REJECTED).
+    expect(res.json).toHaveBeenCalledWith({
+      ok: false,
+      error: 'Möjlig Cross-Site Request Forgery attack blockerad. Ogiltig eller saknad CSRF-token.',
+      retryable: false,
+    });
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -107,6 +113,7 @@ describe('csrfProtection', () => {
     csrfProtection(req, res, next as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: false, retryable: false }));
     expect(next).not.toHaveBeenCalled();
   });
 

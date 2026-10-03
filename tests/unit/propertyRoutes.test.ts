@@ -119,6 +119,8 @@ describe('property.routes', () => {
 
     expect(res.status).toBe(503);
     expect(res.body?.code).toBe('LIVE_LANTMATERIET_DISABLED');
+    // W-TEXT2 (3): a configuration refusal is not healed by a retry.
+    expect(res.body?.retryable).toBe(false);
   });
 
   it('looks up properties from PostGIS and surfaces service errors safely', async () => {
@@ -130,14 +132,71 @@ describe('property.routes', () => {
     expect(success.status).toBe(200);
     expect(success.body?.result?.source).toBe('postgis');
 
+    // W-TEXT2 (3; U20CDF6 report 7): an unknown failure while READING is a read fault of unknown persistence -- 503 and
+    // retryable true (the read-fault doctrine), never a 400 that blames the request. The raw message is never shown.
     mocks.lookupPropertyByDesignationFromPostgis.mockRejectedValueOnce(new Error('postgis lookup failed'));
     const failure = await request(app)
       .post('/api/property/lookup/postgis')
       .set('Authorization', authHeader())
       .send({ projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' });
 
-    expect(failure.status).toBe(400);
-    expect(String(failure.body?.error || '')).toBe('An error occurred processing your request');
+    expect(failure.status).toBe(503);
+    expect(failure.body).toEqual({
+      ok: false,
+      error: 'Fastighetsuppslaget kunde inte genomföras på grund av ett tekniskt fel. Ett nytt försök kan lyckas.',
+      retryable: true,
+    });
+  });
+
+  it('W-TEXT2 (3): a database read fault on both lookup routes -> 503, retryable true; no raw message, no code', async () => {
+    for (const path of ['/api/property/lookup', '/api/property/lookup/postgis']) {
+      mocks.lookupPropertyByDesignationFromPostgis.mockRejectedValueOnce(
+        Object.assign(new Error("Can't reach database server at db.internal:5432"), { name: 'PrismaClientInitializationError' }),
+      );
+      const res = await request(app)
+        .post(path)
+        .set('Authorization', authHeader())
+        .send({ projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' });
+      expect(res.status, path).toBe(503);
+      expect(res.body.retryable, path).toBe(true);
+      expect(JSON.stringify(res.body), path).not.toMatch(/db\.internal|5432|Prisma/);
+      expect(res.body).not.toHaveProperty('code');
+    }
+  });
+
+  it('W-TEXT2 (3): proven invalid input stays 400, retryable false (the request itself is wrong)', async () => {
+    const invalid = [
+      'projectId, propertyDesignation and purpose are required', // server/security/projectAccess.ts validatePropertyLookupInput
+      'Bulk or wildcard property lookup is not allowed', // validatePropertyLookupInput
+    ];
+    for (const message of invalid) {
+      mocks.lookupPropertyByDesignationFromPostgis.mockRejectedValueOnce(new Error(message));
+      const res = await request(app)
+        .post('/api/property/lookup')
+        .set('Authorization', authHeader())
+        .send({ projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' });
+      expect(res.status, message).toBe(400);
+      expect(res.body.retryable, message).toBe(false);
+    }
+    // The route's own normaliser: a body that is no object (server/security/propertyLookupNormalize.ts).
+    const noBody = await request(app)
+      .post('/api/property/lookup')
+      .set('Authorization', authHeader())
+      .set('Content-Type', 'application/json')
+      .send('"not an object"');
+    expect(noBody.status).toBe(400);
+    expect(noBody.body.retryable).toBe(false);
+    expect(mocks.lookupPropertyByDesignationFromPostgis).not.toHaveBeenCalled();
+  });
+
+  it('W-TEXT2 (3): a denial behind the lookup keeps its answer, retryable false', async () => {
+    mocks.lookupPropertyByDesignationFromPostgis.mockRejectedValueOnce(new Error('Insufficient role permissions'));
+    const res = await request(app)
+      .post('/api/property/lookup')
+      .set('Authorization', authHeader())
+      .send({ projectId: 'project-1', propertyDesignation: 'Orsa 1:1', purpose: 'lookup' });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ ok: false, error: 'Access denied', retryable: false });
   });
 
   describe('postgis / hybrid mode (ingen live-fallback)', () => {
@@ -174,6 +233,8 @@ describe('property.routes', () => {
 
       expect(res.status).toBe(400);
       expect(res.body?.code).toBe('LOCAL_PROPERTY_NOT_FOUND');
+      // W-TEXT2 (3): an absence is not healed by a retry -- explicitly false.
+      expect(res.body?.retryable).toBe(false);
     });
   });
 });
