@@ -1457,12 +1457,22 @@ describe('U20CDF2 (coordinator add-on 2; OD-R2): an assessment that cannot be RE
     expect(JSON.stringify(res.body)).not.toMatch(/EIO|C:\/cas|gone/);
   });
 
-  it('a genuine absence (the repository says "Artifact not found") keeps the existing contract: 404', async () => {
+  // W-GAP1 (F1; owner decision Round 15-16, 2026-10-03): REVOKED expectation. It read "a genuine absence (the repository
+  // says 'Artifact not found') keeps the existing contract: 404". The assessment was selected by the projection one read
+  // earlier, so its exact "Artifact not found: <id>" at the second read is a LOST referenced artifact -- the same lasting
+  // integrity fault the selection itself answers for the same event -- never absence; 404 stays only for the selection's
+  // own REJECT_ASSESSMENT_PROJECTION_NOT_FOUND / _NOT_CURRENT (the tests above).
+  it('W-GAP1 F1: the selected assessment\'s exact "Artifact not found" at its second read -> 503 ASSESSMENT_STORAGE_INTEGRITY_FAULT / CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT, not retryable; never 404 (it was 404)', async () => {
     const s = await setup();
     const fresh = await s.runFresh();
     const assessmentId = fresh.executionMotor!.assessment_artifact_id!;
     failSecondAssessmentRead(s, assessmentId, new Error(`Artifact not found: ${assessmentId}`));
-    expect(await resolveCurrentLuAssessmentSummary(s.deps())).toMatchObject({ ok: false, status: 404 });
+    const result = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(result).toMatchObject({
+      ok: false, status: 503, code: 'ASSESSMENT_READ_ERROR', failureClass: 'ASSESSMENT_STORAGE_INTEGRITY_FAULT', reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT', retryable: false,
+    });
+    expect((result as { error: string }).error).not.toMatch(/No current governed|Artifact not found/);
+    expect(JSON.stringify(result)).not.toContain(assessmentId);
   });
 
   it('the projection index cannot be read -> 503 ASSESSMENT_RESOLUTION_ERROR, not "no assessment"', async () => {

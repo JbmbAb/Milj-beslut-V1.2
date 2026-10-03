@@ -42,6 +42,8 @@ const faults = vi.hoisted(() => ({
   contractCalls: 0,
   /** When set, the binding index's resolve(projectId, contextRef) answers through this. */
   bindingResolve: null as null | ((projectId: string, context: unknown) => Promise<string>),
+  /** W-GAP1 (F1): when set, the (mocked) H15 throws what this returns -- its own, third read of the assessment failed. */
+  reExecuteThrows: null as null | (() => unknown),
 }));
 vi.mock('../../server/repositories/projectAccessRepository', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -80,9 +82,10 @@ vi.mock('@miljobeslut/mps-lu', async (importOriginal) => {
       }
       return (original.validateLocalizationAssessmentContractVersion as (p: unknown) => void)(payload);
     },
-    // MOCKED H15: always PASS. The real re-execution is not run by this suite.
+    // MOCKED H15: always PASS (W-GAP1 F1: or throws what `faults.reExecuteThrows` says). The real re-execution is not run by this suite.
     reExecuteLocalizationAssessment: (args: unknown) => {
       spies.reExecute(args);
+      if (faults.reExecuteThrows) throw faults.reExecuteThrows();
       return { outcome: 'PASS', assessment_artifact_id: (args as { assessmentArtifactId: string }).assessmentArtifactId, mismatches: [], notices: [] };
     },
   };
@@ -405,6 +408,7 @@ beforeEach(() => {
   faults.contractRefuseOnCall = 0;
   faults.contractCalls = 0;
   faults.bindingResolve = null;
+  faults.reExecuteThrows = null;
   spies.reExecute.mockClear();
   spies.buildPdf.mockClear();
   spies.present.mockClear();
@@ -730,15 +734,6 @@ describe('W-U20CDF5-add: the assessment read under the selected id must BE that 
     expect((await PATHS.map()).status).toBe(200);
   });
 
-  it('control (no over-closing): a PROVEN absence at the point of use is still 404 "no current assessment"', async () => {
-    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
-    // Read 1 (the selection) sees it; read 2 gets the repository's exact "never stored" for exactly that id.
-    repository.misdirectRead(assessment.artifact_id, 2, 'id-that-was-never-stored');
-    const res = await PATHS.readBack();
-    expect(res.status).toBe(404);
-    expect(res.body).toEqual({ ok: false, error: 'No current governed LU assessment is available for this project.', retryable: false });
-  });
-
   it('control (no over-closing): two valid current assessments for the same binding and point stay 409 ASSESSMENT_CURRENT_AMBIGUOUS', async () => {
     const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
     const other = await storeOtherValidAssessment(repository);
@@ -750,6 +745,148 @@ describe('W-U20CDF5-add: the assessment read under the selected id must BE that 
     const res = await PATHS.readBack();
     expect(res.status).toBe(409);
     expect(res.body).toMatchObject({ code: 'ASSESSMENT_CURRENT_UNRESOLVED', failureClass: 'ASSESSMENT_CURRENT_AMBIGUOUS' });
+  });
+});
+
+/**
+ * W-GAP1 (F1; owner decision Round 15-16, 2026-10-03; triage TRIAGE-A-PRERUN F1): the assessment the selection read,
+ * verified and SELECTED is a referenced artifact that must exist. When its second read -- at the point of use (core:
+ * read-back, PDF, verify) or the map's own re-read -- gets the repository's exact "Artifact not found: <X>", that is a
+ * lost referenced artifact: the same 503 ASSESSMENT_STORAGE_INTEGRITY_FAULT / CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT
+ * the selection itself gives for the same event, never 404 "no current assessment" (which stays ONLY for the selection's
+ * own REJECT_*_NOT_FOUND / _NOT_CURRENT). This REVOKES the former W-U20CDF5-add control "a PROVEN absence at the point
+ * of use is still 404" (an ENOENT on the index entry proves no entry is readable, not that nothing was ever stored --
+ * readFaultClassification.ts KNOWN LIMIT).
+ */
+const NO_CURRENT_ASSESSMENT_SV = /No current governed LU assessment/;
+
+describe('W-GAP1 F1: the SELECTED assessment that is gone at its second read is a lost referenced artifact (503 integrity fault), never 404 absence', () => {
+  it.each(['readBack', 'pdf', 'verify', 'map'] as const)('%s: read 2 of the selected assessment answers the exact "Artifact not found: <X>" -> 503 ASSESSMENT_STORAGE_INTEGRITY_FAULT / CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT, not retryable; never 404, never replayed, no PDF, no id in the answer', async (path) => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    // Read 1 (the selection) sees it; read 2 (core, or the map's own re-read) gets the repository's exact "never stored" for exactly that id.
+    repository.misdirectRead(assessment.artifact_id, 2, 'id-that-was-never-stored');
+    const res = await PATHS[path]();
+    expect(repository.readCounts.get(assessment.artifact_id)).toBeGreaterThanOrEqual(2);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).not.toBe(404);
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, ...MISDIRECTED });
+    expect(JSON.stringify(res.body)).not.toMatch(NO_CURRENT_ASSESSMENT_SV);
+    expect(JSON.stringify(res.body)).not.toContain(assessment.artifact_id);
+    expectNoRawText(res);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('variant: the stored value disappears right after read 1 (the selection) -> the read-back answers the same typed 503, never 404', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const realResolve = repository.resolve.bind(repository);
+    repository.resolve = async <T,>(reference: ArtifactReference): Promise<T> => {
+      const value = await realResolve<T>(reference);
+      if (reference.artifact_id === assessment.artifact_id) repository.values.delete(assessment.artifact_id);
+      return value;
+    };
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, ...MISDIRECTED });
+    expect(JSON.stringify(res.body)).not.toMatch(NO_CURRENT_ASSESSMENT_SV);
+  });
+
+  it('verify, read 3: H15\'s own read of the already-read assessment answers its exact "Artifact not found: <X>" -> the same typed 503, never an untyped 500', async () => {
+    const { assessment } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    faults.reExecuteThrows = () => new Error(`Artifact not found: ${assessment.artifact_id}`);
+    const res = await PATHS.verify();
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, ...MISDIRECTED });
+    expect(JSON.stringify(res.body)).not.toMatch(NO_CURRENT_ASSESSMENT_SV);
+    expect(JSON.stringify(res.body)).not.toContain(assessment.artifact_id);
+    expectNoRawText(res);
+  });
+
+  it('control (exact id only): H15 throwing a not-found for ANOTHER id is not the assessment\'s integrity fault -- it propagates as before (the route\'s next(error), here the default 500)', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    faults.reExecuteThrows = () => new Error('Artifact not found: evidence-water-secretid');
+    const res = await PATHS.verify();
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body)).not.toContain('CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT');
+  });
+
+  it.each(['readBack', 'pdf', 'verify', 'map'] as const)('control (no over-closing): %s -- a GENUINE absence (the selection\'s own REJECT_ASSESSMENT_PROJECTION_NOT_FOUND: no row for the project) is still 404 "no current assessment"', async (path) => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    state.projectionIndex = new MemoryProjectionIndex();
+    const res = await PATHS[path]();
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ ok: false, error: 'No current governed LU assessment is available for this project.', retryable: false });
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * W-GAP1 (F6a; triage F6a): the object read under the selected assessment id must be a LOCALIZATION_ASSESSMENT -- the
+ * shared assertReadUnderItsOwnId with the requested type (id AND type), at the selection (candidateIdentityFault) and at
+ * the point of use (core, the map). `artifact_type` is part of the hashed canonical body and the id is `assessment-<hash>`,
+ * so a type swap on an EXISTING object is already TAMPERED; what passed was a NEW, self-consistent object of another type
+ * under an id of the assessment form, named by a projection row whose type column says LOCALIZATION_ASSESSMENT.
+ */
+describe('W-GAP1 F6a: a self-consistent object of ANOTHER artifact_type under an assessment id is an integrity fault, never a valid assessment', () => {
+  /** The record's own content re-addressed under artifact_type SPATIAL_EVIDENCE: id `assessment-<sha256 of {SPATIAL_EVIDENCE, references, payload}>`. */
+  const retyped = (assessment: unknown) =>
+    readdress({ ...(assessment as Record<string, unknown>), artifact_type: 'SPATIAL_EVIDENCE' } as unknown as Stored) as Stored & { artifact_type: string };
+
+  it('selection: the only row (type column LOCALIZATION_ASSESSMENT) names such an object -> 503 CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT on read-back, verify and map; the object is read ONCE (the selection) and never re-read at a point of use', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    const fake = retyped(assessment);
+    expect(fake.artifact_type).toBe('SPATIAL_EVIDENCE');
+    expect(fake.artifact_id).toMatch(/^assessment-[0-9a-f]{64}$/);
+    expect(fake.artifact_id).not.toBe(assessment.artifact_id);
+    await repository.put({ artifact_id: fake.artifact_id, body: fake });
+    const [bindingRef] = await (state.bindingIndex as MemoryBindingIndex).listBindingRefs(PROJECT_ID);
+    const projectionIndex = new MemoryProjectionIndex();
+    await projectionIndex.register({
+      projectId: PROJECT_ID, assessmentArtifactId: fake.artifact_id, assessmentArtifactType: 'LOCALIZATION_ASSESSMENT',
+      projectContextRef: CONTEXT, bindingArtifactId: bindingRef!.artifact_id, releaseArtifactId: RELEASE_REF.artifact_id,
+    });
+    state.projectionIndex = projectionIndex;
+    let reads = 0;
+    for (const path of ['readBack', 'verify', 'map'] as const) {
+      const res = await PATHS[path]();
+      reads += 1;
+      expect(res.status, `${path}: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(503);
+      expect(res.body, path).toMatchObject({ ok: false, ...MISDIRECTED });
+      expect(JSON.stringify(res.body), path).not.toContain(fake.artifact_id);
+      // Exactly one read per path: the selection's. A point of use never reads it (the selection already failed closed).
+      expect(repository.readCounts.get(fake.artifact_id), path).toBe(reads);
+    }
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it.each(['readBack', 'pdf', 'verify', 'map'] as const)('point of use: %s -- read 2 of the selected id hands back an object that names the id but ANOTHER artifact_type -> the typed 503 integrity fault (it was an untyped 424 "tamper")', async (path) => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    // Same artifact_id, other type (hash no longer matches, but the type check must answer FIRST, typed).
+    await repository.put({ artifact_id: 'same-id-other-type', body: { ...(assessment as Record<string, unknown>), artifact_type: 'SPATIAL_EVIDENCE' } });
+    repository.misdirectRead(assessment.artifact_id, 2, 'same-id-other-type');
+    const res = await PATHS[path]();
+    expect(repository.readCounts.get(assessment.artifact_id)).toBeGreaterThanOrEqual(2);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, ...MISDIRECTED });
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('control (no over-closing): the genuine LOCALIZATION_ASSESSMENT under the same row -> 200 on read-back, verify and map', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    const readBack = await PATHS.readBack();
+    expect(readBack.status).toBe(200);
+    expect(readBack.body.assessmentArtifactId).toBe(assessment.artifact_id);
+    expect((await PATHS.verify()).status).toBe(200);
+    expect((await PATHS.map()).status).toBe(200);
   });
 });
 
