@@ -69,6 +69,135 @@ export function clearSession(): void {
   window.localStorage.removeItem(PROJECT_KEY);
 }
 
+/**
+ * W-UI1-R2 (owner condition 2026-10-03; UI1-VERIFICATION finding 2): the ONE typed structure this client carries
+ * beyond the codes -- the 424 ASSESSMENT_RECORD_INTEGRITY_ERROR's `record_integrity` -- rebuilt field by field from
+ * an explicit whitelist, the same keys as the server's wire whitelist (recordIntegrityDiagnosticWire): known keys
+ * and types only, the record id and the basis codes checked by form (a failing id is dropped, a failing code is
+ * left out), arrays capped, counts non-negative safe integers, every unknown or nested unknown key dropped, the
+ * server's note and every free text never carried. The source must say itself that it is unverified and not
+ * authoritative; the result always says so. Any other answer, or any other code, carries none of it.
+ * Own data properties only (never a getter, never the prototype chain).
+ */
+export const LU_RECORD_INTEGRITY_CODE = 'ASSESSMENT_RECORD_INTEGRITY_ERROR';
+const RI_PLAIN_ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const RI_BASIS_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const RI_RULE_ID = /^LU-[A-Z]+(?:-[A-Z]+){0,3}-[0-9]{3}$/;
+const RI_CHECKS: ReadonlySet<string> = new Set(['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area', 'document']);
+const RI_LEVELS: ReadonlySet<string> = new Set(['HIGH', 'MEDIUM', 'LOW', 'NOT_CHECKED', 'UNKNOWN']);
+const RI_HIGHEST: ReadonlySet<string> = new Set(['HIGH', 'MEDIUM', 'LOW']);
+export const LU_RECORD_INTEGRITY_MAX_ENTRIES = 100;
+export const LU_RECORD_INTEGRITY_MAX_BASIS_CODES = 32;
+
+export interface LuRecordIntegrityWire {
+  readonly authoritative: false;
+  readonly verified: false;
+  readonly assessment_artifact_id?: string;
+  readonly basis_codes: readonly string[];
+  readonly stored_findings_unverified?: {
+    readonly total: number;
+    readonly highest_level: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+    readonly counts: {
+      readonly high: number;
+      readonly medium: number;
+      readonly low: number;
+      readonly not_checked: number;
+      readonly unknown_level: number;
+      readonly malformed: number;
+    };
+    readonly truncated: boolean;
+    readonly entries: readonly {
+      readonly check: string | null;
+      readonly rule: string | null;
+      readonly stored_level: string;
+      readonly well_formed: boolean;
+    }[];
+  };
+}
+
+function riOwn(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+}
+
+/** The first `max` own elements of an array (a hole or an accessor is skipped); null when it is no array. */
+function riList(value: unknown, max: number): unknown[] | null {
+  if (!Array.isArray(value)) return null;
+  const length = Object.getOwnPropertyDescriptor(value, 'length')?.value;
+  if (typeof length !== 'number') return null;
+  const out: unknown[] = [];
+  for (let index = 0; index < Math.min(length, max); index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor && 'value' in descriptor) out.push(descriptor.value);
+  }
+  return out;
+}
+
+function riCount(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+/** The whitelisted record_integrity of one failed answer, or null (see LU_RECORD_INTEGRITY_CODE above). */
+export function luRecordIntegrityWire(code: unknown, raw: unknown): LuRecordIntegrityWire | null {
+  try {
+    if (code !== LU_RECORD_INTEGRITY_CODE) return null;
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (riOwn(raw, 'authoritative') !== false || riOwn(raw, 'verified') !== false) return null;
+    const id = riOwn(raw, 'assessment_artifact_id');
+    const basis = [
+      ...new Set(
+        (riList(riOwn(raw, 'basis_codes'), LU_RECORD_INTEGRITY_MAX_BASIS_CODES) ?? []).filter(
+          (value): value is string => typeof value === 'string' && RI_BASIS_CODE.test(value),
+        ),
+      ),
+    ];
+    const stored = riOwn(raw, 'stored_findings_unverified');
+    const storedObject = stored !== null && typeof stored === 'object' && !Array.isArray(stored);
+    const counts = riOwn(stored, 'counts');
+    const entriesSource = riOwn(stored, 'entries');
+    const entries = riList(entriesSource, LU_RECORD_INTEGRITY_MAX_ENTRIES) ?? [];
+    const sourceLength = Array.isArray(entriesSource) ? Object.getOwnPropertyDescriptor(entriesSource, 'length')?.value : 0;
+    const highest = riOwn(stored, 'highest_level');
+    return {
+      authoritative: false,
+      verified: false,
+      ...(typeof id === 'string' && RI_PLAIN_ARTIFACT_ID.test(id) ? { assessment_artifact_id: id } : {}),
+      basis_codes: basis,
+      ...(storedObject
+        ? {
+            stored_findings_unverified: {
+              total: riCount(riOwn(stored, 'total')),
+              highest_level: typeof highest === 'string' && RI_HIGHEST.has(highest) ? (highest as 'HIGH' | 'MEDIUM' | 'LOW') : null,
+              counts: {
+                high: riCount(riOwn(counts, 'high')),
+                medium: riCount(riOwn(counts, 'medium')),
+                low: riCount(riOwn(counts, 'low')),
+                not_checked: riCount(riOwn(counts, 'not_checked')),
+                unknown_level: riCount(riOwn(counts, 'unknown_level')),
+                malformed: riCount(riOwn(counts, 'malformed')),
+              },
+              truncated: riOwn(stored, 'truncated') === true || (typeof sourceLength === 'number' && sourceLength > LU_RECORD_INTEGRITY_MAX_ENTRIES),
+              entries: entries.map((entry) => {
+                const check = riOwn(entry, 'check');
+                const rule = riOwn(entry, 'rule');
+                const level = riOwn(entry, 'stored_level');
+                return {
+                  check: typeof check === 'string' && RI_CHECKS.has(check) ? check : null,
+                  rule: typeof rule === 'string' && RI_RULE_ID.test(rule) ? rule : null,
+                  stored_level: typeof level === 'string' && RI_LEVELS.has(level) ? level : 'UNKNOWN',
+                  well_formed: riOwn(entry, 'well_formed') === true,
+                };
+              }),
+            },
+          }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function buildUrl(endpoint: string, query?: Record<string, unknown>): string {
   const baseOrigin =
     typeof window !== 'undefined' && typeof window.location?.origin === 'string'
@@ -142,17 +271,16 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
     // Swedish text and keep the codes for "Teknisk information" instead of the raw server text.
     // W-M2d item 5: so is the server's own `retryable` flag (OD-R3, M1a-F1), when it is a boolean --
     // whether a retry is offered is the server's statement, not a guess from the HTTP status.
+    // W-UI1-R2: the 424 ASSESSMENT_RECORD_INTEGRITY_ERROR's record_integrity only, rebuilt from the whitelist
+    // (luRecordIntegrityWire) -- never the body's other fields, never as sent.
+    const recordIntegrity = luRecordIntegrityWire(err.code, err.record_integrity);
     throw Object.assign(new Error(msg), {
       status: response.status,
       ...(typeof err.code === 'string' ? { code: err.code } : {}),
       ...(typeof err.failureClass === 'string' ? { failureClass: err.failureClass } : {}),
       ...(typeof err.reasonCode === 'string' ? { reasonCode: err.reasonCode } : {}),
       ...(typeof err.retryable === 'boolean' ? { retryable: err.retryable } : {}),
-      // W-UI1 (LU): the 424 record-integrity envelope (U20CDF4), kept as sent -- the LU UI shows it only as an
-      // unverified, non-authoritative diagnostic. Only a plain object is kept.
-      ...(err.record_integrity !== null && typeof err.record_integrity === 'object' && !Array.isArray(err.record_integrity)
-        ? { record_integrity: err.record_integrity }
-        : {}),
+      ...(recordIntegrity ? { record_integrity: recordIntegrity } : {}),
     });
   }
 

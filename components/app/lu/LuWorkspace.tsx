@@ -34,7 +34,7 @@ import { LuControlPanel } from './LuControlPanel';
 import { LuErrorNotice } from './LuErrorNotice';
 import { presentLuOverallStatement, type LuOverallTone } from './luOverallStatement';
 import { useLuRunOutcome, type LuRunOutcomeRecord } from './luSessionMemory';
-import { presentLuVerifyResult, type LuVerifyView } from './luVerifyPresentation';
+import { presentLuVerifyResult } from './luVerifyPresentation';
 import { parseLuRecordIntegrityDiagnostic } from './luRecordIntegrity';
 import { LuRecordIntegrityDiagnostic } from './LuRecordIntegrityDiagnostic';
 import { presentLuSiteRanking, type LuSiteRankingView } from './luSiteRanking';
@@ -291,11 +291,14 @@ type Incoherence = {
 };
 
 const RISK_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NOT_CHECKED: 3 };
+/** W-UI1-R2 (M2e verification finding 10): own keys only -- a level named "constructor" sorts last, like any unknown one. */
+const riskOrder = (level: unknown): number =>
+  typeof level === 'string' && Object.prototype.hasOwnProperty.call(RISK_ORDER, level) ? RISK_ORDER[level]! : 9;
 
 /** Deterministic order so the same assessment always lists its findings in the same order. */
 function sortFindings(findings: readonly LuFindingView[]): LuFindingView[] {
   return [...findings].sort(
-    (a, b) => (RISK_ORDER[a.risk_level] ?? 9) - (RISK_ORDER[b.risk_level] ?? 9) || a.finding_id.localeCompare(b.finding_id),
+    (a, b) => riskOrder(a.risk_level) - riskOrder(b.risk_level) || a.finding_id.localeCompare(b.finding_id),
   );
 }
 
@@ -395,10 +398,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
   const [verifyError, setVerifyError] = useState<LuErrorPresentation | null>(null);
   /**
-   * W-UI1 (A): the verify answer as presented (luVerifyPresentation.ts) -- green only for a well-formed
+   * W-UI1 (A): the verify answer, presented (luVerifyPresentation.ts) -- green only for a well-formed
    * FULLY_BOUND_GREEN; the owner's notice for an older unbound form; everything else not verified.
+   * W-UI1-R2 (UI1-VERIFICATION finding 1): the RAW answer is kept with whether it belongs to an earlier reading
+   * of the assessment (`stale`), and it is presented at render time against the read-back on screen NOW -- its
+   * id and its property root (owner decision R3-1) -- never against the state at the click.
    */
-  const [verifyResult, setVerifyResult] = useState<LuVerifyView | null>(null);
+  const [verifyAnswer, setVerifyAnswer] = useState<{ readonly raw: unknown; readonly stale: boolean } | null>(null);
+  /** W-UI1-R2: the reading of the assessment a verify answer belongs to; every clearResultState starts a new one. */
+  const resultEpochRef = useRef(0);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
   const [persistedAssessmentError, setPersistedAssessmentError] = useState<LuErrorPresentation | null>(null);
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
@@ -444,9 +452,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   };
 
   const clearResultState = () => {
+    resultEpochRef.current += 1;
     setGoverned(null);
     setIncoherence(null);
-    setVerifyResult(null);
+    setVerifyAnswer(null);
     setVerifyError(null);
     setExportPdfError(null);
     setSelectedCheck(null);
@@ -881,15 +890,15 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     if (verifyingAssessment) return; // duplicate-click guard
     const projectId = getActiveProjectId();
     const shownId = governed?.assessmentArtifactId ?? null;
-    // W-UI1 (D; owner decision R3-1): the displayed root is a technical error or tampered -- no PASS is shown as
-    // a confirmation next to it.
-    const rootUnresolved = isLuRootUnresolved(governed?.propertyRoot);
+    // W-UI1-R2 (UI1-VERIFICATION finding 1): the reading this check starts in; an answer that lands after a new
+    // reading (a re-read, a run, a lookup) belongs to the old one and is never shown as a result.
+    const epoch = resultEpochRef.current;
     if (!projectId || !shownId) {
       setVerifyError(presentLuError(new LuClientError('Det finns ingen visad bedömning att kontrollera.'), 'verify'));
       return;
     }
     setVerifyError(null);
-    setVerifyResult(null);
+    setVerifyAnswer(null);
     setVerifyingAssessment(true);
     try {
       // W-UI1 (A; U30R6 K8): the answer is read as `unknown` -- verification_binding, presentation, notices
@@ -899,9 +908,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         // W-M2d item 9 (U20-D): bound to the DISPLAYED assessment; any other current one is refused (409).
         body: { assessmentArtifactId: shownId },
       });
-      setVerifyResult(presentLuVerifyResult(result, shownId, { rootUnresolved }));
+      setVerifyAnswer({ raw: result, stale: resultEpochRef.current !== epoch });
     } catch (err) {
-      setVerifyError(presentLuError(err, 'verify'));
+      if (resultEpochRef.current !== epoch) setVerifyAnswer({ raw: null, stale: true });
+      else setVerifyError(presentLuError(err, 'verify'));
     } finally {
       setVerifyingAssessment(false);
     }
@@ -1537,7 +1547,18 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               className=""
             />
           ) : null}
-          {verifyResult ? <LuVerifyResultView result={verifyResult} shownId={governed.assessmentArtifactId} /> : null}
+          {verifyAnswer ? (
+            <LuVerifyResultView
+              // W-UI1-R2 / owner decision R3-1: presented against the read-back on screen now -- its id and its
+              // property root -- so a root that became a technical error (or unknown) after the click is never
+              // shown beside a confirmation.
+              result={presentLuVerifyResult(verifyAnswer.raw, governed.assessmentArtifactId, {
+                rootUnresolved: isLuRootUnresolved(governed.propertyRoot),
+                stale: verifyAnswer.stale,
+              })}
+              shownId={governed.assessmentArtifactId}
+            />
+          ) : null}
 
           <div
             data-testid="lu-assessment-summary"

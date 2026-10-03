@@ -74,6 +74,28 @@ const UNBOUND_MISMATCH_CODE = 'EXECUTION_SUBJECT_UNBOUND';
 /** Notices that may stand next to a green result (each has a text of its own in luVerifyNotice.ts). */
 const NOTICES_ALLOWED_WITH_GREEN: ReadonlySet<string> = new Set(['NOT_CHECKED_CAUSE_NOT_PINNED']);
 
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 7): as strict as the package's classifier (LuVerifyPresentation.ts) -- a
+ * well-formed result carries at most the legacy notice and one NOT_CHECKED notice, each code at most once; a
+ * NOT_CHECKED notice has finding ids that are non-empty strings (at most 64) and a detail; the legacy notice has
+ * no finding ids and a detail. Anything else is never a PASS form.
+ */
+const MAX_NOTICES = 2;
+const MAX_FINDING_IDS = 64;
+const NOT_CHECKED_NOTICE_CODE = 'NOT_CHECKED_CAUSE_NOT_PINNED';
+
+function isStrictNotice(notice: unknown): boolean {
+  const code = ownString(notice, 'code');
+  if (typeof ownDataField(notice, 'detail') !== 'string') return false;
+  if (code === NOT_CHECKED_NOTICE_CODE) {
+    const ids = ownArray(notice, 'finding_ids', MAX_FINDING_IDS);
+    return ids !== null && ids.every((id) => typeof id === 'string' && id.length > 0);
+  }
+  if (code === LEGACY_NOTICE_CODE) return ownArray(notice, 'finding_ids', 0) !== null;
+  // Another code: the unknown-notice rule below decides (never green).
+  return true;
+}
+
 /** Why an older form carries the notice (the package's LuReExecutionLegacyUnboundBasis). */
 const LEGACY_BASIS_SV: Readonly<Record<LuVerifyLegacyUnboundBasis, string>> = {
   V1_FORM: 'Bedömningen bygger på en äldre artefaktform utan registrerad körningslinje.',
@@ -132,12 +154,19 @@ function ownString(value: unknown, key: string): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-/** An own array, copied element by element through own index properties (a Proxy or sparse array is no list). */
-function ownArray(value: unknown, key: string): unknown[] | null {
+/**
+ * An own array, copied element by element through own index properties (a Proxy or sparse array is no list).
+ * W-UI1-R2 (UI1-VERIFICATION finding 7): an array longer than `max` is refused by its length alone, as the
+ * package's classifier does.
+ */
+function ownArray(value: unknown, key: string, max: number = Number.POSITIVE_INFINITY): unknown[] | null {
   const v = ownDataField(value, key);
   if (!Array.isArray(v)) return null;
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(v, 'length');
+  const length = lengthDescriptor && 'value' in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (typeof length !== 'number' || length > max) return null;
   const out: unknown[] = [];
-  for (let i = 0; i < v.length; i += 1) {
+  for (let i = 0; i < length; i += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(v, String(i));
     if (!descriptor || !('value' in descriptor)) return null;
     out.push(descriptor.value);
@@ -220,23 +249,36 @@ function view(
  * about the root's authenticity or present provenance may be implied. Re-reading the assessment resolves it.
  */
 export const LU_VERIFY_ROOT_UNRESOLVED_SV =
-  'Reproducerbarheten visas inte som bekräftad: fastighetsrotens proveniens i den visade bedömningen kunde inte läsas eller ' +
-  'klarade inte kontrollen, och ingen slutsats kan dras om dess äkthet. Läs in bedömningen på nytt och kontrollera igen.';
+  'Reproducerbarheten visas inte som bekräftad: fastighetsrotens proveniens i den visade bedömningen kunde inte läsas, ' +
+  'klarade inte kontrollen eller har ett läge som inte kan tolkas här, och ingen slutsats kan dras om dess äkthet. ' +
+  'Läs in bedömningen på nytt och kontrollera igen.';
+
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 1): the assessment was read again while the check ran -- the answer belongs
+ * to an earlier reading and is never shown as a result (neither confirmed nor deviating).
+ */
+export const LU_VERIFY_STALE_SV =
+  'Bedömningen lästes in på nytt medan reproducerbarhetskontrollen pågick, så kontrollens svar visas inte. Kontrollera igen.';
 
 /**
  * The presentation of one verify answer for the DISPLAYED assessment `shownId`. Never throws: anything it
  * cannot read is NOT_VERIFIED. `rootUnresolved`: the displayed read-back's root is a technical error or
  * tampered (isLuRootUnresolved) -- then a PASS form is shown as NOT_VERIFIED (owner decision R3-1).
  */
-export function presentLuVerifyResult(raw: unknown, shownId: string | null, opts: { readonly rootUnresolved?: boolean } = {}): LuVerifyView {
+export function presentLuVerifyResult(
+  raw: unknown,
+  shownId: string | null,
+  opts: { readonly rootUnresolved?: boolean; readonly stale?: boolean } = {},
+): LuVerifyView {
   try {
+    if (opts.stale === true) return view('NOT_VERIFIED', 'neutral', LU_VERIFY_STALE_SV, { technical: [{ label: 'Svar', value: 'gäller en tidigare inläsning' }] });
     const v = classify(raw, shownId);
     // Both PASS forms: no confirmation (green, or the older form's consistency line) stands next to a root error.
     if (opts.rootUnresolved === true && (v.kind === 'FULLY_BOUND_GREEN' || v.kind === 'LEGACY_UNBOUND_NOTICE')) {
       return view('NOT_VERIFIED', 'neutral', LU_VERIFY_ROOT_UNRESOLVED_SV, {
         verifiedId: v.verifiedId,
         mismatchCount: 0,
-        technical: [...v.technical, { label: 'Fastighetsrot', value: 'tekniskt fel eller integritetsfel i den visade bedömningen' }],
+        technical: [...v.technical, { label: 'Fastighetsrot', value: 'tekniskt fel, integritetsfel eller okänt läge i den visade bedömningen' }],
       });
     }
     return v;
@@ -255,7 +297,7 @@ function classify(raw: unknown, shownId: string | null): LuVerifyView {
   const outcome = ownDataField(raw, 'outcome');
   const binding = ownDataField(raw, 'verification_binding');
   const presentation = ownDataField(raw, 'presentation');
-  const rawNotices = ownArray(raw, 'notices');
+  const rawNotices = ownArray(raw, 'notices', MAX_NOTICES);
   const rawMismatches = ownArray(raw, 'mismatches');
   const notices = rawNotices ? rawNotices.flatMap((n) => {
     const parsed = parseLuVerifyNotice(n);
@@ -293,7 +335,13 @@ function classify(raw: unknown, shownId: string | null): LuVerifyView {
   if (outcome !== 'PASS') return view('NOT_VERIFIED', 'neutral', LU_VERIFY_UNKNOWN_OUTCOME_SV, base);
 
   // A PASS: green or the owner's notice only for a well-formed answer; everything else is not verified.
-  const wellFormedLists = rawNotices !== null && rawMismatches !== null && rawMismatches.length === 0 && notices.length === rawNotices.length;
+  const wellFormedLists =
+    rawNotices !== null &&
+    rawMismatches !== null &&
+    rawMismatches.length === 0 &&
+    notices.length === rawNotices.length &&
+    rawNotices.every(isStrictNotice) &&
+    new Set(notices.map((n) => n.code)).size === notices.length;
   const legacy = notices.filter((n) => n.code === LEGACY_NOTICE_CODE);
   const otherNotices = notices.filter((n) => n.code !== LEGACY_NOTICE_CODE);
   const unknownNotice = otherNotices.some((n) => !NOTICES_ALLOWED_WITH_GREEN.has(n.code));

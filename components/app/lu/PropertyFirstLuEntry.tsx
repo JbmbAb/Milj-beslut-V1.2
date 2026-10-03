@@ -25,6 +25,9 @@ const BOOTSTRAP_STATUS_SV: Record<string, string> = {
   COMPLETED: 'klart',
   FAILED: 'misslyckades',
 };
+/** W-UI1-R2 (M2e verification finding 10): own keys only -- an unknown status shows no detail. */
+const bootstrapStatusSv = (status: unknown): string | undefined =>
+  typeof status === 'string' && Object.prototype.hasOwnProperty.call(BOOTSTRAP_STATUS_SV, status) ? BOOTSTRAP_STATUS_SV[status] : undefined;
 
 // W-M2d items 5 + 6 / W-M2e item 2: the Swedish reason of every bootstrap failure code lives in
 // luErrorPresentation.ts (describeBootstrapFailure), where the inventory test reads it. W-UI1 (owner decision 2):
@@ -315,7 +318,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
                 key: 'verify',
                 label: 'Fastigheten verifieras och utredningen förbereds',
                 state: phase.kind === 'bootstrapping' ? (phase.status === 'COMPLETED' ? 'done' : 'active') : 'pending',
-                detail: phase.kind === 'bootstrapping' ? BOOTSTRAP_STATUS_SV[phase.status] ?? undefined : undefined,
+                detail: phase.kind === 'bootstrapping' ? bootstrapStatusSv(phase.status) : undefined,
               },
             ]}
           />

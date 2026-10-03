@@ -48,7 +48,9 @@ export function presentLuSiteRanking(summary: unknown, siteId: string, assessmen
     const unassessed = ownList(summary, 'unassessed_site_ids');
     const best = ownString(summary, 'bestAlternativeId');
     // Not ranked wins over everything else the answer says about the site (also "assessed" or "best").
-    if (notRanked !== null && notRanked.includes(siteId)) {
+    // W-UI1-R2 (UI1-VERIFICATION finding 5): a site whose record's integrity cannot be attested is never ranked and
+    // never best, whatever the summary says -- also when it is missing from not_ranked_site_ids.
+    if ((notRanked !== null && notRanked.includes(siteId)) || assessmentStatus === 'RECORD_INTEGRITY_ERROR') {
       const reason =
         typeof assessmentStatus === 'string' && Object.prototype.hasOwnProperty.call(NOT_RANKED_REASON_SV, assessmentStatus)
           ? NOT_RANKED_REASON_SV[assessmentStatus]

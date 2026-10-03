@@ -35,6 +35,15 @@ export function recordIntegrityLevelSv(level: string): string {
   return Object.prototype.hasOwnProperty.call(LEVEL_SV, level) ? LEVEL_SV[level]! : 'okänd';
 }
 const KNOWN_CHECKS: ReadonlySet<string> = new Set(['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area', 'document']);
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 2 (c)): the same forms as the server's wire (and the API client's whitelist):
+ * a record id that is not a plain artifact id and a basis code that is not code-shaped are never shown; the lists
+ * are capped like the server's.
+ */
+const PLAIN_ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const BASIS_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const MAX_ENTRIES = 100;
+const MAX_BASIS_CODES = 32;
 
 function own(value: unknown, key: string): unknown {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -58,7 +67,7 @@ export function parseLuRecordIntegrityDiagnostic(raw: unknown): LuRecordIntegrit
     const total = count(own(stored, 'total'));
     const counts = own(stored, 'counts');
     const entriesRaw = own(stored, 'entries');
-    const list = Array.isArray(entriesRaw) ? entriesRaw : [];
+    const list = Array.isArray(entriesRaw) ? entriesRaw.slice(0, MAX_ENTRIES) : [];
     const entries = list.map((entry) => {
       const check = own(entry, 'check');
       const label =
@@ -73,8 +82,11 @@ export function parseLuRecordIntegrityDiagnostic(raw: unknown): LuRecordIntegrit
     const highest = own(stored, 'highest_level');
     const n = (key: string) => count(own(counts, key)) ?? 0;
     const basis = own(raw, 'basis_codes');
-    const basisCodes = Array.isArray(basis) ? basis.filter((code): code is string => typeof code === 'string') : [];
-    const id = own(raw, 'assessment_artifact_id');
+    const basisCodes = Array.isArray(basis)
+      ? basis.slice(0, MAX_BASIS_CODES).filter((code): code is string => typeof code === 'string' && BASIS_CODE.test(code))
+      : [];
+    const rawId = own(raw, 'assessment_artifact_id');
+    const id = typeof rawId === 'string' && PLAIN_ARTIFACT_ID.test(rawId) ? rawId : null;
     return {
       headSv: 'Lagrade fynd – overifierad diagnostik (auktoritativ: nej)',
       noteSv:

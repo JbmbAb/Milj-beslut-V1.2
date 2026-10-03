@@ -433,8 +433,9 @@ function transportRow(def: LuCheckDefinition, assessment: Exclude<LuAssessmentPr
 
 /** Presentation of an evidence detail's integrity field -- consistency, never authenticity. */
 const INTEGRITY_SV: Readonly<Record<string, string>> = {
-  CONTENT_HASH_VERIFIED: 'Innehållet stämmer med evidensens innehållshash',
-  STRUCTURAL_ONLY: 'Endast strukturellt kontrollerad (typ, id och innehållshash finns)',
+  // W-UI1-R2 (UI1-VERIFICATION finding 8): the same word as the server's texts -- "innehållskontroll", not "hash".
+  CONTENT_HASH_VERIFIED: 'Innehållet stämmer med evidensens innehållskontroll',
+  STRUCTURAL_ONLY: 'Endast strukturellt kontrollerad (typ, id och innehållskontroll finns)',
   TAMPERED: 'Klarade inte integritetskontrollen',
   CORRUPTED: 'Klarade inte integritetskontrollen',
   NOT_INTERPRETED: 'Tolkas inte i denna vy',
@@ -540,6 +541,7 @@ function serverRow(
   entry: Record<string, unknown>,
   evidenceById: ReadonlyMap<string, Record<string, unknown>>,
   limitedLayers: ReadonlySet<string>,
+  duplicateEvidenceIds: ReadonlySet<string> = new Set(),
 ): LuCheckView {
   const layer = str(entry.layer);
   const status = str(entry.status);
@@ -553,8 +555,19 @@ function serverRow(
   // as unreadable or failing integrity is a contradiction (owner invariant: unreadable pinned evidence is
   // never "ingen träff"/green). The server does not send it today; fail-safe only, and only towards
   // UNCERTAIN -- a HIT is never hidden (a stored risk finding must stay visible).
+  // W-UI1-R2 (M2e verification finding 4, truth-critical): a "no hit" is green only on evidence that says so
+  // itself -- the named detail exists exactly once, has a known good integrity (CONTENT_HASH_VERIFIED or
+  // STRUCTURAL_ONLY), no technical error, and a result that does not say "hit" (exists:true or a match count
+  // above 0). One of the five governed spatial layers without a named evidence is no "no hit" either (a layer only
+  // the server knows keeps the server's state and its register note).
+  const detailResult = detail !== null ? obj(detail.result) : null;
   const evidenceUnsound =
-    detail !== null && (str(detail.technical_error_class) !== null || detail.integrity === 'TAMPERED' || detail.integrity === 'CORRUPTED');
+    (evidenceId !== null && (detail === null || duplicateEvidenceIds.has(evidenceId))) ||
+    (evidenceId === null && knownLayer !== null && knownLayer !== 'document') ||
+    (detail !== null &&
+      (str(detail.technical_error_class) !== null ||
+        !(detail.integrity === 'CONTENT_HASH_VERIFIED' || detail.integrity === 'STRUCTURAL_ONLY') ||
+        (detailResult !== null && (detailResult.exists === true || (num(detailResult.match_count_observed) ?? 0) > 0))));
   // A checked state the machine status contradicts is never shown as checked (fail safe, never green).
   const contradictory =
     (mapped === 'HIT' && status !== 'CHECKED_HIT') || (mapped === 'NO_HIT' && (status !== 'CHECKED_NO_HIT' || evidenceUnsound));
@@ -668,9 +681,22 @@ const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string
  * reproducibility result is shown as a green confirmation next to it (see presentLuVerifyResult).
  */
 export function isLuRootUnresolved(propertyRoot: unknown): boolean {
+  // W-UI1-R2 (UI1-VERIFICATION finding 6): fail-closed -- only the two states the server sends for a root that is
+  // not in fault count as resolved: RESOLVED with its known assurance, and NOT_RECORDED (an older record without a
+  // property ref). A missing root, a root that is no object, a missing, unknown or non-string status, or an unknown
+  // assurance is unresolved too (the read-back always carries propertyRoot).
   const root = obj(propertyRoot);
-  const status = root ? str(root.status) : null;
-  return status === 'TECHNICAL_ERROR' || status === 'TAMPERED';
+  if (!root) return true;
+  const status = ownStr(root, 'status');
+  if (status === 'NOT_RECORDED') return false;
+  if (status === 'RESOLVED') return ownStr(root, 'assurance') !== 'UNBOUND_METADATA';
+  return true;
+}
+
+/** An own string data property (never a getter, never the prototype chain); null otherwise. */
+function ownStr(value: Record<string, unknown>, key: string): string | null {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && 'value' in descriptor && typeof descriptor.value === 'string' ? descriptor.value : null;
 }
 const ROOT_UNKNOWN_ASSURANCE = {
   suffix: ' · okänd säkerhet i fastighetsunderlaget',
@@ -801,9 +827,12 @@ export function presentLuControlChecks(input: {
   }
 
   const evidenceById = new Map<string, Record<string, unknown>>();
+  // W-UI1-R2 (M2e verification finding 4): an id the answer lists twice -- neither detail can carry a "no hit".
+  const duplicateEvidenceIds = new Set<string>();
   for (const raw of input.server?.evidenceDetails ?? []) {
     const detail = obj(raw);
     const id = detail ? str(detail.evidence_artifact_id) : null;
+    if (detail && id && evidenceById.has(id)) duplicateEvidenceIds.add(id);
     if (detail && id && !evidenceById.has(id)) evidenceById.set(id, detail);
   }
   const limitedLayers = new Set(input.server?.limitedCoverageLayers ?? []);
@@ -821,7 +850,7 @@ export function presentLuControlChecks(input: {
       continue;
     }
     used.add(index);
-    rows.push(serverRow(def.key, def.label, def.key, obj(layerChecks[index])!, evidenceById, limitedLayers));
+    rows.push(serverRow(def.key, def.label, def.key, obj(layerChecks[index])!, evidenceById, limitedLayers, duplicateEvidenceIds));
   }
 
   const usedKeys = new Set<string>();
@@ -852,7 +881,7 @@ export function presentLuControlChecks(input: {
       return;
     }
     // DEMO M2c item 3: an unknown layer's raw id stays in the technical section ("Lager").
-    rows.push(serverRow(key, 'Annat underlag från servern', null, entry, evidenceById, limitedLayers));
+    rows.push(serverRow(key, 'Annat underlag från servern', null, entry, evidenceById, limitedLayers, duplicateEvidenceIds));
   });
   return rows;
 }

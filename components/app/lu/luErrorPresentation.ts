@@ -99,6 +99,23 @@ export const LU_SERVER_MESSAGE = {
   CSRF_REJECTED: 'Möjlig Cross-Site Request Forgery attack blockerad. Ogiltig eller saknad CSRF-token.',
 } as const;
 
+/**
+ * W-UI1-R2 (M2e verification finding 5): the 401 texts the server sends (server/security/auth.ts requireAuth and
+ * getUserFromAccessToken, server/security/secureErrors.ts). Only these exact texts name a cause; any other 401
+ * gets the neutral line (the UI cannot know whether the session expired).
+ */
+const UNAUTHORIZED_SV: Readonly<Record<string, string>> = {
+  'Missing bearer token': 'Du är inte inloggad – logga in för att fortsätta.',
+  'Token expired': 'Sessionen har gått ut – logga in igen.',
+  'Session expired': 'Sessionen har gått ut – logga in igen.',
+  'Token has been revoked or session terminated': 'Sessionen har avslutats – logga in igen.',
+};
+const UNAUTHORIZED_NEUTRAL_SV = 'Inloggningen kunde inte bekräftas – logga in igen.';
+
+function unauthorizedSv(message: string): string {
+  return Object.prototype.hasOwnProperty.call(UNAUTHORIZED_SV, message) ? UNAUTHORIZED_SV[message]! : UNAUTHORIZED_NEUTRAL_SV;
+}
+
 const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
   'current-assessment': 'Den sparade bedömningen kunde inte läsas.',
   // W-M2d item 1: the viewer evidence feeds only the MAP; the control panel reads the assessment.
@@ -145,18 +162,33 @@ interface ErrorFields {
   readonly recordIntegrity: unknown;
 }
 
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 4): every field is an OWN data property of the error -- an inherited value
+ * (a polluted Object.prototype.retryable, say) or a getter is never read.
+ */
 function readFields(err: unknown): ErrorFields {
-  const e = (err ?? {}) as Record<string, unknown>;
+  const field = (key: string): unknown => {
+    if (err === null || typeof err !== 'object') return undefined;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(err, key);
+      return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const status = field('status');
+  const retryable = field('retryable');
+  const message = field('message');
   return {
-    status: typeof e.status === 'number' && Number.isFinite(e.status) ? e.status : null,
-    code: s(e.code),
-    failureClass: s(e.failureClass),
-    reasonCode: s(e.reasonCode),
-    retryable: typeof e.retryable === 'boolean' ? e.retryable : null,
-    message: typeof err === 'string' ? err : typeof e.message === 'string' ? e.message : '',
-    isClientError: e.luClientError === true,
-    recordIntegrity: err !== null && typeof err === 'object' && Object.prototype.hasOwnProperty.call(err, 'record_integrity') ? e.record_integrity : undefined,
+    status: typeof status === 'number' && Number.isFinite(status) ? status : null,
+    code: s(field('code')),
+    failureClass: s(field('failureClass')),
+    reasonCode: s(field('reasonCode')),
+    retryable: typeof retryable === 'boolean' ? retryable : null,
+    message: typeof err === 'string' ? err : typeof message === 'string' ? message : '',
+    isClientError: field('luClientError') === true,
+    recordIntegrity: field('record_integrity'),
   };
 }
 
@@ -345,7 +377,7 @@ export function presentLuRunReason(reasonCodes: unknown): { readonly code: strin
  * here any more -- bootstrap-status presents a FAILED request with the server's `retryable`
  * (presentBootstrapRequestStatus), and presentBootstrapFailure follows it.
  */
-const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string }>> = {
+const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string; readonly lasting?: true }>> = {
   PROPERTY_LOOKUP_AMBIGUOUS: { reasonSv: PROPERTY_LOOKUP_AMBIGUOUS_SV },
   PROPERTY_LOOKUP_NOT_EXACT: {
     reasonSv: 'Fastighetsbeteckningen gav ingen exakt träff i fastighetsunderlaget, så fastigheten kan inte knytas till lokaliseringen.',
@@ -371,8 +403,12 @@ const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string }>>
     reasonSv:
       'Ett sparat objekt som kopplingen bygger på saknas, är skadat eller motsäger ett annat (bestående lagrings- eller integritetsfel). ' +
       'Ingen koppling skapades.',
+    lasting: true,
   },
-  BOOTSTRAP_REFUSED: { reasonSv: 'Ett steg i kopplingen av fastigheten till lokaliseringen underkändes vid kontrollen. Ingen koppling skapades.' },
+  BOOTSTRAP_REFUSED: {
+    reasonSv: 'Ett steg i kopplingen av fastigheten till lokaliseringen underkändes vid kontrollen. Ingen koppling skapades.',
+    lasting: true,
+  },
   // W-M2e item 2 (W-BOOT ca2bfdbb): the localization already has a registered binding that could not be
   // read or verified -- the worker created no new one in its place (OD-R1/OD-R2).
   CURRENT_BINDING_READ_ERROR: {
@@ -383,9 +419,11 @@ const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string }>>
     reasonSv:
       'Lokaliseringens befintliga koppling till fastigheten kunde inte läsas eller bekräftas (bestående lagrings- eller integritetsfel). ' +
       'Ingen ny koppling skapades i dess ställe.',
+    lasting: true,
   },
   CURRENT_BINDING_REFUSED: {
     reasonSv: 'Lokaliseringens befintliga koppling till fastigheten underkändes vid kontrollen. Ingen ny koppling skapades i dess ställe.',
+    lasting: true,
   },
 };
 
@@ -420,14 +458,17 @@ export function presentBootstrapFailure(status: unknown): LuBootstrapFailureView
   const ownValue = (key: string) => (record && Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined);
   const code = ownValue('failureCode');
   const flag = ownValue('retryable');
-  const retryable = flag === true;
+  // W-UI1-R2 (UI1-VERIFICATION finding 4): a reason the text calls lasting or a refusal is never retried, whatever
+  // the flag says -- the text and the button agree, as in presentLuError.
+  const lasting = own(BOOTSTRAP_FAILURE, typeof code === 'string' ? code : null)?.lasting === true;
+  const retryable = flag === true && !lasting;
   return {
     reasonSv: describeBootstrapFailure(typeof code === 'string' ? code : null).reasonSv,
     retryable,
     consequenceSv:
-      flag === true
+      retryable
         ? 'Lokaliseringen är skapad, men fastigheten är ännu inte knuten till den. Ingen bedömning kan göras förrän det lyckas.'
-        : flag === false
+        : flag === false || lasting
           ? 'Lokaliseringen är skapad, men fastigheten kan inte knytas till den. Ingen bedömning kan göras.'
           : 'Lokaliseringen är skapad, men fastigheten är inte knuten till den. Ingen bedömning kan göras.',
   };
@@ -880,7 +921,8 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
     retryable: opts.reread
       ? true
       : f.status === null
-        ? textAllowsRetry && kind !== 'REFUSED' && kind !== 'INTEGRITY'
+        ? // W-UI1-R2 (UI1-VERIFICATION finding 4): a server's `false` holds here too.
+          f.retryable !== false && textAllowsRetry && kind !== 'REFUSED' && kind !== 'INTEGRITY'
         : serverAllowsRetry(f.retryable, { kind, messageSv, retryable: textAllowsRetry }),
     technical,
     ...(diagnostic ? { diagnostic } : {}),
@@ -932,7 +974,8 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
     return make('TECHNICAL', `${lead} Sidans säkerhetstoken saknas eller har gått ut. Ladda om sidan och försök sedan igen.`, false);
   }
 
-  if (f.status === 401) return make('UNAUTHORIZED', `${lead} Sessionen har gått ut – logga in igen.`, false);
+  // W-UI1-R2 (M2e verification finding 5): "expired" only where the server says so; otherwise a neutral text.
+  if (f.status === 401) return make('UNAUTHORIZED', `${lead} ${unauthorizedSv(f.message)}`, false);
   if (f.status === 403 || f.message === LU_SERVER_MESSAGE.NOT_AUTHORIZED) {
     return make('UNAUTHORIZED', `${lead} Du saknar behörighet till det här projektet.`, false);
   }
