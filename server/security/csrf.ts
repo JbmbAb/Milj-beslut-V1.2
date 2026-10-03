@@ -58,9 +58,13 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
       rawCookieHeader: req.headers.cookie || 'none',
       rawCsrfHeader: req.headers[CSRF_HEADER_NAME] || req.headers[CSRF_HEADER_NAME.toLowerCase()] || 'none',
     });
+    // W-TEXT2 (3): an authorization-class failure -- retryable false, explicitly (the LU UI offers "Försök igen" only on
+    // the server's own true; this middleware is mounted before the LU router, outside its retryable net). The text is
+    // the one the UI matches exactly (components/app/lu/luErrorPresentation.ts LU_SERVER_MESSAGE.CSRF_REJECTED) -- unchanged.
     return res.status(403).json({
       ok: false,
       error: 'Möjlig Cross-Site Request Forgery attack blockerad. Ogiltig eller saknad CSRF-token.',
+      retryable: false,
     });
   }
 

@@ -57,15 +57,19 @@ const router = express.Router();
  *    request, missing or failed authentication, a denial, an absence, a refusal, an integrity break -> false;
  *  - a sanitized 5xx (the app's error handler, after `next(error)`): the class of the error a route caught
  *    (classifyReadFault, read phase: an unknown error while reading is READ_ERROR -> true, a lasting storage fault,
- *    an artifact that must exist but is missing or a refusal -> false); and false on a POST that creates or moves
- *    something (localization-projects, bootstrap-retry, geometry, geometry-identity-retry): a repeat after an unknown
- *    failure could act twice, so nothing is promised there.
+ *    an artifact that must exist but is missing or a refusal -> false); false on a POST that creates, moves or writes
+ *    something (localization-projects, bootstrap-retry, geometry, geometry-identity-retry, and -- W-TEXT2 (3; U6-4) --
+ *    generate-report and generate-pdf-data, which run the report that persists an assessment): a repeat after an
+ *    unknown failure could act twice, so nothing is promised there; and -- W-TEXT2 (3; U6-4) -- false on a 5xx the
+ *    router did not catch at all (no flag, no class, no caught error): fail closed, nothing is promised.
  * The middleware below applies this to every JSON answer of /api/localization/* -- also the ones written by the
  * middleware in the route chain (requireAuth 401, rateLimitByUser 429) and by the app's error handler. It is scoped
- * to this router's paths; CSRF (mounted in createApp before this router) is outside it.
+ * to this router's paths; CSRF (mounted in createApp before this router) is outside it and states its own
+ * `retryable: false` (server/security/csrf.ts).
  */
 const LU_ERROR_KEY = 'luCaughtError';
-const NON_REPEATABLE_POST = /^\/api\/localization\/(?:localization-projects|[^/]+\/(?:bootstrap-retry|geometry|geometry-identity-retry))$/;
+const NON_REPEATABLE_POST =
+  /^\/api\/localization\/(?:localization-projects|generate-report|generate-pdf-data|[^/]+\/(?:bootstrap-retry|geometry|geometry-identity-retry))$/;
 
 export function luFailureRetryable(input: {
   readonly method: string;
@@ -79,6 +83,8 @@ export function luFailureRetryable(input: {
   if (input.status === 429) return readFaultOfClass('READ_ERROR').retryable;
   if (input.status < 500) return false;
   if (input.method.toLowerCase() === 'post' && NON_REPEATABLE_POST.test(input.path)) return false;
+  // W-TEXT2 (3; U6-4): a 5xx the router did not catch has no class to derive from -- fail closed.
+  if (input.caughtError === undefined) return false;
   return classifyReadFault(input.caughtError, 'read').retryable;
 }
 
