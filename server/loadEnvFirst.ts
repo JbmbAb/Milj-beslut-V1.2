@@ -42,8 +42,10 @@ if (!testRuntime && !runtimeEnvironmentAuthoritative) {
 
 // Säkra att miljövariabler laddas allra först innan några andra moduler importeras (för att undvika ES6 hoisting-problem).
 loadEnvFile();
+// W-U402 (ÄF-U402-3, owner Round 20): NODE_ENV=production alone is enough, like PRESERVE_RUNTIME_ENV=true -- .env.local
+// never overrides a value already in the environment (injected, or read from .env); it only fills what is unset.
 const preserveRuntimeEnv =
-  process.env.PRESERVE_RUNTIME_ENV === 'true' ||
+  isRuntimeEnvironmentAuthoritative(process.env) ||
   Boolean(process.env.PLAYWRIGHT_LOCAL_API_PORT) ||
   process.env.NODE_ENV === 'test';
 loadEnvFile('.env.local', { overrideExisting: !preserveRuntimeEnv });
