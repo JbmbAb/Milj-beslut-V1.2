@@ -21,8 +21,11 @@
  *  - `verification_binding` is null whenever presentation is "NOT_VERIFIED" (also for a PASS whose strength could not be
  *    established), "FULLY_BOUND" only with "FULLY_BOUND_GREEN", "LEGACY_UNBOUND_FORM" only with "LEGACY_UNBOUND_NOTICE".
  *  - `outcome_sv` (the Swedish main text):
- *      "FULLY_BOUND_GREEN"     -> today's text: "Reproducerbarhet verifierad – resultatet matchar de pinnade
- *                                 artefakterna." (with the NOT_CHECKED_CAUSE_NOT_PINNED clause when that notice is present);
+ *      "FULLY_BOUND_GREEN"     -> the W-T1TEXT sentence (verifyPresentation.ts VERIFY_GREEN_HEAD_SV + VERIFY_GREEN_RESERVATION_SV):
+ *                                 "Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade
+ *                                 artefakterna. Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell
+ *                                 authority är inte verifierade." (with the NOT_CHECKED_CAUSE_NOT_PINNED clause between the
+ *                                 head and the reservation when that notice is present);
  *      "LEGACY_UNBOUND_NOTICE" -> EXACTLY the owner's text, the same string as notices[0].text_sv:
  *                                 "Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell
  *                                 authority är inte verifierade." -- never the green sentence;

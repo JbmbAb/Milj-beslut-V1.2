@@ -1766,7 +1766,8 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
 
   // U20CDF4 (owner decision 2026-10-03 (4) point 1; coordinator clarification 2: verify must never give
   // PASS for such a record): a current record that fails its integrity check is the same 424 as the
-  // read-back -- never replayed and never "Reproducerbarhet verifierad" next to an integrity error.
+  // read-back -- never replayed and never a green consistency result (FULLY_BOUND_GREEN; the W-T1TEXT sentence in
+  // verifyPresentation.ts) next to an integrity error.
   // W-U20CDF5 (U20CDF4 verification M1): nor when the pre-check could not read every pinned evidence.
   // W-U20CDF5-R2 (U20CDF5 verification M1-rest): nor when content it read failed its own identity -- the read-back's
   // 424 GOVERNED_EVIDENCE_INTEGRITY_FAILED, as on the map (it used to be left to H15: DENY, or after a transient
