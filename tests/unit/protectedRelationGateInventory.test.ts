@@ -44,7 +44,7 @@ import {
   RETIRED_DESTRUCTIVE_SCRIPTS,
   validateRetiredDestructiveScripts,
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
-import { commandRuns, languageOf, nodeOptionsRuns, scanFile, walkRepository, type ChannelSite, type FileScan, type Language, type Launch } from './protectedWriteChannels';
+import { PACKAGE_JSON_PINNED_FIELDS, commandRuns, languageOf, nodeOptionsRuns, scanFile, walkRepository, type ChannelSite, type FileScan, type Language, type Launch } from './protectedWriteChannels';
 import * as channels from './protectedWriteChannels';
 import {
   FILE_TYPE_DECISIONS,
@@ -68,9 +68,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 62,
-  reviewedSites: 137,
-  reviewedSha256: '6a8c5e779224e861e4386b0dcb09f370c18a978e9524754128121c39fb80d49c',
+  reviewedEntries: 75,
+  reviewedSites: 162,
+  reviewedSha256: 'a3a3fff8ca4fff7fd6b3f03f20fcd454e111e54a071ca7914cc050efe91c049f',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
@@ -247,21 +247,37 @@ const RETIRED_ENTRYPOINT_ONLY: Readonly<Record<string, string>> = {
   'scripts/import/sanitize-postgis-failed-imports.ps1': 'eb341213dc994e7ee0ff3fdb6baaccdfae8fd0de018a327012168fa89eb5c4b0',
 };
 
+/** U30F9 (G8-9): the re-review procedure every content-pin failure points at. */
+const REREVIEW_DOC = 'docs/architecture/U30-PROTECTED-WRITE-INVENTORY-REREVIEW.md';
+
 /**
- * U30F8 (G6-2): what a reviewed DYNAMIC entry pins -- the text the scan reads of the file: a package.json's `scripts`
- * (its only commands; a new dependency is no new call path), every other file whole (line endings normalised).
+ * U30F8 (G6-2): what a reviewed DYNAMIC entry pins -- the text the scan reads of the file: a package.json's command-bearing
+ * fields (U30F9 G8-7: `scripts`, `bin`, `config` and the hook fields -- PACKAGE_JSON_PINNED_FIELDS -- in that order; a new
+ * dependency is no new call path), every other file whole (line endings normalised: CRLF and LF pin alike, G8-9).
  */
 function reviewedContentSha(file: string, text: string): string {
   if (file.split('/').pop()!.toLowerCase() === 'package.json') {
-    let scripts: unknown = null;
+    let pinned: Record<string, unknown> | null = null;
     try {
-      scripts = (JSON.parse(text) as { scripts?: unknown }).scripts ?? {};
+      const doc = JSON.parse(text) as Record<string, unknown>;
+      pinned = {};
+      for (const field of PACKAGE_JSON_PINNED_FIELDS) if (doc[field] !== undefined) pinned[field] = doc[field];
     } catch {
-      scripts = null;
+      pinned = null;
     }
-    if (scripts !== null) return createHash('sha256').update(JSON.stringify(scripts)).digest('hex');
+    if (pinned !== null) return createHash('sha256').update(JSON.stringify(pinned)).digest('hex');
   }
   return normalisedSha(text);
+}
+
+/** U30F9 (G8-9): the problem text of a content-pin mismatch -- it names the procedure and exactly what to do. */
+function pinMismatch(file: string, pin: string, pinned: string | undefined): string {
+  return (
+    `a reviewed DYNAMIC file changed (content sha256 ${pin}, pinned ${pinned ?? 'none'}) -- U30 re-review required (${REREVIEW_DOC}): ` +
+    `in the SAME commit, (1) re-read ${file} and check that its reviewed sites and justification still hold (update them if not), ` +
+    `(2) set contentSha256 to ${pin} in tests/unit/protectedWriteChannels.reviewed.ts, (3) set reviewedOn to today's date and reviewedBy to yourself, ` +
+    `(4) write "U30 re-review: ${file}" in the commit message; the U30 track / a CODEOWNER approves before merge (U30F8 G6-2, U30F9 G8-9)`
+  );
 }
 
 /** Every problem of one file, given its scan. */
@@ -287,7 +303,7 @@ function evaluateFile(file: string, text: string, scan: FileScan, ctx: Evaluatio
   // a data file, process.argv) is never invisible: any change fails until the entry is reviewed again and re-pinned
   if (entry?.policy === 'DYNAMIC_REVIEWED') {
     const pin = reviewedContentSha(file, text);
-    if (entry.contentSha256 !== pin) add(`a reviewed DYNAMIC file changed (content sha256 ${pin}, pinned ${entry.contentSha256 ?? 'none'}): review its entry again and re-pin it (U30F8 G6-2)`);
+    if (entry.contentSha256 !== pin) add(pinMismatch(file, pin, entry.contentSha256));
   }
   // U30F5 (D-7): the pinned open sites are reported apart (open: true), every other site as before
   const { open, rest } = splitOpen(file, scan.sites);
@@ -583,9 +599,50 @@ function envFileRuns(files: readonly string[], read: (p: string) => string | nul
   return { launchers, problems };
 }
 
+/**
+ * U30F9 (G8-8): the package-manager configuration files that start code for every npm/yarn run -- `.npmrc` `node-options`
+ * (NODE_OPTIONS of every npm script), `script-shell` (the shell npm runs scripts with) and `onload-script` (a module npm loads),
+ * `.yarnrc.yml` `yarnPath` and `.yarnrc` `yarn-path` (the yarn release file node runs). Each is a launch of the named file (or
+ * NODE_OPTIONS read as node flags); a value the source does not hold fails. A `.nvmrc` / `.node-version` names a version, not a
+ * file, and is not read.
+ */
+function rcFileRuns(files: readonly string[], read: (p: string) => string | null): { launchers: { by: string; launches: Launch[] }[]; problems: Problem[] } {
+  const launchers: { by: string; launches: Launch[] }[] = [];
+  const problems: Problem[] = [];
+  for (const f of files) {
+    const base = f.split('/').pop()!;
+    if (!/^\.npmrc$|^\.yarnrc(\.yml)?$/.test(base) || EXCLUDED.some((re) => re.test(f))) continue;
+    const text = read(f);
+    if (text === null) continue;
+    const launches: Launch[] = [];
+    const unquote = (v: string) => (/^(["']).*\1$/.test(v) ? v.slice(1, -1) : v);
+    for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
+      const line = raw.replace(/^\s*(#|;|\/\/).*$/, '').trim();
+      if (!line) continue;
+      if (base === '.npmrc') {
+        const m = /^(node[-_]options|script-shell|onload-script)\s*=\s*(.*)$/i.exec(line);
+        if (!m) continue;
+        const key = m[1]!.toLowerCase().replace('_', '-');
+        const value = unquote(m[2]!.trim());
+        if (key === 'node-options') {
+          const runs = nodeOptionsRuns(value);
+          for (const l of runs.launches) launches.push({ ...l, via: `${base}: ${raw.trim().slice(0, 160)}` });
+          for (const d of runs.dynamic) problems.push({ file: f, problem: `${d} -- ${base}: ${raw.trim().slice(0, 160)}` });
+        } else if (value) launches.push({ file: value.replace(/\\/g, '/'), lang: key === 'onload-script' ? 'js' : null, via: `${base}: ${raw.trim().slice(0, 160)}` });
+      } else {
+        const m = base === '.yarnrc' ? /^yarn-path\s+(.+)$/.exec(line) : /^yarnPath:\s*(.+)$/.exec(line);
+        if (m) launches.push({ file: unquote(m[1]!.trim()).replace(/\\/g, '/'), lang: 'js', via: `${base}: ${raw.trim().slice(0, 160)}` });
+      }
+    }
+    if (launches.length) launchers.push({ by: f, launches });
+  }
+  return { launchers, problems };
+}
+
 const REPO_ENV_FILES = envFileRuns(REPO.files, readRepo(REPO_ROOT));
+const REPO_RC_FILES = rcFileRuns(REPO.files, readRepo(REPO_ROOT));
 const REPO_LAUNCHES = evaluateLaunches(
-  [...[...REPO.scans].map(([by, s]) => ({ by, launches: s.launches })), ...runbookLaunchers(REPO.files, readRepo(REPO_ROOT)), ...REPO_ENV_FILES.launchers],
+  [...[...REPO.scans].map(([by, s]) => ({ by, launches: s.launches })), ...runbookLaunchers(REPO.files, readRepo(REPO_ROOT)), ...REPO_ENV_FILES.launchers, ...REPO_RC_FILES.launchers],
   readRepo(REPO_ROOT),
   REPO_FILES,
 );
@@ -638,6 +695,7 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
   it('every file a scanned command or a runbook line runs is scanned as what it runs as (U30F5 D-1)', () => {
     expect(launchProblems(REPO_LAUNCHES, CONTEXT).filter((p) => !p.open)).toEqual([]);
     expect(REPO_ENV_FILES.problems).toEqual([]);
+    expect(REPO_RC_FILES.problems).toEqual([]);
     // the walk saw launches at all (it cannot pass vacuously): package.json scripts run tsx/node scripts
     expect([...REPO.scans.values()].reduce((n, s) => n + s.launches.length, 0)).toBeGreaterThan(20);
   });
@@ -1326,8 +1384,9 @@ function problemsOfTree(files: Readonly<Record<string, string>>): Problem[] {
   // U30F5 (D-1): what the new files launch (their commands and runbook lines), scanned as what it runs as
   const own = Object.keys(files);
   const env = envFileRuns(own, read);
-  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read), ...env.launchers];
-  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx), ...env.problems);
+  const rc = rcFileRuns(own, read);
+  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read), ...env.launchers, ...rc.launchers];
+  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx), ...env.problems, ...rc.problems);
   return out.filter((p) => !p.open);
 }
 
@@ -1477,7 +1536,8 @@ const SMUGGLING_CASES: readonly { id: string; expect: 'caught' | 'control' | 'B3
   { id: 'B09 compose command bash /app/<abs container path>', expect: 'caught', files: { 'deploy/b09/docker-compose.yml': 'services:\n  m:\n    image: x\n    command: ["bash", "/app/scripts/brogue/purge9.txt"]\n', 'scripts/brogue/purge9.txt': EVIL6_SH } },
   { id: 'B10 compose command bash relative path', expect: 'caught', files: { 'deploy/b10/docker-compose.yml': 'services:\n  m:\n    image: x\n    command: bash scripts/brogue/purge10.txt\n', 'scripts/brogue/purge10.txt': EVIL6_SH } },
   { id: 'B11 .devcontainer postCreateCommand bash data file', expect: 'caught', files: { '.devcontainer/b11/devcontainer.json': `${JSON.stringify({ postCreateCommand: 'bash scripts/brogue/purge11.txt' })}\n`, 'scripts/brogue/purge11.txt': EVIL6_SH } },
-  { id: 'B12 package.json "bin" entry to a data file', expect: 'B3', files: { 'tools/b12/package.json': npm6({ ok: 'echo ok' }, { bin: { wipe: 'scripts/brogue/purge12.txt' } }), 'scripts/brogue/purge12.txt': `#!/usr/bin/env node\n${EVIL6_TS}` } },
+  // (U30F9 G8-7: a `bin` file is a launch node runs -- caught now; it was pinned as B3 before)
+  { id: 'B12 package.json "bin" entry to a data file', expect: 'caught', files: { 'tools/b12/package.json': npm6({ ok: 'echo ok' }, { bin: { wipe: 'scripts/brogue/purge12.txt' } }), 'scripts/brogue/purge12.txt': `#!/usr/bin/env node\n${EVIL6_TS}` } },
   { id: 'B13 sh chain bash "$(dirname "$0")/x.txt" (dynamic path)', expect: 'caught', files: { 'scripts/brogue/run13.sh': '#!/bin/sh\nbash "$(dirname "$0")/purge13.txt"\n', 'scripts/brogue/purge13.txt': EVIL6_SH } },
   { id: 'B14 python chain subprocess python x.md', expect: 'caught', files: { 'scripts/brogue/run14.py': "import subprocess\nsubprocess.run(['python', 'scripts/brogue/purge14.md'])\n", 'scripts/brogue/purge14.md': EVIL6_PY } },
   { id: 'B15 ps1 chain & pwsh -File (Join-Path $PSScriptRoot x.txt)', expect: 'caught', files: { 'scripts/brogue/run15.ps1': "& pwsh -File (Join-Path $PSScriptRoot 'purge15.txt')\n", 'scripts/brogue/purge15.txt': `psql -c "${EVIL6_SQL}"\n` } },
@@ -1499,10 +1559,11 @@ const SMUGGLING_CASES: readonly { id: string; expect: 'caught' | 'control' | 'B3
 ];
 
 describe("canaries: U30F6 -- the verifier's launch-smuggling cases B01-B26 and A21/A30/A41", () => {
-  it('the table holds the 23 smuggling forms and 3 controls of B01-B26', () => {
+  it('the table holds the 23 smuggling forms and 3 controls of B01-B26 (B12 caught since U30F9; B06 and B19 stay pinned limits)', () => {
     const b = SMUGGLING_CASES.filter((c) => c.id.startsWith('B'));
     expect(b.length).toBe(26);
     expect(b.filter((c) => c.expect === 'control').length).toBe(3);
+    expect(b.filter((c) => c.expect === 'B3' || c.expect === 'B7').map((c) => c.id.slice(0, 3))).toEqual(['B06', 'B19']);
   });
 
   it.each(SMUGGLING_CASES.filter((c) => c.expect === 'caught').map((c) => [c.id, c] as const))('%s -> caught', (_id, c) => {
@@ -1674,8 +1735,9 @@ function problemsOfChange(files: Readonly<Record<string, string>>): Problem[] {
   }
   const own = Object.keys(files);
   const env = envFileRuns(own, read);
-  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read), ...env.launchers];
-  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx), ...env.problems);
+  const rc = rcFileRuns(own, read);
+  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read), ...env.launchers, ...rc.launchers];
+  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx), ...env.problems, ...rc.problems);
   return out.filter((p) => !p.open);
 }
 
@@ -1706,8 +1768,10 @@ describe('canaries: U30F8 -- G6-1 here-documents, here-strings and stdin carry v
   });
 
   it.each([
-    ["E11 sh: psql <<'EOF' with a static SELECT (quoted: no expansion)", { 'scripts/w8rogue/c1.sh': "#!/bin/sh\npsql \"$DB\" <<'EOF'\nSELECT 1;\nEOF\n" }],
-    ["sh: psql <<'EOF' with a bind parameter $1 (quoted: no expansion)", { 'scripts/w8rogue/c2.sh': "#!/bin/sh\npsql \"$DB\" <<'EOF'\nDELETE FROM stage.x WHERE id = $1;\nEOF\n" }],
+    // (U30F9 default-deny: the connection `"$DB"` these two controls had is a value in a psql command and fails now -- see the
+    // U30F9 canaries; the here-document rule itself is shown with a literal connection)
+    ["E11 sh: psql <<'EOF' with a static SELECT (quoted: no expansion)", { 'scripts/w8rogue/c1.sh': "#!/bin/sh\npsql postgresql://localhost/x <<'EOF'\nSELECT 1;\nEOF\n" }],
+    ["sh: psql <<'EOF' with a bind parameter $1 (quoted: no expansion)", { 'scripts/w8rogue/c2.sh': "#!/bin/sh\npsql postgresql://localhost/x <<'EOF'\nDELETE FROM stage.x WHERE id = $1;\nEOF\n" }],
     ['sh: cat <<EOF > file with $HOME (data, not code)', { 'scripts/w8rogue/c3.sh': '#!/bin/sh\ncat <<EOF > out.txt\nhome=$HOME\nEOF\n' }],
     ["sh: python3 - <<'PY' that prints", { 'scripts/w8rogue/c4.sh': "#!/bin/sh\npython3 - <<'PY'\nprint(1)\nPY\n" }],
   ] as const)('control: %s passes', (_label, files) => {
@@ -1823,6 +1887,599 @@ describe('canaries: U30F8 mutation round 1 -- what the first canaries left unexe
 });
 
 // ---------------------------------------------------------------------------------------------
+// U30F9 (owner decision 2026-10-03: DEFAULT-DENY instead of chasing shell constructions one by one). A DB-capable command
+// that holds ANY value the text does not hold -- an expansion, a substitution, a template, a positional parameter, an
+// expanding here-document, a cmd/PowerShell/Actions/Go-template placeholder -- is UNRESOLVABLE (NON_LITERAL) unless a
+// reviewed, content-pinned entry covers the site. The delta verifier's G8-1..G8-8 forms are CLASSES here, each shown with
+// the verifier's own forms and 40+ new ones (languages x quotings x line breaks x nesting), and the gate (TS/Python/
+// PowerShell, via corpus.v1.json) and the scanner (this inventory) answer alike.
+// ---------------------------------------------------------------------------------------------
+
+const EVIL9_SQL = 'TRUNCATE env.sgu_well';
+const EVIL9_SH = `psql postgresql://localhost/x -c "${EVIL9_SQL}"\n`;
+const EVIL9_CJS = `require('child_process').execSync('psql -c "${EVIL9_SQL}"');\n`;
+const OK9 = 'console.log(1);\n';
+const sh9 = (body: string) => `#!/bin/sh\n${body}\n`;
+const bash9 = (body: string) => `#!/bin/bash\n${body}\n`;
+const npm9 = (scripts: Record<string, string>, extra: Record<string, unknown> = {}) => `${JSON.stringify({ name: 'x', private: true, ...extra, scripts }, null, 2)}\n`;
+const ci9 = (run: string, extra = '') => `on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${run}\n${extra}`;
+const ciBlock9 = (body: string, extra = '') => `on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n${body.split('\n').map((l) => `          ${l}`).join('\n')}\n${extra}`;
+const docker9 = (body: string) => `FROM postgres:16\n${body}\n`;
+const compose9 = (command: string) => `services:\n  m:\n    image: x\n    command: ${command}\n`;
+
+type Form9 = { readonly id: string; readonly files: Record<string, string>; readonly violation: boolean };
+/** A form per host: the same command line placed where a shell, npm, CI, Docker, compose, PowerShell, JS, Python or cmd runs it. */
+function hosts9(tag: string, line: string, psLine: string = `& ${line}`): Form9[] {
+  const js = JSON.stringify(line);
+  return [
+    { id: `${tag} [sh]`, files: { [`scripts/u9/${tag}.sh`]: sh9(line) }, violation: true },
+    { id: `${tag} [bash]`, files: { [`scripts/u9/${tag}.bash`]: bash9(line) }, violation: true },
+    { id: `${tag} [npm script]`, files: { [`tools/u9/${tag}/package.json`]: npm9({ x: line }) }, violation: true },
+    { id: `${tag} [CI run]`, files: { [`.github/workflows/u9-${tag}.yml`]: ciBlock9(line) }, violation: true },
+    { id: `${tag} [Dockerfile RUN]`, files: { [`deploy/u9/${tag}/Dockerfile`]: docker9(`RUN ${line}`) }, violation: true },
+    { id: `${tag} [compose command]`, files: { [`deploy/u9/${tag}/docker-compose.yml`]: compose9(JSON.stringify(line)) }, violation: true },
+    { id: `${tag} [PowerShell &]`, files: { [`scripts/u9/${tag}.ps1`]: `${psLine}\n` }, violation: true },
+    { id: `${tag} [JS execSync]`, files: { [`scripts/u9/${tag}.mjs`]: `import { execSync } from 'node:child_process';\nexecSync(${js});\n` }, violation: true },
+    { id: `${tag} [Python os.system]`, files: { [`scripts/u9/${tag}.py`]: `import os\nos.system(${js})\n` }, violation: true },
+  ];
+}
+
+function caughtAndControls9(tag: string, violations: Form9[], controls: Form9[], minimum: number) {
+  describe(`U30F9 class ${tag}`, () => {
+    it(`holds at least ${minimum} violating forms (${violations.length}) and ${controls.length} controls`, () => {
+      expect(violations.length).toBeGreaterThanOrEqual(minimum);
+      expect(new Set([...violations, ...controls].map((c) => c.id)).size).toBe(violations.length + controls.length);
+    });
+    it.each(violations.map((c) => [c.id, c] as const))('%s -> caught', (_id, c) => {
+      expect(problemsOfChange(c.files).length, `MISSED: ${c.id}`).toBeGreaterThan(0);
+    });
+    it.each(controls.map((c) => [c.id, c] as const))('control: %s passes', (_id, c) => {
+      expect(problemsOfChange(c.files)).toEqual([]);
+    });
+  });
+}
+
+// ---- DD-1: a DB-capable tool with any non-literal value (the default-deny core) ----
+{
+  /** Non-literal values as a POSIX shell writes them (each is a different construction class the splitter must read as a value). */
+  const SH_VALUES: readonly [string, string][] = [
+    ['var', '"$SQL"'],
+    ['braced', '"${SQL}"'],
+    ['default', '"${SQL:-SELECT 1}"'],
+    ['subst', '"$(cat q.sql)"'],
+    ['backtick', '"`cat q.sql`"'],
+    ['positional', '"$1"'],
+    ['all-args', '"$@"'],
+    ['unquoted-positional', '$2'],
+    ['star', '"$*"'],
+    ['nested-subst', '"$(echo "$(cat q.sql)")"'],
+  ];
+  /** Tool invocations with one value slot V: the slot is a connection, the SQL, a file, a source path or the program. */
+  const TOOLS: readonly [string, (v: string) => string][] = [
+    ['psql -c V', (v) => `psql -c ${v}`],
+    ['psql V -c SELECT', (v) => `psql ${v} -c "SELECT 1"`],
+    ['psql -d V', (v) => `psql -d ${v} -c "SELECT 1"`],
+    ['psql -f V', (v) => `psql -f ${v}`],
+    ['usql -c V', (v) => `usql pg://x -c ${v}`],
+    ['pgbench -f V', (v) => `pgbench -n -f ${v} -t 1 postgresql://localhost/x`],
+    ['ogr2ogr PG source V', (v) => `ogr2ogr -f PostgreSQL PG:dbname=x ${v} -nln stage.u9 -overwrite`],
+    ['ogr2ogr V datasource', (v) => `ogr2ogr -f PostgreSQL ${v} a.gpkg -nln stage.u9 -overwrite`],
+    ['ogrinfo -sql V', (v) => `ogrinfo PG:dbname=x -sql ${v}`],
+    ['pg_restore -d V', (v) => `pg_restore -d ${v} -t stage.u9 dump.backup`],
+    ['shp2pgsql V | psql', (v) => `shp2pgsql -s 3006 ${v} stage.u9 | psql postgresql://localhost/x`],
+    ['dropdb V', (v) => `dropdb ${v}`],
+    ['prisma migrate --schema V', (v) => `npx prisma migrate deploy --schema ${v}`],
+    ['docker exec psql -c V', (v) => `docker exec -i db psql -U u -c ${v}`],
+    ['sudo psql -c V', (v) => `sudo -u postgres psql -c ${v}`],
+    ['V program', (v) => `${v} -c "SELECT 1"`],
+    ['pg_dump V | psql', (v) => `pg_dump ${v} | psql postgresql://localhost/dst`],
+  ];
+  const violations: Form9[] = [];
+  TOOLS.forEach(([tname, render], t) => {
+    const [vname, value] = SH_VALUES[t % SH_VALUES.length]!;
+    const [vname2, value2] = SH_VALUES[(t + 3) % SH_VALUES.length]!;
+    violations.push({ id: `DD1 ${tname} with ${vname}`, files: { [`scripts/u9/dd1-${t}a.sh`]: sh9(render(value)) }, violation: true });
+    violations.push({ id: `DD1 ${tname} with ${vname2} [bash]`, files: { [`scripts/u9/dd1-${t}b.sh`]: bash9(render(value2)) }, violation: true });
+  });
+  // the same core across hosts (the value spelled as each host expands it)
+  violations.push(...hosts9('dd1-psql-env', 'psql "$DATABASE_URL" -c "SELECT 1"', '& psql $env:DATABASE_URL -c "SELECT 1"'));
+  violations.push(...hosts9('dd1-ogr-env', 'ogr2ogr -f PostgreSQL "PG:$PGDSN" a.gpkg -nln stage.u9 -overwrite', '& ogr2ogr -f PostgreSQL "PG:$env:PGDSN" a.gpkg -nln stage.u9 -overwrite'));
+  violations.push(
+    { id: 'DD1 cmd psql %DB% -c SELECT', files: { 'scripts/u9/dd1-cmd1.cmd': '@echo off\r\npsql %DB% -c "SELECT 1"\r\n' }, violation: true },
+    { id: 'DD1 cmd psql -c !SQL! (delayed expansion)', files: { 'scripts/u9/dd1-cmd2.cmd': '@echo off\r\nsetlocal EnableDelayedExpansion\r\nset SQL=SELECT 1\r\npsql -c "!SQL!"\r\n' }, violation: true },
+    { id: 'DD1 cmd ogr2ogr PG:%DSN%', files: { 'scripts/u9/dd1-cmd3.cmd': '@echo off\r\nogr2ogr -f PostgreSQL "PG:%DSN%" a.gpkg -nln stage.u9\r\n' }, violation: true },
+    { id: 'DD1 ps1 & psql -c $sql', files: { 'scripts/u9/dd1-ps1.ps1': 'param([string]$sql)\n& psql -c $sql\n' }, violation: true },
+    { id: 'DD1 ps1 psql -h $h -c SELECT', files: { 'scripts/u9/dd1-ps2.ps1': 'param([string]$h)\npsql -h $h -U u -c "SELECT 1"\n' }, violation: true },
+    { id: 'DD1 ps1 & $env:PSQL -c SELECT (program from the environment)', files: { 'scripts/u9/dd1-ps3.ps1': '& $env:PSQL -c "SELECT 1"\n' }, violation: true },
+    { id: 'DD1 ps1 ogr2ogr "$db" (variable datasource)', files: { 'scripts/u9/dd1-ps4.ps1': '$db = "PG:$env:PGDSN"\n& ogr2ogr -f PostgreSQL $db a.gpkg -nln stage.u9 -overwrite\n' }, violation: true },
+    { id: 'DD1 js execSync template psql ${url} -c SELECT', files: { 'scripts/u9/dd1-js1.mjs': "import { execSync } from 'node:child_process';\nconst url = process.env.DATABASE_URL;\nexecSync(`psql ${url} -c \"SELECT 1\"`);\n" }, violation: true },
+    { id: 'DD1 js spawnSync psql with a dynamic -d', files: { 'scripts/u9/dd1-js2.mjs': "import { spawnSync } from 'node:child_process';\nspawnSync('psql', ['-d', process.env.DB, '-c', 'SELECT 1']);\n" }, violation: true },
+    { id: 'DD1 js spawnSync ogr2ogr PG:${dsn} static unprotected target', files: { 'scripts/u9/dd1-js3.mjs': "import { spawnSync } from 'node:child_process';\nconst dsn = process.env.DSN;\nspawnSync('ogr2ogr', ['-f', 'PostgreSQL', `PG:${dsn}`, 'a.gpkg', '-nln', 'stage.u9', '-overwrite']);\n" }, violation: true },
+    { id: 'DD1 js spawnSync(OGR2OGR_PATH, static args) -- the program is a value', files: { 'scripts/u9/dd1-js4.mjs': "import { spawnSync } from 'node:child_process';\nconst OGR2OGR_PATH = process.env.OGR2OGR_PATH;\nspawnSync(OGR2OGR_PATH, ['-f', 'PostgreSQL', 'PG:dbname=x', 'a.gpkg', '-nln', 'stage.u9', '-overwrite']);\n" }, violation: true },
+    { id: 'DD1 py subprocess psql -c f-string', files: { 'scripts/u9/dd1-py1.py': "import os, subprocess\nsql = os.environ['SQL']\nsubprocess.run(['psql', '-c', f'{sql}'])\n" }, violation: true },
+    { id: 'DD1 py subprocess psql dsn variable', files: { 'scripts/u9/dd1-py2.py': "import os, subprocess\ndsn = os.environ['DSN']\nsubprocess.run(['psql', dsn, '-c', 'SELECT 1'])\n" }, violation: true },
+    { id: 'DD1 py os.system ogr2ogr PG:{dsn}', files: { 'scripts/u9/dd1-py3.py': "import os\ndsn = os.environ['DSN']\nos.system(f'ogr2ogr -f PostgreSQL \"PG:{dsn}\" a.gpkg -nln stage.u9')\n" }, violation: true },
+    { id: 'DD1 sh psql with an expanding here-document (connection static)', files: { 'scripts/u9/dd1-hd1.sh': '#!/bin/sh\npsql postgresql://localhost/x <<EOF\nSELECT $N;\nEOF\n' }, violation: true },
+    { id: 'DD1 sh psql < "$FILE" (stdin file from a value)', files: { 'scripts/u9/dd1-hd2.sh': sh9('psql postgresql://localhost/x < "$FILE"') }, violation: true },
+    { id: 'DD1 sh psql <<< "$SQL"', files: { 'scripts/u9/dd1-hd3.sh': bash9('psql postgresql://localhost/x <<< "$SQL"') }, violation: true },
+    { id: 'DD1 CI psql -c "${{ inputs.sql }}" (H35)', files: { '.github/workflows/u9-dd1-h35.yml': ci9('psql -c "${{ github.event.inputs.sql }}"') }, violation: true },
+    { id: 'DD1 Taskfile psql -c "{{.SQL}}"', files: { 'tools/u9/dd1/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - psql -c \"{{.SQL}}\"\n" }, violation: true },
+    { id: 'DD1 sh "$PSQL_BIN" -c "$1" (Z10: gate and scanner agree now)', files: { 'scripts/u9/dd1-z10.sh': sh9('"$PSQL_BIN" -c "$1"') }, violation: true },
+    { id: 'DD1 sh "$PSQL_BIN" -c SELECT (the program is a value)', files: { 'scripts/u9/dd1-z10b.sh': sh9('"$PSQL_BIN" -c "SELECT 1"') }, violation: true },
+    { id: 'DD1 sh $CMD -c "$1" (Z12)', files: { 'scripts/u9/dd1-z12.sh': sh9('$CMD -c "$1"') }, violation: true },
+    { id: 'DD1 sh ${PSQL:-psql} -c SELECT', files: { 'scripts/u9/dd1-z12b.sh': sh9('${PSQL:-psql} -c "SELECT 1"') }, violation: true },
+    { id: 'DD1 sh "$(which psql)" -c SELECT', files: { 'scripts/u9/dd1-z12c.sh': sh9('"$(which psql)" -c "SELECT 1"') }, violation: true },
+    { id: 'DD1 sh psql -v id="$1" -c static SELECT (PC4: a value in a psql command)', files: { 'scripts/u9/dd1-pc4.sh': sh9('psql -v id="$1" -c "SELECT * FROM public.x WHERE id = :id"') }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'DD1 psql with a literal connection and a static read', files: { 'scripts/u9/dd1-c1.sh': sh9('psql postgresql://localhost/x -c "SELECT 1"') }, violation: false },
+    { id: 'DD1 psql -c static unprotected write, literal connection', files: { 'scripts/u9/dd1-c2.sh': sh9("psql -h localhost -U u -d x -c 'TRUNCATE stage.scratch'") }, violation: false },
+    { id: 'DD1 pg_dump "$DB" > out.sql (a dump that reaches no psql writes nothing)', files: { 'scripts/u9/dd1-c3.sh': sh9('pg_dump "$DB" > out.sql') }, violation: false },
+    { id: 'DD1 pg_dump "$DB" | gzip > out.sql.gz', files: { 'scripts/u9/dd1-c4.sh': sh9('pg_dump "$DB" | gzip > out.sql.gz') }, violation: false },
+    { id: 'DD1 ogrinfo -ro -so "$GPKG" layer (read-only, no -sql)', files: { 'scripts/u9/dd1-c5.sh': sh9('ogrinfo -ro -so "$GPKG" byggnad') }, violation: false },
+    { id: 'DD1 ogrinfo -so -al "$GPKG" (no -sql: cannot write)', files: { 'scripts/u9/dd1-c6.sh': sh9('ogrinfo -so -al "$GPKG"') }, violation: false },
+    { id: 'DD1 ogrinfo -ro PG:dbname=x -sql \'SELECT count(*) FROM "$T"\' (read-only mode exempts the value from NON_LITERAL; a read with a value in a name position is no statement whose verb is a value)', files: { 'scripts/u9/dd1-c7.sh': sh9('ogrinfo -ro PG:dbname=x -sql "SELECT count(*) FROM public.t WHERE id = $ID"') }, violation: false },
+    { id: 'DD1 gdal_translate -of COG "$IN" out.tif (a file output)', files: { 'scripts/u9/dd1-c8.sh': sh9('gdal_translate -of COG -co COMPRESS=DEFLATE "$IN" out.tif') }, violation: false },
+    { id: 'DD1 gdalwarp -of GTiff "$IN" "$OUT" (a file output)', files: { 'scripts/u9/dd1-c9.sh': sh9('gdalwarp -of GTiff -t_srs EPSG:3006 "$IN" "$OUT"') }, violation: false },
+    { id: 'DD1 ogr2ogr -f GPKG out.gpkg "$IN" (a file output)', files: { 'scripts/u9/dd1-c10.sh': sh9('ogr2ogr -f GPKG out.gpkg "$IN" -nln layer') }, violation: false },
+    { id: 'DD1 npx prisma generate --schema "$S" (no database)', files: { 'tools/u9/dd1-c11/package.json': npm9({ gen: 'npx prisma generate --schema "$S"' }) }, violation: false },
+    { id: 'DD1 bash -c "echo $HOME" (a shell runs no DB tool)', files: { 'scripts/u9/dd1-c12.sh': sh9('bash -c "echo $HOME is set"') }, violation: false },
+    { id: "DD1 psql -c 'SELECT $1' (single quotes: a bind parameter, no value)", files: { 'scripts/u9/dd1-c13.sh': sh9("psql postgresql://localhost/x -c 'SELECT $1'") }, violation: false },
+    { id: "DD1 psql <<'EOF' with $1 inside (quoted delimiter: no expansion)", files: { 'scripts/u9/dd1-c14.sh': "#!/bin/sh\npsql postgresql://localhost/x <<'EOF'\nSELECT $1;\nEOF\n" }, violation: false },
+    { id: 'DD1 docker exec "$C" psql -c SELECT (the value names the container, before the tool)', files: { 'scripts/u9/dd1-c15.sh': sh9('docker exec -i "$CONTAINER" psql -U u -d x -c "SELECT 1"') }, violation: false },
+    { id: 'DD1 ps1 & psql -c "SELECT 1" static', files: { 'scripts/u9/dd1-c16.ps1': "& psql -h localhost -c 'SELECT 1'\n" }, violation: false },
+    { id: 'DD1 js spawnSync psql static', files: { 'scripts/u9/dd1-c17.mjs': "import { spawnSync } from 'node:child_process';\nspawnSync('psql', ['-h', 'localhost', '-c', 'SELECT 1']);\n" }, violation: false },
+    { id: 'DD1 cmd psql static', files: { 'scripts/u9/dd1-c18.cmd': '@echo off\r\npsql -h localhost -c "SELECT 1"\r\n' }, violation: false },
+  ];
+  caughtAndControls9('DD-1 (a DB-capable tool with a non-literal value)', violations, controls, 40);
+}
+
+// ---- K1 (G8-1): backticks outside a here-document are command substitutions ----
+{
+  const INNER: readonly [string, string][] = [
+    ['psql -c "$1"', 'psql -c "$1"'],
+    ['psql -c "$SQL"', 'psql -c "$SQL"'],
+    ["psql -c 'TRUNCATE env.sgu_well' (static protected)", "psql -c 'TRUNCATE env.sgu_well'"],
+    ['psql "$DB" -c SELECT (DD-1)', 'psql "$DB" -c "SELECT 1"'],
+    ['ogrinfo PG -sql "$1"', 'ogrinfo PG:dbname=x -sql "$1"'],
+    ['docker exec db psql -c "$1"', 'docker exec -i db psql -c "$1"'],
+    ['bash data file', 'bash scripts/u9/k1-evil.txt'],
+    ['pg_restore -d "$DB" dump', 'pg_restore -d "$DB" -t stage.u9 dump.backup'],
+  ];
+  const OUTER: readonly [string, (inner: string) => string][] = [
+    ['x=`...`', (i) => `x=\`${i}\``],
+    ['echo `...`', (i) => `echo \`${i}\``],
+    ['echo "`...`"', (i) => `echo "\`${i.replace(/"/g, '\\"')}\`"`],
+    ['if [ "`...`" = x ]', (i) => `if [ "\`${i.replace(/"/g, '\\"')}\`" = x ]; then :; fi`],
+    ['for r in `...`', (i) => `for r in \`${i}\`; do echo "$r"; done`],
+    ['export Y=`...`', (i) => `export Y=\`${i}\``],
+    ['local y=`...` in a function', (i) => `f() {\n  local y=\`${i}\`\n  echo "$y"\n}\nf`],
+    ['nested $(echo `...`)', (i) => `echo $(echo \`${i}\`)`],
+    ['`...` > out.txt', (i) => `\`${i}\` > out.txt`],
+    ['x="prefix `...` suffix"', (i) => `x="prefix \`${i.replace(/"/g, '\\"')}\` suffix"`],
+    ['[ -n "`...`" ]', (i) => `[ -n "\`${i.replace(/"/g, '\\"')}\`" ] && echo yes`],
+    ['case `...` in', (i) => `case \`${i}\` in\n  *) echo x ;;\nesac`],
+  ];
+  const violations: Form9[] = [];
+  OUTER.forEach(([oname, render], o) => {
+    INNER.forEach(([iname, inner], n) => {
+      if ((o + n) % 2 === 1 && o > 1) return; // every outer form with half the inner ones: 8 + 8 + 5*6 = 46 shell forms
+      violations.push({ id: `K1 ${oname} :: ${iname} [sh]`, files: { [`scripts/u9/k1-${o}-${n}.sh`]: sh9(render(inner)), 'scripts/u9/k1-evil.txt': EVIL9_SH }, violation: true });
+    });
+  });
+  violations.push(
+    ...hosts9('k1-hosts-dyn', 'x=`psql -c "$1"`', '$x = $(psql -c $args[0])'),
+    { id: 'K1 Z01 x=`psql -c "$1"` (verifier)', files: { 'scripts/u9/k1-z01.sh': sh9('x=`psql -c "$1"`') }, violation: true },
+    { id: 'K1 Z02 echo `psql -c "$SQL"` (verifier)', files: { 'scripts/u9/k1-z02.sh': sh9('echo `psql -c "$SQL"`') }, violation: true },
+    { id: 'K1 Z03 echo "`psql -c \\"$1\\"`" (verifier)', files: { 'scripts/u9/k1-z03.sh': sh9('echo "`psql -c \\"$1\\"`"') }, violation: true },
+    { id: 'K1 X02 x=`psql -c "TRUNCATE env.sgu_well"` (verifier, static protected)', files: { 'scripts/u9/k1-x02.sh': sh9('x=`psql -c "TRUNCATE env.sgu_well"`') }, violation: true },
+    { id: 'K1 backticks across two lines', files: { 'scripts/u9/k1-ml.sh': sh9('x=`psql \\\n  -c "$1"`') }, violation: true },
+    { id: 'K1 zsh backticks', files: { 'scripts/u9/k1-zsh.zsh': `#!/bin/zsh\nx=\`psql -c "$1"\`\n` }, violation: true },
+    { id: 'K1 backticks inside bash -c', files: { 'scripts/u9/k1-bashc.sh': sh9('bash -c \'x=`psql -c "$1"`\'') }, violation: true },
+    { id: 'K1 backticks in an npm script with a static protected inner', files: { 'tools/u9/k1-npm/package.json': npm9({ x: 'echo `psql -c "TRUNCATE env.sgu_well"`' }) }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K1 x=`date` (ZC1)', files: { 'scripts/u9/k1-c1.sh': sh9('x=`date`') }, violation: false },
+    { id: 'K1 echo "$(date) `hostname`" (X13)', files: { 'scripts/u9/k1-c2.sh': sh9('echo "$(date) `hostname`"') }, violation: false },
+    { id: "K1 echo '`psql -c \"$1\"`' (X14: single quotes, no substitution)", files: { 'scripts/u9/k1-c3.sh': sh9("echo '`psql -c \"$1\"`'") }, violation: false },
+    { id: "K1 n=`psql postgresql://localhost/x -t -c 'SELECT 1'` (a literal read)", files: { 'scripts/u9/k1-c4.sh': sh9("n=`psql postgresql://localhost/x -t -c 'SELECT 1'`") }, violation: false },
+    { id: 'K1 PowerShell `n in a string is no substitution', files: { 'scripts/u9/k1-c5.ps1': 'Write-Host "line one`nline two"\n' }, violation: false },
+  ];
+  caughtAndControls9('K1 (G8-1: backticks outside a here-document)', violations, controls, 40);
+}
+
+// ---- K2 (G8-2): PowerShell ( ... ), $( ... ), @( ... ) and "$( ... )" are pipelines of their own ----
+{
+  const INNER: readonly [string, string][] = [
+    ['psql -c $args[0]', 'psql -c $args[0]'],
+    ['& psql -c $q', '& psql -c $q'],
+    ["psql -c 'TRUNCATE env.sgu_well' (static protected)", "psql -c 'TRUNCATE env.sgu_well'"],
+    ['psql -c $sql', 'psql -c $sql'],
+    ['ogr2ogr -f PostgreSQL $db a.gpkg -nln stage.u9', 'ogr2ogr -f PostgreSQL $db a.gpkg -nln stage.u9 -overwrite'],
+    ['ogrinfo PG:dbname=x -sql $q', 'ogrinfo PG:dbname=x -sql $q'],
+    ['docker exec db psql -c $q', 'docker exec -i db psql -c $q'],
+    ['& $env:PSQL -c $q', '& $env:PSQL -c $q'],
+    ['psql -c $PSBoundParameters[\'Sql\']', "psql -c $PSBoundParameters['Sql']"],
+    ['psql -c $args', 'psql -c $args'],
+  ];
+  const OUTER: readonly [string, (inner: string) => string][] = [
+    ['$x = ( ... )', (i) => `$x = (${i})`],
+    ['$x = $( ... )', (i) => `$x = $(${i})`],
+    ['$x = @( ... )', (i) => `$x = @(${i})`],
+    ['Write-Output "$( ... )"', (i) => `Write-Output "$(${i})"`],
+    ['Write-Host "a $( ... ) b"', (i) => `Write-Host "prefix $(${i}) suffix"`],
+    ['if (( ... ) -match x)', (i) => `if ((${i}) -match 'x') { Write-Host hit }`],
+    ['foreach ($l in ( ... ))', (i) => `foreach ($l in (${i})) { Write-Host $l }`],
+    ['[int]( ... )', (i) => `$n = [int](${i})`],
+    ['( ... ) | Out-File', (i) => `(${i}) | Out-File out.txt`],
+    ['"x" + ( ... )', (i) => `$m = "x" + (${i})`],
+    ['(( ... )) nested', (i) => `$y = ((${i}))`],
+    ['"$(( ... ))" nested in a string', (i) => `$w = "$((${i}))"`],
+    ['return ( ... ) in a function', (i) => `function f {\n  return (${i})\n}\nf`],
+    ['( ... ) 2>$null', (i) => `$k = (${i} 2>$null)`],
+    ['( ... ) | Select-Object', (i) => `$j = (${i} | Select-Object -First 1)`],
+    ['("$( ... )" -replace)', (i) => `$g = ("$(${i})" -replace 'a', 'b')`],
+    ['-join ( ... )', (i) => `$s = -join (${i})`],
+    ['( ... ) across lines', (i) => `$x = (\n  ${i}\n)`],
+  ];
+  const violations: Form9[] = [];
+  OUTER.forEach(([oname, render], o) => {
+    INNER.forEach(([iname, inner], n) => {
+      if ((o + n) % 3 !== 0) return; // 18 x 10 / 3 = 60 forms
+      violations.push({ id: `K2 ${oname} :: ${iname}`, files: { [`scripts/u9/k2-${o}-${n}.ps1`]: `param([string]$q, [string]$sql, [string]$db)\n${render(inner)}\n` }, violation: true });
+    });
+  });
+  violations.push(
+    { id: 'K2 Z04 $x = $(psql -c TRUNCATE) (verifier)', files: { 'scripts/u9/k2-z04.ps1': `$x = $(psql -c '${EVIL9_SQL}')\n` }, violation: true },
+    { id: 'K2 Z05 $x = (psql -c $args[0]) (verifier)', files: { 'scripts/u9/k2-z05.ps1': '$x = (psql -c $args[0])\n' }, violation: true },
+    { id: 'K2 Z06 Write-Output "$(psql -c $args[0])" (verifier)', files: { 'scripts/u9/k2-z06.ps1': 'Write-Output "$(psql -c $args[0])"\n' }, violation: true },
+    { id: 'K2 Z07 "prefix $(& psql -c $q) suffix" (verifier)', files: { 'scripts/u9/k2-z07.ps1': 'param([string]$q)\n$m = "prefix $(& psql -c $q) suffix"\n' }, violation: true },
+    { id: 'K2 X10 Write-Host "$(psql -c $args[0])" (verifier)', files: { 'scripts/u9/k2-x10.ps1': 'Write-Host "$(psql -c $args[0])"\n' }, violation: true },
+    { id: 'K2 X11 Write-Host "$(psql -c TRUNCATE)" static (verifier)', files: { 'scripts/u9/k2-x11.ps1': `Write-Host "$(psql -c '${EVIL9_SQL}')"\n` }, violation: true },
+    { id: 'K2 a subexpression inside a here-string', files: { 'scripts/u9/k2-hs.ps1': '$t = @"\nresult: $(psql -c $args[0])\n"@\n' }, violation: true },
+    { id: 'K2 a subexpression as a hashtable value', files: { 'scripts/u9/k2-ht.ps1': '$h = @{ rows = (psql -c $args[0]) }\n' }, violation: true },
+    { id: 'K2 a subexpression as a cmdlet argument', files: { 'scripts/u9/k2-arg.ps1': 'Set-Content -Path out.txt -Value (psql -c $args[0])\n' }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K2 $d = (Get-Date)', files: { 'scripts/u9/k2-c1.ps1': '$d = (Get-Date)\nWrite-Host $d\n' }, violation: false },
+    { id: 'K2 "$(Get-Location)"', files: { 'scripts/u9/k2-c2.ps1': 'Write-Host "here: $(Get-Location)"\n' }, violation: false },
+    { id: "K2 $x = (psql -h localhost -c 'SELECT 1') (a literal read)", files: { 'scripts/u9/k2-c3.ps1': "$x = (psql -h localhost -c 'SELECT 1')\n" }, violation: false },
+    { id: 'K2 $y = @(1, 2, 3)', files: { 'scripts/u9/k2-c4.ps1': '$y = @(1, 2, 3)\nWrite-Host $y.Count\n' }, violation: false },
+    { id: 'K2 $z = $(1 + 2)', files: { 'scripts/u9/k2-c5.ps1': '$z = $(1 + 2)\n' }, violation: false },
+  ];
+  caughtAndControls9('K2 (G8-2: PowerShell sub-pipelines and "$( )" strings)', violations, controls, 40);
+}
+
+// ---- K3 (G8-3): Dockerfile RUN here-documents ----
+{
+  const BODIES: readonly [string, string][] = [
+    ['psql -c "$SQL"', 'psql -c "$SQL"'],
+    ['psql -c static protected', `psql -c "${EVIL9_SQL}"`],
+    ['psql "$DB" -c SELECT (DD-1)', 'psql "$DB" -c "SELECT 1"'],
+    ['bash data file', 'bash scripts/u9/k3-evil.txt'],
+    ['ogr2ogr PG with $DSN', 'ogr2ogr -f PostgreSQL "PG:$DSN" a.gpkg -nln stage.u9'],
+    ['two commands, psql second', 'echo start\npsql -c "$SQL"'],
+  ];
+  const MARKERS: readonly [string, string, string][] = [
+    ['<<EOF', '<<EOF', 'EOF'],
+    ['<<-EOF (tabs)', '<<-EOF', 'EOF'],
+    ["<<'EOF' (quoted)", "<<'EOF'", 'EOF'],
+    ['<<"EOF"', '<<"EOF"', 'EOF'],
+    ['<<SH', '<<SH', 'SH'],
+    ['<<\\EOF', '<<\\EOF', 'EOF'],
+  ];
+  const PROGRAMS: readonly [string, (marker: string) => string][] = [
+    ['default shell', (m) => `RUN ${m}`],
+    ['bash', (m) => `RUN ${m} bash`],
+    ['sh -e', (m) => `RUN ${m} sh -e`],
+    ['bash before the marker', (m) => `RUN bash ${m}`],
+    ['--mount then marker', (m) => `RUN --mount=type=cache,target=/root/.cache ${m}`],
+  ];
+  const violations: Form9[] = [];
+  let n = 0;
+  for (const [bname, body] of BODIES) {
+    for (const [mname, marker, delim] of MARKERS) {
+      for (const [pname, head] of PROGRAMS) {
+        if ((n += 1) % 4 !== 0) continue; // 6 x 6 x 5 / 4 = 45 forms
+        const lines = body.split('\n').map((l) => (marker.startsWith('<<-') ? `\t${l}` : l)).join('\n');
+        const file = n % 3 === 0 ? `deploy/u9/k3-${n}/Dockerfile` : n % 3 === 1 ? `deploy/u9/k3-${n}/Dockerfile.prod` : `deploy/u9/k3-${n}/app.dockerfile`;
+        violations.push({ id: `K3 ${head('<<X').replace('<<X', mname)} [${pname}] :: ${bname}`, files: { [file]: `FROM postgres:16\n${head(marker)}\n${lines}\n${marker.startsWith('<<-') ? '\t' : ''}${delim}\n`, 'scripts/u9/k3-evil.txt': EVIL9_SH }, violation: true });
+      }
+    }
+  }
+  violations.push(
+    { id: 'K3 H33 RUN <<EOF psql -c "$SQL" (verifier)', files: { 'deploy/u9/k3-h33/Dockerfile': 'FROM postgres:16\nRUN <<EOF\npsql -c "$SQL"\nEOF\n' }, violation: true },
+    { id: 'K3 H34 RUN <<EOF static protected (verifier)', files: { 'deploy/u9/k3-h34/Dockerfile': `FROM postgres:16\nRUN <<EOF\npsql -c "${EVIL9_SQL}"\nEOF\n` }, violation: true },
+    { id: 'K3 Z15 RUN <<-EOF bash with $SQL (verifier)', files: { 'deploy/u9/k3-z15/Dockerfile': 'FROM postgres:16\nRUN <<-EOF bash\n\tpsql -c "$SQL"\n\tEOF\n' }, violation: true },
+    { id: 'K3 Z16 heredoc then a normal RUN with static protected (verifier)', files: { 'deploy/u9/k3-z16/Dockerfile': `FROM postgres:16\nRUN <<EOF\necho hi\nEOF\nRUN psql -c "${EVIL9_SQL}"\n` }, violation: true },
+    { id: 'K3 RUN python3 <<PY with os.system psql $SQL', files: { 'deploy/u9/k3-py/Dockerfile': 'FROM python:3.12\nRUN python3 <<PY\nimport os\nos.system("psql -c \'$SQL\'")\nPY\n' }, violation: true },
+    { id: "K3 RUN python3 <<'PY' static code executing SQL from the environment", files: { 'deploy/u9/k3-py2/Dockerfile': "FROM python:3.12\nRUN python3 <<'PY'\nimport os, psycopg2\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\nPY\n" }, violation: true },
+    { id: 'K3 RUN node <<JS execSync(process.env.CMD)', files: { 'deploy/u9/k3-node/Dockerfile': "FROM node:22\nRUN node <<JS\nrequire('child_process').execSync(process.env.CMD);\nJS\n" }, violation: true },
+    { id: 'K3 two here-documents in one RUN, the second to psql', files: { 'deploy/u9/k3-two/Dockerfile': 'FROM postgres:16\nRUN cat <<A > /tmp/a && psql <<B\nfirst\nA\n$SQL\nB\n' }, violation: true },
+    { id: 'K3 ARG SQL then RUN <<EOF psql -c "$SQL"', files: { 'deploy/u9/k3-arg/Dockerfile': 'FROM postgres:16\nARG SQL\nRUN <<EOF\npsql -c "$SQL"\nEOF\n' }, violation: true },
+    { id: 'K3 ENV then RUN psql -c "${SQL}" (ENV expansion is a value)', files: { 'deploy/u9/k3-env/Dockerfile': 'FROM postgres:16\nENV SQL="SELECT 1"\nRUN psql -c "${SQL}"\n' }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K3 RUN <<EOF echo hi', files: { 'deploy/u9/k3-c1/Dockerfile': 'FROM postgres:16\nRUN <<EOF\necho hi\napt-get update\nEOF\n' }, violation: false },
+    { id: 'K3 COPY <<EOF /x.txt (a file, not a command)', files: { 'deploy/u9/k3-c2/Dockerfile': 'FROM postgres:16\nCOPY <<EOF /notes.txt\nnotes about psql\nEOF\n' }, violation: false },
+    { id: "K3 RUN <<EOF psql -h localhost -c 'SELECT 1' (a literal read)", files: { 'deploy/u9/k3-c3/Dockerfile': "FROM postgres:16\nRUN <<EOF\npsql -h localhost -U u -d x -c 'SELECT 1'\nEOF\n" }, violation: false },
+  ];
+  caughtAndControls9('K3 (G8-3: Dockerfile RUN here-documents)', violations, controls, 40);
+}
+
+// ---- K4 (G8-4): GitHub Actions ${{ }} as a command, and {{ }} templates ----
+{
+  const EXPRS = ['${{ inputs.cmd }}', '${{ github.event.issue.title }}', '${{ github.event.inputs.sql }}', '${{ secrets.DB_URL }}', '${{ env.SQL }}', '${{ matrix.sql }}', "${{ format('{0}', inputs.x) }}", '${{ steps.a.outputs.cmd }}'];
+  const FORMS: readonly [string, (e: string) => string][] = [
+    ['bash -c "E"', (e) => `bash -c "${e}"`],
+    ['sh -c "E"', (e) => `sh -c "${e}"`],
+    ['E bare (a program from an expression)', (e) => e],
+    ['psql -c "E"', (e) => `psql -c "${e}"`],
+    ['psql "E" -c SELECT', (e) => `psql "${e}" -c "SELECT 1"`],
+    ['node -e "E"', (e) => `node -e "${e}"`],
+    ['python -c "E"', (e) => `python -c "${e}"`],
+    ['eval "E"', (e) => `eval "${e}"`],
+    ['"E" -c SELECT (tool from an expression)', (e) => `"${e}" -c "SELECT 1"`],
+    ['ogr2ogr PG "E"', (e) => `ogr2ogr -f PostgreSQL "${e}" a.gpkg -nln stage.u9`],
+    ['docker exec db psql -c "E"', (e) => `docker exec -i db psql -c "${e}"`],
+    ['bash E (a script from an expression)', (e) => `bash ${e}`],
+  ];
+  const violations: Form9[] = [];
+  FORMS.forEach(([fname, render], f) => {
+    EXPRS.forEach((e, n) => {
+      if ((f + n) % 2 !== 0) return; // 12 x 8 / 2 = 48 forms
+      violations.push({ id: `K4 ${fname} :: ${e}`, files: { [`.github/workflows/u9-k4-${f}-${n}.yml`]: (f + n) % 4 === 0 ? ciBlock9(render(e)) : ci9(render(e)) }, violation: true });
+    });
+  });
+  violations.push(
+    { id: 'K4 H37 bash -c "${{ github.event.issue.title }}" (verifier)', files: { '.github/workflows/u9-h37.yml': ci9('bash -c "${{ github.event.issue.title }}"') }, violation: true },
+    { id: 'K4 Z13 bash -c "${{ inputs.cmd }}" (verifier)', files: { '.github/workflows/u9-z13.yml': ci9('bash -c "${{ inputs.cmd }}"') }, violation: true },
+    { id: 'K4 Z14 sh -c "${{ github.event.issue.title }}" (verifier)', files: { '.github/workflows/u9-z14.yml': ci9('sh -c "${{ github.event.issue.title }}"') }, violation: true },
+    { id: 'K4 H36 run: | psql <<EOF ${{ inputs.sql }} (verifier)', files: { '.github/workflows/u9-h36.yml': ciBlock9('psql "$DB" <<EOF\n${{ inputs.sql }}\nEOF') }, violation: true },
+    { id: 'K4 shell: pwsh with & psql -c "${{ inputs.sql }}"', files: { '.github/workflows/u9-pwsh.yml': 'on: push\njobs:\n  x:\n    runs-on: windows-latest\n    steps:\n      - shell: pwsh\n        run: "& psql -c \\"${{ inputs.sql }}\\""\n' }, violation: true },
+    { id: 'K4 shell: python with os.system psql ${{ }}', files: { '.github/workflows/u9-py.yml': 'on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - shell: python\n        run: |\n          import os\n          os.system("psql -c \'${{ inputs.sql }}\'")\n' }, violation: true },
+    { id: 'K4 env: SQL: ${{ inputs.sql }} then psql -c "$SQL"', files: { '.github/workflows/u9-env.yml': 'on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: psql -c "$SQL"\n        env:\n          SQL: ${{ inputs.sql }}\n' }, violation: true },
+    { id: 'K4 Taskfile psql -c "{{.SQL}}"', files: { 'tools/u9/k4a/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - psql -c \"{{.SQL}}\"\n" }, violation: true },
+    { id: 'K4 Taskfile bash -c "{{.CMD}}"', files: { 'tools/u9/k4b/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - bash -c \"{{.CMD}}\"\n" }, violation: true },
+    { id: 'K4 Taskfile {{.CMD}} bare', files: { 'tools/u9/k4c/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - '{{.CMD}}'\n" }, violation: true },
+    { id: 'K4 Taskfile ogr2ogr PG "{{.DB}}"', files: { 'tools/u9/k4d/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - ogr2ogr -f PostgreSQL \"{{.DB}}\" a.gpkg -nln stage.u9\n" }, violation: true },
+    { id: 'K4 Taskfile psql -c "{{ .SQL | default "x" }}" (piped template)', files: { 'tools/u9/k4e/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - psql -c \"{{ .SQL | default \\\"SELECT 1\\\" }}\"\n" }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K4 echo "${{ github.sha }}" (no DB tool, no shell wrapper)', files: { '.github/workflows/u9-k4c1.yml': ci9('echo "${{ github.sha }}"') }, violation: false },
+    { id: 'K4 name: ${{ matrix.x }} with run: npm ci', files: { '.github/workflows/u9-k4c2.yml': 'on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - name: ${{ matrix.x }}\n        run: npm ci\n' }, violation: false },
+    { id: 'K4 Taskfile echo "{{.NAME}}"', files: { 'tools/u9/k4c3/Taskfile.yml': "version: '3'\ntasks:\n  x:\n    cmds:\n      - echo \"{{.NAME}}\"\n" }, violation: false },
+  ];
+  caughtAndControls9('K4 (G8-4: Actions ${{ }} and Go templates as commands)', violations, controls, 40);
+}
+
+// ---- K5 (G8-5): ssh as a command channel ----
+{
+  const OPTS = ['', '-p 22 ', '-i ~/.ssh/id_ed25519 ', '-o StrictHostKeyChecking=no ', '-tt ', '-l deploy ', '-J jump ', '-q -o BatchMode=yes '];
+  const REMOTE: readonly [string, string][] = [
+    ['psql -c "$1"', 'psql -c "$1"'],
+    ['"psql -c \\"$1\\"" (quoted command)', '"psql -c \\"$1\\""'],
+    ["'psql -c \"TRUNCATE env.sgu_well\"' (static protected)", `'psql -c "${EVIL9_SQL}"'`],
+    ['sudo -u postgres psql -c "$SQL"', 'sudo -u postgres psql -c "$SQL"'],
+    ['"$CMD" (a remote command from a value)', '"$CMD"'],
+    ['bash -s <<EOF psql -c "$1"', 'bash -s <<EOF\npsql -c "$1"\nEOF'],
+    ['psql <<EOF $1', 'psql <<EOF\n$1\nEOF'],
+    ['<<EOF psql -c "$1" (the remote shell reads stdin)', '<<EOF\npsql -c "$1"\nEOF'],
+    ['docker exec db psql -c "$1"', 'docker exec -i db psql -c "$1"'],
+    ['pg_restore -d prod -t stage.u9 "$DUMP"', 'pg_restore -d prod -t stage.u9 "$DUMP"'],
+    ['-- psql -c "$1" (after --)', '-- psql -c "$1"'],
+    ['"cd /srv && psql -c \\"$1\\""', '"cd /srv && psql -c \\"$1\\""'],
+  ];
+  const violations: Form9[] = [];
+  REMOTE.forEach(([rname, remote], r) => {
+    OPTS.forEach((opt, o) => {
+      if ((r + o) % 2 !== 0) return; // 12 x 8 / 2 = 48 forms
+      violations.push({ id: `K5 ssh ${opt}host ${rname}`, files: { [`scripts/u9/k5-${r}-${o}.sh`]: sh9(`ssh ${opt}db-host ${remote}`) }, violation: true });
+    });
+  });
+  violations.push(
+    { id: 'K5 H25 ssh host <<EOF psql -c "$1" (verifier)', files: { 'scripts/u9/k5-h25.sh': sh9('ssh db-host <<EOF\npsql -c "$1"\nEOF') }, violation: true },
+    { id: 'K5 H26 ssh host psql <<EOF $1 (verifier)', files: { 'scripts/u9/k5-h26.sh': sh9('ssh db-host psql <<EOF\n$1\nEOF') }, violation: true },
+    { id: 'K5 Z08 ssh host bash -s <<EOF (verifier)', files: { 'scripts/u9/k5-z08.sh': sh9('ssh db-host bash -s <<EOF\npsql -c "$1"\nEOF') }, violation: true },
+    { id: 'K5 Z09 ssh host "psql -c \\"$1\\"" (verifier)', files: { 'scripts/u9/k5-z09.sh': sh9('ssh db-host "psql -c \\"$1\\""') }, violation: true },
+    { id: 'K5 ssh in an npm script', files: { 'tools/u9/k5-npm/package.json': npm9({ x: 'ssh db-host "psql -c \\"$npm_config_sql\\""' }) }, violation: true },
+    { id: 'K5 ssh in a CI step', files: { '.github/workflows/u9-k5.yml': ci9('ssh db-host psql -c "${{ inputs.sql }}"') }, violation: true },
+    { id: 'K5 ssh in a Dockerfile RUN', files: { 'deploy/u9/k5/Dockerfile': 'FROM alpine\nRUN ssh db-host psql -c "$SQL"\n' }, violation: true },
+    { id: 'K5 & ssh in PowerShell', files: { 'scripts/u9/k5.ps1': 'param([string]$q)\n& ssh db-host psql -c $q\n' }, violation: true },
+    { id: 'K5 JS execSync ssh', files: { 'scripts/u9/k5.mjs': "import { execSync } from 'node:child_process';\nexecSync(`ssh db-host \"psql -c '${process.argv[2]}'\"`);\n" }, violation: true },
+    { id: 'K5 Python subprocess ssh list', files: { 'scripts/u9/k5.py': "import subprocess, sys\nsubprocess.run(['ssh', 'db-host', 'psql', '-c', sys.argv[1]])\n" }, violation: true },
+    { id: 'K5 ssh "$HOST" psql -c static protected', files: { 'scripts/u9/k5-host.sh': sh9(`ssh "$HOST" psql -c "${EVIL9_SQL}"`) }, violation: true },
+    { id: 'K5 ssh host psql -f "$FILE"', files: { 'scripts/u9/k5-file.sh': sh9('ssh db-host psql -f "$FILE"') }, violation: true },
+    { id: 'K5 ssh host psql < local.sql (stdin file through the tunnel)', files: { 'scripts/u9/k5-stdin.sh': sh9('ssh db-host psql postgresql://localhost/x < "$LOCAL_SQL"') }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K5 ssh host uptime', files: { 'scripts/u9/k5-c1.sh': sh9('ssh db-host uptime') }, violation: false },
+    { id: 'K5 ssh -p 22 host "ls -la /srv"', files: { 'scripts/u9/k5-c2.sh': sh9('ssh -p 22 db-host "ls -la /srv"') }, violation: false },
+    { id: 'K5 ssh -V', files: { 'scripts/u9/k5-c3.sh': sh9('ssh -V') }, violation: false },
+    { id: "K5 ssh host psql -h localhost -c 'SELECT 1' (a literal read)", files: { 'scripts/u9/k5-c4.sh': sh9("ssh db-host psql -h localhost -c 'SELECT 1'") }, violation: false },
+    { id: 'K5 ssh "$HOST" uptime (a value that names the host, not a command)', files: { 'scripts/u9/k5-c5.sh': sh9('ssh "$HOST" uptime') }, violation: false },
+  ];
+  caughtAndControls9('K5 (G8-5: ssh as a command channel)', violations, controls, 40);
+}
+
+// ---- K6 (G8-6 / G8-12): gate and scanner agree -- value programs, unread code runners, several here-documents ----
+{
+  const violations: Form9[] = [];
+  const PROGRAM_VALUES = ['"$PSQL_BIN"', '$PSQL', '"${PSQL_BIN}"', '"$(command -v psql)"', '`which psql`', '${PSQL:-psql}', '"$TOOLS/psql"', '"$HOME/.local/bin/psql"'];
+  const ARGS = ['-c "$1"', '-c "SELECT 1"', `-c "${EVIL9_SQL}"`, '-f "$F"', '-f schema.sql', '"$DB" -c "SELECT 1"'];
+  PROGRAM_VALUES.forEach((p, i) => ARGS.forEach((a, j) => {
+    if ((i + j) % 2 !== 0) return; // 8 x 6 / 2 = 24
+    violations.push({ id: `K6 program value ${p} ${a}`, files: { [`scripts/u9/k6-p-${i}-${j}.sh`]: sh9(`${p} ${a}`) }, violation: true });
+  }));
+  const UNREAD = ['ruby', 'perl', 'php'];
+  const CODE: readonly [string, (lang: string) => string][] = [
+    ['<<EOF with $1', (l) => `${l} <<EOF\nsystem("psql -c '$1'")\nEOF`],
+    ["<<'EOF' static (code no binding reads)", (l) => `${l} <<'EOF'\nsystem("psql -c 'SELECT 1'");\nEOF`],
+    ['-e code with $1', (l) => `${l} ${l === 'php' ? '-r' : '-e'} "system('psql -c \\"$1\\"')"`],
+    ['-e static code', (l) => `${l} ${l === 'php' ? '-r' : '-e'} 'system("psql -c \\"TRUNCATE env.sgu_well\\"")'`],
+    ['script file', (l) => `${l} scripts/u9/k6-script.${l === 'ruby' ? 'rb' : l === 'perl' ? 'pl' : 'php'}`],
+    ['<<< "$CODE"', (l) => `${l} <<< "$CODE"`],
+  ];
+  UNREAD.forEach((l) => CODE.forEach(([cname, render]) => violations.push({ id: `K6 ${l} ${cname}`, files: { [`scripts/u9/k6-${l}-${cname.replace(/[^a-z0-9]+/gi, '-')}.sh`]: bash9(render(l)) }, violation: true })));
+  violations.push(
+    { id: 'K6 H21 ruby <<EOF with $1 (verifier)', files: { 'scripts/u9/k6-h21.sh': sh9('ruby <<EOF\nsystem("psql -c \'$1\'")\nEOF') }, violation: true },
+    { id: "K6 H22 perl <<'EOF' static (verifier, G8-12: an unread language)", files: { 'scripts/u9/k6-h22.sh': sh9("perl <<'EOF'\nsystem(\"psql -c 'SELECT 1'\");\nEOF") }, violation: true },
+    { id: 'K6 two here-documents on one line, the second to psql with $1 (H06)', files: { 'scripts/u9/k6-h06.sh': sh9('cat <<A >/dev/null; psql "$DB" <<B\nfirst\nA\n$1\nB') }, violation: true },
+    { id: 'K6 two here-documents, the second static protected', files: { 'scripts/u9/k6-two2.sh': sh9(`cat <<A >/dev/null && psql postgresql://localhost/x <<B\nfirst\nA\n${EVIL9_SQL};\nB`) }, violation: true },
+    { id: 'K6 three here-documents, the third to bash with a value', files: { 'scripts/u9/k6-three.sh': sh9('cat <<A >/dev/null; cat <<B >/dev/null; bash <<C\na\nA\nb\nB\n$CMD\nC') }, violation: true },
+    { id: 'K6 here-document to psql then && echo on the same line', files: { 'scripts/u9/k6-and.sh': sh9('psql postgresql://localhost/x <<EOF && echo done\n$1\nEOF') }, violation: true },
+    { id: 'K6 here-document inside a pipeline: cat <<EOF | psql with $1', files: { 'scripts/u9/k6-pipe.sh': sh9('cat <<EOF | psql postgresql://localhost/x\n$1\nEOF') }, violation: true },
+    { id: 'K6 ruby in an npm script', files: { 'tools/u9/k6-npm/package.json': npm9({ x: 'ruby -e "system(\'psql -c \\"$npm_config_sql\\"\')"' }) }, violation: true },
+    { id: 'K6 perl -pe on stdin from a value (an unread language runs code)', files: { 'scripts/u9/k6-perl-pe.sh': sh9("perl -pe 's/a/b/' <<< \"$INPUT\"") }, violation: true },
+    { id: 'K6 php -r in a CI step', files: { '.github/workflows/u9-k6-php.yml': ci9("php -r 'system(getenv(\"CMD\"));'") }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K6 echo ruby perl php (words, not programs)', files: { 'scripts/u9/k6-c1.sh': sh9('echo ruby perl php') }, violation: false },
+    { id: 'K6 psql -h localhost -c SELECT after a cat <<EOF >/dev/null on the same line', files: { 'scripts/u9/k6-c2.sh': sh9("cat <<A >/dev/null; psql -h localhost -c 'SELECT 1'\nfirst\nA") }, violation: false },
+    { id: 'K6 which psql (a lookup, not a run)', files: { 'scripts/u9/k6-c3.sh': sh9('which psql && echo found') }, violation: false },
+  ];
+  caughtAndControls9('K6 (G8-6, G8-12: value programs, unread code runners, several here-documents)', violations, controls, 40);
+}
+
+// ---- K7 (G8-7, G8-8): package.json fields outside scripts, and the package-manager rc files ----
+{
+  const HOOK_VALUES: readonly [string, string][] = [
+    ['psql -c "$SQL"', 'psql -c "$SQL"'],
+    ['bash data file', 'bash scripts/u9/k7-evil.txt'],
+    ['static protected psql', `psql -c "${EVIL9_SQL}"`],
+    ['node -r ./hook.txt ok', 'node -r ./scripts/u9/k7-hook.txt scripts/u9/k7-ok.mjs'],
+    ['tsx of a test source', 'tsx scripts/u9/unit/k7.test.ts'],
+  ];
+  const FIELDS: readonly [string, (cmd: string) => Record<string, unknown>][] = [
+    ['husky.hooks.pre-commit (v4)', (c) => ({ husky: { hooks: { 'pre-commit': c } } })],
+    ['husky.hooks.pre-push (v4)', (c) => ({ husky: { hooks: { 'pre-push': c } } })],
+    ['lint-staged "*.sql" string', (c) => ({ 'lint-staged': { '*.sql': c } })],
+    ['lint-staged "*.ts" array', (c) => ({ 'lint-staged': { '*.ts': ['eslint --fix', c] } })],
+    ['simple-git-hooks.pre-commit', (c) => ({ 'simple-git-hooks': { 'pre-commit': c } })],
+    ['simple-git-hooks.commit-msg', (c) => ({ 'simple-git-hooks': { 'commit-msg': c } })],
+    ['nano-staged "*.sql"', (c) => ({ 'nano-staged': { '*.sql': c } })],
+    ['gitHooks.pre-commit (yorkie)', (c) => ({ gitHooks: { 'pre-commit': c } })],
+  ];
+  const extraFiles = { 'scripts/u9/k7-evil.txt': EVIL9_SH, 'scripts/u9/k7-hook.txt': EVIL9_CJS, 'scripts/u9/k7-ok.mjs': OK9, 'scripts/u9/unit/k7.test.ts': `${PG5}await pool.query('${EVIL9_SQL}');\n` };
+  const violations: Form9[] = [];
+  FIELDS.forEach(([fname, make], f) => HOOK_VALUES.forEach(([vname, cmd], v) => {
+    violations.push({ id: `K7 ${fname} :: ${vname}`, files: { [`tools/u9/k7-${f}-${v}/package.json`]: npm9({ ok: 'echo ok' }, make(cmd)), ...extraFiles }, violation: true });
+  }));
+  violations.push(
+    { id: 'K7 C21 husky hooks with a dynamic psql (verifier)', files: { 'tools/u9/k7-c21/package.json': npm9({}, { husky: { hooks: { 'pre-commit': 'psql -c "$SQL"' } } }) }, violation: true },
+    { id: 'K7 C22 lint-staged bash data file (verifier)', files: { 'tools/u9/k7-c22/package.json': npm9({}, { 'lint-staged': { '*.sql': 'bash scripts/u9/k7-evil.txt' } }), 'scripts/u9/k7-evil.txt': EVIL9_SH }, violation: true },
+    { id: 'K7 C23 simple-git-hooks (verifier)', files: { 'tools/u9/k7-c23/package.json': npm9({}, { 'simple-git-hooks': { 'pre-commit': 'bash scripts/u9/k7-evil.txt' } }), 'scripts/u9/k7-evil.txt': EVIL9_SH }, violation: true },
+    { id: 'K7 B12 bin entry to a data file (node runs it)', files: { 'tools/u9/k7-b12/package.json': npm9({ ok: 'echo ok' }, { bin: { wipe: 'scripts/u9/k7-bin.txt' } }), 'scripts/u9/k7-bin.txt': `#!/usr/bin/env node\n${EVIL9_CJS}` }, violation: true },
+    { id: 'K7 bin as a string to a data file', files: { 'tools/u9/k7-bin2/package.json': npm9({ ok: 'echo ok' }, { bin: 'scripts/u9/k7-bin2.txt' }), 'scripts/u9/k7-bin2.txt': EVIL9_CJS }, violation: true },
+    { id: 'K7 bin to a missing file (an unresolved launch)', files: { 'tools/u9/k7-bin3/package.json': npm9({ ok: 'echo ok' }, { bin: { wipe: 'scripts/u9/no-such-k7-bin.js' } }) }, violation: true },
+    { id: 'K7 config value holding a protected statement (the literal surface)', files: { 'tools/u9/k7-cfg/package.json': npm9({ ok: 'echo ok' }, { config: { sql: EVIL9_SQL } }) }, violation: true },
+    { id: 'K7 C20 .npmrc node-options=--require ./h.txt (verifier)', files: { 'tools/u9/k7-c20/.npmrc': 'node-options=--require ./scripts/u9/k7-hook.txt\n', 'tools/u9/k7-c20/package.json': npm9({ x: 'node scripts/u9/k7-ok.mjs' }), 'scripts/u9/k7-hook.txt': EVIL9_CJS, 'scripts/u9/k7-ok.mjs': OK9 }, violation: true },
+    { id: 'K7 .npmrc node_options (underscore) --import=./h.json', files: { 'tools/u9/k7-rc2/.npmrc': 'node_options=--import=./scripts/u9/k7-hook.json\n', 'scripts/u9/k7-hook.json': EVIL9_CJS }, violation: true },
+    { id: 'K7 .npmrc node-options from a value', files: { 'tools/u9/k7-rc3/.npmrc': 'node-options=${EXTRA_NODE_OPTIONS}\n' }, violation: true },
+    { id: 'K7 .npmrc script-shell=<repo data file> (the shell npm runs scripts with)', files: { 'tools/u9/k7-rc4/.npmrc': 'script-shell=scripts/u9/k7-shell.txt\n', 'scripts/u9/k7-shell.txt': `#!/bin/sh\n${EVIL9_SH}` }, violation: true },
+    { id: 'K7 .npmrc script-shell to a missing file (unresolved launch)', files: { 'tools/u9/k7-rc5/.npmrc': 'script-shell=/opt/no-such/shell\n' }, violation: true },
+    { id: 'K7 .npmrc onload-script=./x.txt (a module npm loads, run as JavaScript)', files: { 'tools/u9/k7-rc6/.npmrc': 'onload-script=./scripts/u9/k7-onload.txt\n', 'scripts/u9/k7-onload.txt': EVIL9_CJS }, violation: true },
+    { id: 'K7 .yarnrc.yml yarnPath to a data file', files: { 'tools/u9/k7-rc7/.yarnrc.yml': 'yarnPath: scripts/u9/k7-yarn.txt\n', 'scripts/u9/k7-yarn.txt': EVIL9_CJS }, violation: true },
+    { id: 'K7 .yarnrc yarn-path "x.txt" (the yarn release node runs)', files: { 'tools/u9/k7-rc8/.yarnrc': 'yarn-path "scripts/u9/k7-yarn8.txt"\n', 'scripts/u9/k7-yarn8.txt': EVIL9_CJS }, violation: true },
+    { id: 'K7 .yarnrc.yml yarnPath to a missing release (unresolved launch)', files: { 'tools/u9/k7-rc9/.yarnrc.yml': 'yarnPath: .yarn/releases/no-such-yarn.cjs\n' }, violation: true },
+  );
+  const controls: Form9[] = [
+    { id: 'K7 lint-staged eslint --fix', files: { 'tools/u9/k7-c1/package.json': npm9({ ok: 'echo ok' }, { 'lint-staged': { '*.ts': 'eslint --fix' } }) }, violation: false },
+    { id: 'K7 husky hooks npm test', files: { 'tools/u9/k7-c2/package.json': npm9({ test: 'vitest run' }, { husky: { hooks: { 'pre-commit': 'npm test' } } }) }, violation: false },
+    { id: 'K7 config { port: 3000 }', files: { 'tools/u9/k7-c3/package.json': npm9({ ok: 'echo ok' }, { config: { port: '3000' } }) }, violation: false },
+    { id: 'K7 .npmrc registry and save-exact', files: { 'tools/u9/k7-c4/.npmrc': 'registry=https://registry.npmjs.org/\nsave-exact=true\n' }, violation: false },
+    { id: 'K7 .nvmrc names a version', files: { 'tools/u9/k7-c5/.nvmrc': '22\n' }, violation: false },
+    { id: 'K7 bin to a clean repository script', files: { 'tools/u9/k7-c6/package.json': npm9({ ok: 'echo ok' }, { bin: { hello: 'scripts/u9/k7-hello.mjs' } }), 'scripts/u9/k7-hello.mjs': OK9 }, violation: false },
+  ];
+  caughtAndControls9('K7 (G8-7, G8-8: package.json hook fields, bin, config; .npmrc / .yarnrc launches)', violations, controls, 40);
+}
+
+// ---- G8-10 (low): the JSON places and PowerShell forms the delta verifier found unread ----
+describe('U30F9 -- G8-10: root .devcontainer.json, nested .vscode, launch.json python/PowerShell, Start-Process -ArgumentList lists', () => {
+  it.each([
+    ['C05 root .devcontainer.json postCreateCommand bash data', { '.devcontainer.json': `${JSON.stringify({ postCreateCommand: 'bash scripts/u9/g10-p05.txt' })}\n`, 'scripts/u9/g10-p05.txt': EVIL9_SH }],
+    ['C07 nested tools/x/.vscode/tasks.json bash + args data file', { 'tools/u9g10/.vscode/tasks.json': `${JSON.stringify({ version: '2.0.0', tasks: [{ label: 'x', type: 'process', command: 'bash', args: ['scripts/u9/g10-p07.txt'] }] })}\n`, 'scripts/u9/g10-p07.txt': EVIL9_SH }],
+    ['C11 launch.json debugpy program = data file', { '.vscode/u9g10c11/launch.json': `${JSON.stringify({ configurations: [{ type: 'debugpy', request: 'launch', name: 'x', program: '${workspaceFolder}/scripts/u9/g10-p11.txt' }] })}\n`, 'scripts/u9/g10-p11.txt': "import os, psycopg2\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\n" }],
+    ['C11b launch.json python program = data file', { '.vscode/u9g10c11b/launch.json': `${JSON.stringify({ configurations: [{ type: 'python', request: 'launch', name: 'x', program: '${workspaceFolder}/scripts/u9/g10-p11b.txt' }] })}\n`, 'scripts/u9/g10-p11b.txt': "import os, psycopg2\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\n" }],
+    ['C12 launch.json PowerShell script = data file', { '.vscode/u9g10c12/launch.json': `${JSON.stringify({ configurations: [{ type: 'PowerShell', request: 'launch', name: 'x', script: '${workspaceFolder}/scripts/u9/g10-p12.txt' }] })}\n`, 'scripts/u9/g10-p12.txt': `psql -c "${EVIL9_SQL}"\n` }],
+    ["C18 Start-Process pwsh -ArgumentList '-File', 'x.txt'", { 'scripts/u9/g10-c18.ps1': "Start-Process pwsh -ArgumentList '-File', 'scripts/u9/g10-p18.txt'\n", 'scripts/u9/g10-p18.txt': `psql -c "${EVIL9_SQL}"\n` }],
+    ["Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-File', 'x.txt' -Wait", { 'scripts/u9/g10-c18b.ps1': "Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-File', 'scripts/u9/g10-p18b.txt' -Wait\n", 'scripts/u9/g10-p18b.txt': `psql -c "${EVIL9_SQL}"\n` }],
+    ["Start-Process psql -ArgumentList '-c', $args[0]", { 'scripts/u9/g10-c18c.ps1': "Start-Process psql -ArgumentList '-c', $args[0]\n" }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfChange(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['root .devcontainer.json postCreateCommand npm ci', { '.devcontainer.json': `${JSON.stringify({ postCreateCommand: 'npm ci' })}\n` }],
+    ['nested .vscode/tasks.json npm run build', { 'tools/u9g10c/.vscode/tasks.json': `${JSON.stringify({ tasks: [{ label: 'b', type: 'shell', command: 'npm', args: ['run', 'build'] }] })}\n` }],
+    ["Start-Process pwsh -ArgumentList '-File', 'ok.ps1' of a clean script", { 'scripts/u9/g10-ok.ps1': "Start-Process pwsh -ArgumentList '-File', 'scripts/u9/g10-ok-lib.ps1'\n", 'scripts/u9/g10-ok-lib.ps1': "Write-Host 'ok'\n" }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfChange(files)).toEqual([]);
+  });
+});
+
+// ---- Content pins (G8-9, G8-13): fields, CRLF, and canaries beyond the orchestrators ----
+describe('U30F9 -- content pins: every pinned entry is justified, dated and reachable; CRLF pins alike; a change anywhere fails with the re-review procedure (G8-9, G8-13)', () => {
+  const pinned = REVIEWED_CHANNELS.filter((e) => e.policy === 'DYNAMIC_REVIEWED');
+  const pinMsg = (ps: Problem[]) => ps.filter((p) => p.problem.includes('U30 re-review required'));
+
+  it('every DYNAMIC_REVIEWED entry carries a justification, a reachability statement, a review date and a reviewer besides its content pin', () => {
+    expect(pinned.length).toBeGreaterThan(40);
+    for (const e of pinned) {
+      const x = e as unknown as { contentSha256?: string; reachability?: string; reviewedOn?: string; reviewedBy?: string };
+      expect(x.contentSha256, `${e.file}: contentSha256`).toMatch(/^[0-9a-f]{64}$/);
+      expect(e.justification.trim().length, `${e.file}: justification`).toBeGreaterThanOrEqual(60);
+      expect((x.reachability ?? '').trim().length, `${e.file}: reachability (how the file is reached: npm script, CI, runbook, operator, or shown unreachable)`).toBeGreaterThanOrEqual(30);
+      expect(x.reviewedOn, `${e.file}: reviewedOn (ISO date)`).toMatch(/^20[0-9]{2}-[0-9]{2}-[0-9]{2}$/);
+      expect((x.reviewedBy ?? '').trim().length, `${e.file}: reviewedBy (the unit and agent that reviewed the entry)`).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it('the re-review document exists and names the four steps the pin message demands', () => {
+    const doc = fs.readFileSync(path.join(REPO_ROOT, REREVIEW_DOC), 'utf8');
+    for (const must of ['contentSha256', 'reviewedOn', 'reviewedBy', 'U30 re-review:', 'CODEOWNER', 'reachability', 'SAMMA commit']) expect(doc, must).toContain(must);
+  });
+
+  it('a pin reads CRLF and LF alike: a line-ending-only change of a pinned file never fails (G8-9 a)', () => {
+    for (const e of pinned.filter((x) => !x.file.endsWith('package.json'))) {
+      const real = realText(e.file);
+      expect(pinMsg(problemsOfChange({ [e.file]: real.replace(/\n/g, '\r\n') })), e.file).toEqual([]);
+    }
+  });
+
+  const beyondOrchestrators = pinned.map((e) => e.file).filter((f) => !/^scripts\/import\/run-/.test(f) && !f.endsWith('package.json'));
+  it('the pins cover files far beyond the orchestrators', () => {
+    expect(beyondOrchestrators.length).toBeGreaterThan(30);
+  });
+
+  it.each(beyondOrchestrators)('G8-13: a code line appended to %s fails with the re-review message that names the document and the file', (file) => {
+    const real = realText(file);
+    const tail = /\.(ts|mts|cts|js|mjs|cjs)$/.test(file) ? "\nconsole.log('u30f9');\n" : /\.py$/.test(file) ? "\nprint('u30f9')\n" : /\.sql$/.test(file) ? '\nSELECT 1;\n' : /\.(ps1|psm1)$/.test(file) ? "\nWrite-Host 'u30f9'\n" : /\.ya?ml$/.test(file) ? '\n# u30f9\n' : '\necho u30f9\n';
+    const problems = pinMsg(problemsOfChange({ [file]: `${real}${tail}` }));
+    expect(problems.length, file).toBeGreaterThan(0);
+    expect(problems[0]!.problem).toContain(REREVIEW_DOC);
+    expect(problems[0]!.problem).toContain(`U30 re-review: ${file}`);
+  });
+
+  it('G8-13: package.json -- a changed script body, a new hook field, a new bin and a new config value each fail the pin; a new devDependency does not', () => {
+    const j = JSON.parse(realText('package.json')) as Record<string, unknown>;
+    const scripts = j.scripts as Record<string, string>;
+    const firstScript = Object.keys(scripts)[0]!;
+    const variants: Record<string, Record<string, unknown>> = {
+      'script body': { ...j, scripts: { ...scripts, [firstScript]: `${scripts[firstScript]} && echo u30f9` } },
+      'husky.hooks': { ...j, husky: { hooks: { 'pre-commit': 'echo u30f9' } } },
+      'lint-staged': { ...j, 'lint-staged': { '*.ts': 'echo u30f9' } },
+      'simple-git-hooks': { ...j, 'simple-git-hooks': { 'pre-commit': 'echo u30f9' } },
+      bin: { ...j, bin: { u30f9: 'scripts/u9/u30f9.mjs' } },
+      config: { ...j, config: { u30f9: 'x' } },
+    };
+    for (const [k, v] of Object.entries(variants)) expect(pinMsg(problemsOfChange({ 'package.json': `${JSON.stringify(v, null, 2)}\n` })).length, k).toBeGreaterThan(0);
+    const dep = { ...j, devDependencies: { ...((j.devDependencies as Record<string, string>) ?? {}), 'u30f9-pkg': '1.0.0' } };
+    expect(pinMsg(problemsOfChange({ 'package.json': `${JSON.stringify(dep, null, 2)}\n` }))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Generated violations: languages x channels x relations x obfuscations x paths
 // ---------------------------------------------------------------------------------------------
 
@@ -1900,8 +2557,10 @@ function generateCases(seed: number, count: number): GeneratedCase[] {
     { id: 'py-fstring', ext: '.py', multiline: false, quotes: false, render: (s) => `import psycopg2\ncur = psycopg2.connect('').cursor()\nverb = ${js(s.split(' ')[0]!)}\ncur.execute(f"{verb} ${s.split(' ').slice(1).join(' ')}")\n` },
     { id: 'ps-psql', ext: '.ps1', multiline: true, quotes: true, render: (s) => `$sql = ${sq(s)}\n& psql -v ON_ERROR_STOP=1 -c $sql\n` },
     { id: 'ps-literal-invoke', ext: '.ps1', multiline: false, quotes: true, render: (s) => `& 'C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe' -c ${sq(s)}\n` },
-    { id: 'sh-psql', ext: '.sh', multiline: true, quotes: false, render: (s) => `#!/bin/sh\nset -e\npsql "$DATABASE_URL" -c '${s}'\n` },
-    { id: 'sh-heredoc', ext: '.sh', multiline: true, quotes: true, render: (s) => `#!/bin/bash\npsql "$DATABASE_URL" <<'SQL'\n${s};\nSQL\n` },
+    // (U30F9 default-deny: a connection from the environment is a value in a psql command and is a violation on its own; the
+    // generator's sh channels name a literal connection so that only the SQL decides)
+    { id: 'sh-psql', ext: '.sh', multiline: true, quotes: false, render: (s) => `#!/bin/sh\nset -e\npsql postgresql://localhost/mimer -c '${s}'\n` },
+    { id: 'sh-heredoc', ext: '.sh', multiline: true, quotes: true, render: (s) => `#!/bin/bash\npsql postgresql://localhost/mimer <<'SQL'\n${s};\nSQL\n` },
     { id: 'cmd-psql', ext: '.cmd', multiline: false, quotes: false, render: (s) => `@echo off\r\npsql -c "${s}"\r\n` },
     { id: 'sql-file', ext: '.sql', multiline: true, quotes: true, render: (s) => `-- generated\n${s};\n` },
     { id: 'yaml-run', ext: '.yml', multiline: false, quotes: false, render: (s) => `jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - name: step\n        run: psql -c '${s}'\n` },
