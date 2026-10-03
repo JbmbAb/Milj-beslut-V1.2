@@ -181,7 +181,8 @@ function isBootstrapAdmitFlagOutsideTest(error: unknown): error is { code: strin
 }
 
 function bootstrapAdmitFlagOutsideTestBody(error: { gate?: unknown }): Record<string, unknown> {
-  const lead = error.gate === 'reexecution' ? 'Verifieringen kunde inte genomföras' : 'Begäran kunde inte genomföras';
+  // W-T1TEXT (T1-WORDING-AUDIT top 6): the check is a reproducibility check, never a "verification"; the code is unchanged.
+  const lead = error.gate === 'reexecution' ? 'Reproducerbarhetskontrollen kunde inte genomföras' : 'Begäran kunde inte genomföras';
   return {
     ok: false,
     error:
@@ -234,8 +235,9 @@ function handleOrchestratorError(error: unknown, res: express.Response): boolean
     res.status(503).json({
       ok: false,
       error:
-        `Verifieringen kunde inte genomföras: ett tekniskt lagringsfel uppstod vid återexekveringen (steg: ${stage}). ` +
-        `Det är inget verifieringsutfall. ${retrySentenceSv(retryable)}`,
+        // W-T1TEXT (T1-WORDING-AUDIT top 6): a reproducibility check, never a "verification"; the code is unchanged.
+        `Reproducerbarhetskontrollen kunde inte genomföras: ett tekniskt lagringsfel uppstod vid återexekveringen (steg: ${stage}). ` +
+        `Det är inget kontrollutfall. ${retrySentenceSv(retryable)}`,
       code: LU_REEXECUTION_STORAGE_FAULT,
       failureClass: 'REEXECUTION_STORAGE_FAULT',
       reasonCode: stage.toUpperCase(),
