@@ -85,6 +85,15 @@ function Get-ProtectedClassificationSpec {
     foreach ($k in @('sql', 'ogr2ogr', 'commands', 'schema_operations', 'partition_suffix_pattern')) {
         if ($null -eq $doc.$k) { throw "PROTECTED_RELATION_CLASSIFICATION_INVALID: $k" }
     }
+    # U30F5: the D-3/D-4/D-5/B8 vocabularies are required -- a missing list would read as "nothing to refuse"
+    foreach ($k in @('privilege_other_object_kinds', 'role_options_unresolvable')) {
+        $v = @($doc.sql.$k)
+        if ($null -eq $doc.sql.$k -or $v.Count -eq 0 -or @($v | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw "PROTECTED_RELATION_CLASSIFICATION_INVALID: sql.$k" }
+    }
+    $remote = $doc.sql.foreign_table_remote_options
+    if ($null -eq $remote -or $remote.schema -isnot [string] -or $remote.table -isnot [string]) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: sql.foreign_table_remote_options' }
+    $subst = @($doc.commands.argument_substituting_runners)
+    if ($null -eq $doc.commands.argument_substituting_runners -or $subst.Count -eq 0 -or @($subst | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners' }
     $tools = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     foreach ($p in $doc.commands.tools.PSObject.Properties) { $tools[$p.Name] = [string]$p.Value }
     $wrappers = [System.Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
@@ -119,6 +128,11 @@ function Get-ProtectedClassificationSpec {
         DynamicExecFunctions = [string[]]@($doc.sql.dynamic_exec_functions)
         PsqlMetaCopy = [string[]]@($doc.sql.psql_meta_copy)
         PsqlMetaUnresolvable = [string[]]@($doc.sql.psql_meta_unresolvable)
+        PrivilegeOtherKinds = [string[]]@($doc.sql.privilege_other_object_kinds)
+        RoleOptions = [string[]]@($doc.sql.role_options_unresolvable)
+        ForeignSchemaOption = [string]$remote.schema
+        ForeignTableOption = [string]$remote.table
+        SubstitutingRunners = [string[]]$subst
         OgrFormatFlags = [string[]]@($doc.ogr2ogr.format_flags)
         OgrDatabaseFormats = [string[]]@($doc.ogr2ogr.database_formats)
         OgrDumpFormats = [string[]]@($doc.ogr2ogr.sql_dump_formats)
@@ -741,9 +755,12 @@ function PrgAnStatement($an, $toks) {
                     $name = if ($into -lt 0) { $null } else { (PrgParseNameAt $toks ($into + 1))[0] }
                     if ($null -ne $name -and $null -eq $name.Schema) { PrgAnTarget $an 'IMPORT_FOREIGN_SCHEMA' $name 'SCHEMA' }
                     else { $an.Acc.Unres('IMPORT_FOREIGN_SCHEMA', 'IMPORT FOREIGN SCHEMA without a static local schema') }
+                    PrgAnImportForeignRemote $an $toks $p
                 }
                 break
             }
+            'grant' { if (PrgAtStatementStart $toks $p) { PrgAnGrant $an $toks $p 'GRANT' }; break }
+            'revoke' { if (PrgAtStatementStart $toks $p) { PrgAnGrant $an $toks $p 'REVOKE' }; break }
             'execute' { PrgAnExecute $an $toks $p $prev; break }
             'into' { PrgAnSelectInto $an $toks $p $prev; break }
             'set' { if (PrgAtStatementStart $toks $p) { PrgAnSetSearchPath $an $toks $p }; break }
@@ -795,6 +812,10 @@ function PrgAnUpdate($an, $toks, [int]$p, $prev) {
 }
 
 function PrgAnCopy($an, $toks, [int]$p) {
+    # U30F5 (D-3): FROM PROGRAM / TO PROGRAM runs a shell command on the database server, whatever the table
+    for ($n = $p + 1; $n -lt $toks.Count; $n++) {
+        if ($toks[$n].t -ceq 'WORD' -and $toks[$n].v -ceq 'program' -and ((PrgWordAt $toks ($n - 1) 'from') -or (PrgWordAt $toks ($n - 1) 'to'))) { $an.Acc.Unres('COPY_PROGRAM', 'COPY ... PROGRAM runs a shell command on the database server'); break }
+    }
     if (PrgIsT $toks ($p + 1) 'LPAREN') { return }
     $r = PrgParseNameAt $toks ($p + 1)
     $k = $r[1]
@@ -815,6 +836,16 @@ function PrgAnAlter($an, $toks, [int]$p) {
         $r = PrgParseNameAt $toks $k $true $true
         if ($null -eq $r[0]) { if (PrgAtStatementStart $toks $p) { $an.Acc.Unres('ALTER', "ALTER target is not a static relation name: $(PrgDescribeAt $toks $p)") }; return }
         $rest = PrgSlice2 $toks $r[1] $toks.Count
+        # U30F5 (D-4): OPTIONS, RENAME TO or SET SCHEMA of a foreign table can change the remote relation it writes
+        if ((@($kind) -join ' ') -ceq 'foreign table') {
+            $changes = $false
+            for ($n = 0; $n -lt $rest.Count; $n++) {
+                $x = $rest[$n]
+                if ($x.t -cne 'WORD') { continue }
+                if (($x.v -ceq 'options' -and (PrgIsT $rest ($n + 1) 'LPAREN')) -or ($x.v -ceq 'rename' -and (PrgWordAt $rest ($n + 1) 'to')) -or ($x.v -ceq 'set' -and (PrgWordAt $rest ($n + 1) 'schema'))) { $changes = $true; break }
+            }
+            if ($changes) { $an.Acc.Unres('WRITE_PATH', 'ALTER FOREIGN TABLE changes the remote relation it writes through to') }
+        }
         $renameAt = -1
         for ($n = 0; $n -lt $rest.Count; $n++) { if ($rest[$n].t -ceq 'WORD' -and $rest[$n].v -ceq 'rename' -and (PrgWordAt $rest ($n + 1) 'to')) { $renameAt = $n; break } }
         if ($renameAt -ge 0) {
@@ -850,7 +881,96 @@ function PrgAnAlter($an, $toks, [int]$p) {
             PrgAnTarget $an 'RENAME_SCHEMA' $r[0] 'SCHEMA'
             if ($null -ne $to -and $null -eq $to.Schema) { PrgAnTarget $an 'RENAME_SCHEMA' $to 'SCHEMA' } else { $an.Acc.Unres('RENAME_SCHEMA', 'RENAME TO a schema name that is not static') }
         } else { PrgAnTarget $an 'ALTER_SCHEMA' $r[0] 'SCHEMA' }
+        return
     }
+    # U30F5 (B8): ALTER DEFAULT PRIVILEGES [FOR ROLE r] [IN SCHEMA s, ...] -- without IN SCHEMA it applies to every schema
+    if (PrgWordsAt $toks ($p + 1) @('default', 'privileges')) {
+        $inAt = -1
+        for ($n = $p + 3; $n -lt $toks.Count; $n++) { if ($toks[$n].t -ceq 'WORD' -and $toks[$n].v -ceq 'in' -and (PrgWordAt $toks ($n + 1) 'schema')) { $inAt = $n; break } }
+        if ($inAt -ge 0) { PrgAnList $an $toks $p ($inAt + 2) 'DEFAULT_PRIVILEGES' $false $false $true }
+        elseif (PrgAtStatementStart $toks $p) { $an.Acc.Unres('DEFAULT_PRIVILEGES', 'ALTER DEFAULT PRIVILEGES without IN SCHEMA applies to every schema') }
+        return
+    }
+    # U30F5 (B8): ALTER ROLE / USER / GROUP (not USER MAPPING) can grant SUPERUSER, BYPASSRLS or a membership
+    if (((PrgWordAt $toks ($p + 1) 'role') -or (PrgWordAt $toks ($p + 1) 'group') -or ((PrgWordAt $toks ($p + 1) 'user') -and -not (PrgWordAt $toks ($p + 2) 'mapping'))) -and (PrgAtStatementStart $toks $p)) {
+        $an.Acc.Unres('ROLE', 'a role change can lift the database-level protection of the protected relations')
+    }
+}
+
+# U30F5 (B8): GRANT/REVOKE ... ON <relations> | ON ALL TABLES IN SCHEMA <s> | ON SCHEMA <s>; other object kinds name no
+# relation; without ON it is a role membership
+function PrgAnGrant($an, $toks, [int]$p, [string]$op) {
+    $spec = Get-ProtectedClassificationSpec
+    $end = if ($op -ceq 'GRANT') { 'to' } else { 'from' }
+    $depth = 0
+    $onAt = -1
+    $endAt = -1
+    for ($k = $p + 1; $k -lt $toks.Count; $k++) {
+        $x = $toks[$k]
+        if ($x.t -ceq 'LPAREN') { $depth += 1 }
+        elseif ($x.t -ceq 'RPAREN') { $depth -= 1 }
+        elseif ($depth -eq 0 -and $x.t -ceq 'WORD' -and $x.v -ceq 'on') { $onAt = $k; break }
+        elseif ($depth -eq 0 -and $x.t -ceq 'WORD' -and $x.v -ceq $end) { $endAt = $k; break }
+    }
+    # GRANT <role> TO <role> (REVOKE ... FROM): a membership; without TO/FROM it is no privilege statement
+    if ($onAt -lt 0) { if ($endAt -ge 0) { $an.Acc.Unres('ROLE', "$op of a role membership can carry rights on the protected relations") }; return }
+    $k = $onAt + 1
+    if (PrgWordsAt $toks $k @('all', 'tables', 'in', 'schema')) { PrgAnList $an $toks $p ($k + 4) $op $false $false $true }
+    elseif (PrgWordAt $toks $k 'all') { return }
+    elseif (PrgWordAt $toks $k 'schema') { PrgAnList $an $toks $p ($k + 1) $op $false $false $true }
+    elseif (PrgWordAt $toks $k 'table') { PrgAnList $an $toks $p ($k + 1) $op }
+    elseif ((PrgIsT $toks $k 'WORD') -and $spec.PrivilegeOtherKinds -ccontains $toks[$k].v) { return }
+    else { PrgAnList $an $toks $p $k $op }
+}
+
+# U30F5 (D-4): IMPORT FOREIGN SCHEMA <remote> [LIMIT TO (t, ...)]: a write path to each LIMIT TO name, else to the whole remote schema
+function PrgAnImportForeignRemote($an, $toks, [int]$p) {
+    $remote = PrgParseNameAt $toks ($p + 3)
+    if ($null -eq $remote[0] -or $null -ne $remote[0].Schema) { $an.Acc.Unres('WRITE_PATH', 'IMPORT FOREIGN SCHEMA of a remote schema that is not static'); return }
+    $schema = $remote[0].Table
+    $rend = [int]$remote[1]
+    if ((PrgWordsAt $toks $rend @('limit', 'to')) -and (PrgIsT $toks ($rend + 2) 'LPAREN')) {
+        $close = PrgMatchParen $toks ($rend + 2)
+        foreach ($arg in (PrgSplitArgs (PrgSlice2 $toks ($rend + 3) $close))) {
+            $nm = PrgParseNameAt $arg 0
+            if ($null -ne $nm[0] -and $null -eq $nm[0].Schema -and [int]$nm[1] -eq $arg.Count) { PrgAnTarget $an 'WRITE_PATH' ([PrgName]::new($schema, $nm[0].Table)) }
+            else { $an.Acc.Unres('WRITE_PATH', 'IMPORT FOREIGN SCHEMA LIMIT TO a name that is not static') }
+        }
+        return
+    }
+    PrgAnTarget $an 'WRITE_PATH' ([PrgName]::new($null, $schema)) 'SCHEMA'
+}
+
+# U30F5 (D-4): a foreign table writes through to its remote relation (OPTIONS schema_name / table_name, each defaulting
+# to the foreign table's own schema and name); a value that is not a constant string is unresolved
+function PrgAnForeignTable($an, $rest, [PrgName]$local) {
+    $spec = Get-ProtectedClassificationSpec
+    $depth = 0
+    $serverAt = -1
+    for ($n = 0; $n -lt $rest.Count; $n++) {
+        $x = $rest[$n]
+        if ($x.t -ceq 'LPAREN') { $depth += 1 }
+        elseif ($x.t -ceq 'RPAREN') { $depth -= 1 }
+        elseif ($depth -eq 0 -and $x.t -ceq 'WORD' -and $x.v -ceq 'server') { $serverAt = $n; break }
+    }
+    $schema = $local.Schema
+    $table = $local.Table
+    $notStatic = $false
+    $optionsAt = -1
+    if ($serverAt -ge 0) { for ($n = $serverAt + 1; $n -lt $rest.Count; $n++) { if ($rest[$n].t -ceq 'WORD' -and $rest[$n].v -ceq 'options' -and (PrgIsT $rest ($n + 1) 'LPAREN')) { $optionsAt = $n; break } } }
+    if ($optionsAt -ge 0) {
+        $close = PrgMatchParen $rest ($optionsAt + 1)
+        foreach ($arg in (PrgSplitArgs (PrgSlice2 $rest ($optionsAt + 2) $close))) {
+            if ($arg.Count -eq 0) { continue }
+            $key = $arg[0]
+            if ($key.t -cne 'WORD' -or ($key.v -cne $spec.ForeignSchemaOption -and $key.v -cne $spec.ForeignTableOption)) { continue }
+            $value = if ($arg.Count -gt 1) { $arg[1] } else { $null }
+            if ($arg.Count -ne 2 -or $null -eq $value -or $value.t -cne 'STRING' -or (PrgContainsDynamic $value.v)) { $notStatic = $true; continue }
+            if ($key.v -ceq $spec.ForeignSchemaOption) { $schema = $value.v } else { $table = $value.v }
+        }
+    }
+    if ($notStatic) { $an.Acc.Unres('WRITE_PATH', 'a foreign table whose remote relation is not static') }
+    else { PrgAnTarget $an 'WRITE_PATH' ([PrgName]::new($schema, $table)) }
 }
 
 function PrgAnCreate($an, $toks, [int]$p) {
@@ -869,6 +989,7 @@ function PrgAnCreate($an, $toks, [int]$p) {
         $rest = PrgSlice2 $toks $r[1] $toks.Count
         # U30F3 M-1: a (non-materialized) view is a write path to every relation its query reads
         if ((@($kind) -join ' ') -ceq 'view') { PrgAnWritePath $an $rest (PrgAfterDefiningAs $rest) }
+        if ((@($kind) -join ' ') -ceq 'foreign table') { PrgAnForeignTable $an $rest $r[0] }
         $partitionOf = -1
         for ($n = 0; $n -lt $rest.Count; $n++) { if ($rest[$n].t -ceq 'WORD' -and $rest[$n].v -ceq 'partition' -and (PrgWordAt $rest ($n + 1) 'of')) { $partitionOf = $n; break } }
         if ($partitionOf -ge 0) {
@@ -891,6 +1012,13 @@ function PrgAnCreate($an, $toks, [int]$p) {
     }
     if ((PrgWordAt $toks $k 'constraint') -and (PrgWordAt $toks ($k + 1) 'trigger')) { $k += 1 }
     $obj = if (PrgIsT $toks $k 'WORD') { $toks[$k].v } else { $null }
+    # U30F5 (B8): CREATE ROLE/USER/GROUP with an option that carries rights or a membership (not CREATE USER MAPPING)
+    if ((($obj -ceq 'role') -or ($obj -ceq 'group') -or ($obj -ceq 'user' -and -not (PrgWordAt $toks ($k + 1) 'mapping'))) -and (PrgAtStatementStart $toks $p)) {
+        $hit = $false
+        for ($n = $k + 2; $n -lt $toks.Count; $n++) { if ($toks[$n].t -ceq 'WORD' -and $spec.RoleOptions -ccontains $toks[$n].v) { $hit = $true; break } }
+        if ($hit) { $an.Acc.Unres('ROLE', 'a role created with rights or a membership can lift the database-level protection') }
+        return
+    }
     if ('trigger', 'policy', 'rule' -ccontains $obj) {
         $anchor = if ($obj -ceq 'rule') { 'to' } else { 'on' }
         $at = PrgFindWord $toks ($k + 2) $anchor
@@ -1126,6 +1254,18 @@ function PrgReadVariable([string]$s, [int]$i) {
     return $null
 }
 
+# A cmd variable at the start of $s, as @(matched text, hint): %NAME%, and (U30F5 D-5) a FOR loop variable %%i / %%~nxi
+# and a batch argument %1 / %~dp0 / %* -- values the command line does not hold
+function PrgCmdVariable([string]$s) {
+    $m = [regex]::Match($s, '^%([A-Za-z_][A-Za-z0-9_]*)%')
+    if ($m.Success) { return , @($m.Value, $m.Groups[1].Value) }
+    $m = [regex]::Match($s, '^%%(?:~[A-Za-z]*)?([A-Za-z])')
+    if ($m.Success) { return , @($m.Value, $m.Groups[1].Value) }
+    $m = [regex]::Match($s, '^%(?:~[A-Za-z]*)?([0-9*])')
+    if ($m.Success) { $h = if ($m.Groups[1].Value -ceq '*') { '' } else { $m.Groups[1].Value }; return , @($m.Value, $h) }
+    return $null
+}
+
 function Split-ProtectedCommandLine([string]$Command) {
     $pipelines = [System.Collections.Generic.List[object]]::new()
     $st = @{ pipeline = [System.Collections.Generic.List[object]]::new(); argv = [System.Collections.Generic.List[string]]::new(); stdin = $null; stdinFile = $null
@@ -1166,8 +1306,8 @@ function Split-ProtectedCommandLine([string]$Command) {
                 if (($cj -ceq '\' -or $cj -ceq '`') -and ('"', '\', '`', '$' -ccontains $cj1)) { [void]$st.tok.Append($cj1); $j += 2; continue }
                 if ($cj -ceq '$') { $v = PrgReadVariable $s $j; if ($null -ne $v) { [void]$st.tok.Append($v[0]); $j = $v[1]; continue } }
                 if ($cj -ceq '%') {
-                    $m = [regex]::Match((PrgSlice $s $j $n), '^%([A-Za-z_][A-Za-z0-9_]*)%')
-                    if ($m.Success) { [void]$st.tok.Append((PrgDyn $m.Groups[1].Value)); $j += $m.Value.Length; continue }
+                    $m = PrgCmdVariable (PrgSlice $s $j $n)
+                    if ($null -ne $m) { [void]$st.tok.Append((PrgDyn $m[1])); $j += $m[0].Length; continue }
                 }
                 [void]$st.tok.Append($cj); $j += 1
             }
@@ -1229,8 +1369,8 @@ function Split-ProtectedCommandLine([string]$Command) {
         }
         if ($c -ceq '$') { $v = PrgReadVariable $s $i; if ($null -ne $v) { [void]$st.tok.Append($v[0]); $st.started = $true; $i = $v[1]; continue } }
         if ($c -ceq '%') {
-            $m = [regex]::Match((PrgSlice $s $i $n), '^%([A-Za-z_][A-Za-z0-9_]*)%')
-            if ($m.Success) { [void]$st.tok.Append((PrgDyn $m.Groups[1].Value)); $st.started = $true; $i += $m.Value.Length; continue }
+            $m = PrgCmdVariable (PrgSlice $s $i $n)
+            if ($null -ne $m) { [void]$st.tok.Append((PrgDyn $m[1])); $st.started = $true; $i += $m[0].Length; continue }
         }
         [void]$st.tok.Append($c); $st.started = $true; $i += 1
     }
@@ -1265,6 +1405,13 @@ function PrgToolOf([string]$a) {
         }
     }
     return $null
+}
+
+# A program's file name, lower-cased, without a tool suffix (.exe, .cmd, ...)
+function PrgProgramName([string]$a) {
+    $base = PrgToolBaseName $a
+    foreach ($suffix in (Get-ProtectedClassificationSpec).ToolSuffixes) { if ($base.EndsWith($suffix, [StringComparison]::Ordinal)) { $base = $base.Substring(0, $base.Length - $suffix.Length) } }
+    return $base
 }
 
 function PrgWrapper([string]$a) {
@@ -1429,6 +1576,9 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
     $spec = Get-ProtectedClassificationSpec
     $acc = [PrgAcc]::new()
     if ($depth -gt $spec.MaxNesting) { $acc.Unres('COMMAND', 'command nesting deeper than the classifier reads'); return $acc }
+    # U30F5 (D-5): a DB tool (or a shell command) run by xargs / parallel / find -exec takes arguments from the runner's input
+    $runnerAt = -1
+    for ($n = 0; $n -lt $argv.Count; $n++) { if ($spec.SubstitutingRunners -ccontains (PrgProgramName $argv[$n])) { $runnerAt = $n; break } }
     for ($k = 0; $k -lt $argv.Count; $k++) {
         $wrapper = PrgWrapper $argv[$k]
         if ($null -ne $wrapper) {
@@ -1436,14 +1586,18 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             for ($n = $k + 1; $n -lt $argv.Count; $n++) { if ($wrapper.Flags -ccontains (PrgLower $argv[$n])) { $at = $n; break } }
             if ($at -ge 0 -and $at + 1 -lt $argv.Count) {
                 $command = if ($wrapper.RestOfLine) { (@($argv[($at + 1)..($argv.Count - 1)] | ForEach-Object { PrgRequote $_ })) -join ' ' } else { $argv[$at + 1] }
-                return (PrgAnalyzeCommandAt $command $readSqlFile ($depth + 1))
+                $sub = PrgAnalyzeCommandAt $command $readSqlFile ($depth + 1)
+                if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $sub.Unres('COMMAND', "a shell command run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
+                return $sub
             }
             continue
         }
         $tool = PrgToolOf $argv[$k]
         if ($null -ne $tool) {
             $rest = if ($k + 1 -lt $argv.Count) { [string[]]$argv[($k + 1)..($argv.Count - 1)] } else { [string[]]@() }
-            return (PrgAnalyzeTool $tool $rest $ctx $readSqlFile $depth)
+            $res = PrgAnalyzeTool $tool $rest $ctx $readSqlFile $depth
+            if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $res.Unres('COMMAND', "$(PrgLower $tool) run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
+            return $res
         }
     }
     $flagSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)

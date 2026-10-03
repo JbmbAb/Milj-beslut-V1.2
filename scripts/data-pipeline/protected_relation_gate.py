@@ -91,6 +91,17 @@ def load_spec(path=CLASSIFICATION_FILE):
     for key2 in ('sql', 'ogr2ogr', 'commands', 'schema_operations', 'partition_suffix_pattern'):
         if key2 not in doc:
             raise RuntimeError(f'PROTECTED_RELATION_CLASSIFICATION_INVALID: {key2}')
+    # U30F5: the D-3/D-4/D-5/B8 vocabularies are required -- a missing list would read as "nothing to refuse"
+    for key2 in ('privilege_other_object_kinds', 'role_options_unresolvable'):
+        v = doc['sql'].get(key2)
+        if not isinstance(v, list) or not v or not all(isinstance(x, str) and x for x in v):
+            raise RuntimeError(f'PROTECTED_RELATION_CLASSIFICATION_INVALID: sql.{key2}')
+    remote = doc['sql'].get('foreign_table_remote_options')
+    if not isinstance(remote, dict) or not isinstance(remote.get('schema'), str) or not isinstance(remote.get('table'), str):
+        raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: sql.foreign_table_remote_options')
+    runners = doc['commands'].get('argument_substituting_runners')
+    if not isinstance(runners, list) or not runners or not all(isinstance(x, str) and x for x in runners):
+        raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners')
     doc['_lengths'] = lengths
     _SPEC_CACHE[key] = doc
     return doc
@@ -841,6 +852,10 @@ class _SqlAnalyzer:
                         self.target('IMPORT_FOREIGN_SCHEMA', name, 'SCHEMA')
                     else:
                         self.unres('IMPORT_FOREIGN_SCHEMA', 'IMPORT FOREIGN SCHEMA without a static local schema')
+                    self.import_foreign_remote(toks, p)
+            elif v in ('grant', 'revoke'):
+                if _at_statement_start(toks, p, self.spec):
+                    self.grant(toks, p, 'GRANT' if v == 'grant' else 'REVOKE')
             elif v == 'execute':
                 self.execute(toks, p, prev)
             elif v == 'into':
@@ -908,6 +923,9 @@ class _SqlAnalyzer:
             self.unres('UPDATE', f'UPDATE target is not a static relation name: {_describe_at(toks, p)}')
 
     def copy(self, toks, p):
+        # U30F5 (D-3): FROM PROGRAM / TO PROGRAM runs a shell command on the database server, whatever the table
+        if any(_t(x) == 'WORD' and _v(x) == 'program' and (_word_at(toks, n - 1, 'from') or _word_at(toks, n - 1, 'to')) for n, x in enumerate(toks) if n > p):
+            self.unres('COPY_PROGRAM', 'COPY ... PROGRAM runs a shell command on the database server')
         nx = _get(toks, p + 1)
         if nx is not None and _t(nx) == 'LPAREN':
             return
@@ -936,6 +954,12 @@ class _SqlAnalyzer:
                     self.unres('ALTER', f'ALTER target is not a static relation name: {_describe_at(toks, p)}')
                 return
             rest = toks[end:]
+            # U30F5 (D-4): OPTIONS, RENAME TO or SET SCHEMA of a foreign table can change the remote relation it writes
+            if len(kind) == 2 and kind[0] == 'foreign':
+                if any(_t(x) == 'WORD' and ((_v(x) == 'options' and _get(rest, n + 1) is not None and _t(rest[n + 1]) == 'LPAREN')
+                                            or (_v(x) == 'rename' and _word_at(rest, n + 1, 'to'))
+                                            or (_v(x) == 'set' and _word_at(rest, n + 1, 'schema'))) for n, x in enumerate(rest)):
+                    self.unres('WRITE_PATH', 'ALTER FOREIGN TABLE changes the remote relation it writes through to')
             rename_at = next((n for n, x in enumerate(rest) if _t(x) == 'WORD' and _v(x) == 'rename' and _word_at(rest, n + 1, 'to')), -1)
             if rename_at >= 0:
                 to = _parse_name_at(rest, rename_at + 2, self.spec)[0]
@@ -985,6 +1009,111 @@ class _SqlAnalyzer:
                     self.unres('RENAME_SCHEMA', 'RENAME TO a schema name that is not static')
             else:
                 self.target('ALTER_SCHEMA', name, 'SCHEMA')
+            return
+        # U30F5 (B8): ALTER DEFAULT PRIVILEGES [FOR ROLE r] [IN SCHEMA s, ...] -- without IN SCHEMA it applies to every schema
+        if _words_at(toks, p + 1, ['default', 'privileges']):
+            in_at = next((n for n in range(p + 3, len(toks)) if _t(toks[n]) == 'WORD' and _v(toks[n]) == 'in' and _word_at(toks, n + 1, 'schema')), -1)
+            if in_at >= 0:
+                self.lst(toks, p, in_at + 2, 'DEFAULT_PRIVILEGES', schema=True)
+            elif _at_statement_start(toks, p, self.spec):
+                self.unres('DEFAULT_PRIVILEGES', 'ALTER DEFAULT PRIVILEGES without IN SCHEMA applies to every schema')
+            return
+        # U30F5 (B8): ALTER ROLE / USER / GROUP (not USER MAPPING) can grant SUPERUSER, BYPASSRLS or a membership
+        if (_word_at(toks, p + 1, 'role') or _word_at(toks, p + 1, 'group') or (_word_at(toks, p + 1, 'user') and not _word_at(toks, p + 2, 'mapping'))) \
+                and _at_statement_start(toks, p, self.spec):
+            self.unres('ROLE', 'a role change can lift the database-level protection of the protected relations')
+
+    def grant(self, toks, p, op):
+        # U30F5 (B8): GRANT/REVOKE ... ON <relations> | ON ALL TABLES IN SCHEMA <s> | ON SCHEMA <s>; other object kinds name
+        # no relation; without ON it is a role membership
+        end = 'to' if op == 'GRANT' else 'from'
+        depth = 0
+        on_at = -1
+        end_at = -1
+        for k in range(p + 1, len(toks)):
+            x = toks[k]
+            if _t(x) == 'LPAREN':
+                depth += 1
+            elif _t(x) == 'RPAREN':
+                depth -= 1
+            elif depth == 0 and _t(x) == 'WORD' and _v(x) == 'on':
+                on_at = k
+                break
+            elif depth == 0 and _t(x) == 'WORD' and _v(x) == end:
+                end_at = k
+                break
+        if on_at < 0:
+            # GRANT <role> TO <role> (REVOKE ... FROM): a membership; without TO/FROM it is no privilege statement
+            if end_at >= 0:
+                self.unres('ROLE', f'{op} of a role membership can carry rights on the protected relations')
+            return
+        k = on_at + 1
+        if _words_at(toks, k, ['all', 'tables', 'in', 'schema']):
+            self.lst(toks, p, k + 4, op, schema=True)
+        elif _word_at(toks, k, 'all'):
+            return
+        elif _word_at(toks, k, 'schema'):
+            self.lst(toks, p, k + 1, op, schema=True)
+        elif _word_at(toks, k, 'table'):
+            self.lst(toks, p, k + 1, op)
+        elif _get(toks, k) is not None and _t(toks[k]) == 'WORD' and _v(toks[k]) in self.spec['sql']['privilege_other_object_kinds']:
+            return
+        else:
+            self.lst(toks, p, k, op)
+
+    def import_foreign_remote(self, toks, p):
+        # U30F5 (D-4): a write path to each LIMIT TO name of the remote schema, else to the whole remote schema
+        remote, rend = _parse_name_at(toks, p + 3, self.spec)
+        if remote is None or remote[0] is not None:
+            self.unres('WRITE_PATH', 'IMPORT FOREIGN SCHEMA of a remote schema that is not static')
+            return
+        schema = remote[1]
+        if _words_at(toks, rend, ['limit', 'to']) and _get(toks, rend + 2) is not None and _t(toks[rend + 2]) == 'LPAREN':
+            close = _match_paren(toks, rend + 2)
+            for arg in _split_args(toks[rend + 3:close]):
+                name, nend = _parse_name_at(arg, 0, self.spec)
+                if name is not None and name[0] is None and nend == len(arg):
+                    self.target('WRITE_PATH', (schema, name[1]))
+                else:
+                    self.unres('WRITE_PATH', 'IMPORT FOREIGN SCHEMA LIMIT TO a name that is not static')
+            return
+        self.target('WRITE_PATH', (None, schema), 'SCHEMA')
+
+    def foreign_table(self, rest, local):
+        # U30F5 (D-4): a foreign table writes through to its remote relation (OPTIONS schema_name / table_name, each
+        # defaulting to the foreign table's own schema and name); a value that is not a constant string is unresolved
+        names = self.spec['sql']['foreign_table_remote_options']
+        depth = 0
+        server_at = -1
+        for n, x in enumerate(rest):
+            if _t(x) == 'LPAREN':
+                depth += 1
+            elif _t(x) == 'RPAREN':
+                depth -= 1
+            elif depth == 0 and _t(x) == 'WORD' and _v(x) == 'server':
+                server_at = n
+                break
+        schema, table = local
+        not_static = False
+        options_at = -1 if server_at < 0 else next((n for n in range(server_at + 1, len(rest)) if _t(rest[n]) == 'WORD' and _v(rest[n]) == 'options'
+                                                     and _get(rest, n + 1) is not None and _t(rest[n + 1]) == 'LPAREN'), -1)
+        if options_at >= 0:
+            for arg in _split_args(rest[options_at + 2:_match_paren(rest, options_at + 1)]):
+                key = arg[0] if len(arg) > 0 else None
+                if key is None or _t(key) != 'WORD' or _v(key) not in (names['schema'], names['table']):
+                    continue
+                value = arg[1] if len(arg) > 1 else None
+                if len(arg) != 2 or value is None or _t(value) != 'STRING' or _contains_dynamic(self.spec, _v(value)):
+                    not_static = True
+                    continue
+                if _v(key) == names['schema']:
+                    schema = _v(value)
+                else:
+                    table = _v(value)
+        if not_static:
+            self.unres('WRITE_PATH', 'a foreign table whose remote relation is not static')
+        else:
+            self.target('WRITE_PATH', (schema, table))
 
     def create(self, toks, p):
         sql = self.spec['sql']
@@ -1010,6 +1139,8 @@ class _SqlAnalyzer:
             # U30F3 M-1: a (non-materialized) view is a write path to every relation its query reads
             if list(kind) == ['view']:
                 self.write_path(rest, _after_defining_as(rest))
+            if len(kind) == 2 and kind[0] == 'foreign':
+                self.foreign_table(rest, name)
             partition_of = next((n for n, x in enumerate(rest) if _t(x) == 'WORD' and _v(x) == 'partition' and _word_at(rest, n + 1, 'of')), -1)
             if partition_of >= 0:
                 parent = _parse_name_at(rest, partition_of + 2, self.spec)[0]
@@ -1033,6 +1164,11 @@ class _SqlAnalyzer:
         if _word_at(toks, k, 'constraint') and _word_at(toks, k + 1, 'trigger'):
             k += 1
         obj = _v(toks[k]) if _get(toks, k) is not None and _t(toks[k]) == 'WORD' else None
+        # U30F5 (B8): CREATE ROLE/USER/GROUP with an option that carries rights or a membership (not CREATE USER MAPPING)
+        if (obj in ('role', 'group') or (obj == 'user' and not _word_at(toks, k + 1, 'mapping'))) and _at_statement_start(toks, p, self.spec):
+            if any(_t(x) == 'WORD' and _v(x) in sql['role_options_unresolvable'] for n, x in enumerate(toks) if n > k + 1):
+                self.unres('ROLE', 'a role created with rights or a membership can lift the database-level protection')
+            return
         if obj in ('trigger', 'policy', 'rule'):
             anchor = 'to' if obj == 'rule' else 'on'
             at = next((n for n in range(k + 2, len(toks)) if _t(toks[n]) == 'WORD' and _v(toks[n]) == anchor), -1)
@@ -1301,6 +1437,21 @@ def analyze_ogr2ogr_args(args, spec=None):
 # Command lines (ProtectedWriteClassifier.ts splitCommandLine / analyzeCommand*)
 # ------------------------------------------------------------------------------------------------
 
+def _cmd_variable(s):
+    # A cmd variable at the start of s, as (matched text, hint): %NAME%, and (U30F5 D-5) a FOR loop variable
+    # %%i / %%~nxi and a batch argument %1 / %~dp0 / %* -- values the command line does not hold
+    m = re.match(r'%([A-Za-z_][A-Za-z0-9_]*)%', s)
+    if m:
+        return m.group(0), m.group(1)
+    m = re.match(r'%%(?:~[A-Za-z]*)?([A-Za-z])', s)
+    if m:
+        return m.group(0), m.group(1)
+    m = re.match(r'%(?:~[A-Za-z]*)?([0-9*])', s)
+    if m:
+        return m.group(0), '' if m.group(1) == '*' else m.group(1)
+    return None
+
+
 def split_command_line(command, spec=None):
     """[[{'argv': [...], 'stdin': str|None, 'stdin_file': str|None}]] (pipelines of segments)"""
     spec = spec or load_spec()
@@ -1382,10 +1533,10 @@ def split_command_line(command, spec=None):
                         j = v[1]
                         continue
                 if s[j] == '%':
-                    m = re.match(r'%([A-Za-z_][A-Za-z0-9_]*)%', s[j:])
+                    m = _cmd_variable(s[j:])
                     if m:
-                        st['tok'] += dyn(m.group(1))
-                        j += len(m.group(0))
+                        st['tok'] += dyn(m[1])
+                        j += len(m[0])
                         continue
                 st['tok'] += s[j]
                 j += 1
@@ -1490,11 +1641,11 @@ def split_command_line(command, spec=None):
                 i = v[1]
                 continue
         if c == '%':
-            m = re.match(r'%([A-Za-z_][A-Za-z0-9_]*)%', s[i:])
+            m = _cmd_variable(s[i:])
             if m:
-                st['tok'] += dyn(m.group(1))
+                st['tok'] += dyn(m[1])
                 st['started'] = True
-                i += len(m.group(0))
+                i += len(m[0])
                 continue
         st['tok'] += c
         st['started'] = True
@@ -1530,12 +1681,18 @@ def tool_of(arg, spec=None):
     return None
 
 
-def _shell_wrapper(arg, spec):
-    c = spec['commands']
+def _program_name(arg, spec):
+    # a program's file name, lower-cased, without a tool suffix (.exe, .cmd, ...)
     base = _tool_base_name(arg)
-    for suffix in c['tool_suffixes']:
+    for suffix in spec['commands']['tool_suffixes']:
         if base.endswith(suffix):
             base = base[:-len(suffix)]
+    return base
+
+
+def _shell_wrapper(arg, spec):
+    c = spec['commands']
+    base = _program_name(arg, spec)
     flags = c['shell_wrappers'].get(base)
     return (flags, base in c['shell_wrappers_rest_of_line']) if flags else None
 
@@ -1734,19 +1891,31 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
     targets, unresolved = [], []
     if depth > spec['sql']['max_nesting']:
         return [], [('COMMAND', 'command nesting deeper than the classifier reads')]
+    # U30F5 (D-5): a DB tool (or a shell command) run by xargs / parallel / find -exec takes arguments from the runner's input
+    runners = spec['commands']['argument_substituting_runners']
+    runner_at = next((n for n, a in enumerate(argv) if _program_name(a, spec) in runners), -1)
+
+    def substituted(k, what):
+        if 0 <= runner_at < k:
+            return [('COMMAND', f'{what} run by {_program_name(argv[runner_at], spec)} takes arguments from its input')]
+        return []
+
     for k in range(len(argv)):
         wrapper = _shell_wrapper(argv[k], spec)
         if wrapper:
             flags, rest_of_line = wrapper
             at = next((n for n in range(k + 1, len(argv)) if _ascii_lower(argv[n]) in flags), -1)
             if at >= 0 and at + 1 < len(argv):
+                pre = substituted(k, 'a shell command')
                 command = ' '.join(_requote(a) for a in argv[at + 1:]) if rest_of_line else argv[at + 1]
                 t, u = _analyze_command_at(command, read_sql_file, depth + 1, spec)
-                return t, u
+                return t, pre + u
             continue
         tool = tool_of(argv[k], spec)
         if tool:
-            return _analyze_tool(tool, argv[k + 1:], ctx, read_sql_file, depth, spec)
+            pre = substituted(k, tool.lower())
+            t, u = _analyze_tool(tool, argv[k + 1:], ctx, read_sql_file, depth, spec)
+            return t, pre + u
     flag_set = set(_ascii_lower(a.strip()) for a in argv)
     o = spec['ogr2ogr']
     if any(f in flag_set for f in o['layer_name_flags']) or any(f in flag_set for f in o['sql_flags']) or any(_is_pg_datasource(a, spec) for a in argv):

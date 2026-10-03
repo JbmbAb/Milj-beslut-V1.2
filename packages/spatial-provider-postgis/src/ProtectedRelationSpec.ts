@@ -58,6 +58,15 @@ export interface ProtectedRelationClassificationSpec {
     readonly dynamic_exec_functions: readonly string[];
     readonly psql_meta_copy: readonly string[];
     readonly psql_meta_unresolvable: readonly string[];
+    /** U30F5 (D-7): CASCADE in a statement with one of these verbs reaches dependent objects no name shows -- unless after these (ON DELETE CASCADE). */
+    readonly cascade_verbs: readonly string[];
+    readonly cascade_not_after: readonly string[];
+    /** U30F5 (B8): GRANT/REVOKE ON one of these object kinds names no relation (a sequence, a function, a database ...). */
+    readonly privilege_other_object_kinds: readonly string[];
+    /** U30F5 (B8): CREATE ROLE options that carry rights or a membership (SUPERUSER, BYPASSRLS, IN ROLE ...). */
+    readonly role_options_unresolvable: readonly string[];
+    /** U30F5 (D-4): the foreign-table OPTIONS that name its remote relation (default: the local schema and name). */
+    readonly foreign_table_remote_options: { readonly schema: string; readonly table: string };
   };
   readonly ogr2ogr: {
     readonly format_flags: readonly string[];
@@ -78,6 +87,8 @@ export interface ProtectedRelationClassificationSpec {
     readonly shell_wrappers: Readonly<Record<string, readonly string[]>>;
     /** Wrappers whose command is the rest of the line (cmd /c), not the one argument after the flag (sh -c). */
     readonly shell_wrappers_rest_of_line: readonly string[];
+    /** U30F5 (D-5): programs that run a DB tool with arguments taken from their input (xargs, parallel, find -exec). */
+    readonly argument_substituting_runners: readonly string[];
     readonly psql: { readonly command_flags: readonly string[]; readonly file_flags: readonly string[]; readonly value_flags: readonly string[] };
     readonly ogrinfo: { readonly sql_flags: readonly string[] };
     readonly pg_restore: {
@@ -137,12 +148,17 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   stringList(sql.dynamic_statement_after, "sql.dynamic_statement_after");
   stringList(sql.dynamic_statement_after_explain, "sql.dynamic_statement_after_explain");
   if (typeof sql.max_nesting !== "number" || sql.max_nesting < 1) throw invalid("sql.max_nesting");
+  // U30F5: the D-3/D-4/D-5/D-7/B8 vocabularies are required -- a missing list would read as "nothing to refuse"
+  for (const k of ["cascade_verbs", "cascade_not_after", "privilege_other_object_kinds", "role_options_unresolvable"]) stringList(sql[k], `sql.${k}`);
+  const remote = sql.foreign_table_remote_options as Record<string, unknown> | undefined;
+  if (!remote || typeof remote.schema !== "string" || typeof remote.table !== "string") throw invalid("sql.foreign_table_remote_options");
   const ogr = doc.ogr2ogr as Record<string, unknown> | undefined;
   if (!ogr) throw invalid("ogr2ogr");
   stringList(ogr.database_formats, "ogr2ogr.database_formats");
   stringList(ogr.layer_name_flags, "ogr2ogr.layer_name_flags");
   const commands = doc.commands as Record<string, unknown> | undefined;
   if (!commands || !commands.tools || typeof commands.tools !== "object") throw invalid("commands.tools");
+  stringList(commands.argument_substituting_runners, "commands.argument_substituting_runners");
   stringList(doc.schema_operations, "schema_operations");
   return Object.freeze({ ...(doc as object), relation_naming: Object.freeze({ current, legacy: Object.freeze(legacy), max_identifier_bytes: 63 }) }) as ProtectedRelationClassificationSpec;
 }

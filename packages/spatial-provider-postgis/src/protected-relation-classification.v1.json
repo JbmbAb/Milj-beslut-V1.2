@@ -19,7 +19,7 @@
     "trigger_words": [
       "truncate", "drop", "delete", "insert", "update", "merge", "copy", "alter", "create", "refresh", "reassign", "import",
       "execute", "into", "rename", "search_path", "set_config", "dropgeometrytable", "dropgeometrycolumn", "updategeometrysrid",
-      "addgeometrycolumn", "populate_geometry_columns", "dblink_exec", "dblink", "dblink_send_query", "gexec"
+      "addgeometrycolumn", "populate_geometry_columns", "dblink_exec", "dblink", "dblink_send_query", "gexec", "grant", "revoke"
     ],
     "max_nesting": 4,
     "reserved_at_name_position": [
@@ -46,7 +46,12 @@
     },
     "dynamic_exec_functions": ["dblink_exec", "dblink", "dblink_send_query"],
     "psql_meta_copy": ["copy"],
-    "psql_meta_unresolvable": ["i", "ir", "include", "include_relative", "gexec", "!", "o", "out"]
+    "psql_meta_unresolvable": ["i", "ir", "include", "include_relative", "gexec", "!", "o", "out"],
+    "cascade_verbs": ["drop", "truncate", "alter"],
+    "cascade_not_after": ["delete", "update"],
+    "privilege_other_object_kinds": ["sequence", "database", "domain", "foreign", "function", "procedure", "routine", "language", "large", "parameter", "tablespace", "type"],
+    "role_options_unresolvable": ["superuser", "createrole", "replication", "bypassrls", "in", "role", "admin", "user", "group"],
+    "foreign_table_remote_options": { "schema": "schema_name", "table": "table_name" }
   },
   "ogr2ogr": {
     "format_flags": ["-f", "-of"],
@@ -98,6 +103,7 @@
       "pwsh": ["-command", "-c"]
     },
     "shell_wrappers_rest_of_line": ["cmd"],
+    "argument_substituting_runners": ["xargs", "parallel", "find"],
     "psql": {
       "command_flags": ["-c", "--command"],
       "file_flags": ["-f", "--file"],

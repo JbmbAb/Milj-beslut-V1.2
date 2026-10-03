@@ -55,6 +55,15 @@ export type WriteOperation =
   | "REASSIGN_OWNED"
   /** U30F3 M-1: a view (or an ON SELECT rule) over the relation -- INSERT/UPDATE/DELETE through it write the relation. */
   | "WRITE_PATH"
+  /** U30F5 (D-3): COPY ... FROM/TO PROGRAM runs a shell command on the database server. */
+  | "COPY_PROGRAM"
+  /** U30F5 (D-7): DROP/TRUNCATE/ALTER ... CASCADE reaches dependent objects no name shows. */
+  | "CASCADE"
+  /** U30F5 (B8): privileges and roles -- a GRANT lifts the database-level protection. */
+  | "GRANT"
+  | "REVOKE"
+  | "DEFAULT_PRIVILEGES"
+  | "ROLE"
   | "DYNAMIC_SQL"
   | "PSQL_STDIN"
   | "PSQL_FILE"
@@ -82,6 +91,12 @@ export interface WriteAnalysis {
 export interface ClassifierOptions {
   /** psql -f / prisma db execute --file: the SQL the file holds, or null when it cannot be read. */
   readonly readSqlFile?: (path: string) => string | null;
+  /**
+   * U30F5 (D-7): the text is on a path that does NOT go through the gate (the inventory's static sites): a CASCADE is
+   * then unresolved -- it reaches dependent objects no name shows. Through the gate (the default) the named targets are
+   * judged, and what a CASCADE reaches is the database-level protection's (B4).
+   */
+  readonly ungated?: boolean;
 }
 
 function emptyAnalysis(): { targets: WriteTarget[]; unresolved: UnresolvedWrite[] } {
@@ -414,6 +429,8 @@ export function tokenizeSql(s: string): Tokenized {
 interface SqlState {
   /** null: the session default (unknown, judged by the unqualified-name rule); "UNKNOWN": set dynamically. */
   searchPath: readonly string[] | "UNKNOWN" | null;
+  /** U30F5 (D-7): an ungated path -- CASCADE is unresolved. */
+  readonly ungated: boolean;
 }
 
 function containsTriggerWord(text: string): boolean {
@@ -685,8 +702,21 @@ class SqlAnalyzer {
             const r = into < 0 ? { name: null } : parseNameAt(toks, into + 1);
             if (r.name && r.name.schema === null) this.target("IMPORT_FOREIGN_SCHEMA", r.name, "SCHEMA");
             else this.unresolved("IMPORT_FOREIGN_SCHEMA", "IMPORT FOREIGN SCHEMA without a static local schema");
+            this.importForeignRemote(toks, p);
           }
           break;
+        case "grant":
+        case "revoke":
+          if (atStatementStart(toks, p)) this.grant(toks, p, t.v === "grant" ? "GRANT" : "REVOKE");
+          break;
+        case "cascade": {
+          // U30F5 (D-7): on an ungated path; not ON DELETE/UPDATE CASCADE (a foreign key's action); in a DROP/TRUNCATE/ALTER statement
+          if (!this.state.ungated || (prev !== null && sql.cascade_not_after.includes(prev))) break;
+          if (toks.some((x, k) => k < p && x.t === "WORD" && sql.cascade_verbs.includes(x.v) && atStatementStart(toks, k))) {
+            this.unresolved("CASCADE", "CASCADE reaches dependent objects no name shows (foreign-key children, views over the target)");
+          }
+          break;
+        }
         case "execute":
           this.execute(toks, p, prev);
           break;
@@ -759,6 +789,10 @@ class SqlAnalyzer {
   }
 
   private copy(toks: readonly Tok[], p: number): void {
+    // U30F5 (D-3): FROM PROGRAM / TO PROGRAM runs a shell command on the database server, whatever the table
+    if (toks.some((x, n) => n > p && x.t === "WORD" && x.v === "program" && (wordAt(toks, n - 1, "from") || wordAt(toks, n - 1, "to")))) {
+      this.unresolved("COPY_PROGRAM", "COPY ... PROGRAM runs a shell command on the database server");
+    }
     if (toks[p + 1]?.t === "LPAREN") return; // COPY (query) TO
     const r = parseNameAt(toks, p + 1);
     let k = r.end;
@@ -785,6 +819,13 @@ class SqlAnalyzer {
         return;
       }
       const rest = toks.slice(r.end);
+      // U30F5 (D-4): OPTIONS, RENAME TO or SET SCHEMA of a foreign table can change the remote relation it writes
+      if (kind.length === 2 && kind[0] === "foreign") {
+        const changesRemote = rest.some(
+          (x, n) => x.t === "WORD" && ((x.v === "options" && rest[n + 1]?.t === "LPAREN") || (x.v === "rename" && wordAt(rest, n + 1, "to")) || (x.v === "set" && wordAt(rest, n + 1, "schema"))),
+        );
+        if (changesRemote) this.unresolved("WRITE_PATH", "ALTER FOREIGN TABLE changes the remote relation it writes through to");
+      }
       const renameAt = rest.findIndex((x, n) => x.t === "WORD" && x.v === "rename" && wordAt(rest, n + 1, "to"));
       if (renameAt >= 0) {
         const to = parseNameAt(rest, renameAt + 2);
@@ -827,7 +868,115 @@ class SqlAnalyzer {
         if (to.name && to.name.schema === null) this.target("RENAME_SCHEMA", to.name, "SCHEMA");
         else this.unresolved("RENAME_SCHEMA", "RENAME TO a schema name that is not static");
       } else this.target("ALTER_SCHEMA", r.name, "SCHEMA");
+      return;
     }
+    // U30F5 (B8): ALTER DEFAULT PRIVILEGES [FOR ROLE r] [IN SCHEMA s, ...] -- without IN SCHEMA it applies to every schema
+    if (wordsAt(toks, p + 1, ["default", "privileges"])) {
+      const inAt = toks.findIndex((x, n) => n > p + 2 && x.t === "WORD" && x.v === "in" && wordAt(toks, n + 1, "schema"));
+      if (inAt >= 0) this.list(toks, p, inAt + 2, "DEFAULT_PRIVILEGES", { schema: true });
+      else if (atStatementStart(toks, p)) this.unresolved("DEFAULT_PRIVILEGES", "ALTER DEFAULT PRIVILEGES without IN SCHEMA applies to every schema");
+      return;
+    }
+    // U30F5 (B8): ALTER ROLE / USER / GROUP (not USER MAPPING) can grant SUPERUSER, BYPASSRLS or a membership
+    if ((wordAt(toks, p + 1, "role") || wordAt(toks, p + 1, "group") || (wordAt(toks, p + 1, "user") && !wordAt(toks, p + 2, "mapping"))) && atStatementStart(toks, p)) {
+      this.unresolved("ROLE", "a role change can lift the database-level protection of the protected relations");
+    }
+  }
+
+  /**
+   * U30F5 (B8): GRANT/REVOKE ... ON <relations> | ON ALL TABLES IN SCHEMA <s> | ON SCHEMA <s> names what it opens;
+   * other object kinds (a sequence, a function, a database ...) name no relation; without ON it is a role membership.
+   */
+  private grant(toks: readonly Tok[], p: number, op: "GRANT" | "REVOKE"): void {
+    const end = op === "GRANT" ? "to" : "from";
+    let depth = 0;
+    let onAt = -1;
+    let endAt = -1;
+    for (let k = p + 1; k < toks.length; k += 1) {
+      const x = toks[k]!;
+      if (x.t === "LPAREN") depth += 1;
+      else if (x.t === "RPAREN") depth -= 1;
+      else if (depth === 0 && x.t === "WORD" && x.v === "on") {
+        onAt = k;
+        break;
+      } else if (depth === 0 && x.t === "WORD" && x.v === end) {
+        endAt = k;
+        break;
+      }
+    }
+    if (onAt < 0) {
+      // GRANT <role> TO <role> (REVOKE ... FROM): a membership; without TO/FROM it is no privilege statement
+      if (endAt >= 0) this.unresolved("ROLE", `${op} of a role membership can carry rights on the protected relations`);
+      return;
+    }
+    const k = onAt + 1;
+    if (wordsAt(toks, k, ["all", "tables", "in", "schema"])) this.list(toks, p, k + 4, op, { schema: true });
+    else if (wordAt(toks, k, "all")) return; // ALL SEQUENCES / FUNCTIONS / PROCEDURES / ROUTINES IN SCHEMA
+    else if (wordAt(toks, k, "schema")) this.list(toks, p, k + 1, op, { schema: true });
+    else if (wordAt(toks, k, "table")) this.list(toks, p, k + 1, op);
+    else if (toks[k]?.t === "WORD" && this.spec.sql.privilege_other_object_kinds.includes(toks[k]!.v)) return;
+    else this.list(toks, p, k, op);
+  }
+
+  /**
+   * U30F5 (D-4): IMPORT FOREIGN SCHEMA <remote> [LIMIT TO (t, ...)] makes a foreign table for each remote relation:
+   * a write path to each LIMIT TO name, else to the whole remote schema.
+   */
+  private importForeignRemote(toks: readonly Tok[], p: number): void {
+    const remote = parseNameAt(toks, p + 3);
+    if (!remote.name || remote.name.schema !== null) {
+      this.unresolved("WRITE_PATH", "IMPORT FOREIGN SCHEMA of a remote schema that is not static");
+      return;
+    }
+    const schema = remote.name.table;
+    if (wordsAt(toks, remote.end, ["limit", "to"]) && toks[remote.end + 2]?.t === "LPAREN") {
+      const close = matchParen(toks, remote.end + 2);
+      for (const arg of splitArgs(toks.slice(remote.end + 3, close))) {
+        const n = parseNameAt(arg, 0);
+        if (n.name && n.name.schema === null && n.end === arg.length) this.target("WRITE_PATH", { schema, table: n.name.table });
+        else this.unresolved("WRITE_PATH", "IMPORT FOREIGN SCHEMA LIMIT TO a name that is not static");
+      }
+      return;
+    }
+    this.target("WRITE_PATH", { schema: null, table: schema }, "SCHEMA");
+  }
+
+  /**
+   * U30F5 (D-4): a foreign table writes through to its remote relation -- OPTIONS (schema_name '...', table_name
+   * '...'), each defaulting to the foreign table's own schema and name. A value that is not a constant string is unresolved.
+   */
+  private foreignTable(rest: readonly Tok[], local: RelationName): void {
+    const names = this.spec.sql.foreign_table_remote_options;
+    let depth = 0;
+    let serverAt = -1;
+    for (let n = 0; n < rest.length; n += 1) {
+      const x = rest[n]!;
+      if (x.t === "LPAREN") depth += 1;
+      else if (x.t === "RPAREN") depth -= 1;
+      else if (depth === 0 && x.t === "WORD" && x.v === "server") {
+        serverAt = n;
+        break;
+      }
+    }
+    let schema = local.schema;
+    let table = local.table;
+    let notStatic = false;
+    const optionsAt = serverAt < 0 ? -1 : rest.findIndex((x, n) => n > serverAt && x.t === "WORD" && x.v === "options" && rest[n + 1]?.t === "LPAREN");
+    if (optionsAt >= 0) {
+      for (const arg of splitArgs(rest.slice(optionsAt + 2, matchParen(rest, optionsAt + 1)))) {
+        const key = arg[0];
+        if (key?.t !== "WORD" || (key.v !== names.schema && key.v !== names.table)) continue;
+        const value = arg[1];
+        if (arg.length !== 2 || value?.t !== "STRING" || containsDynamic(value.v)) {
+          notStatic = true;
+          continue;
+        }
+        if (key.v === names.schema) schema = value.v;
+        else table = value.v;
+      }
+    }
+    if (notStatic) this.unresolved("WRITE_PATH", "a foreign table whose remote relation is not static");
+    else this.target("WRITE_PATH", { schema, table });
   }
 
   private create(toks: readonly Tok[], p: number): void {
@@ -852,6 +1001,7 @@ class SqlAnalyzer {
       const rest = toks.slice(r.end);
       // U30F3 M-1: a (non-materialized) view is a write path to every relation its query reads
       if (kind.length === 1 && kind[0] === "view") this.writePath(rest, afterDefiningAs(rest));
+      if (kind.length === 2 && kind[0] === "foreign") this.foreignTable(rest, r.name);
       const partitionOf = rest.findIndex((x, n) => x.t === "WORD" && x.v === "partition" && wordAt(rest, n + 1, "of"));
       if (partitionOf >= 0) {
         const parent = parseNameAt(rest, partitionOf + 2);
@@ -876,6 +1026,13 @@ class SqlAnalyzer {
     }
     if (wordAt(toks, k, "constraint") && wordAt(toks, k + 1, "trigger")) k += 1;
     const objectWord = toks[k]?.t === "WORD" ? toks[k]!.v : null;
+    // U30F5 (B8): CREATE ROLE/USER/GROUP with an option that carries rights or a membership (not CREATE USER MAPPING)
+    if ((objectWord === "role" || objectWord === "group" || (objectWord === "user" && !wordAt(toks, k + 1, "mapping"))) && atStatementStart(toks, p)) {
+      if (toks.some((x, n) => n > k + 1 && x.t === "WORD" && sql.role_options_unresolvable.includes(x.v))) {
+        this.unresolved("ROLE", "a role created with rights or a membership can lift the database-level protection");
+      }
+      return;
+    }
     if (objectWord === "trigger" || objectWord === "policy" || objectWord === "rule") {
       const anchor = objectWord === "rule" ? "to" : "on";
       const at = toks.findIndex((x, n) => n > k + 1 && x.t === "WORD" && x.v === anchor);
@@ -1040,7 +1197,7 @@ function splitArgs(toks: readonly Tok[]): Tok[][] {
   return args;
 }
 
-function analyzeSqlAt(sql: string, depth: number): WriteAnalysis & { searchPathChanged: boolean } {
+function analyzeSqlAt(sql: string, depth: number, ungated: boolean): WriteAnalysis & { searchPathChanged: boolean } {
   const out = emptyAnalysis();
   const { tokens, error } = tokenizeSql(sql);
   if (error) {
@@ -1054,11 +1211,11 @@ function analyzeSqlAt(sql: string, depth: number): WriteAnalysis & { searchPathC
       out.unresolved.push({ operation: "DYNAMIC_SQL", reason: "SQL nested in literals deeper than the classifier reads" });
       continue;
     }
-    const nested = analyzeSqlAt(text, depth + 1);
+    const nested = analyzeSqlAt(text, depth + 1, ungated);
     merge(out, nested);
     if (nested.searchPathChanged) nestedChangedPath = true;
   }
-  const state: SqlState = { searchPath: nestedChangedPath ? "UNKNOWN" : null };
+  const state: SqlState = { searchPath: nestedChangedPath ? "UNKNOWN" : null, ungated };
   const analyzer = new SqlAnalyzer(state);
   let changed = nestedChangedPath;
   for (const statement of splitStatements(tokens)) {
@@ -1070,9 +1227,9 @@ function analyzeSqlAt(sql: string, depth: number): WriteAnalysis & { searchPathC
   return { ...out, searchPathChanged: changed };
 }
 
-/** Every relation (or schema) a SQL text writes, and every write whose target is not static. */
-export function analyzeSql(sql: string): WriteAnalysis {
-  const r = analyzeSqlAt(sql, 0);
+/** Every relation (or schema) a SQL text writes, and every write whose target is not static (U30F5: `ungated` -- D-7). */
+export function analyzeSql(sql: string, options: Pick<ClassifierOptions, "ungated"> = {}): WriteAnalysis {
+  const r = analyzeSqlAt(sql, 0, options.ungated === true);
   return { targets: r.targets, unresolved: r.unresolved };
 }
 
@@ -1116,7 +1273,7 @@ function optionValues(text: string, keys: readonly string[]): string[] {
   return out;
 }
 
-export function analyzeOgr2ogrArgs(args: readonly string[]): Ogr2ogrAnalysis {
+export function analyzeOgr2ogrArgs(args: readonly string[], options: Pick<ClassifierOptions, "ungated"> = {}): Ogr2ogrAnalysis {
   const spec = classificationSpec().ogr2ogr;
   const out = emptyAnalysis();
   const lower = args.map((a) => asciiLower(a.trim()));
@@ -1133,7 +1290,7 @@ export function analyzeOgr2ogrArgs(args: readonly string[]): Ogr2ogrAnalysis {
 
   for (const sqlText of flagValues(args, spec.sql_flags, true).values) {
     if (sqlText.trim().startsWith("@")) out.unresolved.push({ operation: "DYNAMIC_SQL", reason: "ogr2ogr -sql @file runs SQL the arguments do not contain" });
-    else merge(out, analyzeSql(sqlText));
+    else merge(out, analyzeSql(sqlText, options));
   }
 
   const pgSources = args.filter(isPgDatasource);
@@ -1178,6 +1335,20 @@ export function analyzeOgr2ogrArgs(args: readonly string[]): Ogr2ogrAnalysis {
 // =============================================================================================
 // Command lines
 // =============================================================================================
+
+/**
+ * A cmd variable at the start of `s`, as [matched text, hint]: `%NAME%`, and (U30F5 D-5) a FOR loop variable
+ * `%%i` / `%%~nxi` and a batch argument `%1` / `%~dp0` / `%*` -- all values the command line does not hold.
+ */
+function cmdVariable(s: string): [string, string] | null {
+  const named = /^%([A-Za-z_][A-Za-z0-9_]*)%/.exec(s);
+  if (named) return [named[0], named[1]!];
+  const loop = /^%%(?:~[A-Za-z]*)?([A-Za-z])/.exec(s);
+  if (loop) return [loop[0], loop[1]!];
+  const arg = /^%(?:~[A-Za-z]*)?([0-9*])/.exec(s);
+  if (arg) return [arg[0], arg[1] === "*" ? "" : arg[1]!];
+  return null;
+}
 
 export interface CommandSegment {
   readonly argv: string[];
@@ -1281,9 +1452,9 @@ export function splitCommandLine(command: string): CommandSegment[][] {
           }
         }
         if (s[j] === "%") {
-          const m = /^%([A-Za-z_][A-Za-z0-9_]*)%/.exec(s.slice(j));
+          const m = cmdVariable(s.slice(j));
           if (m) {
-            tok += dyn(m[1]!);
+            tok += dyn(m[1]);
             j += m[0].length;
             continue;
           }
@@ -1409,9 +1580,9 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       }
     }
     if (c === "%") {
-      const m = /^%([A-Za-z_][A-Za-z0-9_]*)%/.exec(s.slice(i));
+      const m = cmdVariable(s.slice(i));
       if (m) {
-        tok += dyn(m[1]!);
+        tok += dyn(m[1]);
         started = true;
         i += m[0].length;
         continue;
@@ -1463,10 +1634,16 @@ export function toolOf(arg: string): string | null {
   return null;
 }
 
+/** A program's file name, lower-cased, without a tool suffix (.exe, .cmd, ...). */
+function programName(arg: string): string {
+  let base = toolBaseName(arg);
+  for (const suffix of classificationSpec().commands.tool_suffixes) if (base.endsWith(suffix)) base = base.slice(0, -suffix.length);
+  return base;
+}
+
 function shellWrapper(arg: string): { flags: readonly string[]; restOfLine: boolean } | null {
   const spec = classificationSpec().commands;
-  let base = toolBaseName(arg);
-  for (const suffix of spec.tool_suffixes) if (base.endsWith(suffix)) base = base.slice(0, -suffix.length);
+  const base = programName(arg);
   const flags = ownEntry(spec.shell_wrappers, base);
   return flags ? { flags, restOfLine: spec.shell_wrappers_rest_of_line.includes(base) } : null;
 }
@@ -1494,7 +1671,7 @@ function readFileOrUnresolved(out: { targets: WriteTarget[]; unresolved: Unresol
     out.unresolved.push({ operation: "PSQL_FILE", reason: `SQL file ${path} is not available to the classifier` });
     return;
   }
-  merge(out, depth > classificationSpec().sql.max_nesting ? { targets: [], unresolved: [{ operation: "PARSE", reason: "nesting" }] } : analyzeSql(text));
+  merge(out, depth > classificationSpec().sql.max_nesting ? { targets: [], unresolved: [{ operation: "PARSE", reason: "nesting" }] } : analyzeSql(text, options));
 }
 
 function pgObjectTargets(out: { targets: WriteTarget[]; unresolved: UnresolvedWrite[] }, rest: readonly string[], what: string): void {
@@ -1544,11 +1721,11 @@ function analyzeTool(tool: string, rest: readonly string[], ctx: SegmentContext,
   const out = emptyAnalysis();
   switch (tool) {
     case "OGR2OGR":
-      return analyzeOgr2ogrArgs(rest);
+      return analyzeOgr2ogrArgs(rest, options);
     case "OGRINFO":
       for (const v of flagValues(rest, spec.ogrinfo.sql_flags, true).values) {
         if (v.trim().startsWith("@")) out.unresolved.push({ operation: "DYNAMIC_SQL", reason: "ogrinfo -sql @file" });
-        else merge(out, analyzeSql(v));
+        else merge(out, analyzeSql(v, options));
       }
       return out;
     case "PSQL": {
@@ -1557,12 +1734,12 @@ function analyzeTool(tool: string, rest: readonly string[], ctx: SegmentContext,
         const a = rest[i]!;
         if (spec.psql.command_flags.includes(a)) {
           hasSql = true;
-          if (i + 1 < rest.length) merge(out, analyzeSql(rest[i + 1]!));
+          if (i + 1 < rest.length) merge(out, analyzeSql(rest[i + 1]!, options));
           else out.unresolved.push({ operation: "PSQL_STDIN", reason: "psql -c without a command" });
           i += 1;
         } else if (a.startsWith("--command=")) {
           hasSql = true;
-          merge(out, analyzeSql(a.slice("--command=".length)));
+          merge(out, analyzeSql(a.slice("--command=".length), options));
         } else if (spec.psql.file_flags.includes(a)) {
           hasSql = true;
           if (i + 1 < rest.length) readFileOrUnresolved(out, rest[i + 1]!, options, depth);
@@ -1574,7 +1751,7 @@ function analyzeTool(tool: string, rest: readonly string[], ctx: SegmentContext,
         } else if (spec.psql.value_flags.includes(a)) i += 1;
       }
       if (!hasSql) {
-        if (ctx.stdin !== null) merge(out, analyzeSql(ctx.stdin));
+        if (ctx.stdin !== null) merge(out, analyzeSql(ctx.stdin, options));
         else if (ctx.stdinFile !== null) readFileOrUnresolved(out, ctx.stdinFile, options, depth);
         else if (ctx.pipedFromTool === null || !GENERATORS.has(ctx.pipedFromTool)) {
           out.unresolved.push({ operation: "PSQL_STDIN", reason: "psql reads SQL from stdin that the command line does not contain" });
@@ -1653,11 +1830,18 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
     out.unresolved.push({ operation: "COMMAND", reason: "command nesting deeper than the classifier reads" });
     return out;
   }
+  // U30F5 (D-5): a DB tool (or a shell) run by xargs / parallel / find -exec takes arguments from the runner's input
+  const runners = classificationSpec().commands.argument_substituting_runners;
+  const runnerAt = argv.findIndex((a) => runners.includes(programName(a)));
+  const substituted = (k: number, what: string) => {
+    if (runnerAt >= 0 && runnerAt < k) out.unresolved.push({ operation: "COMMAND", reason: `${what} run by ${programName(argv[runnerAt]!)} takes arguments from its input` });
+  };
   for (let k = 0; k < argv.length; k += 1) {
     const wrapper = shellWrapper(argv[k]!);
     if (wrapper) {
       const at = argv.findIndex((a, n) => n > k && wrapper.flags.includes(asciiLower(a)));
       if (at >= 0 && at + 1 < argv.length) {
+        substituted(k, "a shell command");
         const command = wrapper.restOfLine ? argv.slice(at + 1).map(requote).join(" ") : argv[at + 1]!;
         merge(out, analyzeCommandAt(command, options, depth + 1));
         return out;
@@ -1666,6 +1850,7 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
     }
     const tool = toolOf(argv[k]!);
     if (tool) {
+      substituted(k, tool.toLowerCase());
       merge(out, analyzeTool(tool, argv.slice(k + 1), ctx, options, depth));
       return out;
     }
@@ -1674,7 +1859,7 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
   const flagSet = new Set(argv.map((a) => asciiLower(a.trim())));
   const ogrSpec = classificationSpec().ogr2ogr;
   if (ogrSpec.layer_name_flags.some((f) => flagSet.has(f)) || ogrSpec.sql_flags.some((f) => flagSet.has(f)) || argv.some(isPgDatasource)) {
-    merge(out, analyzeOgr2ogrArgs(argv.slice(1)));
+    merge(out, analyzeOgr2ogrArgs(argv.slice(1), options));
     return out;
   }
   // Arguments that are themselves command lines (a wrapper this table does not know).
