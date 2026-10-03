@@ -1,4 +1,5 @@
 import { loadEnvFile } from './loadEnv';
+import { assertProdComposeAcknowledgement } from './modules/runtime-env/prodComposeAcknowledgement';
 import { isRuntimeEnvironmentAuthoritative } from './modules/runtime-env/runtimeDatabaseUrl';
 import { installTestDatabaseConnectionGuard } from './modules/test-db-guard/installTestDatabaseConnectionGuard';
 import { installTestDataRootWriteGuard } from './modules/test-db-guard/installTestDataRootWriteGuard';
@@ -19,6 +20,11 @@ if (testRuntime) {
   // server, however it was started; no env file can bring one back (loadEnv skips data-root keys in tests).
   removeTestRemoteStoreEnv(process.env);
 }
+
+// W-U402 (U40-2 point 5, owner Round 20 alt. C): a process started by docker-compose.prod.yml carries its mandatory
+// acknowledgement; any value but the exact one refuses here -- the app's first import -- before an env file is read and
+// before anything that can reach a database is evaluated. Absent: not started by that file, nothing to check.
+assertProdComposeAcknowledgement(process.env);
 
 // W-U402 (U40-2): decided once, on the environment the process was STARTED with, before any env file is read.
 const runtimeEnvironmentAuthoritative = isRuntimeEnvironmentAuthoritative(process.env);
