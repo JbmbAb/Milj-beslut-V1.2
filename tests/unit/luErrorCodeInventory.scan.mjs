@@ -113,8 +113,28 @@ const CORE_LITERAL = /['"`]([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)['"`]/g;
 const CORE_KEY = /^\s*([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\s*:/gm;
 /** W-UI1 (C6): a single upper-case word as a value (field value, comparison, argument, element, alternative). */
 const CORE_WORD = /(?:\b\w+\??\s*:\s*|[!=]==?\s*|\(\s*|,\s*|\[\s*|\?\s*|\|\s*)['"]([A-Z][A-Z0-9]{2,})['"]/g;
-/** W-UI1 (C5): a code-shaped template literal -- upper-case/underscore text around one or more `${...}`. */
-const CODE_TEMPLATE = /`([A-Z][A-Z0-9_]*\$\{[^}`]+\}[A-Z0-9_]*(?:\$\{[^}`]+\}[A-Z0-9_]*)*)`/g;
+/**
+ * W-UI1 (C5): a code-shaped template literal -- upper-case/underscore text around one or more `${...}`, also one that
+ * STARTS with an interpolation (`${kind}_READ_ERROR`); it must hold an upper-case word joined by an underscore.
+ */
+const CODE_TEMPLATE = /`((?:[A-Z][A-Z0-9_]*)?\$\{[^}`]+\}[A-Z0-9_]*(?:\$\{[^}`]+\}[A-Z0-9_]*)*)`/g;
+/** Code-shaped LITERAL text of a template (read with every `${...}` emptied, so a constant's name inside one is no code). */
+const CODE_SHAPED_PART = /[A-Z0-9]_[A-Z]|[A-Z]_\$\{|\}_[A-Z]/;
+/** W-UI1: a code built by concatenation ('ASSESSMENT_' + kind, kind + '_READ_ERROR') -- reviewed like a template. */
+const CODE_CONCAT = /(?:['"]([A-Z][A-Z0-9]*_[A-Z0-9_]*)['"]\s*\+\s*[A-Za-z_$][\w$.]*|[A-Za-z_$][\w$.()]*\s*\+\s*['"](_[A-Z][A-Z0-9_]*)['"])/g;
+
+/**
+ * W-UI1 (C5): the code-shaped templates and concatenations of one source text, as the inventory reviews them.
+ * KNOWN LIMIT: a template whose code-shaped part lives only in a constant (`${PREFIX}${x}`) is not seen.
+ */
+export function codeTemplatesIn(source) {
+  const found = [];
+  for (const m of source.matchAll(CODE_TEMPLATE)) {
+    if (CODE_SHAPED_PART.test(m[1].replace(/\$\{[^}`]+\}/g, '${}'))) found.push(m[1]);
+  }
+  for (const m of source.matchAll(CODE_CONCAT)) found.push(m[0].replace(/\s+/g, ' '));
+  return found;
+}
 
 function resolveFile(base) {
   const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`];
@@ -221,7 +241,7 @@ export function scanServerTokens(root) {
       for (const m of source.matchAll(CARRIER_IDENT)) {
         for (const value of constantsFor(rel, m[2])) add(value, rel, `field-const:${m[1]}`);
       }
-      for (const m of source.matchAll(CODE_TEMPLATE)) templates.push({ file: rel, template: m[1] });
+      for (const template of codeTemplatesIn(source)) templates.push({ file: rel, template });
     }
   }
   return { tokens, files: [...files].sort(), templates };

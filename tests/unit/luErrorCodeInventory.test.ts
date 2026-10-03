@@ -82,7 +82,7 @@ import {
   LU_REVIEWED_TEMPLATES,
   type LuFallbackGroup,
 } from './luErrorCodeInventory.reviewed';
-import { LU_ENTRY_MODULES, LU_MIDDLEWARE_MODULES, LU_SHELL_MODULES, luReachClosure, scanServerTokens } from './luErrorCodeInventory.scan.mjs';
+import { LU_ENTRY_MODULES, LU_MIDDLEWARE_MODULES, LU_SHELL_MODULES, codeTemplatesIn, luReachClosure, scanServerTokens } from './luErrorCodeInventory.scan.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -392,9 +392,31 @@ describe('W-M2e item 2: exhaustive inventory of server error codes against the L
     for (const t of LU_REVIEWED_TEMPLATES) {
       expect(t.expansions.length, key(t)).toBeGreaterThan(0);
       expect(t.note.trim().length, key(t)).toBeGreaterThan(20);
-      const pattern = new RegExp(`^${t.template.replace(/\$\{[^}]+\}/g, '[A-Z0-9_]+')}$`);
+      // A template's `${...}` parts, or a concatenation's variable side, stand for [A-Z0-9_]+.
+      const concat = /^['"]([A-Z0-9_]+)['"] \+ .+$|^.+ \+ ['"]([A-Z0-9_]+)['"]$/.exec(t.template);
+      const pattern = concat
+        ? new RegExp(concat[1] !== undefined ? `^${concat[1]}[A-Z0-9_]+$` : `^[A-Z0-9_]+${concat[2]}$`)
+        : new RegExp(`^${t.template.replace(/\$\{[^}]+\}/g, '[A-Z0-9_]+')}$`);
       for (const token of t.expansions) expect(token, key(t)).toMatch(pattern);
     }
+  });
+
+  it('W-UI1 (C5): the template net sees a code built after an interpolation or by concatenation, and no constant name inside ${...}', () => {
+    const sources = [
+      'const a = `LOCALIZATION_GEOMETRY_${failureClass}`;',
+      'const b = `${kind}_READ_ERROR`;',
+      "const c = 'ASSESSMENT_' + kind;",
+      "const d = kind + '_UNRESOLVED';",
+      'const e = `${CHECKS_UNAVAILABLE_SV}${storedClause}`;',
+      'const f = `${ARTIFACT_NOT_FOUND}${artifactId}`;',
+      'const g = `Felkod ${code}`;',
+    ];
+    expect(sources.flatMap((s) => codeTemplatesIn(s))).toEqual([
+      'LOCALIZATION_GEOMETRY_${failureClass}',
+      '${kind}_READ_ERROR',
+      "'ASSESSMENT_' + kind",
+      "kind + '_UNRESOLVED'",
+    ]);
   });
 
   it('the reviewed list has no stale entry and no entry for a code that has its own text', () => {

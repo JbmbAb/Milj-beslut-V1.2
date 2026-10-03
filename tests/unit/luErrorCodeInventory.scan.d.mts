@@ -9,3 +9,4 @@ export declare function scanServerTokens(root: string): {
   readonly templates: readonly { readonly file: string; readonly template: string }[];
 };
 export declare function luReachClosure(root: string): Set<string>;
+export declare function codeTemplatesIn(source: string): string[];
