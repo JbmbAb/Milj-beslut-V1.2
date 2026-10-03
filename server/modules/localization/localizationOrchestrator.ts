@@ -1422,10 +1422,8 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
   // typed, retryable answer as a context read that failed. (The read-back keeps its 200 with the root marked as a
   // technical error: it shows nothing from the unread root, and its level and count rest only on verified content.)
   if (isPropertyRootReadError(summary.propertyRoot)) {
-    return {
-      ...pdfContextFailure(new LuReadFaultError('assessment-property-root', readFaultOfClass('READ_ERROR'), null), 'Bedömningens fastighetsrot'),
-      reasonCode: 'ROOT_READ_ERROR',
-    };
+    const rootFault = new LuReadFaultError('assessment-property-root', readFaultOfClass('READ_ERROR'), null);
+    return pdfContextFailure(rootFault, 'Bedömningens fastighetsrot', 'ROOT_READ_ERROR');
   }
 
   // W-U20CDF5 (B5; OD-R2 class, CATCH2-REPORT section 11 item 5): the property and project context give the PDF
@@ -1609,7 +1607,7 @@ async function readPdfContext(
 /** W-U20CDF5-R2 (L4): the cause of readPdfContext's own refusal -- the record names no well-formed context ref. */
 const PDF_CONTEXT_REF_MALFORMED_SV = 'bedömningen saknar en giltig referens till den';
 
-function pdfContextFailure(fault: LuReadFaultError, subjectSv: string): PdfContextUnresolved {
+function pdfContextFailure(fault: LuReadFaultError, subjectSv: string, reasonCode?: string): PdfContextUnresolved {
   const causesSv = fault.refusalCode === 'MALFORMED_RECORD_ENTRY' ? PDF_CONTEXT_REF_MALFORMED_SV : undefined;
   return {
     ok: false,
@@ -1617,7 +1615,7 @@ function pdfContextFailure(fault: LuReadFaultError, subjectSv: string): PdfConte
     error: `${readFaultSentenceSv(fault, subjectSv, causesSv)} Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.`,
     code: ASSESSMENT_PDF_CONTEXT_UNRESOLVED,
     failureClass: fault.faultClass,
-    reasonCode: fault.refusalCode ?? fault.faultClass,
+    reasonCode: reasonCode ?? fault.refusalCode ?? fault.faultClass,
     retryable: fault.retryable,
   };
 }
