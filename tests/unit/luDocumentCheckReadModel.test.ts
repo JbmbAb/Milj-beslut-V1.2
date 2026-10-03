@@ -8,6 +8,12 @@
  *
  * v1: NOT_CHECKED with a machine-readable reason, or CHECKED_HIT when DOCUMENT_EVIDENCE plus a
  * VERIFIED_DOCUMENT_FACT are pinned. Never CHECKED_NO_HIT, never a risk level.
+ * W-U20CDF6 (OWNER DECISION OD-K0-3, 2026-10-03): CHECKED_HIT means that LU-DOC-BESLUT-001 ACTUALLY fired -- a
+ * finding of the rule in the same record that cites the pinned DOCUMENT_EVIDENCE and VERIFIED_DOCUMENT_FACT. Both
+ * reference types pinned means only that the control basis exists: without a finding of the rule the row is
+ * CHECKED_NO_HIT ("kontrollerat – ingen träff i det dokumentunderlag som är knutet till bedömningen", limited
+ * coverage, never "inga tidigare beslut"). Without pinned inputs it stays NOT_CHECKED (never a no-hit); unreadable
+ * pinned documents stay a technical error (never a no-hit). Still never a risk level.
  *
  * Hermetic: server/db/prisma is the throwing guard; every index is in memory; CAS is in memory.
  * Setup mirrors tests/unit/exportCurrentLuAssessmentPdf.test.ts.
@@ -346,7 +352,7 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     expect(readBack).toMatchObject(DOCUMENT_NOT_CHECKED);
     expect(readBack!.message_sv).toMatch(/^Dokument och tidigare beslut: inte kontrollerat\./);
     // Same function, same pinned refs: the read-back IS the fresh-run object for this assessment.
-    expect(readBack).toEqual(computeGovernedDocumentCheck(assessment.payload.evidence_refs));
+    expect(readBack).toEqual(computeGovernedDocumentCheck(assessment.payload.evidence_refs, { findings: assessment.payload.findings }));
 
     const pdf = await exportCurrentLuAssessmentPdf(s.deps());
     expect(pdf.ok).toBe(true);
@@ -366,7 +372,9 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     expect(JSON.stringify(data.dokumentkontroll)).not.toMatch(/CHECKED_NO_HIT|ingen träff|LOW/);
   });
 
-  it('DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT pinned and readable from CAS -> CHECKED_HIT in read-back and PDF', async () => {
+  // W-U20CDF6 (OD-K0-3): this case asserted CHECKED_HIT ("kontrollerat – träff") with NO finding of LU-DOC-BESLUT-001 --
+  // the mere presence of its inputs. The rule did not fire: the row is CHECKED_NO_HIT (only the pinned documents).
+  it('DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT pinned and readable, LU-DOC-BESLUT-001 did NOT fire (no finding) -> CHECKED_NO_HIT in read-back, row and PDF; never "träff", never "inga tidigare beslut"', async () => {
     const s = await setup();
     await s.repository.put({ artifact_id: 'doc-evidence-k0', body: readableDocumentEvidence('doc-evidence-k0') });
     await s.repository.put({ artifact_id: 'verified-fact-k0', body: readableVerifiedFact('verified-fact-k0') });
@@ -378,15 +386,81 @@ describe('K0b: document check in read-back and PDF (derived from the pinned evid
     const summary = await resolveCurrentLuAssessmentSummary(s.deps());
     expect(summary.ok, JSON.stringify(summary)).toBe(true);
     const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
-    expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
+    expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_NO_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
+    expect(readBack!.message_sv).toBe(
+      'Dokument och tidigare beslut: kontrollerat – ingen träff i det dokumentunderlag som är knutet till bedömningen. ' +
+        'Regeln om tidigare lokaliseringsbegränsande beslut slog inte till för det. Övriga dokument för fastigheten är inte ' +
+        'kontrollerade, och att ingen träff visas betyder inte att det saknas tidigare beslut.',
+    );
+    expect(String(readBack!.message_sv)).not.toMatch(/kontrollerat – träff|inga tidigare beslut|inga avvikelser|inga risker/i);
     const details = (summary as unknown as { evidenceDetails: Array<Record<string, unknown>> }).evidenceDetails;
     expect(details.find((d) => d.evidence_artifact_id === 'doc-evidence-k0')).toMatchObject({ resolution: 'RESOLVED', integrity: 'STRUCTURAL_ONLY' });
     expect(details.find((d) => d.evidence_artifact_id === 'verified-fact-k0')).toMatchObject({ resolution: 'RESOLVED', integrity: 'CONTENT_HASH_VERIFIED' });
+    const checks = (summary as unknown as { governedLayerChecks: Array<Record<string, unknown>> }).governedLayerChecks;
+    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_NO_HIT', coverage_state: 'CHECKED_NO_HIT' });
+
+    await exportCurrentLuAssessmentPdf(s.deps());
+    expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({
+      status: 'CHECKED_NO_HIT', tillstand: 'CHECKED_NO_HIT', orsak: null, underlag_artifact_id: 'doc-evidence-k0', beskrivning: readBack!.message_sv,
+    });
+  });
+
+  it('W-U20CDF6 (OD-K0-3): the rule FIRED -- a MEDIUM LU-DOC-BESLUT-001 finding citing the pinned evidence and fact -> CHECKED_HIT in read-back, row and PDF, bound to the cited evidence', async () => {
+    const s = await setup();
+    await s.repository.put({ artifact_id: 'doc-evidence-k0', body: readableDocumentEvidence('doc-evidence-k0') });
+    await s.repository.put({ artifact_id: 'verified-fact-k0', body: readableVerifiedFact('verified-fact-k0') });
+    const fired: AssessmentFinding = {
+      finding_id: 'finding-doc-beslut-doc-evidence-k0', rule_id: 'LU-DOC-BESLUT-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'x',
+      evidence_refs: [
+        { artifact_id: 'doc-evidence-k0', artifact_type: 'DOCUMENT_EVIDENCE' },
+        { artifact_id: 'verified-fact-k0', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+      ],
+    };
+    await s.persistCurrentAssessment([
+      ...SPATIAL_REFS,
+      { artifact_id: 'doc-evidence-k0', artifact_type: 'DOCUMENT_EVIDENCE' },
+      { artifact_id: 'verified-fact-k0', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+    ], [fired]);
+    const summary = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(summary.ok, JSON.stringify(summary)).toBe(true);
+    const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
+    expect(readBack).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', reason: null, evidence_artifact_id: 'doc-evidence-k0' });
+    expect(readBack!.message_sv).toMatch(/^Dokument och tidigare beslut: kontrollerat – träff\. Regeln om tidigare lokaliseringsbegränsande beslut slog till/);
+    expect(readBack!.message_sv).toContain('Övriga dokument för fastigheten är inte kontrollerade.');
     const checks = (summary as unknown as { governedLayerChecks: Array<Record<string, unknown>> }).governedLayerChecks;
     expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', coverage_state: 'CHECKED_HIT' });
 
     await exportCurrentLuAssessmentPdf(s.deps());
     expect((capturedPdfData as PdfData).dokumentkontroll).toMatchObject({ status: 'CHECKED_HIT', orsak: null, underlag_artifact_id: 'doc-evidence-k0' });
+  });
+
+  it('W-U20CDF6 (OD-K0-3): a rule finding that cites a document evidence the record does NOT pin -> never a hit and never a no-hit (NOT_CHECKED, FINDING_WITHOUT_CONSISTENT_EVIDENCE, ofullständigt underlag); the finding is still named', async () => {
+    const s = await setup();
+    await s.repository.put({ artifact_id: 'doc-evidence-k0', body: readableDocumentEvidence('doc-evidence-k0') });
+    await s.repository.put({ artifact_id: 'verified-fact-k0', body: readableVerifiedFact('verified-fact-k0') });
+    const elsewhere: AssessmentFinding = {
+      finding_id: 'finding-doc-beslut-other', rule_id: 'LU-DOC-BESLUT-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'x',
+      evidence_refs: [
+        { artifact_id: 'doc-evidence-not-pinned', artifact_type: 'DOCUMENT_EVIDENCE' },
+        { artifact_id: 'verified-fact-k0', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+      ],
+    };
+    await s.persistCurrentAssessment([
+      ...SPATIAL_REFS,
+      { artifact_id: 'doc-evidence-k0', artifact_type: 'DOCUMENT_EVIDENCE' },
+      { artifact_id: 'verified-fact-k0', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+    ], [elsewhere]);
+    const summary = await resolveCurrentLuAssessmentSummary(s.deps());
+    expect(summary.ok, JSON.stringify(summary)).toBe(true);
+    const readBack = (summary as unknown as { documentCheck?: Record<string, unknown> }).documentCheck;
+    expect(readBack).toMatchObject({ layer: 'document', status: 'NOT_CHECKED', reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE', evidence_artifact_id: 'doc-evidence-k0' });
+    expect(String(readBack!.message_sv)).toMatch(/^Dokument och tidigare beslut: ofullständigt underlag\./);
+    const checks = (summary as unknown as { governedLayerChecks: Array<Record<string, unknown>> }).governedLayerChecks;
+    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'NOT_CHECKED', coverage_state: 'INCOMPLETE_EVIDENCE' });
+    const statement = (summary as unknown as { overallStatement: { coverage: unknown; statement_sv: string } }).overallStatement;
+    expect(statement.coverage).toBeNull();
+    expect(statement.statement_sv).toContain('risknivå måttlig – Dokument och tidigare beslut');
+    expect(statement.statement_sv).not.toMatch(/\b\d+ av \d+ kontroller/);
   });
 
   // U20CDF (U20CD verification F3; owner decision OD-R2; DIRECTIVE-72H section 11). This case used
@@ -481,7 +555,7 @@ describe('K0b: HTTP GET /api/localization/:projectId/current-assessment (real ro
     ]);
     expect(res.body.assessmentArtifactId).toBe(assessment.artifact_id);
     expect(res.body.documentCheck).toMatchObject(DOCUMENT_NOT_CHECKED);
-    expect(res.body.documentCheck).toEqual(computeGovernedDocumentCheck(assessment.payload.evidence_refs));
+    expect(res.body.documentCheck).toEqual(computeGovernedDocumentCheck(assessment.payload.evidence_refs, { findings: assessment.payload.findings }));
   });
 });
 
@@ -489,13 +563,19 @@ describe('K0b: computeGovernedDocumentCheck (pure)', () => {
   const DE = (id: string) => ({ artifact_id: id, artifact_type: 'DOCUMENT_EVIDENCE' });
   const VF = (id: string) => ({ artifact_id: id, artifact_type: 'VERIFIED_DOCUMENT_FACT' });
   const SE = (id: string) => ({ artifact_id: id, artifact_type: 'SPATIAL_EVIDENCE' });
+  /** W-U20CDF6: a finding of LU-DOC-BESLUT-001 as LURuleEngine writes it -- the evidence, then the matching facts. */
+  const FIRED = (evidenceId: string, factId: string) => ({
+    finding_id: `finding-doc-beslut-${evidenceId}`, rule_id: 'LU-DOC-BESLUT-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'x',
+    evidence_refs: [DE(evidenceId), VF(factId)],
+  });
 
   it.each<[string, unknown, string, string | null, string | null]>([
     ['no refs', [], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
     ['spatial only', [SE('s1')], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
     ['verified fact without document evidence', [VF('f1')], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
     ['document evidence without verified fact', [SE('s1'), DE('d1')], 'NOT_CHECKED', 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED', 'd1'],
-    ['document evidence + verified fact', [DE('d2'), VF('f1'), DE('d1')], 'CHECKED_HIT', null, 'd1'],
+    // W-U20CDF6 (OD-K0-3): was CHECKED_HIT -- the inputs pinned, but no finding: the rule did not fire.
+    ['document evidence + verified fact, no finding of the rule', [DE('d2'), VF('f1'), DE('d1')], 'CHECKED_NO_HIT', null, 'd1'],
     ['refs not an array', undefined, 'NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null],
     ['refs an object', { artifact_type: 'DOCUMENT_EVIDENCE' }, 'NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null],
     // U20CDF (K0-FIX-1 c): malformed entries are still never counted, but the reason now says so
@@ -506,34 +586,78 @@ describe('K0b: computeGovernedDocumentCheck (pure)', () => {
     ['an entry without a type is malformed', [{ artifact_id: 'x' }], 'NOT_CHECKED', 'MALFORMED_DOCUMENT_REFS', null],
     ['a malformed non-document ref is not a document problem', [{ artifact_id: '', artifact_type: 'SPATIAL_EVIDENCE' }], 'NOT_CHECKED', 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null],
   ])('%s', (_label, refs, status, reason, evidenceId) => {
-    const check = computeGovernedDocumentCheck(refs);
+    const check = computeGovernedDocumentCheck(refs, { findings: [] });
     expect(check).toMatchObject({ layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status, reason, evidence_artifact_id: evidenceId });
     expect(check.message_sv).toMatch(/^Dokument och tidigare beslut: /);
   });
 
   it('U20CDF: a pinned document artifact that could not be read is PINNED_EVIDENCE_UNREADABLE, never a hit; other unreadable refs do not matter', () => {
     const refs = [SE('s1'), DE('d1'), VF('f1')];
-    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['f1'] })).toMatchObject({
+    expect(computeGovernedDocumentCheck(refs, { findings: [], unreadableArtifactIds: ['f1'] })).toMatchObject({
       status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', evidence_artifact_id: 'f1',
     });
-    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['f1', 'd1'] })).toMatchObject({
+    expect(computeGovernedDocumentCheck(refs, { findings: [], unreadableArtifactIds: ['f1', 'd1'] })).toMatchObject({
       status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', evidence_artifact_id: 'd1',
     });
-    expect(computeGovernedDocumentCheck([SE('s1'), DE('d1')], { unreadableArtifactIds: ['d1'] })).toMatchObject({
+    expect(computeGovernedDocumentCheck([SE('s1'), DE('d1')], { findings: [], unreadableArtifactIds: ['d1'] })).toMatchObject({
       status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE',
     });
     // An unreadable SPATIAL ref is the spatial row's business; the document check is unchanged.
-    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['s1'] })).toEqual(computeGovernedDocumentCheck(refs));
-    expect(computeGovernedDocumentCheck(refs, { unreadableArtifactIds: [] })).toMatchObject({ status: 'CHECKED_HIT' });
+    expect(computeGovernedDocumentCheck(refs, { findings: [], unreadableArtifactIds: ['s1'] })).toEqual(computeGovernedDocumentCheck(refs, { findings: [] }));
+    // W-U20CDF6 (OD-K0-3): readable inputs and no finding of the rule -> no hit (was CHECKED_HIT).
+    expect(computeGovernedDocumentCheck(refs, { findings: [], unreadableArtifactIds: [] })).toMatchObject({ status: 'CHECKED_NO_HIT' });
+    // A rule finding never turns an unreadable pinned document into a hit or a no-hit: the technical error comes first.
+    expect(computeGovernedDocumentCheck(refs, { findings: [FIRED('d1', 'f1')], unreadableArtifactIds: ['d1'] })).toMatchObject({
+      status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE',
+    });
   });
 
-  it('never CHECKED_NO_HIT and never a "no hit" text, for any combination of pinned ref types', () => {
-    const pool = [SE('s1'), DE('d1'), VF('f1'), { artifact_id: 'x', artifact_type: 'OTHER' }];
+  // W-U20CDF6 (OD-K0-3): replaces "never CHECKED_NO_HIT ... for any combination of pinned ref types" (K0's v1 rule,
+  // when the presence of DE + VF alone was the hit). Over every combination of pinned ref types and of the rule's
+  // findings: CHECKED_HIT exactly when a HIGH/MEDIUM/LOW finding of the rule cites a pinned DE and a pinned VF (and no
+  // NOT_CHECKED finding of the rule stands beside it); CHECKED_NO_HIT exactly when DE + VF are pinned, nothing is
+  // malformed and the rule has no finding at all; otherwise NOT_CHECKED. A "no hit" text only on CHECKED_NO_HIT.
+  it('CHECKED_HIT exactly when the rule fired on the pinned documents, CHECKED_NO_HIT exactly when its pinned inputs are there and it did not fire -- over every combination of refs and rule findings', () => {
+    const pool = [SE('s1'), DE('d1'), VF('f1'), { artifact_id: 'x', artifact_type: 'OTHER' }, { artifact_id: 'd9', artifact_type: 'document_evidence' }];
+    const findingSets: ReadonlyArray<readonly [string, readonly unknown[]]> = [
+      ['none', []],
+      ['fired on d1+f1', [FIRED('d1', 'f1')]],
+      ['fired on an unpinned evidence', [FIRED('d-other', 'f1')]],
+      ['fired, cites no fact', [{ ...FIRED('d1', 'f1'), evidence_refs: [DE('d1')] }]],
+      ['NOT_CHECKED of the rule', [{ ...FIRED('d1', 'f1'), risk_level: 'NOT_CHECKED' }]],
+      ['fired + NOT_CHECKED beside it', [FIRED('d1', 'f1'), { ...FIRED('d1', 'f1'), finding_id: 'nc', risk_level: 'NOT_CHECKED' }]],
+      ['unknown severity of the rule', [{ ...FIRED('d1', 'f1'), risk_level: 'CRITICAL' }]],
+      ['a finding of another rule only', [{ ...FIRED('d1', 'f1'), rule_id: 'LU-WATER-001' }]],
+    ];
     for (let mask = 0; mask < 1 << pool.length; mask += 1) {
       const refs = pool.filter((_, i) => mask & (1 << i));
-      const check = computeGovernedDocumentCheck(refs);
-      expect(['NOT_CHECKED', 'CHECKED_HIT']).toContain(check.status);
-      expect(check.message_sv).not.toMatch(/ingen träff|inga avvikelser/i);
+      const inputsPinned = refs.some((r) => r.artifact_type === 'DOCUMENT_EVIDENCE') && refs.some((r) => r.artifact_type === 'VERIFIED_DOCUMENT_FACT');
+      const malformed = refs.some((r) => r.artifact_type === 'document_evidence');
+      for (const [label, findings] of findingSets) {
+        const check = computeGovernedDocumentCheck(refs, { findings });
+        const rule = findings.filter((f) => (f as { rule_id?: string }).rule_id === 'LU-DOC-BESLUT-001') as Array<{ risk_level: string; evidence_refs: Array<{ artifact_id: string }> }>;
+        const fired =
+          inputsPinned &&
+          rule.some((f) => ['HIGH', 'MEDIUM', 'LOW'].includes(f.risk_level) && f.evidence_refs.some((r) => r.artifact_id === 'd1') && f.evidence_refs.some((r) => r.artifact_id === 'f1')) &&
+          !rule.some((f) => f.risk_level === 'NOT_CHECKED');
+        const noHit = inputsPinned && !malformed && rule.length === 0;
+        const at = `${label} / ${refs.map((r) => r.artifact_type).join(',')}`;
+        expect(check.status, at).toBe(fired ? 'CHECKED_HIT' : noHit ? 'CHECKED_NO_HIT' : 'NOT_CHECKED');
+        if (check.status === 'CHECKED_HIT') expect(check.evidence_artifact_id, at).toBe('d1');
+        if (check.status !== 'CHECKED_NO_HIT') expect(check.message_sv, at).not.toMatch(/ingen träff/i);
+        expect(check.message_sv, at).not.toMatch(/inga tidigare beslut|inga avvikelser|inga risker|oförorenad/i);
+      }
+    }
+  });
+
+  it('W-U20CDF6 (OD-K0-3): of two pinned document evidences the hit names the one the rule fired on (K0 verification finding 2: it used to name the smallest id)', () => {
+    const check = computeGovernedDocumentCheck([DE('d-a'), DE('d-b'), VF('f1')], { findings: [FIRED('d-b', 'f1')] });
+    expect(check).toMatchObject({ status: 'CHECKED_HIT', evidence_artifact_id: 'd-b' });
+  });
+
+  it('W-U20CDF6 (OD-K0-3): a findings field that is not a list cannot say whether the rule fired -> NOT_CHECKED (MALFORMED_RECORD_ENTRY), never a no-hit', () => {
+    for (const findings of [undefined, null, 'x', { 0: FIRED('d1', 'f1') }]) {
+      expect(computeGovernedDocumentCheck([DE('d1'), VF('f1')], { findings })).toMatchObject({ status: 'NOT_CHECKED', reason: 'MALFORMED_RECORD_ENTRY' });
     }
   });
 });

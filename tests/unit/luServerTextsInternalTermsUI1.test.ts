@@ -40,7 +40,8 @@ describe('W-UI1 C: the server\'s user texts carry no internal terms -- the machi
       { artifact_id: 'doc-evidence-1', artifact_type: 'DOCUMENT_EVIDENCE' },
       { artifact_id: 'doc-fact-1', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
     ];
-    const check = computeGovernedDocumentCheck(refs, { unreadableArtifactIds: ['doc-evidence-1', 'doc-fact-1'] });
+    // W-U20CDF6 (OD-K0-3): the document check now also reads the record's findings (required); none here.
+    const check = computeGovernedDocumentCheck(refs, { findings: [], unreadableArtifactIds: ['doc-evidence-1', 'doc-fact-1'] });
     expect(check.reason).toBe('PINNED_EVIDENCE_UNREADABLE');
     expect(check.message_sv).toMatch(/^Dokument och tidigare beslut: tekniskt fel\./);
     expect(check.message_sv).toContain('kunde inte läsas ur arkivet');

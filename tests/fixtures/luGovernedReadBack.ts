@@ -80,8 +80,17 @@ export interface ReadBackOptions {
   readonly id: string;
   /** Per layer; a layer not named is a checked no-hit. */
   readonly layers?: Partial<Record<LuLayer, LayerSpec>>;
-  /** 'none' (default): no document evidence pinned; 'pinned': DE + VF pinned (CHECKED_HIT). */
+  /**
+   * 'none' (default): no document evidence pinned; 'pinned': DE + VF pinned. W-U20CDF6 (owner decision OD-K0-3): the
+   * pinned inputs alone are the control basis, not a hit -- the server's row is CHECKED_NO_HIT unless `documentRule` is
+   * 'fired' (it was CHECKED_HIT for 'pinned' alone).
+   */
   readonly documents?: 'none' | 'pinned' | 'unreadable';
+  /**
+   * W-U20CDF6 (OD-K0-3): 'fired' adds the finding LU-DOC-BESLUT-001 writes when it fires on the pinned documents (MEDIUM,
+   * citing doc-evidence-1 and doc-fact-1) -- the server's row is then CHECKED_HIT. Only with documents 'pinned'.
+   */
+  readonly documentRule?: 'fired';
   /** The governed machine risk level (default: the highest stored finding level, else LOW). */
   readonly riskLevel?: string;
   /** The assessment's own bound point (default: VERIFIED at loc-geom-1). */
@@ -164,6 +173,19 @@ export function governedReadBack(options: ReadBackOptions) {
     if (options.documents === 'unreadable') {
       unreadable.push('doc-evidence-1', 'doc-fact-1');
       anyNotFound = true;
+    }
+    if (options.documents === 'pinned' && options.documentRule === 'fired') {
+      findings.push({
+        finding_id: 'finding-doc-beslut-doc-evidence-1',
+        rule_id: 'LU-DOC-BESLUT-001',
+        rule_version: '1.0',
+        risk_level: 'MEDIUM',
+        explanation: 'engine text document',
+        evidence_refs: [
+          { artifact_id: 'doc-evidence-1', artifact_type: 'DOCUMENT_EVIDENCE' },
+          { artifact_id: 'doc-fact-1', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+        ],
+      });
     }
   }
 
@@ -262,7 +284,8 @@ export function governedReadBack(options: ReadBackOptions) {
     systemSummary: 's',
     localizationGeometry:
       options.localizationGeometry === undefined ? boundPoint('loc-geom-1', [17.74, 59.87]) : options.localizationGeometry,
-    documentCheck: computeGovernedDocumentCheck(refs, { unreadableArtifactIds: unreadable }),
+    // W-U20CDF6 (OD-K0-3): the server reads whether the rule fired from the same record's findings.
+    documentCheck: computeGovernedDocumentCheck(refs, { findings, unreadableArtifactIds: unreadable }),
     governedLayerChecks,
     evidenceDetails,
     propertyRoot: {

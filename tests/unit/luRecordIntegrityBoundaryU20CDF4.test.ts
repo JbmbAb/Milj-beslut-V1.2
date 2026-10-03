@@ -291,7 +291,9 @@ describe('U20CDF4 (U20CDF3 verification L6.1): a NOT_CHECKED finding of the docu
   it('the verifier probe E1 (all layers negative, DE + VF pinned, a NOT_CHECKED document finding) -> RECORD_INTEGRITY_ERROR, never "6 av 6"', () => {
     const findings = [ncDocument] as never[];
     const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings, pinnedEvidenceRefs: [...NEGATIVES.map(ref), DE_REF, VF_REF] });
-    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_HIT' });
+    // W-U20CDF6 (OD-K0-3): the row was CHECKED_HIT (derived from the pinned inputs alone). A NOT_CHECKED finding of the
+    // rule says it did not run -- never a hit and never a no-hit: NOT_CHECKED with the spatial row's reason.
+    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'NOT_CHECKED', reason: 'NOT_CHECKED_FINDING_WITH_EVIDENCE', coverage_state: 'TECHNICAL_ERROR' });
     const statement = governedOverallStatement('LOW', checks, { findings });
     expect(statement.coverage_state).toBe('RECORD_INTEGRITY_ERROR');
     expect(statement.coverage_basis).toEqual(['NOT_CHECKED_FINDING_WITH_EVIDENCE:document']);
@@ -306,6 +308,84 @@ describe('U20CDF4 (U20CDF3 verification L6.1): a NOT_CHECKED finding of the docu
     const statement = governedOverallStatement('LOW', checks, { findings });
     expect(statement.coverage_state).toBe('DETERMINED');
     expect(statement.coverage?.checks_completed).toBe(5);
+  });
+});
+
+/**
+ * W-U20CDF6 (OWNER DECISION OD-K0-3, 2026-10-03): CHECKED_HIT = LU-DOC-BESLUT-001 actually fired; DE + VF pinned without a
+ * finding of the rule = CHECKED_NO_HIT (the control basis exists, the rule did not fire). The coverage invariants hold
+ * on the fresh run and on a stored record alike: a no-hit is a completed check (with limited coverage); "0 av M" never
+ * stands beside a stored finding of a check in M; a rule finding that does not rest on the pinned documents is never
+ * counted; an unreadable pinned document is never a no-hit.
+ */
+describe('W-U20CDF6 OD-K0-3: the document row and the coverage of the record', () => {
+  const DE_REF = { artifact_id: 'document-evidence-u20cdf6', artifact_type: 'DOCUMENT_EVIDENCE' };
+  const VF_REF = { artifact_id: 'verified-document-fact-u20cdf6', artifact_type: 'VERIFIED_DOCUMENT_FACT' };
+  const fired = (evidence: { artifact_id: string; artifact_type: string } = DE_REF) => ({
+    finding_id: 'finding-doc-beslut-u20cdf6', rule_id: 'LU-DOC-BESLUT-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'x', evidence_refs: [evidence, VF_REF],
+  });
+  const notCheckedFinding = (layer: string) => ({
+    finding_id: `finding-notchecked-${layer}`, rule_id: RULE[layer], rule_version: '2.0', risk_level: 'NOT_CHECKED', explanation: 'x', evidence_refs: [],
+  });
+  const both = [...NEGATIVES.map(ref), DE_REF, VF_REF];
+
+  it('DE + VF pinned, the rule did not fire: CHECKED_NO_HIT, counted as completed with limited coverage -- 6 av 6, never a risk the rule did not find', () => {
+    for (const freshRun of [true, false]) {
+      const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings: [], pinnedEvidenceRefs: both });
+      expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_NO_HIT', coverage_state: 'CHECKED_NO_HIT', reason: null });
+      const statement = governedOverallStatement('LOW', checks, { findings: [], freshRun });
+      expect(statement.coverage_state).toBe('DETERMINED');
+      expect(statement.coverage).toMatchObject({ checks_total: 6, checks_completed: 6 });
+      expect(statement.coverage?.limited_coverage_layers).toContain('document');
+      expect(statement.statement_sv).toMatch(/^Låg risk i de kontroller som utfördes; 6 av 6 kontroller genomförda, varav \d+ med begränsad täckning\.$/);
+    }
+  });
+
+  it('the rule fired on the pinned documents: CHECKED_HIT, the stored MEDIUM is the level -- "Måttlig risk ... 6 av 6"', () => {
+    const findings = [fired()] as never[];
+    const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings, pinnedEvidenceRefs: both });
+    expect(checks.at(-1)).toMatchObject({ layer: 'document', status: 'CHECKED_HIT', evidence_artifact_id: DE_REF.artifact_id });
+    const statement = governedOverallStatement(governedVerdictFromFindings(findings).overallRisk, checks, { findings });
+    expect(statement.coverage_state).toBe('DETERMINED');
+    expect(statement.statement_sv).toMatch(/^Måttlig risk i de kontroller som utfördes; 6 av 6 kontroller genomförda/);
+  });
+
+  it('invariant: with every spatial layer not checked, a stored finding of the document check makes it completed -- "1 av 6", never "0 av 6" beside the finding', () => {
+    const spatialNotChecked = LAYERS.map(notCheckedFinding);
+    const findings = [...spatialNotChecked, fired()] as never[];
+    const checks = presentedGovernedLayerChecks({ spatialEvidence: [] as never, findings, pinnedEvidenceRefs: [DE_REF, VF_REF] });
+    expect(checks.at(-1)).toMatchObject({ status: 'CHECKED_HIT' });
+    const statement = governedOverallStatement(governedVerdictFromFindings(findings).overallRisk, checks, { findings, freshRun: true });
+    expect(statement.coverage).toMatchObject({ checks_completed: 1, checks_total: 6 });
+    expect(statement.statement_sv).not.toMatch(/0 av 6/);
+  });
+
+  it('a rule finding that does not rest on the pinned documents is never counted: no "N av M" beside it (fresh: integrity error; stored: historical), the finding still named', () => {
+    const findings = [fired({ artifact_id: 'document-evidence-not-pinned', artifact_type: 'DOCUMENT_EVIDENCE' })] as never[];
+    const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings, pinnedEvidenceRefs: both });
+    expect(checks.at(-1)).toMatchObject({ status: 'NOT_CHECKED', reason: 'FINDING_WITHOUT_CONSISTENT_EVIDENCE', coverage_state: 'INCOMPLETE_EVIDENCE' });
+    const fresh = governedOverallStatement('MEDIUM', checks, { findings, freshRun: true });
+    expect(fresh).toMatchObject({ coverage_state: 'RECORD_INTEGRITY_ERROR', coverage: null, coverage_basis: ['DOCUMENT_FINDING_WITHOUT_PINNED_DOCUMENTS'] });
+    const stored = governedOverallStatement('MEDIUM', checks, { findings, storedRecord: { hasFindingsField: true } });
+    expect(stored).toMatchObject({ coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN', coverage: null });
+    for (const statement of [fresh, stored]) {
+      expect(statement.statement_sv).not.toMatch(COUNT_PATTERN);
+      expect(statement.statement_sv).toContain('risknivå måttlig – Dokument och tidigare beslut');
+    }
+  });
+
+  it('a NOT_CHECKED finding of the rule beside its pinned inputs is a contradiction on the fresh run too (the row no longer says CHECKED_HIT)', () => {
+    const findings = [{ ...fired(), risk_level: 'NOT_CHECKED' }] as never[];
+    const checks = presentedGovernedLayerChecks({ spatialEvidence: NEGATIVES as never, findings, pinnedEvidenceRefs: both });
+    const statement = governedOverallStatement('LOW', checks, { findings, freshRun: true });
+    expect(statement).toMatchObject({ coverage_state: 'RECORD_INTEGRITY_ERROR', coverage_basis: ['NOT_CHECKED_FINDING_WITH_EVIDENCE:document'] });
+  });
+
+  it('an unreadable pinned document is a technical error, never a no-hit -- also without any finding', () => {
+    const checks = presentedGovernedLayerChecks({
+      spatialEvidence: NEGATIVES as never, findings: [], pinnedEvidenceRefs: both, unreadableArtifactIds: [DE_REF.artifact_id],
+    });
+    expect(checks.at(-1)).toMatchObject({ status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR' });
   });
 });
 

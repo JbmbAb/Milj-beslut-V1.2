@@ -288,10 +288,46 @@ describe('K0b: document check in the fresh generate-report response', () => {
       .assessment_draft.evidence_refs;
     expect(draftRefs.some((r) => r.artifact_type === 'DOCUMENT_EVIDENCE')).toBe(false);
 
+    // W-U20CDF6 (OD-K0-3): this asserted CHECKED_HIT for the pinned inputs alone (the run's findings are []). The rule
+    // did not fire: the check is CHECKED_NO_HIT over the pinned documents (still derived from the artifact, not the draft).
+    expect(documentCheckOf(report)).toEqual([
+      expect.objectContaining({
+        layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'CHECKED_NO_HIT',
+        evidence_artifact_id: 'doc-evidence-a', reason: null,
+      }),
+    ]);
+  });
+
+  it('W-U20CDF6 (OD-K0-3): the rule finding of the run fired on one pinned evidence -> CHECKED_HIT bound to THAT evidence (not the smallest id)', async () => {
+    const fired = {
+      finding_id: 'finding-doc-beslut-doc-evidence-b', rule_id: 'LU-DOC-BESLUT-001', rule_version: '1.0', risk_level: 'MEDIUM', explanation: 'x',
+      evidence_refs: [
+        { artifact_id: 'doc-evidence-b', artifact_type: 'DOCUMENT_EVIDENCE' },
+        { artifact_id: 'verified-fact-1', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+      ],
+    };
+    kernelMock.mockImplementationOnce(async (input: { assessment_draft: { evidence_refs: unknown[]; property_ref: unknown } }) => ({
+      admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
+      findings: [fired], finding_ids: [fired.finding_id],
+      assessment: {
+        artifact_id: 'assessment-k0-fired',
+        payload: {
+          property_ref: input.assessment_draft.property_ref,
+          findings: [fired],
+          evidence_refs: [
+            ...input.assessment_draft.evidence_refs,
+            { artifact_id: 'doc-evidence-b', artifact_type: 'DOCUMENT_EVIDENCE' },
+            { artifact_id: 'doc-evidence-a', artifact_type: 'DOCUMENT_EVIDENCE' },
+            { artifact_id: 'verified-fact-1', artifact_type: 'VERIFIED_DOCUMENT_FACT' },
+          ],
+        },
+      },
+    }));
+    const report = await runReport();
     expect(documentCheckOf(report)).toEqual([
       expect.objectContaining({
         layer: 'document', rule_id: 'LU-DOC-BESLUT-001', status: 'CHECKED_HIT',
-        evidence_artifact_id: 'doc-evidence-a', reason: null,
+        evidence_artifact_id: 'doc-evidence-b', reason: null,
       }),
     ]);
   });
