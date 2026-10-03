@@ -326,7 +326,7 @@ function spatialCheckMessageSv(
       // U20CDF2 (G2): bound evidence that cannot be read is an integrity/technical error; a stored
       // finding of the layer is still named (it is shown in full among the findings).
       return (
-        `Tekniskt fel: den pinnade evidensen för ${source} kunde inte läsas ur CAS och kan inte verifieras. ` +
+        `Tekniskt fel: den pinnade evidensen för ${source} kunde inte läsas ur arkivet och kan inte verifieras. ` +
         (storedRiskLevel
           ? `Bedömningens lagrade fynd för lagret (${riskLevelPhraseSv(storedRiskLevel)}) redovisas var för sig.`
           : 'Ingen slutsats om lagret.')
@@ -903,7 +903,12 @@ async function resolvePropertyRoot(
       status: 'TECHNICAL_ERROR',
       technical_error_class: cls,
       property_context_artifact_id: ref.artifact_id,
-      message_sv: `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens kunde inte läsas (${cls}).`,
+      message_sv:
+        cls === 'ROOT_READ_ERROR'
+          ? `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens kunde inte läsas just nu (läsfel).`
+          : cls === 'ROOT_ARTIFACT_NOT_FOUND'
+            ? `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens finns inte i arkivet.`
+            : `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens kunde inte läsas.`,
     });
   const tampered = () =>
     rootDetails({

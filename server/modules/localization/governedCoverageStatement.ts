@@ -528,9 +528,13 @@ export function governedOverallStatementSv(riskLevel: string, checks: unknown, c
     // level that hides or replaces the stored findings; the error class and whether a retry can help.
     const pinned = assessed.pinned_evidence;
     const what = pinned
-      ? `${pinned.unreadable_artifact_ids.length} av ${pinned.pinned_total} bundna evidensobjekt kunde inte läsas ur CAS` +
-        (pinned.technical_error_class ? ` (${pinned.technical_error_class})` : '')
-      : 'bundna evidensobjekt kunde inte läsas ur CAS';
+      ? `${pinned.unreadable_artifact_ids.length} av ${pinned.pinned_total} bundna evidensobjekt kunde inte läsas ur arkivet` +
+        (pinned.technical_error_class === 'EVIDENCE_NOT_FOUND'
+          ? ' (hittades inte)'
+          : pinned.technical_error_class === 'EVIDENCE_READ_ERROR'
+            ? ' (läsfel)'
+            : '')
+      : 'bundna evidensobjekt kunde inte läsas ur arkivet';
     const retry =
       pinned?.retryable === true
         ? ' Ett nytt försök kan lyckas.'
