@@ -614,14 +614,28 @@ describe('W-U20CDF5 B5: the PDF\'s property and project context -- a read fault 
     });
   });
 
+  // W-U20CDF5-R3 (R2-1): the property root reads the property context first, so an EIO on every read of it is now
+  // answered as the root's read fault (same class, retryable, no PDF); the PDF's own read is pinned on the project context.
   it('the property context cannot be read (EIO) -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED, READ_ERROR, retryable; NO PDF is built', async () => {
     const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
     await putContexts(repository);
     repository.failFirstRead(PROPERTY_REF.artifact_id, eio, 99);
     const res = await PATHS.pdf();
     expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'READ_ERROR', reasonCode: 'ROOT_READ_ERROR', retryable: true });
+    expect(res.body.error).toMatch(/^Bedömningens fastighetsrot kunde inte läsas \(tekniskt fel\)\. Ett nytt försök kan lyckas\./);
+    expectNoRawText(res);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('the read the PDF makes itself, of the project context, fails (EIO) -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED, READ_ERROR, retryable; NO PDF is built', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    repository.failFirstRead(CONTEXT.artifact_id, eio, 99);
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'READ_ERROR', reasonCode: 'READ_ERROR', retryable: true });
-    expect(res.body.error).toMatch(/^Bedömningens fastighetskontext kunde inte läsas \(tekniskt fel\)\. Ett nytt försök kan lyckas\./);
+    expect(res.body.error).toMatch(/^Bedömningens projektkontext kunde inte läsas \(tekniskt fel\)\. Ett nytt försök kan lyckas\./);
     expectNoRawText(res);
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });

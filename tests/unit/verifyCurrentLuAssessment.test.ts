@@ -74,7 +74,10 @@ class MemoryRepository {
   }
   async resolve<T>(reference: ArtifactReference): Promise<T> {
     const value = this.values.get(reference.artifact_id);
-    if (!value) throw new Error(`not found: ${reference.artifact_id}`);
+    // W-U20CDF5-R3 (U20CDF5-R2 verification R2-1): the repository's frozen never-stored contract, the CAS's exact text.
+    // The property root this fixture never stores is then a PROVEN absence (ROOT_ARTIFACT_NOT_FOUND), which verify does
+    // not refuse; "not found: <id>" is a read of unknown persistence (READ_ERROR), which it now does.
+    if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
     return value as T;
   }
 }
