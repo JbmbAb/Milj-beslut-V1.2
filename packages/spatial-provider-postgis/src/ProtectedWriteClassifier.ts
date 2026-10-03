@@ -70,6 +70,12 @@ export type WriteOperation =
   | "PSQL_META"
   | "SEARCH_PATH"
   | "COMMAND"
+  /**
+   * U30F9 default-deny (owner decision 2026-10-03): a DB-capable tool run with any value the text does not hold -- an
+   * expansion, a substitution, a template, a positional parameter, an expanding here-document -- in an argument, on stdin
+   * or as its stdin file. The text cannot show what the tool is told, so the command is unresolvable whatever else it says.
+   */
+  | "NON_LITERAL"
   | "PARSE";
 
 export interface WriteTarget {
@@ -1343,6 +1349,9 @@ export function analyzeOgr2ogrArgs(args: readonly string[], options: Pick<Classi
 function cmdVariable(s: string): [string, string] | null {
   const named = /^%([A-Za-z_][A-Za-z0-9_]*)%/.exec(s);
   if (named) return [named[0], named[1]!];
+  // U30F9: cmd delayed expansion !NAME! is a value too
+  const delayed = /^!([A-Za-z_][A-Za-z0-9_]*)!/.exec(s);
+  if (delayed) return [delayed[0], delayed[1]!];
   const loop = /^%%(?:~[A-Za-z]*)?([A-Za-z])/.exec(s);
   if (loop) return [loop[0], loop[1]!];
   const arg = /^%(?:~[A-Za-z]*)?([0-9*])/.exec(s);
@@ -1364,21 +1373,29 @@ export interface CommandSegment {
  * name as hint); `\`, `` ` `` and `^` before a newline continue the line; `<<EOF` here-documents and
  * `@'…'@` / `@"…"@` here-strings are kept as text.
  */
+interface MutableSegment {
+  argv: string[];
+  stdin: string | null;
+  stdinFile: string | null;
+}
+
 export function splitCommandLine(command: string): CommandSegment[][] {
   const dyn = (hint: string) => {
     const s = classificationSpec();
     const clean = hint.replace(/[^A-Za-z0-9_.-]/g, "");
     return `${s.dynamic_placeholder_open}${clean ? `:${clean}` : ""}${s.dynamic_placeholder_close}`;
   };
-  const pipelines: CommandSegment[][] = [];
-  let pipeline: CommandSegment[] = [];
+  const pipelines: MutableSegment[][] = [];
+  let pipeline: MutableSegment[] = [];
   let argv: string[] = [];
   let stdin: string | null = null;
   let stdinFile: string | null = null;
   let tok = "";
   let started = false;
-  // U30F8 (G6-1): an unquoted delimiter expands the body ($1, $VAR, ${x}, $(...), `...`); 'EOF', "EOF" and \EOF do not
-  let pendingHeredoc: { delim: string; expand: boolean } | null = null;
+  // U30F8 (G6-1): an unquoted delimiter expands the body ($1, $VAR, ${x}, $(...), `...`); 'EOF', "EOF" and \EOF do not.
+  // U30F9 (G8-6): EVERY here-document opened on the line, in order -- each body goes to the segment that opened it
+  // (`cat <<A; psql <<B` reads A's body for cat and B's for psql; before, the second marker replaced the first).
+  const pendingHeredocs: { delim: string; expand: boolean; seg: MutableSegment | null }[] = [];
   let expectHereString = false;
   // U30F8: the commands of $(...), <(...), >(...) and here-document backticks run too -- split as pipelines of their own
   const nested: string[] = [];
@@ -1400,7 +1417,11 @@ export function splitCommandLine(command: string): CommandSegment[][] {
   };
   const endSegment = () => {
     endToken();
-    if (argv.length || stdin !== null) pipeline.push({ argv, stdin, stdinFile });
+    if (argv.length || stdin !== null) {
+      const seg: MutableSegment = { argv, stdin, stdinFile };
+      pipeline.push(seg);
+      for (const h of pendingHeredocs) if (h.seg === null) h.seg = seg;
+    }
     argv = [];
     stdin = null;
     stdinFile = null;
@@ -1411,6 +1432,12 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     pipeline = [];
   };
   const readVariable = (s: string, i: number): [string, number] | null => {
+    // U30F9 (G8-4): GitHub Actions `${{ expression }}` is one value, whatever the expression holds (before, the first `}`
+    // closed it and the second stayed in the token, so `bash -c "${{ inputs.cmd }}"` was no value-program)
+    if (s[i + 1] === "{" && s[i + 2] === "{") {
+      const end = s.indexOf("}}", i + 3);
+      return [dyn(s.slice(i + 3, end < 0 ? s.length : end)), end < 0 ? s.length : end + 2];
+    }
     if (s[i + 1] === "(") {
       let depth = 0;
       for (let j = i + 1; j < s.length; j += 1) {
@@ -1479,6 +1506,22 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     }
     return str.length;
   };
+  /**
+   * U30F9 (G8-1): `...` outside a here-document is a command substitution like $(...): its command runs (split as a pipeline
+   * of its own) and its output is a value. A backtick with no closing one is text (a PowerShell `n in a string).
+   */
+  const readBacktick = (str: string, i: number): [string, number] | null => {
+    const end = str.indexOf("`", i + 1);
+    if (end < 0) return null;
+    nested.push(str.slice(i + 1, end));
+    return [dyn(""), end + 1];
+  };
+  /** U30F9: `{{ ... }}` is a template placeholder (Taskfile, Helm, Go templates): a value the text does not hold. */
+  const readTemplate = (str: string, i: number): [string, number] | null => {
+    if (!str.startsWith("{{", i)) return null;
+    const end = str.indexOf("}}", i + 2);
+    return [dyn("template"), end < 0 ? str.length : end + 2];
+  };
 
   const s = command;
   let i = 0;
@@ -1499,6 +1542,14 @@ export function splitCommandLine(command: string): CommandSegment[][] {
           j += 2;
           continue;
         }
+        if (s[j] === "`") {
+          const b = readBacktick(s, j);
+          if (b) {
+            tok += b[0];
+            j = b[1];
+            continue;
+          }
+        }
         if (s[j] === "$") {
           const v = readVariable(s, j);
           if (v) {
@@ -1507,11 +1558,19 @@ export function splitCommandLine(command: string): CommandSegment[][] {
             continue;
           }
         }
-        if (s[j] === "%") {
+        if (s[j] === "%" || s[j] === "!") {
           const m = cmdVariable(s.slice(j));
           if (m) {
             tok += dyn(m[1]);
             j += m[0].length;
+            continue;
+          }
+        }
+        if (s[j] === "{") {
+          const t = readTemplate(s, j);
+          if (t) {
+            tok += t[0];
+            j = t[1];
             continue;
           }
         }
@@ -1537,24 +1596,31 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       continue;
     }
     if (c === "\n" || c === "\r") {
-      if (pendingHeredoc !== null) {
-        const { delim, expand } = pendingHeredoc;
-        pendingHeredoc = null;
-        const lines = s.slice(i + 1).split("\n");
-        const body: string[] = [];
+      if (pendingHeredocs.length > 0) {
+        // the bodies follow in the order the markers stood; each goes to the segment that opened it
         let consumed = i + 1;
-        let found = false;
-        for (const line of lines) {
-          consumed += line.length + 1;
-          if (line.replace(/\r$/, "").trim() === delim) {
-            found = true;
+        for (const h of pendingHeredocs.splice(0)) {
+          const lines = s.slice(consumed).split("\n");
+          const body: string[] = [];
+          let found = false;
+          for (const line of lines) {
+            consumed += line.length + 1;
+            if (line.replace(/\r$/, "").trim() === h.delim) {
+              found = true;
+              break;
+            }
+            body.push(line.replace(/\r$/, ""));
+          }
+          const text = h.expand ? expandBody(body.join("\n")) : body.join("\n");
+          if (h.seg) h.seg.stdin = text;
+          else stdin = text;
+          if (!found) {
+            consumed = s.length;
             break;
           }
-          body.push(line.replace(/\r$/, ""));
         }
-        stdin = expand ? expandBody(body.join("\n")) : body.join("\n");
         endPipeline();
-        i = found ? consumed : s.length;
+        i = Math.min(consumed, s.length);
         continue;
       }
       endPipeline();
@@ -1613,7 +1679,7 @@ export function splitCommandLine(command: string): CommandSegment[][] {
         }
         const m = /^<<-?\s*(\\?)(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(s.slice(i));
         if (m) {
-          pendingHeredoc = { delim: m[3]!, expand: m[1] === "" && m[2] === "" };
+          pendingHeredocs.push({ delim: m[3]!, expand: m[1] === "" && m[2] === "", seg: null });
           i += m[0].length;
           continue;
         }
@@ -1648,6 +1714,15 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       i = j;
       continue;
     }
+    if (c === "`") {
+      const b = readBacktick(s, i);
+      if (b) {
+        tok += b[0];
+        started = true;
+        i = b[1];
+        continue;
+      }
+    }
     if (c === "$") {
       const v = readVariable(s, i);
       if (v) {
@@ -1657,7 +1732,7 @@ export function splitCommandLine(command: string): CommandSegment[][] {
         continue;
       }
     }
-    if (c === "%") {
+    if (c === "%" || c === "!") {
       const m = cmdVariable(s.slice(i));
       if (m) {
         tok += dyn(m[1]);
@@ -1666,12 +1741,21 @@ export function splitCommandLine(command: string): CommandSegment[][] {
         continue;
       }
     }
+    if (c === "{") {
+      const t = readTemplate(s, i);
+      if (t) {
+        tok += t[0];
+        started = true;
+        i = t[1];
+        continue;
+      }
+    }
     tok += c;
     started = true;
     i += 1;
   }
   endPipeline();
-  for (const inner of nested) pipelines.push(...splitCommandLine(inner));
+  for (const inner of nested) pipelines.push(...(splitCommandLine(inner) as MutableSegment[][]));
   return pipelines;
 }
 
@@ -1910,6 +1994,33 @@ function analyzeTool(tool: string, rest: readonly string[], ctx: SegmentContext,
   }
 }
 
+/**
+ * U30F9 default-deny: whether this invocation of a DB/GIS tool can write a database at all -- decided by the tool's own
+ * explicit flags, never by what a value might hold. A pg_dump writes nothing unless it pipes into psql; ogrinfo writes only
+ * through -sql and never in read-only mode (-ro); a GDAL raster tool writes a database only through a PG: datasource or a
+ * database (or unknown) output format; ogr2ogr only when its output is a database (the ogr2ogr analysis's `database`);
+ * prisma only through `migrate` and `db`. Every other tool (psql, usql, pgbench, pg_restore, shp2pgsql, dropdb, loaders) is.
+ */
+function writeCapable(tool: string, rest: readonly string[], ctx: SegmentContext): boolean {
+  const spec = classificationSpec();
+  const exemptUnless = ownEntry(spec.commands.non_literal_exempt_tools_unless_piped_to, tool);
+  if (exemptUnless !== undefined) return ctx.pipesToTool === exemptUnless;
+  if (tool === "OGRINFO") {
+    const lower = rest.map((a) => asciiLower(a.trim()));
+    return spec.commands.ogrinfo.sql_flags.some((f) => lower.includes(f)) && !spec.commands.ogrinfo.read_only_flags.some((f) => lower.includes(f));
+  }
+  if (tool === "GDAL") {
+    const formats = flagValues(rest, spec.ogr2ogr.format_flags, true).values.map((f) => asciiLower(f.trim()));
+    return rest.some(isPgDatasource) || formats.some((f) => dynamicHint(f) !== null || spec.ogr2ogr.database_formats.includes(f) || f.includes("postgis"));
+  }
+  if (tool === "OGR2OGR") return analyzeOgr2ogrArgs(rest).database;
+  if (tool === "PRISMA") {
+    const words = rest.filter((a) => !a.startsWith("-")).map(asciiLower);
+    return spec.commands.prisma.database_subcommands.includes(words[0] ?? "");
+  }
+  return true;
+}
+
 function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: ClassifierOptions, depth: number): WriteAnalysis {
   const out = emptyAnalysis();
   if (depth > classificationSpec().sql.max_nesting) {
@@ -1923,6 +2034,17 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
     if (runnerAt >= 0 && runnerAt < k) out.unresolved.push({ operation: "COMMAND", reason: `${what} run by ${programName(argv[runnerAt]!)} takes arguments from its input` });
   };
   const commands = classificationSpec().commands;
+  /**
+   * U30F9 default-deny (owner decision 2026-10-03): a DB-capable tool run with ANY value the text does not hold -- in an
+   * argument, on its stdin or as its stdin file -- is NON_LITERAL, whatever the other arguments say. The exempt tools
+   * (pg_dump) write nothing unless they pipe into the named tool.
+   */
+  const nonLiteral = (tool: string, program: string, rest: readonly string[]) => {
+    if (!writeCapable(tool, rest, ctx)) return;
+    if (containsDynamic(program) || rest.some((a) => containsDynamic(a)) || (ctx.stdin !== null && containsDynamic(ctx.stdin)) || (ctx.stdinFile !== null && containsDynamic(ctx.stdinFile))) {
+      out.unresolved.push({ operation: "NON_LITERAL", reason: `${tool.toLowerCase()} runs with a value the text does not hold (default-deny: a non-literal program, argument, stdin or stdin file)` });
+    }
+  };
   for (let k = 0; k < argv.length; k += 1) {
     const wrapper = shellWrapper(argv[k]!);
     if (wrapper) {
@@ -1945,14 +2067,43 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
       }
       continue;
     }
+    // U30F9 (G8-5): a remote shell (ssh) runs the words after its destination as a command line on the other host -- with
+    // this segment's stdin -- or, without a command, its stdin as the remote shell's script
+    const remote = ownEntry(commands.remote_shells, programName(argv[k]!));
+    if (remote) {
+      let n = k + 1;
+      while (n < argv.length && argv[n]!.startsWith("-") && argv[n] !== "--") {
+        if (remote.value_flags.includes(argv[n]!)) n += 1;
+        n += 1;
+      }
+      if (argv[n] === "--") n += 1;
+      const words = argv.slice(n + 1);
+      if (words.length > 0) {
+        substituted(k, "a remote command");
+        merge(out, analyzeCommandAt(words.join(" "), options, depth + 1, ctx.stdin, ctx.stdinFile));
+      } else if (ctx.stdin !== null) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1));
+      else if (ctx.stdinFile !== null) out.unresolved.push({ operation: "COMMAND", reason: "a remote shell reads its script from a file the text does not hold" });
+      return out;
+    }
     const tool = toolOf(argv[k]!);
     if (tool) {
       substituted(k, tool.toLowerCase());
+      nonLiteral(tool, argv[k]!, argv.slice(k + 1));
       merge(out, analyzeTool(tool, argv.slice(k + 1), ctx, options, depth));
       return out;
     }
+    const name = programName(argv[k]!);
+    // U30F9 (G8-12): a code runner of a language no binding reads (ruby, perl, php) given code -- an option (-e, -pe, -r),
+    // a script file (a path or a name with an extension), stdin or a stdin file -- runs code the classifier cannot read
+    if (commands.unread_code_runners.includes(name)) {
+      const given = argv.slice(k + 1).some((a) => a.startsWith("-") || /[\\/]/.test(a) || /\.[A-Za-z0-9]+$/.test(a) || containsDynamic(a));
+      if (given || ctx.stdin !== null || ctx.stdinFile !== null) {
+        out.unresolved.push({ operation: "COMMAND", reason: `${name} runs code the classifier does not read` });
+        return out;
+      }
+    }
     // U30F8 (G6-1/G6-7): code from a flag value (node -e, python -c) or from an expanded here-document / here-string
-    const codeFlags = ownEntry(commands.code_runners, programName(argv[k]!));
+    const codeFlags = ownEntry(commands.code_runners, name);
     if (codeFlags) {
       for (let n = k + 1; n < argv.length; n += 1) {
         const lower = asciiLower(argv[n]!);
@@ -1973,6 +2124,7 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
   const flagSet = new Set(argv.map((a) => asciiLower(a.trim())));
   const ogrSpec = classificationSpec().ogr2ogr;
   if (ogrSpec.layer_name_flags.some((f) => flagSet.has(f)) || ogrSpec.sql_flags.some((f) => flagSet.has(f)) || argv.some(isPgDatasource)) {
+    nonLiteral("OGR2OGR", argv[0] ?? "", argv.slice(1));
     merge(out, analyzeOgr2ogrArgs(argv.slice(1), options));
     return out;
   }
@@ -1985,8 +2137,13 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
   return out;
 }
 
-function analyzeCommandAt(command: string, options: ClassifierOptions, depth: number): WriteAnalysis {
+/**
+ * `inheritedStdin` (U30F9, G8-5): the stdin a remote shell (ssh) hands its remote command -- the first segment of the first
+ * pipeline reads it when the command names no stdin of its own.
+ */
+function analyzeCommandAt(command: string, options: ClassifierOptions, depth: number, inheritedStdin: string | null = null, inheritedStdinFile: string | null = null): WriteAnalysis {
   const out = emptyAnalysis();
+  let first = true;
   for (const pipeline of splitCommandLine(command)) {
     const tools = pipeline.map((seg) => {
       for (const a of seg.argv) {
@@ -2001,11 +2158,12 @@ function analyzeCommandAt(command: string, options: ClassifierOptions, depth: nu
       const prefix = classificationSpec().commands.program_prefix_words;
       const p = seg.argv.findIndex((a) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(a) && !prefix.includes(asciiLower(a)));
       if (p >= 0 && dynamicHint(seg.argv[p]!) !== null && !toolOf(seg.argv[p]!)) out.unresolved.push({ operation: "COMMAND", reason: "the program is a value the text does not hold" });
-      merge(
-        out,
-        analyzeArgvAt(seg.argv, { stdin: seg.stdin, stdinFile: seg.stdinFile, pipedFromTool: n > 0 ? tools[n - 1]! : null, pipesToTool: tools[n + 1] ?? null }, options, depth),
-      );
+      const inherits = first && n === 0 && seg.stdin === null && seg.stdinFile === null;
+      const stdin = inherits ? inheritedStdin : seg.stdin;
+      const stdinFile = inherits ? inheritedStdinFile : seg.stdinFile;
+      merge(out, analyzeArgvAt(seg.argv, { stdin, stdinFile, pipedFromTool: n > 0 ? tools[n - 1]! : null, pipesToTool: tools[n + 1] ?? null }, options, depth));
     });
+    first = false;
   }
   return out;
 }

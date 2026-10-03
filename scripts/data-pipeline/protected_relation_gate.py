@@ -113,6 +113,19 @@ def load_spec(path=CLASSIFICATION_FILE):
     runners = doc['commands'].get('argument_substituting_runners')
     if not isinstance(runners, list) or not runners or not all(isinstance(x, str) and x for x in runners):
         raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners')
+    # U30F9: the G8-5/G8-12/default-deny vocabularies are required -- a missing table would read as "nothing to refuse"
+    remote_shells = doc['commands'].get('remote_shells')
+    if not isinstance(remote_shells, dict) or not remote_shells or not all(
+            isinstance(v, dict) and isinstance(v.get('value_flags'), list) and v['value_flags'] and all(isinstance(x, str) and x for x in v['value_flags'])
+            for v in remote_shells.values()):
+        raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.remote_shells')
+    for key4, where in (('unread_code_runners', doc['commands']), ('read_only_flags', doc['commands'].get('ogrinfo') or {}), ('database_subcommands', doc['commands'].get('prisma') or {})):
+        v4 = where.get(key4)
+        if not isinstance(v4, list) or not v4 or not all(isinstance(x, str) and x for x in v4):
+            raise RuntimeError(f'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.{key4}')
+    exempt = doc['commands'].get('non_literal_exempt_tools_unless_piped_to')
+    if not isinstance(exempt, dict) or not all(isinstance(v, str) and v for v in exempt.values()):
+        raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.non_literal_exempt_tools_unless_piped_to')
     doc['_lengths'] = lengths
     _SPEC_CACHE[key] = doc
     return doc
@@ -1454,6 +1467,10 @@ def _cmd_variable(s):
     m = re.match(r'%([A-Za-z_][A-Za-z0-9_]*)%', s)
     if m:
         return m.group(0), m.group(1)
+    # U30F9: cmd delayed expansion !NAME! is a value too
+    m = re.match(r'!([A-Za-z_][A-Za-z0-9_]*)!', s)
+    if m:
+        return m.group(0), m.group(1)
     m = re.match(r'%%(?:~[A-Za-z]*)?([A-Za-z])', s)
     if m:
         return m.group(0), m.group(1)
@@ -1472,7 +1489,10 @@ def split_command_line(command, spec=None):
 
     pipelines = []
     st = {'pipeline': [], 'argv': [], 'stdin': None, 'stdin_file': None, 'tok': '', 'started': False,
-          'heredoc': None, 'here_string': False, 'expect_stdin_file': False, 'skip_next': False}
+          'here_string': False, 'expect_stdin_file': False, 'skip_next': False}
+    # U30F8 (G6-1): an unquoted delimiter expands the body; U30F9 (G8-6): EVERY here-document opened on the line, in order --
+    # each body goes to the segment that opened it (`cat <<A; psql <<B`: A's body for cat, B's for psql)
+    pending_heredocs = []
     # U30F8: the commands of $(...), <(...), >(...) and here-document backticks run too -- split as pipelines of their own
     nested = []
 
@@ -1494,7 +1514,11 @@ def split_command_line(command, spec=None):
     def end_segment():
         end_token()
         if st['argv'] or st['stdin'] is not None:
-            st['pipeline'].append({'argv': st['argv'], 'stdin': st['stdin'], 'stdin_file': st['stdin_file']})
+            seg = {'argv': st['argv'], 'stdin': st['stdin'], 'stdin_file': st['stdin_file']}
+            st['pipeline'].append(seg)
+            for h in pending_heredocs:
+                if h['seg'] is None:
+                    h['seg'] = seg
         st['argv'] = []
         st['stdin'] = None
         st['stdin_file'] = None
@@ -1506,6 +1530,10 @@ def split_command_line(command, spec=None):
         st['pipeline'] = []
 
     def read_variable(s, i):
+        # U30F9 (G8-4): GitHub Actions `${{ expression }}` is one value, whatever the expression holds
+        if _at(s, i + 1) == '{' and _at(s, i + 2) == '{':
+            end = s.find('}}', i + 3)
+            return dyn(s[i + 3:(len(s) if end < 0 else end)]), (len(s) if end < 0 else end + 2)
         if _at(s, i + 1) == '(':
             depth = 0
             for j in range(i + 1, len(s)):
@@ -1569,6 +1597,22 @@ def split_command_line(command, spec=None):
                     return j + 1
         return len(text)
 
+    def read_backtick(text, i):
+        # U30F9 (G8-1): `...` outside a here-document is a command substitution like $(...): its command runs, its output is
+        # a value; a backtick with no closing one is text (a PowerShell `n in a string)
+        end = text.find('`', i + 1)
+        if end < 0:
+            return None
+        nested.append(text[i + 1:end])
+        return dyn(''), end + 1
+
+    def read_template(text, i):
+        # U30F9: `{{ ... }}` is a template placeholder (Taskfile, Helm, Go templates): a value the text does not hold
+        if not text.startswith('{{', i):
+            return None
+        end = text.find('}}', i + 2)
+        return dyn('template'), (len(text) if end < 0 else end + 2)
+
     s = command
     i = 0
     n = len(s)
@@ -1587,17 +1631,29 @@ def split_command_line(command, spec=None):
                     st['tok'] += s[j + 1]
                     j += 2
                     continue
+                if s[j] == '`':
+                    b = read_backtick(s, j)
+                    if b:
+                        st['tok'] += b[0]
+                        j = b[1]
+                        continue
                 if s[j] == '$':
                     v = read_variable(s, j)
                     if v:
                         st['tok'] += v[0]
                         j = v[1]
                         continue
-                if s[j] == '%':
+                if s[j] in ('%', '!'):
                     m = _cmd_variable(s[j:])
                     if m:
                         st['tok'] += dyn(m[1])
                         j += len(m[0])
+                        continue
+                if s[j] == '{':
+                    t = read_template(s, j)
+                    if t:
+                        st['tok'] += t[0]
+                        j = t[1]
                         continue
                 st['tok'] += s[j]
                 j += 1
@@ -1618,22 +1674,31 @@ def split_command_line(command, spec=None):
             i += 3 if _at(s, i + 1) == '\r' else 2
             continue
         if c in ('\n', '\r'):
-            if st['heredoc'] is not None:
-                delim, expand = st['heredoc']
-                st['heredoc'] = None
-                lines = s[i + 1:].split('\n')
-                body = []
+            if pending_heredocs:
+                # the bodies follow in the order the markers stood; each goes to the segment that opened it
                 consumed = i + 1
-                found = False
-                for line in lines:
-                    consumed += len(line) + 1
-                    if re.sub(r'\r\Z', '', line).strip() == delim:
-                        found = True
+                queue = list(pending_heredocs)
+                del pending_heredocs[:]
+                for h in queue:
+                    lines = s[consumed:].split('\n')
+                    body = []
+                    found = False
+                    for line in lines:
+                        consumed += len(line) + 1
+                        if re.sub(r'\r\Z', '', line).strip() == h['delim']:
+                            found = True
+                            break
+                        body.append(re.sub(r'\r\Z', '', line))
+                    text = expand_body('\n'.join(body)) if h['expand'] else '\n'.join(body)
+                    if h['seg'] is not None:
+                        h['seg']['stdin'] = text
+                    else:
+                        st['stdin'] = text
+                    if not found:
+                        consumed = n
                         break
-                    body.append(re.sub(r'\r\Z', '', line))
-                st['stdin'] = expand_body('\n'.join(body)) if expand else '\n'.join(body)
                 end_pipeline()
-                i = consumed if found else n
+                i = min(consumed, n)
                 continue
             end_pipeline()
             i += 1
@@ -1681,7 +1746,7 @@ def split_command_line(command, spec=None):
                     continue
                 m = re.match(r'<<-?\s*(\\?)([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\2', s[i:])
                 if m:
-                    st['heredoc'] = (m.group(3), m.group(1) == '' and m.group(2) == '')
+                    pending_heredocs.append({'delim': m.group(3), 'expand': m.group(1) == '' and m.group(2) == '', 'seg': None})
                     i += len(m.group(0))
                     continue
                 i += 2
@@ -1713,6 +1778,13 @@ def split_command_line(command, spec=None):
                 st['skip_next'] = True
             i = j
             continue
+        if c == '`':
+            b = read_backtick(s, i)
+            if b:
+                st['tok'] += b[0]
+                st['started'] = True
+                i = b[1]
+                continue
         if c == '$':
             v = read_variable(s, i)
             if v:
@@ -1720,12 +1792,19 @@ def split_command_line(command, spec=None):
                 st['started'] = True
                 i = v[1]
                 continue
-        if c == '%':
+        if c in ('%', '!'):
             m = _cmd_variable(s[i:])
             if m:
                 st['tok'] += dyn(m[1])
                 st['started'] = True
                 i += len(m[0])
+                continue
+        if c == '{':
+            t = read_template(s, i)
+            if t:
+                st['tok'] += t[0]
+                st['started'] = True
+                i = t[1]
                 continue
         st['tok'] += c
         st['started'] = True
@@ -1976,6 +2055,28 @@ def _analyze_tool(tool, rest, ctx, read_sql_file, depth, spec):
     return targets, unresolved
 
 
+def _write_capable(tool, rest, ctx, spec):
+    # U30F9 default-deny: whether this invocation of a DB/GIS tool can write a database at all -- decided by the tool's own
+    # explicit flags, never by what a value might hold (see ProtectedWriteClassifier.ts writeCapable)
+    c = spec['commands']
+    exempt_unless = c['non_literal_exempt_tools_unless_piped_to'].get(tool)
+    if exempt_unless is not None:
+        return ctx['pipes_to'] == exempt_unless
+    if tool == 'OGRINFO':
+        lower = [_ascii_lower(a.strip()) for a in rest]
+        return any(f in lower for f in c['ogrinfo']['sql_flags']) and not any(f in lower for f in c['ogrinfo']['read_only_flags'])
+    if tool == 'GDAL':
+        formats = [_ascii_lower(f.strip()) for f in _flag_values(rest, spec['ogr2ogr']['format_flags'], True)[0]]
+        return any(_is_pg_datasource(a, spec) for a in rest) or any(
+            _dynamic_hint(spec, f) is not None or f in spec['ogr2ogr']['database_formats'] or 'postgis' in f for f in formats)
+    if tool == 'OGR2OGR':
+        return analyze_ogr2ogr_args(rest, spec)[2]
+    if tool == 'PRISMA':
+        words = [_ascii_lower(a) for a in rest if not a.startswith('-')]
+        return (words[0] if words else '') in c['prisma']['database_subcommands']
+    return True
+
+
 def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
     targets, unresolved = [], []
     if depth > spec['sql']['max_nesting']:
@@ -1990,6 +2091,17 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
         return []
 
     cmds = spec['commands']
+
+    def non_literal(tool, program, rest):
+        # U30F9 default-deny (owner decision 2026-10-03): a DB-capable tool run with ANY value the text does not hold -- the
+        # program, an argument, stdin or the stdin file -- is NON_LITERAL, whatever the other arguments say
+        if not _write_capable(tool, rest, ctx, spec):
+            return []
+        if _contains_dynamic(spec, program) or any(_contains_dynamic(spec, a) for a in rest) \
+                or (ctx['stdin'] is not None and _contains_dynamic(spec, ctx['stdin'])) \
+                or (ctx['stdin_file'] is not None and _contains_dynamic(spec, ctx['stdin_file'])):
+            return [('NON_LITERAL', f'{tool.lower()} runs with a value the text does not hold (default-deny: a non-literal program, argument, stdin or stdin file)')]
+        return []
 
     for k in range(len(argv)):
         wrapper = _shell_wrapper(argv[k], spec)
@@ -2013,13 +2125,42 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
                     unresolved.append(('COMMAND', 'a script reads a here-document with values the text does not hold'))
                 return targets, unresolved
             continue
+        # U30F9 (G8-5): a remote shell (ssh) runs the words after its destination as a command line on the other host -- with
+        # this segment's stdin -- or, without a command, its stdin as the remote shell's script
+        remote = cmds['remote_shells'].get(_program_name(argv[k], spec))
+        if remote:
+            n = k + 1
+            while n < len(argv) and argv[n].startswith('-') and argv[n] != '--':
+                if argv[n] in remote['value_flags']:
+                    n += 1
+                n += 1
+            if _at_list(argv, n) == '--':
+                n += 1
+            words = argv[n + 1:]
+            if words:
+                pre = substituted(k, 'a remote command')
+                t, u = _analyze_command_at(' '.join(words), read_sql_file, depth + 1, spec, ctx['stdin'], ctx['stdin_file'])
+                return targets + t, unresolved + pre + u
+            if ctx['stdin'] is not None:
+                t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec)
+                return targets + t, unresolved + u
+            if ctx['stdin_file'] is not None:
+                unresolved.append(('COMMAND', 'a remote shell reads its script from a file the text does not hold'))
+            return targets, unresolved
         tool = tool_of(argv[k], spec)
         if tool:
-            pre = substituted(k, tool.lower())
+            pre = substituted(k, tool.lower()) + non_literal(tool, argv[k], argv[k + 1:])
             t, u = _analyze_tool(tool, argv[k + 1:], ctx, read_sql_file, depth, spec)
             return targets + t, unresolved + pre + u
-        # U30F8 (G6-1/G6-7): code from a flag value (node -e, python -c) or from an expanded here-document / here-string
         name = _program_name(argv[k], spec)
+        # U30F9 (G8-12): a code runner of a language no binding reads (ruby, perl, php) given code -- an option, a script file
+        # (a path or a name with an extension), stdin or a stdin file -- runs code the classifier cannot read
+        if name in cmds['unread_code_runners']:
+            given = any(a.startswith('-') or re.search(r'[\\/]', a) or re.search(r'\.[A-Za-z0-9]+$', a) or _contains_dynamic(spec, a) for a in argv[k + 1:])
+            if given or ctx['stdin'] is not None or ctx['stdin_file'] is not None:
+                unresolved.append(('COMMAND', f'{name} runs code the classifier does not read'))
+                return targets, unresolved
+        # U30F8 (G6-1/G6-7): code from a flag value (node -e, python -c) or from an expanded here-document / here-string
         code_flags = cmds['code_runners'].get(name)
         if code_flags:
             for n in range(k + 1, len(argv)):
@@ -2039,8 +2180,9 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
     flag_set = set(_ascii_lower(a.strip()) for a in argv)
     o = spec['ogr2ogr']
     if any(f in flag_set for f in o['layer_name_flags']) or any(f in flag_set for f in o['sql_flags']) or any(_is_pg_datasource(a, spec) for a in argv):
+        pre = non_literal('OGR2OGR', argv[0] if argv else '', argv[1:])
         t, u, _ = analyze_ogr2ogr_args(argv[1:], spec)
-        return targets + t, unresolved + u
+        return targets + t, unresolved + pre + u
     for a in argv:
         if re.search(r'\s', a) and any(name in _ascii_lower(a) for name in spec['commands']['tools'].keys()):
             t, u = _analyze_command_at(a, read_sql_file, depth + 1, spec)
@@ -2049,8 +2191,15 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
     return targets, unresolved
 
 
-def _analyze_command_at(command, read_sql_file, depth, spec):
+def _at_list(items, n):
+    return items[n] if 0 <= n < len(items) else None
+
+
+def _analyze_command_at(command, read_sql_file, depth, spec, inherited_stdin=None, inherited_stdin_file=None):
+    # inherited_stdin / inherited_stdin_file (U30F9, G8-5): what a remote shell (ssh) hands its remote command -- the first
+    # segment of the first pipeline reads them when the command names no stdin of its own
     targets, unresolved = [], []
+    first = True
     for pipeline in split_command_line(command, spec):
         tools = []
         for seg in pipeline:
@@ -2066,11 +2215,13 @@ def _analyze_command_at(command, read_sql_file, depth, spec):
             p = next((m for m, a in enumerate(seg['argv']) if not re.match(r'[A-Za-z_][A-Za-z0-9_]*=', a) and _ascii_lower(a) not in prefix), -1)
             if p >= 0 and _dynamic_hint(spec, seg['argv'][p]) is not None and not tool_of(seg['argv'][p], spec):
                 unresolved.append(('COMMAND', 'the program is a value the text does not hold'))
-            ctx = {'stdin': seg['stdin'], 'stdin_file': seg['stdin_file'],
+            inherits = first and n == 0 and seg['stdin'] is None and seg['stdin_file'] is None
+            ctx = {'stdin': inherited_stdin if inherits else seg['stdin'], 'stdin_file': inherited_stdin_file if inherits else seg['stdin_file'],
                    'piped_from': tools[n - 1] if n > 0 else None, 'pipes_to': tools[n + 1] if n + 1 < len(tools) else None}
             t, u = _analyze_argv_at(seg['argv'], ctx, read_sql_file, depth, spec)
             targets += t
             unresolved += u
+        first = False
     return targets, unresolved
 
 

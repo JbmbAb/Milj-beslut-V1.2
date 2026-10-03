@@ -127,7 +127,9 @@ export function languageOf(rel: string): Language | null {
   const lower = base.toLowerCase();
   if (lower === "package.json") return "json";
   if (/^dockerfile(\..+)?$/.test(lower) || lower.endsWith(".dockerfile")) return "docker";
-  if (/^(\.vscode|\.claude|\.devcontainer)\//.test(rel) && /\.jsonc?$/.test(lower)) return "json";
+  // (U30F9, G8-10: a nested <folder>/.vscode/tasks.json and the root-level .devcontainer.json are read too)
+  if (/(^|\/)(\.vscode|\.claude|\.devcontainer)\//.test(rel) && /\.jsonc?$/.test(lower)) return "json";
+  if (lower === ".devcontainer.json") return "json";
   const ext = path.extname(lower);
   switch (ext) {
     case ".ts":
@@ -188,6 +190,26 @@ function mentionsTool(text: string): boolean {
   const names = [...Object.keys(spec.tools), ...Object.keys(spec.shell_wrappers)].map((n) => n.replace(/[.]/g, "\\."));
   toolRe ??= new RegExp(`(^|[^A-Za-z0-9_])(${names.join("|")})(?![A-Za-z0-9_])`, "i");
   return toolRe.test(text) || containsDynamic(text);
+}
+
+let channelRe: RegExp | null = null;
+/**
+ * U30F9 (G8-5, G8-6, G8-12): a command text the gate must read -- it names a DB/GIS tool or shell wrapper (mentionsTool), a
+ * remote shell (ssh: its words run on another host), or a code runner (node/python/ruby/perl/php: code on stdin or in a flag).
+ */
+function mentionsChannel(text: string): boolean {
+  if (mentionsTool(text)) return true;
+  const spec = classificationSpec().commands;
+  const names = [...Object.keys(spec.remote_shells), ...Object.keys(spec.code_runners), ...spec.unread_code_runners].map((n) => n.replace(/[.]/g, "\\."));
+  channelRe ??= new RegExp(`(^|[^A-Za-z0-9_])(${names.join("|")})(?![A-Za-z0-9_])`, "i");
+  return channelRe.test(text);
+}
+
+/** U30F9: the program of an argument vector is a remote shell or a code runner (read or unread language). */
+function isChannelProgram(a: string): boolean {
+  const spec = classificationSpec().commands;
+  const base = programBase(a);
+  return own(spec.remote_shells, base) !== undefined || own(spec.code_runners, base) !== undefined || spec.unread_code_runners.includes(base);
 }
 
 function verdictOf(v: WriteVerdict): TextVerdict {
@@ -349,12 +371,16 @@ function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefini
 
 function classifyCommandTextGate(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
   if (/\b(docker|podman)/i.test(text) && splitCommandLine(text).flat().some((seg) => destroysVolume(seg.argv))) return VOLUME_DESTROY;
-  if (!mentionsTool(text)) return null;
+  // U30F9 (G8-6): the text names a channel by a word -- or by a value whose variable name names a tool ("$PSQL_BIN", read
+  // by toolOf through the placeholder's hint, which no regex over the raw text sees)
+  if (!mentionsChannel(text) && !splitCommandLine(text).flat().some((seg) => seg.argv.some((a) => toolOf(a) || programKind(a) === "SHELL" || isChannelProgram(a)))) return null;
   const v = verdictOf(judgeWrites(analyzeCommandLine(text, { readSqlFile, ungated: true }), def));
   if (v.verdict === "ALLOWED") return v;
-  // every segment that names a tool only looks it up (`which psql && echo ok`)
-  const segments = splitCommandLine(text).flat().filter((seg) => seg.argv.some((a) => toolOf(a)));
-  if (segments.length > 0 && segments.every((seg) => lookupOnly(seg.argv))) return ALLOWED;
+  // every segment that names a tool only looks it up (`which psql && echo ok`) -- U30F9: and no segment runs a value
+  // (`"$(command -v psql)" -c "$1"` looks psql up in its substitution and then RUNS the value: the gate's verdict stands)
+  const all = splitCommandLine(text).flat();
+  const segments = all.filter((seg) => seg.argv.some((a) => toolOf(a)));
+  if (segments.length > 0 && segments.every((seg) => lookupOnly(seg.argv)) && !all.some((seg) => seg.argv.some((a) => containsDynamic(a)))) return ALLOWED;
   return v;
 }
 
@@ -3700,15 +3726,26 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
 
   // ---- command channels: every pipeline element of every statement (script blocks split at braces) ----
   const checkedBefore = (pos: number): string[] => relations.filter((r) => r.pos < pos).map((r) => r.text);
-  const statements: Tok[][] = [];
-  {
+  /**
+   * A statement, and (U30F9, G8-2) where it came from when it is a sub-pipeline: a `( ... )`, `$( ... )` or `@( ... )`
+   * group inside another statement, or a `$( ... )` inside a double-quoted string -- each runs as a command too (`$x = (psql
+   * -c $args[0])`, `Write-Host "$(psql -c $args[0])"`). Sub-statements from a string keep the string's line and excerpt.
+   */
+  interface PsStatement {
+    readonly toks: Tok[];
+    readonly excerpt?: string;
+    readonly line?: number;
+  }
+  const statements: PsStatement[] = [];
+  const splitStatements = (list: readonly Tok[], origin: { excerpt?: string; line?: number }): Tok[][] => {
+    const out: Tok[][] = [];
     let cur: Tok[] = [];
     let depth = 0;
     const flush = () => {
-      if (cur.length) statements.push(cur);
+      if (cur.length) out.push(cur);
       cur = [];
     };
-    for (const t of toks) {
+    for (const t of list) {
       if (t.k === "p" && (t.v === "{" || t.v === "@{" || t.v === "}") && depth === 0) {
         flush();
         continue;
@@ -3727,7 +3764,35 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       if (t.k !== "nl") cur.push(t);
     }
     flush();
-  }
+    void origin;
+    return out;
+  };
+  const collect = (list: readonly Tok[], origin: { excerpt?: string; line?: number }, depth: number): void => {
+    if (depth > 6) return;
+    for (const stmt of splitStatements(list, origin)) {
+      statements.push({ toks: stmt, ...origin });
+      // U30F9 (G8-2): every parenthesised group of the statement is a pipeline of its own
+      for (let k = 0; k < stmt.length; k += 1) {
+        const t = stmt[k]!;
+        if (t.k === "p" && (t.v === "(" || t.v === "$(" || t.v === "@(")) {
+          const close = matchClose(stmt, k);
+          const inner = stmt.slice(k + 1, close);
+          if (inner.length > 0) collect(inner, origin, depth + 1);
+          k = close;
+          continue;
+        }
+        // ...and every `$( ... )` of a double-quoted string (its text is read again as PowerShell)
+        if (t.k === "str" && t.parts) {
+          for (const part of t.parts) {
+            if (typeof part === "string" || !part.src.startsWith("$(")) continue;
+            const sub = lexPs(part.src.slice(2, -1)).toks.map((x) => ({ ...x, pos: t.pos, end: t.end, line: t.line }));
+            if (sub.length > 0) collect(sub, { excerpt: origin.excerpt ?? norm(src.slice(t.pos, t.end)), line: origin.line ?? t.line }, depth + 1);
+          }
+        }
+      }
+    }
+  };
+  collect(toks, {}, 0);
 
   /** One argument token (or parenthesised group) as text. */
   const argText = (group: readonly Tok[]): string => {
@@ -3739,6 +3804,15 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
     const out: Tok[][] = [];
     for (let i = 0; i < ts.length; i += 1) {
       const t = ts[i]!;
+      // U30F9: a word the lexer split at `=` with no space around it (ON_ERROR_STOP=1, PG:dbname=x, --config=KEY) is ONE
+      // argument; before, the lone `=` folded to a placeholder and the default-deny rule read it as a value
+      if ((t.k === "id" || t.k === "num") && ts[i + 1]?.k === "p" && ts[i + 1]!.v === "=" && ts[i + 1]!.pos === t.end && ts[i + 2] && ts[i + 2]!.pos === ts[i + 1]!.end && (ts[i + 2]!.k === "id" || ts[i + 2]!.k === "num" || ts[i + 2]!.k === "str")) {
+        let last = i + 2;
+        while (ts[last + 1] && ts[last + 1]!.pos === ts[last]!.end && (ts[last + 1]!.k === "id" || ts[last + 1]!.k === "num" || (ts[last + 1]!.k === "p" && ts[last + 1]!.v === "="))) last += 1;
+        out.push([{ ...t, k: "id", v: src.slice(t.pos, ts[last]!.end), end: ts[last]!.end }]);
+        i = last;
+        continue;
+      }
       if (isOpen(t) && t.v !== "{") {
         const close = matchClose(ts, i);
         out.push(ts.slice(i, close + 1));
@@ -3806,7 +3880,7 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
     else sink.counts.allowed += 1;
   };
 
-  for (const statement of statements) {
+  for (const { toks: statement, excerpt: originExcerpt, line: originLine } of statements) {
     const elements = splitTop(statement, (t) => t.k === "p" && t.v === "|").filter((e) => e.length > 0);
     elements.forEach((el, index) => {
       let e = el;
@@ -3817,15 +3891,18 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         for (const text of texts) scanCommandScript(`NODE_OPTIONS=${requote(text)}`, "sh", sink, def, readSqlFile, { lineOffset: e[0]!.line - 1, channel: "powershell", commandContext: true });
         return;
       }
-      // an assignment prefix: [type]$x = / $x.y +=
+      // an assignment prefix: [type]$x = / $x.y += -- (U30F9: only when the element starts with a variable or a type cast;
+      // `ogrinfo PG:dbname=x -sql $q` holds an `=` inside an argument and is no assignment)
       const eq = e.findIndex((x) => x.k === "p" && (x.v === "=" || x.v === "+="));
-      if (eq > 0 && eq <= 8 && e.slice(0, eq).every((x) => (x.k === "id" && !x.v.startsWith("-")) || (x.k === "p" && (x.v === "[" || x.v === "]" || x.v === ".")))) e = e.slice(eq + 1);
+      const assignee = e[0]!.k === "id" ? e[0]!.v.startsWith("$") : e[0]!.k === "p" && e[0]!.v === "[";
+      if (assignee && eq > 0 && eq <= 8 && e.slice(0, eq).every((x) => (x.k === "id" && !x.v.startsWith("-")) || (x.k === "p" && (x.v === "[" || x.v === "]" || x.v === ".")))) e = e.slice(eq + 1);
       while (e[0]?.k === "id" && /^(return|throw|exit)$/i.test(e[0]!.v)) e = e.slice(1);
+      // (U30F9, G8-2: an element that is a ( ... ) / $( ... ) / @( ... ) group is judged as the sub-statement `collect` made of it)
       const first = e[0];
       if (!first) return;
-      const elSrc = src.slice(first.pos, e[e.length - 1]!.end);
+      const elSrc = originExcerpt ?? src.slice(first.pos, e[e.length - 1]!.end);
       const excerpt = norm(elSrc);
-      const line = first.line;
+      const line = originLine ?? first.line;
       // & ogr2ogr @ogrArgs where $ogrArgs came out of a gate
       const passesGated = e.some((x, n) => (x.k === "id" && gatedIds.has(x.v)) || (x.k === "p" && x.v === "@" && e[n + 1]?.k === "id" && gatedIds.has(`$${e[n + 1]!.v.toLowerCase()}`)));
       if (PS_GATES_RE.test(elSrc) || (passesGated && (first.v === "&" || toolOf(first.v)))) {
@@ -3907,12 +3984,17 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         const groups = argGroups(e.slice(1));
         let programGroup: Tok[] | null = null;
         let argGroup: Tok[] | null = null;
+        // U30F9 (G8-10): -ArgumentList '-File', 'x.ps1' -- the comma list is every group up to the next -Flag
+        const argGroupsList: Tok[][] = [];
+        const isFlag = (g: Tok[]) => g.length === 1 && g[0]!.k === "id" && g[0]!.v.startsWith("-");
         for (let i = 0; i < groups.length; i += 1) {
           const g = groups[i]!;
-          const name = g.length === 1 && g[0]!.k === "id" ? g[0]!.v.toLowerCase() : "";
+          const name = isFlag(g) ? g[0]!.v.toLowerCase() : "";
           if (name === "-filepath" || name === "-file") programGroup = groups[++i] ?? null;
-          else if (name === "-argumentlist" || name === "-args") argGroup = groups[++i] ?? null;
-          else if (name.startsWith("-")) {
+          else if (name === "-argumentlist" || name === "-args") {
+            while (i + 1 < groups.length && !isFlag(groups[i + 1]!)) argGroupsList.push(groups[++i]!);
+            argGroup = argGroupsList[0] ?? null;
+          } else if (name.startsWith("-")) {
             if (!/^-(nonewwindow|passthru|wait|usenewenvironment)$/.test(name)) i += 1;
           } else if (!programGroup) programGroup = g;
           else if (!argGroup) argGroup = g;
@@ -3920,7 +4002,12 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         if (!programGroup) return;
         const programs = foldExpr(programGroup, ctx, 0).texts;
         let argv: string[] | null = [];
-        if (argGroup) {
+        if (argGroupsList.length > 1) {
+          argv = argGroupsList.map((g) => {
+            const f = foldExpr(g, ctx, 0);
+            return f.texts.length === 1 ? f.texts[0]! : dyn(hintOf(g, src));
+          });
+        } else if (argGroup) {
           const els = arrayElements(argGroup, ctx, 0);
           if (els) argv = els;
           else {
@@ -3988,9 +4075,9 @@ function logicalLines(code: string, lang: "sh" | "ps" | "cmd"): LogicalLine[] {
         k += 1;
         text = `${text}\n${raw[k]!.replace(/\r$/, "")}`;
       }
-      // (U30F8: also \EOF and "EOF"; a here-string <<< is no here-document)
-      const hd = /(?<!<)<<(?!<)-?\s*\\?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(text);
-      if (hd) {
+      // (U30F8: also \EOF and "EOF"; a here-string <<< is no here-document) -- U30F9 (G8-6): EVERY here-document the line
+      // opens, in order (`cat <<A; psql <<B` is followed by A's body, then B's)
+      for (const hd of text.matchAll(/(?<!<)<<(?!<)-?\s*\\?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g)) {
         while (k + 1 < raw.length) {
           k += 1;
           text = `${text}\n${raw[k]!.replace(/\r$/, "")}`;
@@ -4159,7 +4246,8 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
     // [[ a && b ]]: a test expression, not two commands
     const forSplit = lang === "sh" ? text.replace(/\[\[[\s\S]*?\]\]/g, "[[ test ]]") : text;
     const segments = splitCommandLine(forSplit).flat();
-    const touchesTool = segments.some((s) => s.argv.some((a) => toolOf(a) || programKind(a) === "SHELL") || destroysVolume(s.argv));
+    // (U30F9: a remote shell or a code runner is a channel too -- its words or its stdin run as a command or as code)
+    const touchesTool = segments.some((s) => s.argv.some((a) => toolOf(a) || programKind(a) === "SHELL" || isChannelProgram(a)) || destroysVolume(s.argv));
     const dynamicWhy = commandContext ? commandDynamic(forSplit) : null;
     const evalLike = commandContext && segments.some((seg) => /^(eval|source|\.)$/.test(seg.argv[programIndex(seg.argv)] ?? "") && seg.argv.some((a) => dynamicHint(a) !== null));
     // U30F5 (D-1/D-2): a line that runs a file (tsx x.ts, bash x.txt) or inline code (node -e, python -c) is a channel too
@@ -4257,6 +4345,23 @@ function scanDockerfile(src: string, sink: SiteSink, def: ProtectedRelationsDefi
       k += 1;
       text = `${text.slice(0, -1)} ${raw[k]!.replace(/\r$/, "").replace(/^\s*#.*$/, "")}`;
     }
+    // U30F9 (G8-3): a here-document of a RUN/CMD/ENTRYPOINT (`RUN <<EOF ... EOF`, `RUN <<-EOF bash`, `RUN python3 <<PY`) is the
+    // script the instruction's shell (or the named program) reads: its lines follow until the delimiter. Without a program, the
+    // image's default shell runs the body (`sh`).
+    if (/^\s*(RUN|CMD|ENTRYPOINT)\s/i.test(text)) {
+      const markers = [...text.matchAll(/(?<!<)<<(?!<)-?\s*\\?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/g)];
+      for (const hd of markers) {
+        while (k + 1 < raw.length) {
+          k += 1;
+          text = `${text}\n${raw[k]!.replace(/\r$/, "")}`;
+          if (raw[k]!.replace(/\r$/, "").trim() === hd[2]) break;
+        }
+      }
+      // a marker with nothing but options after it on the instruction line: the default shell reads the body
+      if (markers.length > 0 && /^\s*(?:RUN|CMD|ENTRYPOINT)\s+(?:--[^\s]+\s+)*<<-?\s*\\?(['"]?)[A-Za-z_][A-Za-z0-9_]*\1\s*$/i.test(text.split("\n")[0]!)) {
+        text = text.replace(/^(\s*(?:RUN|CMD|ENTRYPOINT)\s+(?:--[^\s]+\s+)*)(<<)/i, "$1sh $2");
+      }
+    }
     // U30F8 (G6-5): ENV/ARG NODE_OPTIONS -- the options of every node the image runs
     const env = /^\s*(?:ENV|ARG)\s+NODE_OPTIONS(?:\s*=\s*|\s+)(.*)$/is.exec(text);
     if (env) {
@@ -4267,7 +4372,8 @@ function scanDockerfile(src: string, sink: SiteSink, def: ProtectedRelationsDefi
     }
     const m = /^\s*(RUN|CMD|ENTRYPOINT)\s+(.*)$/is.exec(text);
     if (!m) continue;
-    const body = m[2]!.trim();
+    // (U30F9: RUN's own flags -- --mount=..., --network=..., --security=... -- are not the command)
+    const body = m[2]!.trim().replace(/^(?:--[^\s]+\s+)+/, "");
     if (body.startsWith("[")) {
       try {
         const argv = JSON.parse(body) as unknown;
@@ -4295,7 +4401,10 @@ const YAML_ARGUMENT_KEYS = /^(args|arguments)$/i;
  * a value the source does not hold. GitHub's ${{ ... }} is a `$` expansion the splitter reads already.
  */
 function templateValues(text: string): string {
-  return text.includes("{{") ? text.replace(/(?<!\$)\{\{[\s\S]*?\}\}/g, () => dyn("template")) : text;
+  if (!text.includes("{{")) return text;
+  // U30F9 (G8-4): GitHub substitutes `${{ expression }}` BEFORE any shell or interpreter runs the step -- also inside single
+  // quotes and inside a python/pwsh/node `run:` body -- so it is a value wherever it stands
+  return text.replace(/\$\{\{[\s\S]*?\}\}/g, () => dyn("actions")).replace(/(?<!\$)\{\{[\s\S]*?\}\}/g, () => dyn("template"));
 }
 
 /**
@@ -4446,7 +4555,9 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       // U30F6 (F5-7): a folded block (>) is one command where YAML folds it, not one per source line
       const text = value.startsWith(">") ? foldYamlBlock(stripped) : stripped.join("\n");
       const keyCol = indent + (dash ? m[2]!.length : 0);
-      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(text, k, keyCol, k + 1))) scanCommandScript(commandContext ? templateValues(text) : text, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
+      // (U30F9: the Actions `${{ }}` and template values are read BEFORE the body goes to its shell's language)
+      const cmdText = commandContext ? templateValues(text) : text;
+      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(cmdText, k, keyCol, k + 1))) scanCommandScript(cmdText, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
       k = n - 1;
       continue;
     }
@@ -4464,8 +4575,9 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       scanCommandScript(`NODE_OPTIONS=${requote(nodeOptions)}`, "sh", sink, def, readSqlFile, { ...opts, commandContext: true });
       continue;
     }
-    if (commandContext && key !== null && key.toLowerCase() === "run" && runAs(unquote(value), k, keyCol, k)) continue;
-    scanCommandScript(commandContext ? templateValues(unquote(value)) : unquote(value), "sh", sink, def, readSqlFile, opts);
+    const scalar = commandContext ? templateValues(unquote(value)) : unquote(value);
+    if (commandContext && key !== null && key.toLowerCase() === "run" && runAs(scalar, k, keyCol, k)) continue;
+    scanCommandScript(scalar, "sh", sink, def, readSqlFile, opts);
   }
 }
 
@@ -4497,9 +4609,30 @@ function scanJsonCommands(file: string, src: string, sink: SiteSink, def: Protec
   const values: string[] = [];
   /** U30F8 (G6-3): values that ARE commands in a JSON configuration (read with command context, like npm scripts). */
   const commands: string[] = [];
+  /** U30F9 (G8-7): package.json hook commands (husky v4 hooks, lint-staged, simple-git-hooks, nano-staged, gitHooks), bin launches and config values. */
+  const hooks: string[] = [];
+  const bins: string[] = [];
+  const configValues: string[] = [];
   if (file.split("/").pop()!.toLowerCase() === "package.json") {
-    const scripts = (doc as { scripts?: Record<string, unknown> } | null)?.scripts ?? {};
+    const pkg = (doc ?? {}) as Record<string, unknown>;
+    const scripts = (pkg.scripts ?? {}) as Record<string, unknown>;
     for (const v of Object.values(scripts)) if (typeof v === "string") values.push(v);
+    for (const field of PACKAGE_JSON_HOOK_FIELDS) {
+      let hookTable: unknown = pkg[field];
+      if (field === "husky") hookTable = (hookTable as { hooks?: unknown } | undefined)?.hooks;
+      if (!hookTable || typeof hookTable !== "object") continue;
+      for (const v of Object.values(hookTable as Record<string, unknown>)) {
+        if (typeof v === "string") hooks.push(v);
+        else if (Array.isArray(v)) for (const x of v) if (typeof x === "string") hooks.push(x);
+      }
+    }
+    // `bin`: a file node runs when the package's command is invoked (npx <name>, a linked install) -- a launch of that file
+    const bin = pkg.bin;
+    if (typeof bin === "string") bins.push(bin);
+    else if (bin && typeof bin === "object") for (const v of Object.values(bin as Record<string, unknown>)) if (typeof v === "string") bins.push(v);
+    // `config` values reach scripts as $npm_package_config_*: text, read on the literal surface (not as commands)
+    const config = pkg.config;
+    if (config && typeof config === "object") for (const v of Object.values(config as Record<string, unknown>)) if (typeof v === "string") configValues.push(v);
   } else {
     const quoteArg = (a: unknown) => (typeof a === "string" ? requote(a) : String(a));
     const walk = (x: unknown, key: string, inCommand: boolean): void => {
@@ -4519,6 +4652,13 @@ function scanJsonCommands(file: string, src: string, sink: SiteSink, def: Protec
           const argv = [typeof o.runtimeExecutable === "string" ? o.runtimeExecutable : "node", ...(Array.isArray(o.runtimeArgs) ? o.runtimeArgs : []), ...(typeof o.program === "string" ? [o.program] : []), ...(Array.isArray(o.args) ? o.args : [])];
           commands.push(argv.map(quoteArg).join(" "));
         }
+        // U30F9 (G8-10): a python/debugpy configuration runs `python <program>`; a PowerShell one runs `pwsh -File <script>`
+        if (typeof o.type === "string" && /^(python|debugpy)$/i.test(o.type) && typeof o.program === "string") {
+          commands.push(["python", o.program, ...(Array.isArray(o.args) ? o.args : [])].map(quoteArg).join(" "));
+        }
+        if (typeof o.type === "string" && /^powershell$/i.test(o.type) && typeof o.script === "string") {
+          commands.push(["pwsh", "-File", o.script, ...(Array.isArray(o.args) ? o.args : [])].map(quoteArg).join(" "));
+        }
         // a devcontainer lifecycle command may be an object of named commands: each is a command
         for (const [k, v] of Object.entries(o)) walk(v, k, command && typeof v === "string");
       }
@@ -4529,10 +4669,22 @@ function scanJsonCommands(file: string, src: string, sink: SiteSink, def: Protec
   const npm = file.split("/").pop()!.toLowerCase() === "package.json";
   for (const v of values) scanCommandScript(v, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: npm ? "npm script" : "json", commandContext: npm });
   for (const v of commands) scanCommandScript(v, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: "json command", commandContext: true });
+  for (const v of hooks) scanCommandScript(v, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: "package.json hook", commandContext: true });
+  for (const v of bins) scanCommandScript(`node ${requote(v)}`, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: "package.json bin", commandContext: true });
+  for (const v of configValues) scanCommandScript(v, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: "package.json config", commandContext: false });
 }
 
 /** U30F8 (G6-3): JSON keys whose values are commands (devcontainer lifecycle commands, tasks/hooks `command`). */
 const JSON_COMMAND_KEYS = /^(initializeCommand|onCreateCommand|updateContentCommand|postCreateCommand|postStartCommand|postAttachCommand|command|commands)$/;
+
+/**
+ * U30F9 (G8-7): the package.json fields besides `scripts` whose values are commands a tool runs (husky v4 `husky.hooks`,
+ * lint-staged, simple-git-hooks, nano-staged, yorkie `gitHooks`). The inventory pins these fields together with `scripts`,
+ * `bin` and `config` (PACKAGE_JSON_PINNED_FIELDS).
+ */
+export const PACKAGE_JSON_HOOK_FIELDS: readonly string[] = ["husky", "lint-staged", "simple-git-hooks", "nano-staged", "gitHooks"];
+/** U30F9 (G8-7): what a package.json content pin covers -- every field the scan reads as a command, a launch or a value. */
+export const PACKAGE_JSON_PINNED_FIELDS: readonly string[] = ["scripts", "bin", "config", ...PACKAGE_JSON_HOOK_FIELDS];
 
 function scanSqlFile(src: string, sink: SiteSink, def: ProtectedRelationsDefinition): void {
   sink.counts.channels += 1;

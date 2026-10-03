@@ -109,12 +109,15 @@
     "code_runners": { "node": ["-e", "--eval", "-p", "--print"], "nodejs": ["-e", "--eval", "-p", "--print"], "bun": ["-e", "--eval", "-p", "--print"], "deno": ["eval"], "python": ["-c"], "python3": ["-c"], "py": ["-c"], "pypy": ["-c"], "pypy3": ["-c"], "ruby": ["-e"], "perl": ["-e"], "php": ["-r"] },
     "eval_words": ["eval", "invoke-expression", "iex"],
     "program_prefix_words": ["exec", "command", "builtin", "sudo", "nohup", "time", "env"],
+    "remote_shells": { "ssh": { "value_flags": ["-b", "-B", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-P", "-Q", "-R", "-S", "-W", "-w"] } },
+    "unread_code_runners": ["ruby", "perl", "php"],
+    "non_literal_exempt_tools_unless_piped_to": { "PG_DUMP": "PSQL" },
     "psql": {
       "command_flags": ["-c", "--command"],
       "file_flags": ["-f", "--file"],
       "value_flags": ["-v", "--set", "--variable", "-d", "--dbname", "-h", "--host", "-p", "--port", "-U", "--username", "-o", "--output", "-P", "--pset", "-L", "--log-file", "-F", "--field-separator", "-R", "--record-separator", "-T", "--table-attr"]
     },
-    "ogrinfo": { "sql_flags": ["-sql"] },
+    "ogrinfo": { "sql_flags": ["-sql"], "read_only_flags": ["-ro"] },
     "pgbench": { "file_flags": ["-f", "--file"] },
     "pg_restore": {
       "table_flags": ["-t", "--table"],
@@ -126,6 +129,7 @@
       "value_flags": ["-s", "-g", "-W", "-N", "-T", "-X", "-m", "-t", "-f", "-F", "-l", "-r", "-b"]
     },
     "prisma": {
+      "database_subcommands": ["migrate", "db"],
       "unresolvable_subcommands": [["migrate", "reset"], ["migrate", "dev"], ["db", "push"]],
       "file_executing_subcommands": [["db", "execute"]],
       "file_flags": ["--file"],

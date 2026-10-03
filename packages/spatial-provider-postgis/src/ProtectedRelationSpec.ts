@@ -95,8 +95,23 @@ export interface ProtectedRelationClassificationSpec {
     readonly eval_words: readonly string[];
     /** U30F8 (G6-7): words before the program that are not the program (exec "$@", sudo x). */
     readonly program_prefix_words: readonly string[];
+    /**
+     * U30F9 (G8-5): programs that run their remaining words as a command line on another host (ssh): the options that take
+     * a value are skipped, the first other word is the destination, the rest is the remote command; without one, stdin is
+     * the remote shell's script.
+     */
+    readonly remote_shells: Readonly<Record<string, { readonly value_flags: readonly string[] }>>;
+    /** U30F9 (G8-12): code runners of a language no binding reads (ruby, perl, php): anything they run is UNRESOLVABLE. */
+    readonly unread_code_runners: readonly string[];
+    /**
+     * U30F9 default-deny (owner decision 2026-10-03): a DB-capable tool run with any value the text does not hold is
+     * UNRESOLVABLE (NON_LITERAL) -- except these tools, unless they pipe into the named tool (a pg_dump that reaches no psql
+     * writes nothing).
+     */
+    readonly non_literal_exempt_tools_unless_piped_to: Readonly<Record<string, string>>;
     readonly psql: { readonly command_flags: readonly string[]; readonly file_flags: readonly string[]; readonly value_flags: readonly string[] };
-    readonly ogrinfo: { readonly sql_flags: readonly string[] };
+    /** U30F9: ogrinfo writes only through -sql, and never in read-only mode (-ro). */
+    readonly ogrinfo: { readonly sql_flags: readonly string[]; readonly read_only_flags: readonly string[] };
     /** U30F6 (F5-5): pgbench runs the SQL of each -f/--file script (name@weight). */
     readonly pgbench: { readonly file_flags: readonly string[] };
     readonly pg_restore: {
@@ -107,6 +122,8 @@ export interface ProtectedRelationClassificationSpec {
     };
     readonly shp2pgsql: { readonly value_flags: readonly string[] };
     readonly prisma: {
+      /** U30F9: the prisma subcommands that reach a database (migrate, db); generate/validate/format do not. */
+      readonly database_subcommands: readonly string[];
       readonly unresolvable_subcommands: readonly (readonly string[])[];
       readonly file_executing_subcommands: readonly (readonly string[])[];
       readonly file_flags: readonly string[];
@@ -174,6 +191,15 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   for (const [k, v] of Object.entries(codeRunners)) stringList(v, `commands.code_runners.${k}`);
   stringList(commands.eval_words, "commands.eval_words");
   stringList(commands.program_prefix_words, "commands.program_prefix_words");
+  // U30F9: the G8-5/G8-12/default-deny vocabularies are required -- a missing table would read as "nothing to refuse"
+  const remoteShells = commands.remote_shells as Record<string, unknown> | undefined;
+  if (!remoteShells || typeof remoteShells !== "object" || Object.keys(remoteShells).length === 0) throw invalid("commands.remote_shells");
+  for (const [k, v] of Object.entries(remoteShells)) stringList((v as Record<string, unknown> | null)?.value_flags, `commands.remote_shells.${k}.value_flags`);
+  stringList(commands.unread_code_runners, "commands.unread_code_runners");
+  stringList((commands.ogrinfo as Record<string, unknown> | undefined)?.read_only_flags, "commands.ogrinfo.read_only_flags");
+  stringList((commands.prisma as Record<string, unknown> | undefined)?.database_subcommands, "commands.prisma.database_subcommands");
+  const exempt = commands.non_literal_exempt_tools_unless_piped_to as Record<string, unknown> | undefined;
+  if (!exempt || typeof exempt !== "object" || Object.values(exempt).some((v) => typeof v !== "string" || v.length === 0)) throw invalid("commands.non_literal_exempt_tools_unless_piped_to");
   stringList(doc.schema_operations, "schema_operations");
   return Object.freeze({ ...(doc as object), relation_naming: Object.freeze({ current, legacy: Object.freeze(legacy), max_identifier_bytes: 63 }) }) as ProtectedRelationClassificationSpec;
 }
