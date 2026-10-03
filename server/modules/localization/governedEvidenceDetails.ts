@@ -847,6 +847,16 @@ function sameIdentity(stored: { artifact_id?: unknown; content_hash?: { value?: 
 }
 
 /**
+ * W-U20CDF5-R3 (U20CDF5-R2 verification R2-3; the L4 class): every root artifact carries a payload object. One without
+ * it is a damaged (truncated) object -- an integrity verdict, never "an older contract" or "a contract version this
+ * view does not interpret".
+ */
+function hasPayloadObject(artifact: unknown): boolean {
+  const payload = (artifact as { payload?: unknown } | null)?.payload;
+  return typeof payload === 'object' && payload !== null && !Array.isArray(payload);
+}
+
+/**
  * W-U20CDF5-R2 (U20CDF5 verification G, probe Gc; the CATCH3 class): a property-root artifact read under `ref` must
  * BE that artifact -- the shared assertReadUnderItsOwnId (id and type). Another, self-consistent object under a
  * misdirected index entry (a legacy context is not rebuilt, so nothing else catches it) is an integrity verdict,
@@ -890,6 +900,7 @@ async function resolvePropertyRoot(
   if (contextRead.kind === 'corrupted') return tampered();
   if (contextRead.kind === 'error') return technical('ROOT_READ_ERROR');
   if (!isReadUnderItsOwnRef(contextRead.artifact, ref)) return tampered();
+  if (!hasPayloadObject(contextRead.artifact)) return tampered();
   const context = contextRead.artifact as LUPropertyContextArtifact;
   const bindingRef = asRef(context?.payload?.project_property_binding_ref);
   if (
@@ -950,6 +961,7 @@ async function resolvePropertyRoot(
   if (observationRead.kind === 'corrupted') return tampered();
   if (observationRead.kind === 'error') return { ...technical('ROOT_READ_ERROR'), ...base, observation_artifact_id: observationRef.artifact_id };
   if (!isReadUnderItsOwnRef(observationRead.artifact, observationRef)) return tampered();
+  if (!hasPayloadObject(observationRead.artifact)) return tampered();
   const observation = observationRead.artifact as PropertyLookupObservationArtifact;
   if (observation?.payload?.resolver_version !== CANONICAL_PROPERTY_OBSERVATION_CONTRACT_VERSION) {
     // A newer/older observation contract (e.g. U20-B's v2) is not interpreted by this version.
