@@ -197,6 +197,13 @@ async function provision(findings: readonly AssessmentFinding[], options: { read
   const bindingIndex = new MemoryBindingIndex();
   const projectionIndex = new MemoryProjectionIndex();
   await repository.put({ artifact_id: issuer.artifact_id, body: issuer });
+  // W-GAP1 (F2, owner decision Round 15-16): the record's property root must be STORED -- a well-formed property_ref whose
+  // object is not in the CAS is a lost referenced artifact that verify and the map refuse (ROOT_MISSING_FROM_CAS). A legacy
+  // context without a binding ref reads back as NOT_RECORDED, which refuses nothing; the record-integrity scenarios are unchanged.
+  await repository.put({
+    artifact_id: 'property-u20cdf4',
+    body: { artifact_id: 'property-u20cdf4', artifact_type: 'LU_PROPERTY_CONTEXT', payload: { property_ref: 'GÄVLE TEST 1:1' } },
+  });
   const unsigned = createProjectContextBindingArtifact({
     project_id: PROJECT_ID, project_context_ref: CONTEXT, project_property_binding_ref: PROPERTY_BINDING,
     binding_version: 'project-context-binding-v2', authority_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },

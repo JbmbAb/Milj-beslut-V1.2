@@ -751,6 +751,7 @@ describe('W-U20CDF5-add: the assessment read under the selected id must BE that 
 
   it('control (no over-closing): a legitimate read -> 200 on read-back, verify and map', async () => {
     const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository); // W-GAP1 (F2): a stored root -- verify and the map refuse a root the CAS does not hold.
     await storeOtherValidAssessment(repository);
     const readBack = await PATHS.readBack();
     expect(readBack.status).toBe(200);
@@ -818,7 +819,8 @@ describe('W-GAP1 F1: the SELECTED assessment that is gone at its second read is 
   });
 
   it('verify, read 3: H15\'s own read of the already-read assessment answers its exact "Artifact not found: <X>" -> the same typed 503, never an untyped 500', async () => {
-    const { assessment } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository); // the root is stored, so the pre-check passes and H15 is reached
     faults.reExecuteThrows = () => new Error(`Artifact not found: ${assessment.artifact_id}`);
     const res = await PATHS.verify();
     expect(spies.reExecute).toHaveBeenCalledTimes(1);
@@ -830,7 +832,8 @@ describe('W-GAP1 F1: the SELECTED assessment that is gone at its second read is 
   });
 
   it('control (exact id only): H15 throwing a not-found for ANOTHER id is not the assessment\'s integrity fault -- it propagates as before (the route\'s next(error), here the default 500)', async () => {
-    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
     faults.reExecuteThrows = () => new Error('Artifact not found: evidence-water-secretid');
     const res = await PATHS.verify();
     expect(spies.reExecute).toHaveBeenCalledTimes(1);

@@ -179,6 +179,8 @@ import {
   createProjectContextBindingArtifact,
   createProjectContextBindingIssuerArtifact,
   createProjectContextBindingSupersessionIssuerArtifact,
+  createProjectPropertyBindingArtifact,
+  createPropertyLookupObservationArtifact,
   type LocalizationGeometryArtifact,
 } from '@miljobeslut/mps-lu';
 import { MimersByteStorageBackend } from '../../packages/mps-runtime/src/repository/MimersByteStorageBackend';
@@ -282,10 +284,25 @@ async function buildFixture(): Promise<Fixture> {
     attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: bareSupersessionIssuer, signing: pcbSupersessionKey.provider }),
   });
 
-  const propertyBinding = { artifact_id: 'project-property-binding-apr-chain', artifact_type: 'project_property_binding' } as const;
+  // W-GAP1 (F2, owner decision Round 15-16): the property root is STORED in full (context -> binding -> observation, the
+  // product factories' content-addressed ids). The former fixture named a binding it never stored -- a well-formed root link
+  // whose object is not in the CAS is now a lost referenced artifact that verify and the PDF refuse (ROOT_MISSING_FROM_CAS).
+  const propertyGeometryRef = { artifact_id: 'geometry-apr-chain', artifact_type: 'CANONICAL_GEOMETRY' } as const;
+  const propertyObservation = createPropertyLookupObservationArtifact({
+    property_identity: 'property-identity-apr-chain', property_designation: 'GÄVLE APR 1:1', source_key: 'apr-chain-key',
+    source_dataset: 'core.property_unit', source_updated_at: '2026-06-28T00:00:00.000Z', municipality: 'Gävle', geometry_ref: propertyGeometryRef,
+  });
+  await put(repo, propertyObservation);
+  const propertyBindingArtifact = createProjectPropertyBindingArtifact({
+    project_id: PROJECT_ID, property_identity: propertyObservation.payload.property_identity, property_designation: propertyObservation.payload.property_designation,
+    geometry_ref: propertyGeometryRef, source_refs: [{ artifact_id: propertyObservation.artifact_id, artifact_type: propertyObservation.artifact_type }],
+    resolver_id: 'postgis-property-unit-exact', resolver_version: 'canonical-property-observation-v1', contract_version: 'project-property-binding-v1',
+  });
+  await put(repo, propertyBindingArtifact);
+  const propertyBinding = { artifact_id: propertyBindingArtifact.artifact_id, artifact_type: propertyBindingArtifact.artifact_type } as const;
   const propertyContext = createProductLuPropertyContextArtifact({
     property_identity: 'property-identity-apr-chain', property_ref: 'GÄVLE APR 1:1', official_name: 'Gävle Apr 1:1',
-    geometry_ref: { artifact_id: 'geometry-apr-chain', artifact_type: 'CANONICAL_GEOMETRY' },
+    geometry_ref: propertyGeometryRef,
     municipality: 'Gävle', coordinates: [60.67, 17.14], project_property_binding_ref: propertyBinding,
   });
   await put(repo, propertyContext);
