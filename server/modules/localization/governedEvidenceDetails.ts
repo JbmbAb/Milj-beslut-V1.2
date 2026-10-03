@@ -52,6 +52,7 @@ import { isVerifiedDocumentFactContentHashValid } from '../../../packages/mps-da
 import {
   computeGovernedDocumentCheck,
   computeGovernedLayerChecks,
+  documentRuleInputsPinned,
   type GovernedDocumentCheck,
   type GovernedLayerCheck,
 } from './governedLayerChecks';
@@ -207,6 +208,11 @@ const COVERAGE_STATE_BY_REASON: Readonly<Record<string, GovernedCoverageState>> 
   DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED: 'INCOMPLETE_EVIDENCE',
   PINNED_EVIDENCE_REFS_UNREADABLE: 'TECHNICAL_ERROR',
   MALFORMED_DOCUMENT_REFS: 'TECHNICAL_ERROR',
+  // W-U20CDF6 (OD-K0-3): only a NOT_CHECKED row reaches this table (a CHECKED_HIT row keeps its own state) -- the
+  // document row whose rule finding does not rest on the pinned documents: an incomplete basis, never a hit.
+  FINDING_WITHOUT_CONSISTENT_EVIDENCE: 'INCOMPLETE_EVIDENCE',
+  // W-U20CDF6 (OD-K0-3): the document row of a record whose findings field is not a list (an integrity error).
+  MALFORMED_RECORD_ENTRY: 'TECHNICAL_ERROR',
 };
 
 function coverageStateOf(check: GovernedLayerCheck): GovernedCoverageState {
@@ -384,6 +390,11 @@ export function presentedGovernedLayerChecks(input: {
    * a technical error. U20CDF2 (G2): so is the layer of a stored risk finding that cites one of them.
    */
   readonly unreadableArtifactIds?: readonly string[];
+  /**
+   * W-U20CDF6 (OD-K0-3): the record's findings field AS STORED, for the document check (whether LU-DOC-BESLUT-001
+   * fired; a value that is not a list cannot say). Defaults to `findings`.
+   */
+  readonly storedFindings?: unknown;
 }): PresentedGovernedLayerCheck[] {
   // U20CDF3 (U20CDF2 verification H4 / low 2): exactly the governed M layers -- never an extra row for
   // evidence of another dataset (an unknown or mis-cased one gave "6 av 7"). Such evidence makes the
@@ -413,6 +424,8 @@ export function presentedGovernedLayerChecks(input: {
     return ids.length > 1 && new Set(ids).size === 1;
   };
   const documentCheck = computeGovernedDocumentCheck(input.pinnedEvidenceRefs, {
+    // W-U20CDF6 (OD-K0-3): a hit only when the rule fired -- read from the same record's findings.
+    findings: 'storedFindings' in input ? input.storedFindings : input.findings,
     unreadableArtifactIds: input.unreadableArtifactIds,
   });
   return [...spatial, documentCheck].map((check) =>
@@ -1151,8 +1164,10 @@ export async function resolveGovernedAssessmentDetails(input: {
       pinnedEvidenceRefs: rawRefs,
       spatialEvidenceUnreadable,
       unreadableArtifactIds,
+      // W-U20CDF6 (OD-K0-3): the document row reads whether the rule fired from the findings field as stored.
+      storedFindings: payload?.findings,
     }),
-    documentCheck: computeGovernedDocumentCheck(rawRefs, { unreadableArtifactIds }),
+    documentCheck: computeGovernedDocumentCheck(rawRefs, { findings: payload?.findings, unreadableArtifactIds }),
     pinnedEvidence: {
       pinned_total: refs.length,
       unreadable_artifact_ids: [...unreadableArtifactIds].sort(),
@@ -1164,7 +1179,8 @@ export async function resolveGovernedAssessmentDetails(input: {
         : {}),
       ...(malformedRefIndexes.length > 0 ? { malformed_evidence_ref_indexes: malformedRefIndexes } : {}),
       // W-U20CDF5 (M1): what LU-DOC-BESLUT-001 reads is pinned -- from the refs alone, no artifact read.
-      ...(computeGovernedDocumentCheck(rawRefs).status === 'CHECKED_HIT' ? { document_rule_inputs_pinned: true } : {}),
+      // W-U20CDF6 (OD-K0-3): its own predicate now (it used to be "the refs alone give CHECKED_HIT").
+      ...(documentRuleInputsPinned(rawRefs) ? { document_rule_inputs_pinned: true } : {}),
     },
     propertyRoot,
     integrity: integrityFailure,

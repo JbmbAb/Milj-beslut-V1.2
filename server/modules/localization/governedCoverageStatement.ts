@@ -191,6 +191,16 @@ export interface PinnedEvidenceReadability {
   readonly document_rule_inputs_pinned?: boolean;
 }
 
+/**
+ * W-U20CDF6 (OD-K0-3): the NOT_CHECKED reasons computeGovernedDocumentCheck gives ONLY when the rule's inputs (DE + VF)
+ * are pinned -- a rule finding that does not agree with them.
+ */
+const DOCUMENT_ROWS_OVER_PINNED_INPUTS: ReadonlySet<string> = new Set([
+  'FINDING_WITHOUT_CONSISTENT_EVIDENCE',
+  'FINDING_WITH_UNKNOWN_SEVERITY',
+  'NOT_CHECKED_FINDING_WITH_EVIDENCE',
+]);
+
 export const HISTORICAL_COVERAGE_UNKNOWN_SV = 'Täckningsgrad kan inte fastställas för denna historiska bedömning.';
 const CHECKS_UNAVAILABLE_SV = 'Täckningsgrad kan inte fastställas: uppgift om genomförda kontroller saknas i underlaget.';
 export const RECORD_INTEGRITY_ERROR_SV =
@@ -335,7 +345,14 @@ export function assessGovernedCoverage(checks: unknown, context: GovernedStateme
       // spatial layer, so no producer writes this: the same contradiction as for a layer.
       // W-U20CDF5 (M1): the pinned DE + VF are known from the refs alone, also when a pinned document
       // could not be read (the row is then a technical error, not CHECKED_HIT).
-      const ruleInputsPinned = check.status === 'CHECKED_HIT' || pinned?.document_rule_inputs_pinned === true;
+      // W-U20CDF6 (OD-K0-3): a hit is the rule's own finding now -- every row state the document check gives ONLY
+      // over pinned inputs says they are pinned: a hit, a no-hit, and the rows of a rule finding that does not agree
+      // with them (no longer CHECKED_HIT), so the contradiction is seen also on a path without `pinned` (the fresh run).
+      const ruleInputsPinned =
+        check.status === 'CHECKED_HIT' ||
+        check.status === 'CHECKED_NO_HIT' ||
+        (check.reason !== null && DOCUMENT_ROWS_OVER_PINNED_INPUTS.has(check.reason)) ||
+        pinned?.document_rule_inputs_pinned === true;
       if (ruleInputsPinned && notCheckedRules.has(GOVERNED_DOCUMENT_CHECK_RULE_ID)) {
         integrity.push(`NOT_CHECKED_FINDING_WITH_EVIDENCE:${GOVERNED_DOCUMENT_CHECK_LAYER}`);
       }

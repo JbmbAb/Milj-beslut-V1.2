@@ -169,8 +169,9 @@ export interface ExecutionMotorMeta {
    * this run's own governed evidence. Present only for an ASSESSED run. Adds a signal; the
    * NOT_CHECKED findings and `unresolvedChecks` remain the structured source of truth.
    * K0: the last element is the document check (`layer: 'document'`, see GovernedDocumentCheck),
-   * derived from the persisted assessment's pinned evidence_refs: NOT_CHECKED with a reason, or
-   * CHECKED_HIT; never CHECKED_NO_HIT. The read-back returns the same object as `documentCheck`.
+   * derived from the persisted assessment's pinned evidence_refs and (W-U20CDF6, OD-K0-3) its findings:
+   * CHECKED_HIT only when LU-DOC-BESLUT-001 fired, CHECKED_NO_HIT when its pinned inputs are there and it did
+   * not fire, NOT_CHECKED with a reason otherwise. The read-back returns the same object as `documentCheck`.
    */
   governed_layer_checks?: readonly GovernedLayerCheck[];
   /**

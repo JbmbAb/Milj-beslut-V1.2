@@ -70,14 +70,27 @@ interface LayerEvidenceLike {
  * draft and never from stored findings. A fresh run, a read-back (re-open) and the PDF compute it
  * from the same pinned refs and therefore show the same thing.
  *
- * v1 states:
- *  - CHECKED_HIT  at least one DOCUMENT_EVIDENCE and at least one VERIFIED_DOCUMENT_FACT are pinned
- *                 (exactly the inputs LU-DOC-BESLUT-001 reads). Other documents for the property are
- *                 still unchecked, and message_sv says so.
- *  - NOT_CHECKED  otherwise, with a machine-readable reason.
- * Never CHECKED_NO_HIT: in v1 no governed document corpus establishes coverage for a property, so
- * the absence of pinned document evidence means "not checked", never "checked, nothing found". It
- * is not a risk level either: it never reads as LOW/green and does not touch overallRisk,
+ * v1 states (W-U20CDF6, OWNER DECISION OD-K0-3, 2026-10-03: CHECKED_HIT means that LU-DOC-BESLUT-001
+ * ACTUALLY fired; that both reference types are pinned means only that the control basis exists):
+ *  - CHECKED_HIT     the rule's inputs are pinned (at least one DOCUMENT_EVIDENCE and one
+ *                    VERIFIED_DOCUMENT_FACT) AND the record holds a HIGH/MEDIUM/LOW finding of
+ *                    LU-DOC-BESLUT-001 whose evidence_refs cite a pinned DOCUMENT_EVIDENCE and a pinned
+ *                    VERIFIED_DOCUMENT_FACT (the rule cites exactly the evidence and the facts it fired on),
+ *                    and no NOT_CHECKED finding of the rule beside it. evidence_artifact_id is the cited
+ *                    document evidence. Other documents for the property are not checked; message_sv says so.
+ *  - CHECKED_NO_HIT  the rule's inputs are pinned (no malformed document ref) and the record holds NO
+ *                    finding of the rule: the rule was evaluated over the pinned documents and did not fire.
+ *                    Only the pinned documents were checked -- never "inga tidigare beslut" (SI-2); the row
+ *                    counts as completed with limited coverage (governedCoverageStatement hasLimitedCoverage).
+ *  - NOT_CHECKED     otherwise, with a machine-readable reason. Without pinned inputs the absence of document
+ *                    evidence still means "not checked", never "checked, nothing found" (no governed document
+ *                    corpus establishes coverage for a property in v1). With pinned inputs: a risk finding
+ *                    without that consistent evidence (FINDING_WITHOUT_CONSISTENT_EVIDENCE), a finding of an
+ *                    unknown severity (FINDING_WITH_UNKNOWN_SEVERITY), a NOT_CHECKED finding of the rule
+ *                    (NOT_CHECKED_FINDING_WITH_EVIDENCE), malformed document refs (MALFORMED_DOCUMENT_REFS) or a
+ *                    findings field that is not a list (MALFORMED_RECORD_ENTRY) -- never a hit, never a no-hit.
+ * A pinned document that could not be read stays PINNED_EVIDENCE_UNREADABLE (a technical error) first, never
+ * "no hit". It is not a risk level: it never reads as LOW/green and does not touch overallRisk,
  * permitProbability, findings or unresolvedChecks (presentation on top, never a replacement).
  */
 export const GOVERNED_DOCUMENT_CHECK_LAYER = 'document';
@@ -99,21 +112,53 @@ export type GovernedDocumentCheckReason =
    * spelling, or a document type without a string id). Status stays NOT_CHECKED; the reason says
    * exactly why instead of the misleading "no verified document evidence pinned".
    */
-  | 'MALFORMED_DOCUMENT_REFS';
+  | 'MALFORMED_DOCUMENT_REFS'
+  /**
+   * W-U20CDF6 (OD-K0-3): the rule's inputs are pinned and the record holds a HIGH/MEDIUM/LOW finding of the rule,
+   * but not one that cites a pinned document evidence and a pinned verified fact (or a NOT_CHECKED finding of the
+   * rule stands beside it) -- the same reason as a spatial row's. Not a hit, not a no-hit; the finding is named.
+   */
+  | 'FINDING_WITHOUT_CONSISTENT_EVIDENCE'
+  /** W-U20CDF6 (OD-K0-3): a finding of the rule with a severity outside the governed values (as a spatial row). */
+  | 'FINDING_WITH_UNKNOWN_SEVERITY'
+  /** W-U20CDF6 (OD-K0-3): a NOT_CHECKED finding of the rule next to its pinned inputs (as a spatial row). */
+  | 'NOT_CHECKED_FINDING_WITH_EVIDENCE'
+  /** W-U20CDF6 (OD-K0-3): the record's findings field is not a list -- whether the rule fired cannot be read. */
+  | 'MALFORMED_RECORD_ENTRY';
 
 export interface GovernedDocumentCheck extends GovernedLayerCheck {
   readonly layer: typeof GOVERNED_DOCUMENT_CHECK_LAYER;
   readonly rule_id: typeof GOVERNED_DOCUMENT_CHECK_RULE_ID;
-  readonly status: Exclude<GovernedLayerCheckStatus, 'CHECKED_NO_HIT'>;
+  /** W-U20CDF6 (OD-K0-3): CHECKED_NO_HIT only when the rule's inputs are pinned and it did not fire (see above). */
+  readonly status: GovernedLayerCheckStatus;
   readonly reason: GovernedDocumentCheckReason | null;
   /** Swedish presentation of status + reason. status/reason stay the machine-readable truth. */
   readonly message_sv: string;
 }
 
-const DOCUMENT_CHECK_MESSAGE_SV: Readonly<Record<GovernedDocumentCheckReason | 'CHECKED_HIT', string>> = {
+const DOCUMENT_CHECK_MESSAGE_SV: Readonly<Record<GovernedDocumentCheckReason | 'CHECKED_HIT' | 'CHECKED_NO_HIT', string>> = {
+  // W-U20CDF6 (OD-K0-3): a hit is the rule's own finding, never the mere presence of its inputs.
   CHECKED_HIT:
-    'Dokument och tidigare beslut: kontrollerat – träff. Bedömningen innehåller verifierat dokumentbevis ' +
-    '(se fynd). Övriga dokument för fastigheten är inte kontrollerade.',
+    'Dokument och tidigare beslut: kontrollerat – träff. Regeln om tidigare lokaliseringsbegränsande beslut slog till ' +
+    'för verifierat dokumentbevis som är knutet till bedömningen (se fynd). Övriga dokument för fastigheten är inte kontrollerade.',
+  // W-U20CDF6 (OD-K0-3; SI-2): only the pinned documents were checked -- never "inga tidigare beslut".
+  CHECKED_NO_HIT:
+    'Dokument och tidigare beslut: kontrollerat – ingen träff i det dokumentunderlag som är knutet till bedömningen. ' +
+    'Regeln om tidigare lokaliseringsbegränsande beslut slog inte till för det. Övriga dokument för fastigheten är inte ' +
+    'kontrollerade, och att ingen träff visas betyder inte att det saknas tidigare beslut.',
+  FINDING_WITHOUT_CONSISTENT_EVIDENCE:
+    'Dokument och tidigare beslut: ofullständigt underlag. Bedömningen innehåller ett lagrat fynd för regeln om tidigare ' +
+    'beslut, men inte det pinnade dokumentunderlag som fyndet bygger på. Kontrollen redovisas inte som genomförd; ' +
+    'fyndet redovisas var för sig.',
+  FINDING_WITH_UNKNOWN_SEVERITY:
+    'Dokument och tidigare beslut: integritetsfel. Bedömningen innehåller ett fynd för regeln om tidigare beslut med en ' +
+    'allvarlighetsgrad utanför det styrda formatet. Ingen slutsats om dokument eller tidigare beslut.',
+  NOT_CHECKED_FINDING_WITH_EVIDENCE:
+    'Dokument och tidigare beslut: integritetsfel. Bedömningen innehåller både det dokumentunderlag som regeln om ' +
+    'tidigare beslut läser och ett fynd om att regeln inte kunde kontrolleras. Ingen slutsats om dokument eller tidigare beslut.',
+  MALFORMED_RECORD_ENTRY:
+    'Dokument och tidigare beslut: inte kontrollerat. Bedömningens fynd kan inte läsas, så det går inte att avgöra om ' +
+    'regeln om tidigare beslut slog till. Ingen slutsats om dokument eller tidigare beslut.',
   NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED:
     'Dokument och tidigare beslut: inte kontrollerat. Bedömningen innehåller inget verifierat dokumentbevis ' +
     'för fastigheten. Att inga dokumentfynd visas betyder inte att det saknas tidigare beslut.',
@@ -157,14 +202,30 @@ function pinnedIdsOfType(refs: readonly unknown[], artifactType: string): string
 }
 
 /**
+ * W-U20CDF6 (OD-K0-3): the refs ALONE pin what LU-DOC-BESLUT-001 reads -- at least one DOCUMENT_EVIDENCE and one
+ * VERIFIED_DOCUMENT_FACT with a non-empty string id -- known without reading any artifact and without the findings.
+ * It says that the control basis exists, never that the rule fired (formerly the CHECKED_HIT condition).
+ */
+export function documentRuleInputsPinned(pinnedEvidenceRefs: unknown): boolean {
+  return (
+    Array.isArray(pinnedEvidenceRefs) &&
+    pinnedIdsOfType(pinnedEvidenceRefs, 'DOCUMENT_EVIDENCE').length > 0 &&
+    pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT').length > 0
+  );
+}
+
+/**
  * @param pinnedEvidenceRefs the persisted assessment's own `payload.evidence_refs`.
+ * @param options.findings W-U20CDF6 (OD-K0-3): the SAME record's stored findings (`payload.findings`, as stored) --
+ *        whether LU-DOC-BESLUT-001 fired is read from them; required, so no caller can forget them and turn a hit
+ *        into "no hit". A value that is not a list cannot say whether the rule fired (MALFORMED_RECORD_ENTRY).
  * @param options.unreadableArtifactIds U20CDF: ids of pinned refs the caller tried to read from CAS
  *        and could not (the read-back passes them; the fresh run has just resolved its documents and
  *        passes none). A pinned document artifact among them makes the check a technical error.
  */
 export function computeGovernedDocumentCheck(
   pinnedEvidenceRefs: unknown,
-  options: { readonly unreadableArtifactIds?: readonly string[] } = {},
+  options: { readonly findings: unknown; readonly unreadableArtifactIds?: readonly string[] },
 ): GovernedDocumentCheck {
   const make = (
     status: GovernedDocumentCheck['status'],
@@ -176,7 +237,7 @@ export function computeGovernedDocumentCheck(
     status,
     evidence_artifact_id: evidenceArtifactId,
     reason,
-    message_sv: DOCUMENT_CHECK_MESSAGE_SV[reason ?? 'CHECKED_HIT'],
+    message_sv: DOCUMENT_CHECK_MESSAGE_SV[reason ?? (status === 'CHECKED_NO_HIT' ? 'CHECKED_NO_HIT' : 'CHECKED_HIT')],
   });
 
   if (!Array.isArray(pinnedEvidenceRefs)) return make('NOT_CHECKED', 'PINNED_EVIDENCE_REFS_UNREADABLE', null);
@@ -198,16 +259,50 @@ export function computeGovernedDocumentCheck(
   if (documentEvidenceIds.length === 0) {
     return make('NOT_CHECKED', hasMalformedDocumentRef ? 'MALFORMED_DOCUMENT_REFS' : 'NO_VERIFIED_DOCUMENT_EVIDENCE_PINNED', null);
   }
-  if (pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT').length === 0) {
+  const verifiedFactIds = pinnedIdsOfType(pinnedEvidenceRefs, 'VERIFIED_DOCUMENT_FACT');
+  if (verifiedFactIds.length === 0) {
     return make(
       'NOT_CHECKED',
       hasMalformedDocumentRef ? 'MALFORMED_DOCUMENT_REFS' : 'DOCUMENT_EVIDENCE_WITHOUT_VERIFIED_FACT_PINNED',
       documentEvidenceIds[0]!,
     );
   }
-  // OD-K0-3 (open owner question, not changed here): CHECKED_HIT follows from the pinned ref TYPES
-  // (DE + VF), not from LU-DOC-BESLUT-001 actually having produced a finding for them.
-  return make('CHECKED_HIT', null, documentEvidenceIds[0]!);
+  // W-U20CDF6 (OWNER DECISION OD-K0-3, 2026-10-03): the rule's inputs are pinned -- the control basis exists. What
+  // the row says now rests on what the rule DID, read from the same record's findings.
+  if (!Array.isArray(options.findings)) return make('NOT_CHECKED', 'MALFORMED_RECORD_ENTRY', documentEvidenceIds[0]!);
+  const ruleFindings = options.findings.filter(
+    (finding): finding is { readonly rule_id?: unknown; readonly risk_level?: unknown; readonly evidence_refs?: unknown } =>
+      isFindingObject(finding) && finding.rule_id === GOVERNED_DOCUMENT_CHECK_RULE_ID,
+  );
+  const hasNotCheckedFinding = ruleFindings.some((finding) => finding.risk_level === 'NOT_CHECKED');
+  const riskFindings = ruleFindings.filter(isGovernedRiskFinding);
+  if (riskFindings.length > 0) {
+    // The rule fired: a hit only with the evidence it fires on -- the finding cites a pinned DOCUMENT_EVIDENCE and a
+    // pinned VERIFIED_DOCUMENT_FACT (LURuleEngine: evidence_refs = [the evidence, ...its matching facts]).
+    const pinnedEvidence = new Set(documentEvidenceIds);
+    const pinnedFacts = new Set(verifiedFactIds);
+    const citedEvidenceIds = riskFindings
+      .flatMap((finding) => {
+        const cited = Array.isArray(finding.evidence_refs) ? (finding.evidence_refs as readonly unknown[]) : [];
+        const ids = (type: string, pinned: ReadonlySet<string>) =>
+          cited
+            .map((ref) => (ref && typeof ref === 'object' ? (ref as { artifact_id?: unknown; artifact_type?: unknown }) : null))
+            .filter((ref) => ref?.artifact_type === type && typeof ref.artifact_id === 'string' && pinned.has(ref.artifact_id))
+            .map((ref) => ref!.artifact_id as string);
+        const evidence = ids('DOCUMENT_EVIDENCE', pinnedEvidence);
+        return evidence.length > 0 && ids('VERIFIED_DOCUMENT_FACT', pinnedFacts).length > 0 ? evidence : [];
+      })
+      .sort();
+    return citedEvidenceIds.length > 0 && !hasNotCheckedFinding
+      ? make('CHECKED_HIT', null, citedEvidenceIds[0]!)
+      : make('NOT_CHECKED', 'FINDING_WITHOUT_CONSISTENT_EVIDENCE', documentEvidenceIds[0]!);
+  }
+  if (ruleFindings.some(isUnknownSeverityFinding)) return make('NOT_CHECKED', 'FINDING_WITH_UNKNOWN_SEVERITY', documentEvidenceIds[0]!);
+  if (hasNotCheckedFinding) return make('NOT_CHECKED', 'NOT_CHECKED_FINDING_WITH_EVIDENCE', documentEvidenceIds[0]!);
+  // No finding of the rule: it did not fire over the pinned documents -- unless a malformed document ref leaves open
+  // which documents the basis holds (then nothing is claimed).
+  if (hasMalformedDocumentRef) return make('NOT_CHECKED', 'MALFORMED_DOCUMENT_REFS', documentEvidenceIds[0]!);
+  return make('CHECKED_NO_HIT', null, documentEvidenceIds[0]!);
 }
 
 /** The governed severities. NOT_CHECKED is a non-severity state (SEM-1) and is not among them. */

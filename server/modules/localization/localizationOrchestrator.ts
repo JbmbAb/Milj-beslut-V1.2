@@ -1319,7 +1319,9 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
       /**
        * K0: the machine-readable document check, derived from this assessment's own pinned
        * evidence_refs -- the same object the fresh generate-report run showed as its
-       * `governed_layer_checks` element `layer: 'document'`. Never CHECKED_NO_HIT in v1.
+       * `governed_layer_checks` element `layer: 'document'`. W-U20CDF6 (OD-K0-3): CHECKED_HIT only when
+       * LU-DOC-BESLUT-001 fired (its finding cites the pinned documents), CHECKED_NO_HIT when its pinned inputs
+       * are there and it did not fire (governedLayerChecks.ts computeGovernedDocumentCheck).
        */
       documentCheck: GovernedDocumentCheck;
       /** U20-D: the same array as the fresh run's `executionMotor.governed_layer_checks`. */
