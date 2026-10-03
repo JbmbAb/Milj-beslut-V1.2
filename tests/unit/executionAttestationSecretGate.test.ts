@@ -96,7 +96,7 @@ describe('the development secret lives in one place and the runtime default is t
 
   it('the literal appears in exactly one non-test source file across the runtime, the LU package and the server', () => {
     const roots = ['packages/mps-runtime/src', 'packages/mps-lu/src', 'server', 'scripts/release'].map((r) => path.join(REPO_ROOT, r));
-    const hits = roots.flatMap(walkSources).filter((file) => fs.readFileSync(file, 'utf8').includes(DEFAULT_DEV_EXECUTION_ATTESTATION_SECRET));
+    const hits = roots.flatMap((root) => walkSources(root)).filter((file) => fs.readFileSync(file, 'utf8').includes(DEFAULT_DEV_EXECUTION_ATTESTATION_SECRET));
     expect(hits.map((f) => path.relative(REPO_ROOT, f).split(path.sep).join('/'))).toEqual(['packages/mps-runtime/src/security/ExecutionAttestationSecret.ts']);
   });
 });
@@ -278,7 +278,7 @@ describe('source pins: where the gate sits and that no other process signs', () 
   it('the LU kernel client hands the configured signer to SecurityRuntime (and nothing else constructs one in the server)', () => {
     const client = read('packages/mps-lu/src/execution/LuExecutionKernelClient.ts');
     expect(client).toMatch(/SecurityRuntime\.create\(\{[\s\S]*?signer: createConfiguredExecutionAttestationSigner\(process\.env\) \?\? undefined/);
-    const serverSources = ['server', 'src/application'].map((r) => path.join(REPO_ROOT, r)).flatMap(walkSources);
+    const serverSources = ['server', 'src/application'].map((r) => path.join(REPO_ROOT, r)).flatMap((root) => walkSources(root));
     const constructing = serverSources.filter((f) => /SecurityRuntime\.create\(/.test(fs.readFileSync(f, 'utf8')));
     expect(constructing, 'only the LU kernel client constructs SecurityRuntime; the workers never sign').toEqual([]);
   });

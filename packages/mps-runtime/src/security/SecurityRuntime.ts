@@ -29,7 +29,7 @@ import type {
   SigningKeyProvider,
 } from "./SecurityContracts.js";
 import { SECURITY_RUNTIME_VERSION } from "./SecurityContracts.js";
-import { createHmacSigningKeyProvider } from "./HmacSigningKeyProvider.js";
+import { createDefaultDevExecutionAttestationSigner } from "./ExecutionAttestationSecret.js";
 
 export type SecurityRuntimeOptions = {
   readonly admissionPolicy?: AdmissionPolicy;
@@ -71,12 +71,10 @@ export class SecurityRuntime {
         (g) => `${g.principal_id}::${g.capability_id}`,
       ),
     );
-    this.signer =
-      options.signer ??
-      createHmacSigningKeyProvider(
-        "mps-execution-platform-default-dev-secret",
-        "hmac-execution-dev-v1",
-      );
+    // W-U42: the built-in development signer is defined in ONE place (ExecutionAttestationSecret.ts). Whether a
+    // process may run on it is decided at process start (server/modules/release/executionAttestationStartupGate.ts):
+    // outside an explicit development/test process the composition root injects the configured signer instead.
+    this.signer = options.signer ?? createDefaultDevExecutionAttestationSigner();
     this.bootstrapAdmit = options.bootstrapAdmit ?? false;
     this.bindSeed = options.bindSeed ?? "security.bind.v1";
     // bootstrapAdmit is explicit opt-in when FrozenCore verification context is absent.
