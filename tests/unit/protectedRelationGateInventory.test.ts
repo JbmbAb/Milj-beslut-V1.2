@@ -1549,7 +1549,7 @@ describe('canaries: U30F6 mutation round 1 -- what the first canaries left unexe
 const U30F7_RETIRED = ['scripts/db/cleanup-db.ts', 'scripts/import/sanitize-postgis-failed-imports.ps1'] as const;
 const U30F7_GATED = 'scripts/import/fill-empty-gaps-from-archive.ts';
 
-/** The code of a script without its comments (TS: // and /* */; PowerShell: #). */
+/** The code of a script without its comments (TS: line and block comments; PowerShell: # and block comments). */
 function codeOf(file: string, text: string): string {
   return file.endsWith('.ps1') ? text.replace(/<#[\s\S]*?#>/g, '').replace(/^\s*#.*$/gm, '') : text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
