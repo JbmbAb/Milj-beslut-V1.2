@@ -1363,9 +1363,11 @@ async function analyzeSite(
       );
     }
     if (recordIntegrityError) {
+      // W-TEXT2 (U6-3): the warning reaches the PDF data -- the id and the class stay in executionMotor
+      // (assessment_artifact_id, governed_coverage_state, record_integrity), never in the user text.
       warnings.push(
-        `Integritetsfel: den styrda bedömning som körningen sparade (${assessment_artifact_id}) har ett lagrat underlag som är ` +
-          'motsägelsefullt eller ligger utanför det styrda formatet (RECORD_INTEGRITY_ERROR). Ingen risknivå och ingen sannolikhet ' +
+        'Integritetsfel: den styrda bedömning som körningen sparade har ett lagrat underlag som är ' +
+          'motsägelsefullt eller ligger utanför det styrda formatet. Ingen risknivå och ingen sannolikhet ' +
           'anges, och alternativet rangordnas inte.',
       );
     }

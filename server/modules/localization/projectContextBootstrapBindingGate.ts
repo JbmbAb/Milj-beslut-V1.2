@@ -87,10 +87,11 @@ const CONTACT = 'Kontakta systemets administratör.';
 function swedishText(reason: BootstrapBindingFaultReason, retryable: boolean): string {
   const cause: Record<BootstrapBindingFaultReason, string> = {
     READ_ERROR: 'projektets befintliga bindning kunde inte läsas (tekniskt fel).',
+    // W-TEXT2: "arkivet" in the user text; the class stays in reason/failureCode.
     STORAGE_INTEGRITY_FAULT:
-      'projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel).',
+      'projektets befintliga bindning kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
     MISSING_FROM_CAS:
-      'projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel).',
+      'projektets befintliga bindning kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
     REFUSED:
       'projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja).',
     BINDING_INDEX_INCONSISTENT:

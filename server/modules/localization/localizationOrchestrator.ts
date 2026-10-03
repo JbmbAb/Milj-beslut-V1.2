@@ -630,9 +630,8 @@ function governedEvidenceIntegrityFailure(
   return {
     ok: false,
     status: 424,
-    error:
-      `Bedömningens underlag klarade inte integritetskontrollen (${integrity.failureClass}: ` +
-      `${integrity.artifactId}). ${INTEGRITY_CONSEQUENCE_SV[path]}`,
+    // W-TEXT2: the class and the object stay in failureClass/reasonCode (and the server log); the user text names no code and no id.
+    error: `Bedömningens underlag klarade inte integritetskontrollen. ${INTEGRITY_CONSEQUENCE_SV[path]}`,
     code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
     failureClass: integrity.failureClass,
     reasonCode: integrity.failureClass,
@@ -704,9 +703,10 @@ function recordIntegrityFailure(
   return {
     ok: false,
     status: 424,
+    // W-TEXT2: the basis codes travel in reasonCode and record_integrity.basis_codes only -- never in the user text.
     error:
-      'Bedömningen kan inte visas: dess lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet ' +
-      `(RECORD_INTEGRITY_ERROR: ${basisCodes.join(', ')}). Täckningsgrad och samlad risknivå kan därför inte fastställas, ` +
+      'Bedömningen kan inte visas: dess lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet. ' +
+      'Täckningsgrad och samlad risknivå kan därför inte fastställas, ' +
       `och bedömningen redovisas inte som en giltig bedömning. ${storedSv} ` +
       'Felet löses inte av ett nytt försök. Kontakta systemets administratör.',
     code: ASSESSMENT_RECORD_INTEGRITY_CODE,
@@ -1029,7 +1029,7 @@ function assessmentResolutionFailure(error: unknown): PlainLuFailure | Assessmen
       : assessmentReadFailure(
           'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
           false,
-          'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas ur CAS ' +
+          'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas ur arkivet ' +
             '(bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
             `${retrySentenceSv(false)} Kontakta systemets administratör.`,
           'CURRENT_BINDING_INTEGRITY_FAULT',
@@ -1040,7 +1040,7 @@ function assessmentResolutionFailure(error: unknown): PlainLuFailure | Assessmen
       ? assessmentReadFailure(
           'ASSESSMENT_READ_ERROR',
           true,
-          'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ur CAS ' +
+          'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ur arkivet ' +
             '(tekniskt fel). Den saknas inte, men kan inte visas nu. En äldre bedömning visas aldrig i stället. ' +
             retrySentenceSv(true),
           'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR',
@@ -1093,7 +1093,7 @@ function currentAssessmentCandidateIntegrityFault(): AssessmentReadFailure {
     'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
     false,
     'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
-      'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+      'eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
       `${retrySentenceSv(false)} Kontakta systemets administratör.`,
     'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
   );
@@ -1118,13 +1118,13 @@ function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: str
     return assessmentReadFailure(
       'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
       false,
-      `Bedömningen kunde inte läsas ur CAS (bestående lagringsfel). ${retrySentenceSv(false)}`,
+      `Bedömningen kunde inte läsas ur arkivet (bestående lagringsfel). ${retrySentenceSv(false)}`,
     );
   }
   return assessmentReadFailure(
     'ASSESSMENT_READ_ERROR',
     true,
-    `Bedömningen kunde inte läsas ur CAS (tekniskt fel). Den saknas inte, men kan inte visas nu. ${retrySentenceSv(true)}`,
+    `Bedömningen kunde inte läsas ur arkivet (tekniskt fel). Den saknas inte, men kan inte visas nu. ${retrySentenceSv(true)}`,
   );
 }
 
