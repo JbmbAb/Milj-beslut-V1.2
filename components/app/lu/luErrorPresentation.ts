@@ -474,26 +474,31 @@ const CONTRACT_REFUSAL_TEXT: CodeText = {
   retryable: false,
 };
 
-/** U20-D: content read for the evidence/root details failed its own identity (GOVERNED_EVIDENCE_INTEGRITY_FAILED). */
-const EVIDENCE_INTEGRITY_TEXT: Readonly<Record<string, CodeText>> = {
-  EVIDENCE_TAMPERED: {
-    kind: 'INTEGRITY',
-    messageSv: 'Bedömningens underlag klarade inte integritetskontrollen: en evidens stämmer inte med sin egen identitet. Bedömningen visas därför inte.',
-    retryable: false,
-  },
-  EVIDENCE_CORRUPTED: {
-    kind: 'INTEGRITY',
-    messageSv:
-      'Bedömningens underlag klarade inte integritetskontrollen: en evidens lagrade innehåll stämmer inte med sin innehållshash. Bedömningen visas därför inte.',
-    retryable: false,
-  },
-  ROOT_PROVENANCE_TAMPERED: {
-    kind: 'INTEGRITY',
-    messageSv:
-      'Bedömningens underlag klarade inte integritetskontrollen: fastighetsrotens artefakter stämmer inte med sin identitet. Bedömningen visas därför inte.',
-    retryable: false,
-  },
+/**
+ * U20-D: content read for the evidence/root details failed its own identity (GOVERNED_EVIDENCE_INTEGRITY_FAILED).
+ * W-UI1 (A; U20CDF5-R2 verification R2-6): the last sentence says what THIS path does not do -- on verify the
+ * assessment IS on screen, so the check was not run (never "Bedömningen visas därför inte"); on the map the
+ * map does not show it; on the read-back and the export the assessment is not shown.
+ */
+const EVIDENCE_INTEGRITY_CAUSE_SV: Readonly<Record<string, string>> = {
+  EVIDENCE_TAMPERED: 'en evidens stämmer inte med sin egen identitet',
+  EVIDENCE_CORRUPTED: 'en evidens lagrade innehåll stämmer inte med sin innehållskontroll',
+  ROOT_PROVENANCE_TAMPERED: 'fastighetsrotens artefakter stämmer inte med sin identitet',
 };
+
+function integrityConsequenceSv(context: LuErrorContext): string {
+  if (context === 'verify') return 'Reproducerbarhetskontrollen genomfördes därför inte och inget utfall anges.';
+  if (context === 'viewer-evidence') return 'Kartan visar därför inte bedömningen.';
+  return 'Bedömningen visas därför inte.';
+}
+
+function evidenceIntegrityText(cause: string | null, context: LuErrorContext): CodeText {
+  return {
+    kind: 'INTEGRITY',
+    messageSv: `Bedömningens underlag klarade inte integritetskontrollen${cause ? `: ${cause}` : ''}. ${integrityConsequenceSv(context)}`,
+    retryable: false,
+  };
+}
 
 /**
  * W-M2e item 3 (M2d verification finding 4): the SECOND lock on "never retry". The first is the server's
@@ -546,12 +551,20 @@ function own<T>(table: Readonly<Record<string, T>>, key: string | null): T | und
  * W-M2e item 2: one machine `code` of an LU error answer with a Swedish text of its own -- `classes`
  * are its failure classes with a text of their own, `fallback` is the code's text for any other class.
  */
+type ClassPresenter = (f: ErrorFields, lead: string, context: LuErrorContext) => CodeText;
+
 interface CodePresenter {
-  readonly classes: Readonly<Record<string, CodeText>>;
-  readonly fallback: (f: ErrorFields, lead: string) => CodeText;
+  /** The code's failure classes with a text of their own (the inventory reads the keys). */
+  readonly classes: Readonly<Record<string, ClassPresenter>>;
+  readonly fallback: ClassPresenter;
 }
 
-const fixed = (kind: LuErrorKind, retryable: boolean, text: (lead: string) => string) => (_f: ErrorFields, lead: string): CodeText => ({
+/** A table of fixed class texts as class presenters. */
+function constClasses(table: Readonly<Record<string, CodeText>>): Readonly<Record<string, ClassPresenter>> {
+  return Object.fromEntries(Object.entries(table).map(([cls, entry]) => [cls, () => entry]));
+}
+
+const fixed = (kind: LuErrorKind, retryable: boolean, text: (lead: string) => string): ClassPresenter => (_f, lead) => ({
   kind,
   messageSv: text(lead),
   retryable,
@@ -572,19 +585,21 @@ const PROPERTY_NOT_IN_DATA = fixed('NOT_FOUND', false, (lead) => `${lead} Fastig
  */
 const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
   LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED: {
-    classes: CURRENTNESS_TEXT,
+    classes: constClasses(CURRENTNESS_TEXT),
     fallback: (f) => {
       const refused = f.status === 409;
       return { kind: refused ? 'REFUSED' : 'TECHNICAL', messageSv: 'Kontrollpunkten kunde inte fastställas. Ingen bedömning görs.', retryable: !refused };
     },
   },
   ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED: {
-    classes: ASSESSED_POINT_TEXT,
+    classes: constClasses(ASSESSED_POINT_TEXT),
     fallback: fixed('INTEGRITY', false, () => 'Bedömningens kontrollpunkt kunde inte bekräftas. Bedömningen visas därför inte.'),
   },
   GOVERNED_EVIDENCE_INTEGRITY_FAILED: {
-    classes: EVIDENCE_INTEGRITY_TEXT,
-    fallback: fixed('INTEGRITY', false, () => 'Bedömningens underlag klarade inte integritetskontrollen. Bedömningen visas därför inte.'),
+    classes: Object.fromEntries(
+      Object.entries(EVIDENCE_INTEGRITY_CAUSE_SV).map(([cls, cause]) => [cls, (_f: ErrorFields, _lead: string, context: LuErrorContext) => evidenceIntegrityText(cause, context)]),
+    ),
+    fallback: (_f, _lead, context) => evidenceIntegrityText(null, context),
   },
   ASSESSMENT_ID_MISMATCH: {
     classes: {},
@@ -602,7 +617,7 @@ const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
   // U20CDF2 add-on 2 / W-APR: the (possibly current) assessment could not be read -- a technical or
   // integrity fault, never "no assessment"; the server's flag says whether a retry can help.
   ASSESSMENT_READ_ERROR: {
-    classes: ASSESSMENT_READ_TEXT,
+    classes: constClasses(ASSESSMENT_READ_TEXT),
     fallback: fixed(
       'TECHNICAL',
       true,
@@ -611,12 +626,12 @@ const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
   },
   // W-M2e item 1 (W-APR add-on 3): the selection was refused -- per class, never "motstridigt".
   ASSESSMENT_CURRENT_UNRESOLVED: {
-    classes: SELECTION_REFUSAL_TEXT,
+    classes: constClasses(SELECTION_REFUSAL_TEXT),
     fallback: () => SELECTION_REFUSAL_DEFAULT,
   },
   // W-M2e item 1 (W-APR add-on 3): a contract-VERSION refusal, never "stämmer inte med sin lagrade identitet".
   ASSESSMENT_CONTRACT_REFUSED: {
-    classes: { ASSESSMENT_CONTRACT_INVALID: CONTRACT_REFUSAL_TEXT },
+    classes: constClasses({ ASSESSMENT_CONTRACT_INVALID: CONTRACT_REFUSAL_TEXT }),
     fallback: () => CONTRACT_REFUSAL_TEXT,
   },
   // U20CDF2 add-on 1: a storage fault during re-execution is no verification verdict.
@@ -685,7 +700,10 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.isClientError && f.message) return make('TECHNICAL', f.message, true);
 
   const presenter = own(CODE_PRESENTERS, f.code);
-  if (presenter) return fromTable(own(presenter.classes, f.failureClass) ?? presenter.fallback(f, lead));
+  if (presenter) {
+    const byClass = own(presenter.classes, f.failureClass);
+    return fromTable(byClass ? byClass(f, lead, context) : presenter.fallback(f, lead, context));
+  }
 
   if (f.message.startsWith(LU_SERVER_MESSAGE.NO_CANONICAL_PROJECT_CONTEXT_PREFIX)) {
     return make('NOT_FOUND', `${lead} ${NO_CANONICAL_PROJECT_CONTEXT_SV}`, false);

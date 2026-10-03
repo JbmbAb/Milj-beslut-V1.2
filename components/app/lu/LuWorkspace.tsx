@@ -33,7 +33,8 @@ import { LuControlPanel } from './LuControlPanel';
 import { LuErrorNotice } from './LuErrorNotice';
 import { presentLuOverallStatement, type LuOverallTone } from './luOverallStatement';
 import { useLuRunOutcome, type LuRunOutcomeRecord } from './luSessionMemory';
-import { presentLuVerifyNotice, type LuVerifyNotice } from './luVerifyNotice';
+import { presentLuVerifyResult, type LuVerifyView } from './luVerifyPresentation';
+import { LuVerifyResultView } from './LuVerifyResult';
 import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
 
 /** W-M2d item 2: the assessment line is never green -- complete is neutral, anything else is marked. */
@@ -200,22 +201,6 @@ type GovernedResult = {
  */
 type RunOutcome = LuRunOutcomeRecord;
 
-/** W-M2d item 4: one machine notice of a verification (LuReExecutionResult.notices). */
-type VerifyNotice = LuVerifyNotice;
-
-function parseVerifyNotices(raw: unknown): VerifyNotice[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((entry): VerifyNotice[] => {
-    const n = entry && typeof entry === 'object' ? (entry as { code?: unknown; finding_ids?: unknown }) : null;
-    if (!n || typeof n.code !== 'string' || !n.code) return [];
-    const ids = Array.isArray(n.finding_ids) ? n.finding_ids.filter((id): id is string => typeof id === 'string') : [];
-    return [{ code: n.code, finding_ids: ids }];
-  });
-}
-
-/** W-M2d item 4 / W-M2e item 2: the notice's Swedish line (luVerifyNotice.ts). */
-const verifyNoticeSv = presentLuVerifyNotice;
-
 /** How the run that produced no assessment ended, as the end of a sentence. */
 function runOutcomeClause(status: string): string {
   if (status === 'GOVERNANCE_DENIED') return 'nekades av styrningen';
@@ -369,15 +354,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [exportPdfError, setExportPdfError] = useState<LuErrorPresentation | null>(null);
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
   const [verifyError, setVerifyError] = useState<LuErrorPresentation | null>(null);
-  const [verifyResult, setVerifyResult] = useState<{
-    outcome: 'PASS' | 'DENY' | 'OTHER_ASSESSMENT' | 'UNKNOWN';
-    verifiedId: string | null;
-    mismatches: readonly { code: string; detail: string }[];
-    /** W-M2d item 4: the server's machine notices (e.g. NOT_CHECKED_CAUSE_NOT_PINNED), unchanged. */
-    notices: readonly VerifyNotice[];
-    /** The server's own Swedish outcome text -- technical section only (it may claim more than replay). */
-    serverOutcomeSv: string | null;
-  } | null>(null);
+  /**
+   * W-UI1 (A): the verify answer as presented (luVerifyPresentation.ts) -- green only for a well-formed
+   * FULLY_BOUND_GREEN; the owner's notice for an older unbound form; everything else not verified.
+   */
+  const [verifyResult, setVerifyResult] = useState<LuVerifyView | null>(null);
   const [persistedAssessmentLoading, setPersistedAssessmentLoading] = useState(false);
   const [persistedAssessmentError, setPersistedAssessmentError] = useState<LuErrorPresentation | null>(null);
   const [persistedAssessmentNotFound, setPersistedAssessmentNotFound] = useState(false);
@@ -853,29 +834,14 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setVerifyResult(null);
     setVerifyingAssessment(true);
     try {
-      const result = await callApi<{
-        ok: true;
-        outcome: string;
-        assessmentArtifactId: string;
-        mismatches?: readonly { code: string; detail: string }[];
-        notices?: unknown;
-        outcome_sv?: unknown;
-      }>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, {
+      // W-UI1 (A; U30R6 K8): the answer is read as `unknown` -- verification_binding, presentation, notices
+      // and mismatches are classified fail-closed by presentLuVerifyResult (own data fields only).
+      const result = await callApi<unknown>(`/api/localization/${encodeURIComponent(projectId)}/verify-assessment`, {
         method: 'POST',
         // W-M2d item 9 (U20-D): bound to the DISPLAYED assessment; any other current one is refused (409).
         body: { assessmentArtifactId: shownId },
       });
-      const verifiedId = typeof result?.assessmentArtifactId === 'string' ? result.assessmentArtifactId : null;
-      const mismatches = Array.isArray(result?.mismatches) ? result.mismatches : [];
-      const notices = parseVerifyNotices(result?.notices);
-      const serverOutcomeSv = typeof result?.outcome_sv === 'string' && result.outcome_sv ? result.outcome_sv : null;
-      if (verifiedId !== shownId) {
-        setVerifyResult({ outcome: 'OTHER_ASSESSMENT', verifiedId, mismatches: [], notices: [], serverOutcomeSv: null });
-      } else if (result.outcome === 'PASS' || result.outcome === 'DENY') {
-        setVerifyResult({ outcome: result.outcome, verifiedId, mismatches, notices, serverOutcomeSv });
-      } else {
-        setVerifyResult({ outcome: 'UNKNOWN', verifiedId, mismatches, notices, serverOutcomeSv });
-      }
+      setVerifyResult(presentLuVerifyResult(result, shownId));
     } catch (err) {
       setVerifyError(presentLuError(err, 'verify'));
     } finally {
@@ -1125,8 +1091,6 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         : pointBinding === 'unknown'
           ? 'Sökradien visas inte: det går inte att bekräfta vilken kontrollpunkt bedömningen gjordes för.'
           : null;
-
-  const verifyMismatchCount = verifyResult?.mismatches.length ?? 0;
 
   return (
     <div
@@ -1487,71 +1451,17 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
             </div>
           </div>
           {exportPdfError ? <LuErrorNotice testId="lu-export-pdf-error" error={exportPdfError} className="" /> : null}
-          {verifyError ? <LuErrorNotice testId="lu-verify-error" error={verifyError} className="" /> : null}
-          {verifyResult ? (
-            verifyResult.outcome === 'PASS' ? (
-              // W-M2d item 4: consistency/replay against the pinned artifacts -- never "identical", never
-              // authenticity; the server's notices directly under the claim.
-              <div data-testid="lu-verify-result-pass" className="text-sm space-y-1" style={{ color: '#A5F3FC' }}>
-                <p data-testid="lu-verify-result-pass-head" className="font-semibold">
-                  Reproducerbarheten verifierad – resultatet matchar de pinnade artefakterna.
-                </p>
-                {verifyResult.notices.length > 0 ? (
-                  <ul data-testid="lu-verify-result-notices" className="space-y-0.5" style={{ color: '#FDBA74' }}>
-                    {verifyResult.notices.map((notice, i) => (
-                      <li key={`${notice.code}-${i}`}>{verifyNoticeSv(notice)}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                <p className="text-xs opacity-80">
-                  Kontrollen visar att bedömningen kan återskapas ur sitt sparade underlag. Den intygar inte vem som har skapat
-                  underlaget.
-                </p>
-                <details data-testid="lu-verify-result-technical" className="text-xs opacity-80">
-                  <summary className="cursor-pointer">Teknisk information</summary>
-                  <p className="font-mono break-all">Kontrollerad bedömning: {verifyResult.verifiedId ?? 'okänd'}</p>
-                  {verifyResult.notices.map((notice, i) => (
-                    <p key={`tech-${notice.code}-${i}`} className="font-mono break-all">
-                      Notis: {notice.code}
-                      {notice.finding_ids.length > 0 ? ` (${notice.finding_ids.join(', ')})` : ''}
-                    </p>
-                  ))}
-                  {verifyResult.serverOutcomeSv ? <p className="break-all">Serverns text: {verifyResult.serverOutcomeSv}</p> : null}
-                </details>
-              </div>
-            ) : verifyResult.outcome === 'OTHER_ASSESSMENT' ? (
-              <div data-testid="lu-verify-result-other" className="text-sm space-y-1" style={{ color: '#F0ABFC' }}>
-                <p>Kontrollen gällde en annan bedömning än den som visas och räknas inte för den här. Läs in bedömningen på nytt.</p>
-                <details className="text-xs opacity-80">
-                  <summary className="cursor-pointer">Teknisk information</summary>
-                  <p className="font-mono break-all">Visad bedömning: {governed.assessmentArtifactId}</p>
-                  <p className="font-mono break-all">Kontrollerad bedömning: {verifyResult.verifiedId ?? 'okänd'}</p>
-                </details>
-              </div>
-            ) : (
-              <div data-testid="lu-verify-result-mismatch" className="text-sm space-y-1" style={{ color: '#F87171' }}>
-                <p data-testid="lu-verify-result-mismatch-summary">
-                  {verifyResult.outcome === 'UNKNOWN'
-                    ? 'Kontrollen gav ett okänt utfall. Reproducerbarheten kunde inte bekräftas.'
-                    : verifyMismatchCount > 0
-                      ? `Kontrollen hittade ${verifyMismatchCount} ${verifyMismatchCount === 1 ? 'avvikelse' : 'avvikelser'} mot de pinnade artefakterna. Reproducerbarheten kunde inte bekräftas.`
-                      : 'Reproducerbarheten kunde inte bekräftas – återexekveringen matchar inte de pinnade artefakterna.'}
-                </p>
-                {verifyMismatchCount > 0 ? (
-                  <details data-testid="lu-verify-result-mismatch-technical" className="text-xs opacity-80">
-                    <summary className="cursor-pointer">Teknisk information</summary>
-                    <ul className="list-disc pl-5 mt-1 font-mono break-all">
-                      {verifyResult.mismatches.map((m, i) => (
-                        <li key={`${m.code}-${i}`}>
-                          {m.code}: {m.detail}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                ) : null}
-              </div>
-            )
+          {verifyError ? (
+            // W-UI1: "Försök igen" only when the server marks the failure retryable (presentLuError).
+            <LuErrorNotice
+              testId="lu-verify-error"
+              error={verifyError}
+              onRetry={() => void verifyAssessment()}
+              retrying={verifyingAssessment}
+              className=""
+            />
           ) : null}
+          {verifyResult ? <LuVerifyResultView result={verifyResult} shownId={governed.assessmentArtifactId} /> : null}
 
           <div
             data-testid="lu-assessment-summary"
