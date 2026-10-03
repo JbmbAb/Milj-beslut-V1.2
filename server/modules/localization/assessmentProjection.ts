@@ -228,13 +228,21 @@ function candidateReadFault(error: unknown, assessmentArtifactId: string): Asses
   return { assessmentArtifactId, reason, retryable: fault.retryable };
 }
 
-/** The candidate read is exactly the requested assessment, and its content hashes to its own identity. */
+/**
+ * The candidate read is exactly the requested assessment, and its content hashes to its own identity.
+ * W-GAP1 (F6a; TRIAGE-A-PRERUN F6a): and it IS an assessment -- `artifact_type` LOCALIZATION_ASSESSMENT, the type
+ * the row's closed-domain type column promised and the read requested. The type is part of the hashed canonical body
+ * (id = `assessment-<hash>`), so an existing assessment with its type swapped is TAMPERED below; what passed was a NEW,
+ * self-consistent object of another type under an id of the assessment form. Another type is another artifact under
+ * the id (ARTIFACT_ID_MISMATCH: lasting, never skipped, never 404) -- the same verdict the shared
+ * assertReadUnderItsOwnId gives for an id-or-type mismatch at the point of use.
+ */
 function candidateIdentityFault(value: unknown, assessmentArtifactId: string): AssessmentCandidateFault | null {
   if (typeof value !== "object" || value === null) {
     return { assessmentArtifactId, reason: "TAMPERED", retryable: false };
   }
   const assessment = value as LocalizationAssessmentArtifact;
-  if (assessment.artifact_id !== assessmentArtifactId) {
+  if (assessment.artifact_id !== assessmentArtifactId || assessment.artifact_type !== "LOCALIZATION_ASSESSMENT") {
     return { assessmentArtifactId, reason: "ARTIFACT_ID_MISMATCH", retryable: false };
   }
   let untampered = false;

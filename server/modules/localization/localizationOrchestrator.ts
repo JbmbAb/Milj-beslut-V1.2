@@ -63,6 +63,7 @@ import {
   assertReadUnderItsOwnId,
   classifyReadFault,
   isProjectAccessDenied,
+  isProvenArtifactAbsence,
   LuReadFaultError,
   projectAccessFailure,
   readFaultHttpStatus,
@@ -552,7 +553,7 @@ export async function resolveLuViewerPresentation(input: {
   } catch (error) {
     return assessmentArtifactReadFailure(error, presentation.assessmentArtifactId);
   }
-  if (!isReadUnderItsOwnId(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
+  if (!isReadUnderItsOwnIdAndType(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
   const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
   if (assessment.artifact_id !== `assessment-${recomputed.value}`) {
     return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.', retryable: false };
@@ -888,9 +889,11 @@ type CurrentAssessmentFailure =
 /**
  * U20CDF2 (coordinator add-on 2; OD-R2: a CAS/read error is a technical error, never "missing").
  * Before, every failure to resolve or read the current assessment answered 404 "no current
- * assessment". Now only a genuine absence does (the projection's own REJECT_* refusals, or the
- * repository's "Artifact not found" for the assessment id -- the existing contract); a read that
- * FAILED is 503 with a typed class and an honest retryable flag:
+ * assessment". Now only a genuine absence does (the projection's own REJECT_*_NOT_FOUND / _NOT_CURRENT
+ * refusals -- W-GAP1 (F1, owner decision Round 15-16): and ONLY those; the repository's "Artifact not
+ * found" for the already SELECTED assessment id is a lost referenced artifact, the same
+ * CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT the selection answers, see assessmentArtifactReadFailure);
+ * a read that FAILED is 503 with a typed class and an honest retryable flag:
  *  - ASSESSMENT_READ_ERROR: the assessment could not be read (e.g. EIO) -- retryable;
  *  - ASSESSMENT_STORAGE_INTEGRITY_FAULT: a lasting storage fault (object gone behind its index entry,
  *    torn index entry, corrupt bytes) -- not retryable;
@@ -1122,16 +1125,35 @@ function currentAssessmentCandidateIntegrityFault(): AssessmentReadFailure {
  * exactly that id. Its id and its content are bound by its own hash (checked next), so an object that names the
  * requested id IS the content the selection verified -- the same project context, property and localization
  * point; one that names another id is another assessment.
+ * W-GAP1 (F6a): and its own `artifact_type` must be LOCALIZATION_ASSESSMENT -- the shared assertReadUnderItsOwnId
+ * with the requested type (id AND type), as the property-root reads already do. The type is part of the hashed
+ * canonical body, so a type swap on an existing object is TAMPERED anyway; this closes the one form that passed: a
+ * new, self-consistent object of another type under an id of the assessment form (defence in depth, never 200).
  */
-function isReadUnderItsOwnId(assessment: unknown, requestedId: string): boolean {
-  return typeof assessment === 'object' && assessment !== null && (assessment as { artifact_id?: unknown }).artifact_id === requestedId;
+function isReadUnderItsOwnIdAndType(assessment: unknown, requestedId: string): boolean {
+  try {
+    assertReadUnderItsOwnId('assessment', assessment, requestedId, 'LOCALIZATION_ASSESSMENT');
+    return true;
+  } catch (error) {
+    if (error instanceof LuReadFaultError) return false;
+    throw error;
+  }
 }
 
-/** A failed read of the resolved assessment itself: only the repository's "not found" is absence. */
-function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: string): PlainLuFailure | AssessmentReadFailure {
-  if (error instanceof Error && error.message === `Artifact not found: ${assessmentArtifactId}`) {
-    return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR, retryable: false };
-  }
+/**
+ * A failed read of the resolved assessment itself.
+ * W-GAP1 (F1; owner decision Round 15-16, 2026-10-03; TRIAGE-A-PRERUN F1): the id read here was SELECTED one read
+ * earlier -- the projection row said it exists and resolveCurrentAssessmentProjection read and verified it. The
+ * repository's exact "Artifact not found: <id>" at this second read (ENOENT on the index entry, readFaultClassification.ts
+ * KNOWN LIMIT: it proves no entry is readable now, not that nothing was ever stored) is therefore a LOST referenced
+ * artifact: the same 503 ASSESSMENT_STORAGE_INTEGRITY_FAULT / CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT (not
+ * retryable) the selection itself answers for the same event -- never 404 "no current assessment", which stays only
+ * for the selection's own REJECT_*_NOT_FOUND / _NOT_CURRENT (assessmentResolutionFailure). This revokes U20CDF2's
+ * "only the repository's not found is absence" at the point of use (the W-U20CDF5-add control that pinned it is
+ * turned in luOrchestratorReadFaultU20CDF5.test.ts).
+ */
+function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: string): AssessmentReadFailure {
+  if (isProvenArtifactAbsence(error, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
   if (isPersistentStorageFault(error)) {
     return assessmentReadFailure(
       'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
@@ -1267,12 +1289,14 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
       artifact_type: 'LOCALIZATION_ASSESSMENT',
     });
   } catch (error) {
-    // U20CDF2 (add-on 2, OD-R2): only the repository's "not found" is absence (404); a read that
-    // failed is a technical 503 -- retryable unless the storage fault is lasting.
+    // U20CDF2 (add-on 2, OD-R2): a read that failed is a technical 503 -- retryable unless the storage fault is
+    // lasting. W-GAP1 (F1): the repository's "not found" for the SELECTED id is a lost referenced artifact (the same
+    // lasting integrity fault as the selection's), never 404 absence.
     return assessmentArtifactReadFailure(error, assessmentArtifactId);
   }
-  // W-U20CDF5-add: a misdirected index entry never yields another, self-consistent assessment.
-  if (!isReadUnderItsOwnId(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
+  // W-U20CDF5-add: a misdirected index entry never yields another, self-consistent assessment. W-GAP1 (F6a): nor an
+  // object of another artifact_type under the id.
+  if (!isReadUnderItsOwnIdAndType(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
 
   const recomputedAssessmentHash = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
   const untampered =
@@ -1793,10 +1817,21 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
   const recordRefusal = await currentRecordIntegrityRefusal(core.assessment, core.artifactRepository, 'verify');
   if (recordRefusal) return recordRefusal;
 
-  const result = await reExecuteLocalizationAssessment({
-    assessmentArtifactId: core.assessment.artifact_id,
-    artifactRepository: core.artifactRepository,
-  });
+  let result: Awaited<ReturnType<typeof reExecuteLocalizationAssessment>>;
+  try {
+    result = await reExecuteLocalizationAssessment({
+      assessmentArtifactId: core.assessment.artifact_id,
+      artifactRepository: core.artifactRepository,
+    });
+  } catch (error) {
+    // W-GAP1 (F1): H15 reads the assessment a THIRD time (its readPinnedArtifact, stage "assessment") and rethrows the
+    // repository's exact "Artifact not found: <id>" untyped. That id was selected and read twice above, so its absence
+    // now is a lost referenced artifact -- the same lasting integrity fault as at the selection and at the point of
+    // use, never an untyped 500 and never "no current assessment". Everything else H15 throws (its typed
+    // LU_REEXECUTION_STORAGE_FAULT, a not-found of ANOTHER id) propagates to the route unchanged, as before.
+    if (isProvenArtifactAbsence(error, core.assessment.artifact_id)) return currentAssessmentCandidateIntegrityFault();
+    throw error;
+  }
 
   // W-PLUMB-S: the presentation is decided here, once, by the package's fail-closed classifier -- never by
   // `outcome === 'PASS'`; the verdict (PASS/DENY) is H15's, unchanged.
