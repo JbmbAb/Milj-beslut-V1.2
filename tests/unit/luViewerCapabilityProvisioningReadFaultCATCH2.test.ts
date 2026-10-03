@@ -461,3 +461,35 @@ describe('W-CATCH3 #10: an existing capability with content beyond the determini
     expectTypedNoWrite(await executeViewerCapabilityProvisioning(input()), { failureCode: 'EXISTING_ARTIFACT_REFUSED', retryable: false });
   });
 });
+
+// W-CATCH3-R2 (CATCH3 verifier Low 5 and Low 6 / OD-C3-2): own codes are stored in Swedish without ids,
+// and an existing issuer that does not verify names both possible causes (a damaged object or a
+// misconfigured verification key).
+describe('W-CATCH3-R2 #10: Swedish own-code texts; the refused issuer names both possible causes', () => {
+  it('a typed denial -> REQUESTER_NOT_AUTHORIZED with a Swedish text', async () => {
+    h.accessError = Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED' });
+    expect(await executeViewerCapabilityProvisioning(input())).toMatchObject({
+      ok: false,
+      failureCode: 'REQUESTER_NOT_AUTHORIZED',
+      failureDetail: 'Den som begärde ändringen har inte behörighet till projektet. Inget utfärdades.',
+    });
+  });
+  it('the fresh verification fails after the writes -> a Swedish FRESH_VERIFICATION_FAILED text ending with the may-have-written sentence', async () => {
+    h.spawnExitCode = 1;
+    const outcome = (await executeViewerCapabilityProvisioning(input())) as { failureCode?: string; failureDetail?: string };
+    expect(outcome.failureCode).toBe('FRESH_VERIFICATION_FAILED');
+    expect(outcome.failureDetail).toBe(`Den oberoende kontrollen av den nyss utfärdade kartbehörigheten misslyckades. ${MAY_HAVE_WRITTEN}`);
+  });
+  it('P1 (issuer attestation garbled) -> EXISTING_ARTIFACT_REFUSED naming a damaged object or a misconfigured verification key', async () => {
+    await mintedOnce();
+    await rewriteObject(issuerId, (body) => {
+      const att = body.attestation as Record<string, unknown>;
+      body.attestation = { ...att, signature: String(att.signature ?? '').split('').reverse().join('') };
+    });
+    const outcome = (await executeViewerCapabilityProvisioning(input('2026-03-01T00:00:00.000Z', '2027-03-01T00:00:00.000Z'))) as { failureCode?: string; failureDetail?: string };
+    expect(outcome.failureCode).toBe('EXISTING_ARTIFACT_REFUSED');
+    expect(outcome.failureDetail).toBe(
+      'Den befintliga utfärdaren av kartbehörigheter underkändes vid verifieringen (skadat objekt eller felkonfigurerad verifieringsnyckel). Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör. Inget utfärdades i dess ställe.',
+    );
+  });
+});

@@ -551,3 +551,49 @@ describe('W-CATCH3 #13: the runtime provider re-reads the resolved capability by
     await expect(provider.resolve()).resolves.toMatchObject({ artifact_id: capability.artifact_id });
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// W-CATCH3-R2 (CATCH3 verifier Low 1): "not current" (EXPIRED / NOT_YET_VALID / SUPERSEDED) was decided
+// BEFORE the capability's attestation was checked, so a capability with no attestation, a garbled
+// signature or a forged one (another key under the trusted key id) whose own window had passed read as
+// "harmlessly expired": alone null ("not configured"), next to a valid one the valid one won. The
+// attestation is now verified first: such a capability is REFUSED, never "not current".
+// ------------------------------------------------------------------------------------------------
+describe('W-CATCH3-R2 #13: a capability is authentic before it can be "not current"', () => {
+  const damaged: Array<[string, (c: ProductViewerCapabilityArtifact) => ProductViewerCapabilityArtifact | Promise<ProductViewerCapabilityArtifact>, string]> = [
+    ['without an attestation', (c) => { const { attestation: _a, ...rest } = c; return rest as ProductViewerCapabilityArtifact; }, 'REJECT_VIEWER_CAPABILITY_TAMPERED'],
+    ['with a garbled signature', (c) => ({ ...c, attestation: { ...c.attestation!, signature: String(c.attestation!.signature).split('').reverse().join('') } }), 'REJECT_VIEWER_CAPABILITY_SIGNATURE'],
+  ];
+  for (const [what, damage, refusal] of damaged) {
+    it(`an EXPIRED capability ${what}, alone -> REFUSED (${refusal}), never null "not configured"`, async () => {
+      const { issuer } = await seed();
+      const expired = await damage(await buildCapability(issuer, EXPIRED_WINDOW));
+      await put(expired);
+      const result = await outcome([completedRequest(expired.artifact_id)]);
+      expectTyped(result, 'viewer-capability', 'REFUSED', false);
+      expect('error' in result && result.error.refusalCode).toBe(refusal);
+    });
+    it(`an EXPIRED capability ${what}, next to a valid one -> REFUSED, the valid one is never chosen silently`, async () => {
+      const { issuer, capability } = await seed();
+      const expired = await damage(await buildCapability(issuer, EXPIRED_WINDOW));
+      await put(expired);
+      expectTyped(await outcome([completedRequest(expired.artifact_id), completedRequest(capability.artifact_id)]), 'viewer-capability', 'REFUSED', false);
+    });
+  }
+  it('a FORGED (another key under the trusted key id) expired capability next to a valid one -> REFUSED (REJECT_VIEWER_CAPABILITY_SIGNATURE)', async () => {
+    const { issuer, capability } = await seed();
+    const forged = await buildCapability(issuer, EXPIRED_WINDOW, otherSeedKey);
+    await put(forged);
+    const result = await outcome([completedRequest(capability.artifact_id), completedRequest(forged.artifact_id)]);
+    expectTyped(result, 'viewer-capability', 'REFUSED', false);
+    expect('error' in result && result.error.refusalCode).toBe('REJECT_VIEWER_CAPABILITY_SIGNATURE');
+  });
+  it('controls: an authentic expired capability is still "not current" (alone null, next to a valid one the valid one)', async () => {
+    const { issuer, capability } = await seed();
+    const expired = await buildCapability(issuer, EXPIRED_WINDOW);
+    await put(expired);
+    expect(await outcome([completedRequest(expired.artifact_id)])).toEqual({ config: null });
+    const result = await outcome([completedRequest(expired.artifact_id), completedRequest(capability.artifact_id)]);
+    expect('config' in result && result.config?.capabilityArtifactId).toBe(capability.artifact_id);
+  });
+});

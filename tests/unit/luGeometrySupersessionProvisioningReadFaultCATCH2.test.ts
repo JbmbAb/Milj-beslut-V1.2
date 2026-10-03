@@ -511,3 +511,44 @@ describe('W-CATCH3-R2 #11: the pinned predecessor and successor are bound to the
     expect(h.puts).toEqual([]);
   });
 });
+
+// W-CATCH3-R2 (CATCH3 verifier Low 5 and Low 6 / OD-C3-2).
+describe('W-CATCH3-R2 #11: Swedish own-code texts; the refused issuer names both possible causes', () => {
+  it('a successor of another project -> SUCCESSOR_GEOMETRY_PROJECT_MISMATCH with a Swedish text', async () => {
+    const foreign = createLocalizationGeometryArtifact({
+      project_id: 'project-someone-else',
+      property_context_ref: PROPERTY_CONTEXT_REF,
+      wgs84LngLat: [18.4, 59.33],
+      sweref99NorthingEasting: [6590000, 674000],
+      provenance: 'user_defined',
+      label: 'Foreign',
+      created_by: 'user-1',
+    });
+    await repository().put({ artifact_id: foreign.artifact_id, content_hash: foreign.content_hash, body: foreign } as never);
+    h.puts.length = 0;
+    expect(await request(A, foreign)).toMatchObject({
+      ok: false,
+      failureCode: 'SUCCESSOR_GEOMETRY_PROJECT_MISMATCH',
+      failureDetail: 'Den nya kontrollpunkten hör till ett annat projekt. Inget utfärdades.',
+    });
+    expect(h.puts).toEqual([]);
+  });
+  it('a typed denial -> REQUESTER_NOT_AUTHORIZED with a Swedish text', async () => {
+    h.accessError = Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED' });
+    expect(await request(A, B)).toMatchObject({
+      ok: false,
+      failureCode: 'REQUESTER_NOT_AUTHORIZED',
+      failureDetail: 'Den som begärde ändringen har inte behörighet till projektet. Inget utfärdades.',
+    });
+  });
+  it('S1 (existing issuer garbled) -> EXISTING_ARTIFACT_REFUSED naming a damaged object or a misconfigured verification key', async () => {
+    await transitionedOnce();
+    await rewriteObject(issuerId, (body) => {
+      const att = body.attestation as Record<string, unknown>;
+      body.attestation = { ...att, signature: garble(att.signature) };
+    });
+    const outcome = (await request(B, C, '2026-10-02T11:00:00.000Z')) as { failureCode?: string; failureDetail?: string };
+    expect(outcome.failureCode).toBe('EXISTING_ARTIFACT_REFUSED');
+    expect(outcome.failureDetail).toContain('underkändes vid verifieringen (skadat objekt eller felkonfigurerad verifieringsnyckel).');
+  });
+});

@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   presentProvisioningRequestDetail,
+  PROCESS_BUILT_REQUEST_VIEW,
   PROVISIONING_REQUEST_FAILURE_PRESENTATION,
 } from '../../server/modules/localization/provisioningRequestPresentation';
 import { provisioningFailure } from '../../server/modules/localization/provisioningFailure';
@@ -43,12 +44,12 @@ describe('W-CATCH3: presentProvisioningRequestDetail', () => {
       expect(presentProvisioningRequestDetail('execution-identity', { status: 'FAILED', failureCode, failureDetail: RAW_DETAIL })).toBe(UNKNOWN_IDENTITY);
     }
   });
-  it('PENDING, LEASED, COMPLETED and no request -> null; a view this process built (no failureCode field) keeps its own neutral text', () => {
+  it('PENDING, LEASED, COMPLETED and no request -> null; a view this process built (W-CATCH3-R2: marked PROCESS_BUILT_REQUEST_VIEW) keeps its own neutral text', () => {
     for (const status of ['PENDING', 'LEASED', 'COMPLETED']) {
       expect(presentProvisioningRequestDetail('execution-identity', { status, failureCode: null, failureDetail: RAW_DETAIL })).toBeNull();
     }
     expect(presentProvisioningRequestDetail('execution-identity', null)).toBeNull();
-    expect(presentProvisioningRequestDetail('geometry-supersession', { status: 'FAILED', failureDetail: 'Bytet till den nya kontrollpunkten kunde inte begäras (tekniskt fel).' })).toBe(
+    expect(presentProvisioningRequestDetail('geometry-supersession', { status: 'FAILED', failureDetail: 'Bytet till den nya kontrollpunkten kunde inte begäras (tekniskt fel).', [PROCESS_BUILT_REQUEST_VIEW]: true })).toBe(
       'Bytet till den nya kontrollpunkten kunde inte begäras (tekniskt fel).',
     );
   });
@@ -83,5 +84,26 @@ describe('W-CATCH3: provisioningFailure without a write record never claims "Ing
     expect(without.failureDetail).not.toContain('Inget utfärdades');
     expect(without.failureDetail.endsWith('Ett eller flera objekt kan ha sparats innan felet uppstod, men begäran slutfördes inte.')).toBe(true);
     expect(provisioningFailure(error, { written: false }).failureDetail.endsWith('Inget utfärdades.')).toBe(true);
+  });
+});
+
+// W-CATCH3-R2 (CATCH3 verifier Low 3): a record without its own failureCode field used to pass its stored
+// text through (meant for the views this process builds). Fail-closed now: only an explicitly marked
+// process-built view keeps its text; anything else without its own code is "okänd felkod".
+describe('W-CATCH3-R2: no own failureCode field and no process mark -> never the stored text', () => {
+  it('a FAILED record without a failureCode field, or with an inherited one -> the unknown-code text', () => {
+    expect(presentProvisioningRequestDetail('execution-identity', { status: 'FAILED', failureDetail: RAW_DETAIL })).toBe(UNKNOWN_IDENTITY);
+    const inherited = Object.create({ failureCode: 'PROVISIONING_EXECUTION_ERROR' }) as { status: string; failureDetail: string };
+    inherited.status = 'FAILED';
+    inherited.failureDetail = RAW_DETAIL;
+    expect(presentProvisioningRequestDetail('execution-identity', inherited)).toBe(UNKNOWN_IDENTITY);
+  });
+  it('a mark that is not exactly true keeps nothing', () => {
+    expect(presentProvisioningRequestDetail('execution-identity', { status: 'FAILED', failureDetail: RAW_DETAIL, [PROCESS_BUILT_REQUEST_VIEW]: 'yes' as never })).toBe(UNKNOWN_IDENTITY);
+  });
+  it('OD-C3-2: EXISTING_ARTIFACT_REFUSED names a damaged object or a misconfigured verification key', () => {
+    expect(presentProvisioningRequestDetail('geometry-supersession', { status: 'FAILED', failureCode: 'EXISTING_ARTIFACT_REFUSED', failureDetail: null })).toBe(
+      'Bytet till den nya kontrollpunkten slutfördes inte: ett befintligt objekt som begäran bygger på underkändes vid verifieringen (skadat objekt eller felkonfigurerad verifieringsnyckel). Felet är bestående och löses inte av ett nytt försök.',
+    );
   });
 });

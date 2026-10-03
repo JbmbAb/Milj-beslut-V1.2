@@ -356,8 +356,12 @@ describe('W-CATCH3 #12: an object under a deterministic id must BE that object',
 
 // W-CATCH3 mutation F5-C: the reuse path reads the verified identity a second time; that read is bound
 // to the id too -- another identity answered on the re-read is an integrity fault, never used.
-describe('W-CATCH3 #12: the re-read after a verified reuse is bound to its id', () => {
-  it('the second read of the reused identity answers another valid identity -> EXISTING_ARTIFACT_INTEGRITY_FAULT, nothing written', async () => {
+// W-CATCH3-R2 (CATCH3 verifier Low 2): the reuse path used to READ THE IDENTITY AGAIN after verifying it
+// and checked only the id of what it re-read (TOCTOU: an edited copy under the same id passed). It now
+// uses the very object it verified: the identity is read exactly once, and a different object answered
+// on any later read can never be used.
+describe('W-CATCH3 #12: the reuse path uses the identity it verified -- never a second read', () => {
+  it('a second read would answer another valid identity: it never happens -- reused with my own identity, the identity read once, nothing written', async () => {
     const mine = await provisionedOnce();
     const original = geometryId;
     const other = createLocalizationGeometryArtifact({
@@ -374,7 +378,9 @@ describe('W-CATCH3 #12: the re-read after a verified reuse is bound to its id', 
     const theirs = await provisionedOnce();
     geometryId = original;
     h.swapRead = { id: mine.identityId, to: theirs.identityId, fromRead: 2, reads: 0 };
-    expectTypedNoWrite(await run(), { failureCode: 'EXISTING_ARTIFACT_INTEGRITY_FAULT', retryable: false });
+    expect(await run()).toEqual({ ok: true, executionIdentityArtifactId: mine.identityId, reused: true });
+    expect(h.swapRead?.reads, 'the identity is read exactly once on the reuse path').toBe(1);
+    expect(h.puts).toEqual([]);
   });
 });
 
@@ -484,5 +490,34 @@ describe('W-CATCH3-R2 #12: the requested point and the configured authority are 
     expect(h.puts).toEqual([]);
     const q = await anotherPoint('control-Q', 18.26, true);
     expect(q.ids?.identityId).not.toBe(first.executionIdentityArtifactId);
+  });
+});
+
+// W-CATCH3-R2 (CATCH3 verifier Low 5): the stored text of the worker's own codes is Swedish and names no
+// id (ids and the English detail go to the internal diagnostic only).
+describe('W-CATCH3-R2 #12: own failure codes are stored in Swedish, without ids', () => {
+  it('a typed denial -> REQUESTER_NOT_AUTHORIZED with a Swedish text', async () => {
+    h.accessError = Object.assign(new Error('User is not a member of this project'), { code: 'PROJECT_ACCESS_DENIED' });
+    expect(await run()).toMatchObject({
+      ok: false,
+      failureCode: 'REQUESTER_NOT_AUTHORIZED',
+      failureDetail: 'Den som begärde ändringen har inte behörighet till projektet. Inget utfärdades.',
+    });
+  });
+  it('a point of another project -> GEOMETRY_PROJECT_MISMATCH with a Swedish text and no id', async () => {
+    const foreign = createLocalizationGeometryArtifact({
+      project_id: 'project-someone-else',
+      property_context_ref: { artifact_id: 'lu_property_context-catch2', artifact_type: 'LU_PROPERTY_CONTEXT' },
+      wgs84LngLat: [18.3, 59.4],
+      sweref99NorthingEasting: [6583000, 677000],
+      provenance: 'user_defined',
+      label: 'Foreign point',
+      created_by: 'requester-1',
+    });
+    await put(foreign);
+    geometryId = foreign.artifact_id;
+    const outcome = (await run()) as { failureCode?: string; failureDetail?: string };
+    expect(outcome).toMatchObject({ failureCode: 'GEOMETRY_PROJECT_MISMATCH', failureDetail: 'Kontrollpunkten hör till ett annat projekt. Inget utfärdades.' });
+    expect(outcome.failureDetail).not.toMatch(/project-|localization-geometry-|belongs to/);
   });
 });
