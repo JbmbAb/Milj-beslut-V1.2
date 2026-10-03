@@ -1523,14 +1523,20 @@ export interface PdfContextUnresolved {
 /**
  * W-U20CDF5 (B5): reads one context the PDF names (the assessment's own property_ref / project_context_ref).
  * `payload: null` ONLY for a proven absence (readExistingOrProvenAbsent: the repository's exact "never stored"
- * for exactly that id) or a record that names no ref at all; every other failure is a typed LuReadFaultError.
+ * for exactly that id); every other failure is a typed LuReadFaultError.
+ * W-U20CDF5-R2 (U20CDF5 verification L4): a record that names no well-formed ref proves no absence -- it breaks the
+ * record contract (REFUSED, MALFORMED_RECORD_ENTRY); a context object without a payload object is a damaged
+ * (truncated) object, a lasting integrity fault (STORAGE_INTEGRITY_FAULT) -- neither is printed as missing.
  */
 async function readPdfContext(
   repository: ArtifactRepositoryPort,
   ref: { readonly artifact_id?: unknown; readonly artifact_type?: unknown } | null | undefined,
   subject: string,
 ): Promise<{ readonly ok: true; readonly payload: Record<string, unknown> | null } | { readonly ok: false; readonly fault: LuReadFaultError }> {
-  if (!ref || typeof ref.artifact_id !== 'string' || typeof ref.artifact_type !== 'string') return { ok: true, payload: null };
+  if (!ref || typeof ref.artifact_id !== 'string' || !ref.artifact_id || typeof ref.artifact_type !== 'string' || !ref.artifact_type) {
+    const refusal: ReadFault = { ...readFaultOfClass('REFUSED'), refusalCode: 'MALFORMED_RECORD_ENTRY' };
+    return { ok: false, fault: new LuReadFaultError(subject, refusal, new Error('the assessment names no well-formed context ref')) };
+  }
   const target = { artifact_id: ref.artifact_id, artifact_type: ref.artifact_type };
   try {
     const read = await readExistingOrProvenAbsent<{ payload?: unknown }>(repository, target, subject);
@@ -1540,17 +1546,24 @@ async function readPdfContext(
     // (STORAGE_INTEGRITY_FAULT, 503, not retryable), never its names in the PDF.
     assertReadUnderItsOwnId(subject, read.value, target.artifact_id, target.artifact_type);
     const payload = read.value?.payload;
-    return { ok: true, payload: payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {} };
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new LuReadFaultError(subject, readFaultOfClass('STORAGE_INTEGRITY_FAULT'), new Error('the context object carries no payload object'));
+    }
+    return { ok: true, payload: payload as Record<string, unknown> };
   } catch (error) {
     return { ok: false, fault: toReadFaultError(subject, error, 'read') };
   }
 }
 
+/** W-U20CDF5-R2 (L4): the cause of readPdfContext's own refusal -- the record names no well-formed context ref. */
+const PDF_CONTEXT_REF_MALFORMED_SV = 'bedömningen saknar en giltig referens till den';
+
 function pdfContextFailure(fault: LuReadFaultError, subjectSv: string): PdfContextUnresolved {
+  const causesSv = fault.refusalCode === 'MALFORMED_RECORD_ENTRY' ? PDF_CONTEXT_REF_MALFORMED_SV : undefined;
   return {
     ok: false,
     status: readFaultHttpStatus(fault),
-    error: `${readFaultSentenceSv(fault, subjectSv)} Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.`,
+    error: `${readFaultSentenceSv(fault, subjectSv, causesSv)} Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.`,
     code: ASSESSMENT_PDF_CONTEXT_UNRESOLVED,
     failureClass: fault.faultClass,
     reasonCode: fault.refusalCode ?? fault.faultClass,
