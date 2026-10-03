@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeGovernedDocumentCheck } from '../../server/modules/localization/governedLayerChecks';
 import { resolveGovernedAssessmentDetails } from '../../server/modules/localization/governedEvidenceDetails';
+import { governedOverallStatementSv } from '../../server/modules/localization/governedCoverageStatement';
 
 const INTERNAL = /\bCAS\b|\((?:[A-Z][A-Z0-9]*_[A-Z0-9_]+)(?::[^)]*)?\)|hash\/id\/typ|replay|[A-Z]{3,}_[A-Z0-9_]{3,}/;
 
@@ -100,5 +101,66 @@ describe('W-UI1 C: the server\'s user texts carry no internal terms -- the machi
       expect(d.message_sv, d.evidence_artifact_id).not.toMatch(INTERNAL);
       expect(d.binding_note_sv, d.evidence_artifact_id).not.toMatch(INTERNAL);
     }
+  });
+});
+
+/**
+ * W-U20CDF6 (UI1-DEFERRED-C, prepared by W-UI1 and taken in by the owner of the server surface): the three texts W-UI1
+ * could not change because tests it did not own quoted them -- the overall line over unreadable pinned evidence, the
+ * unreadable layer row and the property root that could not be read. Same rule: no "CAS", no code in parentheses; the
+ * class stays in its field (pinned_evidence.technical_error_class, technical_error_class). The PDF prints these texts.
+ */
+describe('W-U20CDF6 (UI1-DEFERRED-C): the coverage line, the unreadable layer row and the property root carry no internal terms either', () => {
+  it('the overall line over unreadable pinned evidence says "ur arkivet" and (hittades inte) / (läsfel) -- the class stays in pinned_evidence', () => {
+    const rows = [{ layer: 'water', rule_id: 'LU-WATER-001', status: 'NOT_CHECKED', evidence_artifact_id: 'e1', reason: 'PINNED_EVIDENCE_UNREADABLE' }];
+    const line = (technical_error_class: 'EVIDENCE_NOT_FOUND' | 'EVIDENCE_READ_ERROR' | null, retryable: boolean | null) =>
+      governedOverallStatementSv('LOW', rows, {
+        findings: [],
+        pinnedEvidence: { pinned_total: 5, unreadable_artifact_ids: ['e1'], technical_error_class, retryable },
+      });
+    expect(line('EVIDENCE_NOT_FOUND', false)).toBe(
+      'Den pinnade evidensen kan inte verifieras: 1 av 5 bundna evidensobjekt kunde inte läsas ur arkivet (hittades inte). ' +
+        'Felet är bestående och löses inte av ett nytt försök. Täckningsgrad och samlad risknivå kan därför inte fastställas.',
+    );
+    expect(line('EVIDENCE_READ_ERROR', true)).toBe(
+      'Den pinnade evidensen kan inte verifieras: 1 av 5 bundna evidensobjekt kunde inte läsas ur arkivet (läsfel). ' +
+        'Ett nytt försök kan lyckas. Täckningsgrad och samlad risknivå kan därför inte fastställas.',
+    );
+    expect(line(null, null)).toBe(
+      'Den pinnade evidensen kan inte verifieras: 1 av 5 bundna evidensobjekt kunde inte läsas ur arkivet. ' +
+        'Täckningsgrad och samlad risknivå kan därför inte fastställas.',
+    );
+    for (const text of [line('EVIDENCE_NOT_FOUND', false), line('EVIDENCE_READ_ERROR', true), line(null, null)]) expect(text).not.toMatch(INTERNAL);
+  });
+
+  it('the layer row whose pinned evidence could not be read says "ur arkivet"; the class stays in the evidence detail', async () => {
+    const details = await resolveGovernedAssessmentDetails({
+      assessment: assessment([{ artifact_id: 'e-lost', artifact_type: 'SPATIAL_EVIDENCE' }]),
+      artifactRepository: repo({ 'e-lost': 'not_found' }),
+    });
+    const water = details.governedLayerChecks.find((row) => row.layer === 'water')!;
+    expect(water).toMatchObject({ reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR' });
+    expect(water.message_sv).toBe('Tekniskt fel: den pinnade evidensen för Brunnar kunde inte läsas ur arkivet och kan inte verifieras. Ingen slutsats om lagret.');
+    for (const row of details.governedLayerChecks) expect(row.message_sv, row.layer).not.toMatch(INTERNAL);
+    expect(details.evidenceDetails[0]!.technical_error_class).toBe('EVIDENCE_NOT_FOUND');
+  });
+
+  it('the property root that could not be read: "just nu (läsfel)" for a read error, "finns inte i arkivet" for a proven absence -- the class stays in technical_error_class', async () => {
+    const root = async (answer: 'read_error' | 'not_found') =>
+      (
+        await resolveGovernedAssessmentDetails({
+          assessment: { payload: { evidence_refs: [], findings: [], property_ref: { artifact_id: 'prop-1', artifact_type: 'LU_PROPERTY_CONTEXT' } } } as never,
+          artifactRepository: repo({ 'prop-1': answer }),
+        })
+      ).propertyRoot;
+    const readError = await root('read_error');
+    expect(readError).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR' });
+    expect(readError.message_sv).toBe('Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens kunde inte läsas just nu (läsfel).');
+    const notFound = await root('not_found');
+    expect(notFound).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_ARTIFACT_NOT_FOUND' });
+    expect(notFound.message_sv).toBe('Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens finns inte i arkivet.');
+    // A read error never claims an absence; neither text names its class.
+    expect(readError.message_sv).not.toMatch(/finns inte/);
+    for (const text of [readError.message_sv, notFound.message_sv]) expect(text).not.toMatch(INTERNAL);
   });
 });

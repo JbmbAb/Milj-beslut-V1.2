@@ -1127,7 +1127,7 @@ describe('W-U20CDF5-R3 R2-1: a transient read fault on the property root never h
     expect(res.status).toBe(200);
     expect(res.body.propertyRoot).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR', property_designation: null });
     // ROOT_UNBOUND_SV ("Rotens datasetbindning saknas ...") is the root's standing assurance note, not an absence claim.
-    expect(res.body.propertyRoot.message_sv).toContain('Fastighetsrotens proveniens kunde inte läsas (ROOT_READ_ERROR).');
+    expect(res.body.propertyRoot.message_sv).toContain('Fastighetsrotens proveniens kunde inte läsas just nu (läsfel).');
     expect(JSON.stringify(res.body.propertyRoot)).not.toMatch(/GÄVLE TEST|äldre kontrakt|finns inte i arkivet/i);
   });
 

@@ -792,7 +792,7 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     for (const id of spatialIds) s.repository.values.delete(id);
     const storedFindings = (s.repository.values.get(fresh.executionMotor!.assessment_artifact_id!) as LocalizationAssessmentArtifact).payload.findings;
     const EXPECTED_SV =
-      'Den pinnade evidensen kan inte verifieras: 5 av 5 bundna evidensobjekt kunde inte läsas ur CAS (EVIDENCE_NOT_FOUND). ' +
+      'Den pinnade evidensen kan inte verifieras: 5 av 5 bundna evidensobjekt kunde inte läsas ur arkivet (hittades inte). ' +
       'Felet är bestående och löses inte av ett nytt försök. Täckningsgrad och samlad risknivå kan därför inte fastställas. ' +
       'Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Natura 2000; risknivå måttlig – Brunnar.';
 
@@ -809,7 +809,7 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
     const rows = new Map(summary.governedLayerChecks.map((c) => [c.layer, c] as const));
     for (const layer of ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area']) {
       expect(rows.get(layer)).toMatchObject({ status: 'NOT_CHECKED', reason: 'PINNED_EVIDENCE_UNREADABLE', coverage_state: 'TECHNICAL_ERROR' });
-      expect(rows.get(layer)!.message_sv).toMatch(/^Tekniskt fel: den pinnade evidensen för .* kunde inte läsas ur CAS och kan inte verifieras\./);
+      expect(rows.get(layer)!.message_sv).toMatch(/^Tekniskt fel: den pinnade evidensen för .* kunde inte läsas ur arkivet och kan inte verifieras\./);
     }
     expect(rows.get('natura2000')!.message_sv).toContain('Bedömningens lagrade fynd för lagret (risknivå hög) redovisas var för sig.');
     expect(rows.get('water')!.message_sv).toContain('Bedömningens lagrade fynd för lagret (risknivå måttlig) redovisas var för sig.');
@@ -857,7 +857,7 @@ describe('U20-D: failure is a class, never a silently missing field', () => {
       pinned_evidence: { pinned_total: 5, unreadable_artifact_ids: [ebhId], technical_error_class: 'EVIDENCE_READ_ERROR', retryable: true },
     });
     expect(summary.overallStatement.statement_sv).toBe(
-      'Den pinnade evidensen kan inte verifieras: 1 av 5 bundna evidensobjekt kunde inte läsas ur CAS (EVIDENCE_READ_ERROR). ' +
+      'Den pinnade evidensen kan inte verifieras: 1 av 5 bundna evidensobjekt kunde inte läsas ur arkivet (läsfel). ' +
         'Ett nytt försök kan lyckas. Täckningsgrad och samlad risknivå kan därför inte fastställas. ' +
         'Bedömningens lagrade fynd redovisas var för sig: risknivå hög – Natura 2000; risknivå måttlig – Brunnar.',
     );
