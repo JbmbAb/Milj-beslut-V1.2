@@ -53,6 +53,9 @@ const ATTENTION_LABEL_BY_RISK_LEVEL: Readonly<Record<string, string>> = {
   NOT_CHECKED: "Ej kontrollerad",
 };
 
+/** W-UI1 (inventory): the stored risk levels with an attention label of their own. */
+export const LU_RISK_LEVEL_TEXTS: readonly string[] = Object.freeze(Object.keys(ATTENTION_LABEL_BY_RISK_LEVEL));
+
 /** W-M2e item 2: the label of a level the engine produces; never an Object.prototype member ("constructor"). */
 function attentionLabelOf(riskLevel: unknown): string | undefined {
   return typeof riskLevel === "string" && Object.prototype.hasOwnProperty.call(ATTENTION_LABEL_BY_RISK_LEVEL, riskLevel)

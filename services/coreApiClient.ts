@@ -131,6 +131,7 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
       failureClass?: unknown;
       reasonCode?: unknown;
       retryable?: unknown;
+      record_integrity?: unknown;
     };
     const raw = err.error;
     const fromError =
@@ -147,6 +148,11 @@ export async function callApi<T>(endpoint: string, options: ApiCallOptions = {})
       ...(typeof err.failureClass === 'string' ? { failureClass: err.failureClass } : {}),
       ...(typeof err.reasonCode === 'string' ? { reasonCode: err.reasonCode } : {}),
       ...(typeof err.retryable === 'boolean' ? { retryable: err.retryable } : {}),
+      // W-UI1 (LU): the 424 record-integrity envelope (U20CDF4), kept as sent -- the LU UI shows it only as an
+      // unverified, non-authoritative diagnostic. Only a plain object is kept.
+      ...(err.record_integrity !== null && typeof err.record_integrity === 'object' && !Array.isArray(err.record_integrity)
+        ? { record_integrity: err.record_integrity }
+        : {}),
     });
   }
 

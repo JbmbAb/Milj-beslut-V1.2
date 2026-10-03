@@ -14,6 +14,7 @@
  */
 
 import { governedCheckLabelSv } from './luControlChecks';
+import { presentServerTextSv } from './luServerText';
 
 export type LuOverallTone = 'complete' | 'qualified' | 'technical';
 
@@ -38,7 +39,8 @@ export const LU_OVERALL_MISSING_SV = 'Saknas i underlaget: svaret innehåller in
 /** Swedish label per server record coverage state (governedCoverageStatement.ts). */
 const COVERAGE_STATE_LABEL_SV: Readonly<Record<string, string | null>> = {
   DETERMINED: null,
-  HISTORICAL_COVERAGE_UNKNOWN: 'Täckningsgrad okänd – historisk bedömning',
+  // W-UI1 (owner doctrine 2026-10-03): a record from before the coverage contract -- the owner's sentence.
+  HISTORICAL_COVERAGE_UNKNOWN: 'Täckningsgrad kan inte fastställas för denna historiska bedömning',
   PINNED_EVIDENCE_UNREADABLE: 'Tekniskt fel – den bundna evidensen kan inte läsas',
   CHECKS_UNAVAILABLE: 'Täckningsgrad okänd – uppgift om kontrollerna saknas',
   // W-M2e item 2 (U20CDF3, coordinator): the STORED record is an invalid combination (a NOT_CHECKED
@@ -69,7 +71,22 @@ function labels(layers: readonly string[]): string {
   return [...new Set(layers.map(governedCheckLabelSv))].join(', ');
 }
 
-export function presentLuOverallStatement(raw: unknown): LuOverallStatementView {
+/**
+ * W-UI1 (owner invariant 2026-10-03): "0 av M" never stands beside a stored finding. A record that says no
+ * check was completed while it holds a stored HIGH/MEDIUM/LOW finding contradicts itself; its line is not
+ * shown as the statement.
+ */
+export const LU_OVERALL_ZERO_WITH_FINDINGS_SV =
+  'Underlaget är motsägelsefullt: inga kontroller redovisas som genomförda, men bedömningen innehåller lagrade fynd. ' +
+  'Ingen samlad bedömning visas – fynden redovisas var för sig.';
+
+const ZERO_OF_M = /(^|\s)0 av \d+ kontroller/;
+
+export function presentLuOverallStatement(
+  raw: unknown,
+  /** W-UI1: how many stored HIGH/MEDIUM/LOW findings the displayed record holds (for the "0 av M" invariant). */
+  context: { readonly storedRiskFindings?: number } = {},
+): LuOverallStatementView {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   const statement = o ? str(o.statement_sv) : null;
   if (!o || !statement) {
@@ -111,16 +128,29 @@ export function presentLuOverallStatement(raw: unknown): LuOverallStatementView 
   const stateLabelSv = Object.prototype.hasOwnProperty.call(COVERAGE_STATE_LABEL_SV, coverageState)
     ? (COVERAGE_STATE_LABEL_SV[coverageState] ?? null)
     : 'Okänt täckningstillstånd';
+  // W-UI1: the "0 av M" invariant -- a contradictory record is shown as such, its line only under Teknisk information.
+  const zeroCompleted = (coverage ? num(coverage.checks_completed) === 0 : false) || ZERO_OF_M.test(statement);
+  if (zeroCompleted && (context.storedRiskFindings ?? 0) > 0) {
+    return {
+      coverageState,
+      stateLabelSv: 'Motsägelsefullt underlag',
+      statementSv: LU_OVERALL_ZERO_WITH_FINDINGS_SV,
+      notices: [],
+      tone: 'technical',
+      retryable: false,
+      technical: [...technical, { label: 'Serverns text', value: statement }],
+    };
+  }
   return {
     coverageState,
     stateLabelSv,
-    statementSv: statement,
+    // W-UI1 (C): the server's line without internal terms (CAS, a code in parentheses); the codes stay technical.
+    statementSv: presentServerTextSv(statement),
     notices,
     tone,
-    // W-M2e item 3 (second lock): re-reading can only help a READ error the server marks retryable --
-    // never EVIDENCE_NOT_FOUND (lasting) or a class this UI does not know.
-    retryable:
-      coverageState === 'PINNED_EVIDENCE_UNREADABLE' && pinned?.retryable === true && pinned?.technical_error_class === 'EVIDENCE_READ_ERROR',
+    // W-UI1 (owner decision 2): re-reading is offered only when the server marks the unreadable pinned evidence
+    // retryable -- its flag, no client class list.
+    retryable: coverageState === 'PINNED_EVIDENCE_UNREADABLE' && pinned?.retryable === true,
     technical,
   };
 }

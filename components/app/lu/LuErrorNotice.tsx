@@ -1,9 +1,12 @@
 import React from 'react';
 import type { LuErrorPresentation } from './luErrorPresentation';
+import { LuRecordIntegrityDiagnostic } from './LuRecordIntegrityDiagnostic';
 
 /**
  * DEMO M2b item 3: one way to show a failure -- a plain-Swedish line, an optional "Försök igen",
  * and the server's own text/codes only inside a collapsed "Teknisk information".
+ * W-UI1 (B): "Försök igen" only when the presentation says so (the server's `retryable`); a record whose
+ * integrity cannot be attested shows its stored findings only as a collapsed, unverified diagnostic.
  */
 export const LuErrorNotice: React.FC<{
   error: LuErrorPresentation;
@@ -28,6 +31,7 @@ export const LuErrorNotice: React.FC<{
         {retrying ? 'Försöker igen…' : 'Försök igen'}
       </button>
     ) : null}
+    {error.diagnostic ? <LuRecordIntegrityDiagnostic view={error.diagnostic} testId={`${testId}-diagnostic`} /> : null}
     {error.technical.length > 0 ? (
       <details data-testid={`${testId}-technical`} className="text-xs opacity-70">
         <summary className="cursor-pointer">Teknisk information</summary>

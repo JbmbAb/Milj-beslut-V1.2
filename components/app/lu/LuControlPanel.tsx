@@ -157,7 +157,8 @@ export const LuControlPanel: React.FC<{
   note?: string | null;
 }> = ({ checks, findings, selectedKey, onSelect, onRetry = null, retrying = false, note = null }) => {
   const selected = checks.find((c) => c.key === selectedKey) ?? null;
-  const hasTechnicalError = checks.some((c) => c.state === 'TECHNICAL_ERROR');
+  // W-UI1 (D): the property root's transient read error is re-read with the same "Försök igen".
+  const hasTechnicalError = checks.some((c) => c.state === 'TECHNICAL_ERROR' || c.rootReadRetryable);
   return (
     <section data-testid="lu-control-panel" className="space-y-3 mb-10">
       <h2 className="text-xs uppercase tracking-widest opacity-70" style={{ color: 'inherit' }}>Kontroller</h2>

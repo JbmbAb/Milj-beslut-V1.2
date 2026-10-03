@@ -18,6 +18,13 @@ export interface LuRunOutcomeRecord {
   readonly endedAt: string;
   /** W-M2e item 1: the run record's own reason codes (executionMotor.reason_codes), technical section only. */
   readonly reasonCodes?: readonly string[];
+  /**
+   * W-UI1 (B): a run that stored a record whose integrity cannot be attested -- its executionMotor.record_integrity
+   * envelope, unparsed; shown only as the unverified, non-authoritative diagnostic.
+   */
+  readonly recordIntegrity?: unknown;
+  /** W-UI1 (B): why the run's site is not ranked (summary.not_ranked_site_ids), or null when nothing needs saying. */
+  readonly rankingSv?: string | null;
 }
 
 interface LuSessionMemory {

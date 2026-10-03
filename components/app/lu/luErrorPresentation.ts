@@ -18,9 +18,16 @@
  * kind below -- including LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED per failure class, whose server
  * message (FAILURE_POLICY.messageSv) is kept under "Teknisk information" only, because one of them
  * claims more than M1a's KNOWN_LIMITATION allows ("En äldre punkt används aldrig i stället").
- * Whether "Försök igen" is offered is the SERVER's `retryable` flag when it sends one (OD-R3,
- * M1a-F1) -- never inferred from the HTTP status alone; a refusal is never retryable.
+ *
+ * W-UI1 (owner decision 2, 2026-10-03): "Försök igen" is offered ONLY when the server's answer says
+ * `retryable: true` -- never by a code list in the client, never from the HTTP status. The UI can only keep
+ * the button away where its own text says the fault is lasting or a refusal (the text and the button must
+ * agree). An answer without the flag gets no button; only a request that got no answer at all (network) or
+ * a UI-side message may be tried again, since no server decided anything. The 424 record-integrity body's
+ * `record_integrity` is shown only as an unverified, non-authoritative diagnostic (luRecordIntegrity.ts).
  */
+
+import { parseLuRecordIntegrityDiagnostic, type LuRecordIntegrityView } from './luRecordIntegrity';
 
 export type LuErrorContext =
   | 'current-assessment'
@@ -55,10 +62,15 @@ export interface LuErrorPresentation {
   readonly kind: LuErrorKind;
   /** Swedish, user-facing. Never contains the server's raw text. */
   readonly messageSv: string;
-  /** True when trying again can reasonably give a different answer. */
+  /** W-UI1: true only when the server says `retryable: true` (or no server answered at all). */
   readonly retryable: boolean;
   /** For the collapsed "Teknisk information": status, codes and the server's own text. */
   readonly technical: readonly LuErrorDetailRow[];
+  /**
+   * W-UI1 (B): the 424 ASSESSMENT_RECORD_INTEGRITY_ERROR's stored findings, ONLY as an unverified,
+   * non-authoritative diagnostic (shown collapsed); absent for every other answer.
+   */
+  readonly diagnostic?: LuRecordIntegrityView;
 }
 
 /** A client-side error whose message is already plain Swedish written by this UI. */
@@ -80,6 +92,11 @@ export const LU_SERVER_MESSAGE = {
   PRESENTATION_REJECT_PREFIX: 'REJECT_LOCALIZATION_PRESENTATION',
   /** localizationGeometryService.ts: 404 `No canonical project context available: <raw text>` (W-M2e item 2). */
   NO_CANONICAL_PROJECT_CONTEXT_PREFIX: 'No canonical project context available:',
+  /**
+   * W-UI1 (M2e verification finding 5): server/security/csrf.ts answers every LU POST with a stale or missing
+   * CSRF token with 403 and this text (no code) -- it is no project permission.
+   */
+  CSRF_REJECTED: 'Möjlig Cross-Site Request Forgery attack blockerad. Ogiltig eller saknad CSRF-token.',
 } as const;
 
 const CONTEXT_LEAD: Readonly<Record<LuErrorContext, string>> = {
@@ -124,6 +141,8 @@ interface ErrorFields {
   readonly retryable: boolean | null;
   readonly message: string;
   readonly isClientError: boolean;
+  /** W-UI1: the 424 record-integrity envelope the API client keeps (own property only), unparsed. */
+  readonly recordIntegrity: unknown;
 }
 
 function readFields(err: unknown): ErrorFields {
@@ -137,6 +156,7 @@ function readFields(err: unknown): ErrorFields {
     retryable: typeof e.retryable === 'boolean' ? e.retryable : null,
     message: typeof err === 'string' ? err : typeof e.message === 'string' ? e.message : '',
     isClientError: e.luClientError === true,
+    recordIntegrity: err !== null && typeof err === 'object' && Object.prototype.hasOwnProperty.call(err, 'record_integrity') ? e.record_integrity : undefined,
   };
 }
 
@@ -151,14 +171,18 @@ function technicalRows(f: ErrorFields): LuErrorDetailRow[] {
   return rows;
 }
 
+/**
+ * One Swedish text of this UI. W-UI1: `retryable` says whether the TEXT allows a new attempt -- false when
+ * the text calls the fault lasting or a refusal. It never turns "Försök igen" on by itself: only the
+ * server's `retryable: true` does, and only where the text allows it.
+ */
 type CodeText = { readonly kind: LuErrorKind; readonly messageSv: string; readonly retryable: boolean };
 
 /**
  * W-M2d item 5 / item 9: LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED per failure class
  * (server/modules/localization/localizationGeometryCurrentness.ts FAILURE_POLICY). Same meaning as the
  * server's text, in this UI's words ("kontrollpunkt"), and without claims stronger than M1a's
- * KNOWN_LIMITATION (currentness is fail-closed for detectable faults only). `retryable` is the
- * fallback when the answer carries no flag; the server's own flag wins.
+ * KNOWN_LIMITATION (currentness is fail-closed for detectable faults only).
  */
 const CURRENTNESS_TEXT: Readonly<Record<string, CodeText>> = {
   AMBIGUOUS_CURRENT_GEOMETRY: {
@@ -215,26 +239,27 @@ const CURRENTNESS_TEXT: Readonly<Record<string, CodeText>> = {
   },
 };
 
+/** W-UI1: may "Försök igen" be offered -- the server said so, and the shown text does not call the fault lasting. */
+function serverAllowsRetry(serverRetryable: unknown, text: CodeText): boolean {
+  return serverRetryable === true && text.retryable && text.kind !== 'REFUSED' && text.kind !== 'INTEGRITY';
+}
+
 /**
  * W-M2d item 5: the Swedish text of a currentness failure CLASS, for answers that carry it outside an
  * HTTP error -- generate-report's executionMotor.localization_geometry { failure_class, retryable }
  * (a FAILED_CLOSED provenance record). null for a class this UI does not know.
+ * W-UI1: `retryable` is the server's flag (false where the text calls the fault lasting), or null when the
+ * record carries none -- then nothing is said about a new attempt.
  */
 export function presentCurrentnessFailureClass(
   failureClass: unknown,
   serverRetryable: unknown,
-): { readonly messageSv: string; readonly retryable: boolean } | null {
+): { readonly messageSv: string; readonly retryable: boolean | null } | null {
   const entry = typeof failureClass === 'string' ? own(CURRENTNESS_TEXT, failureClass) : undefined;
   if (!entry) return null;
   return {
     messageSv: entry.messageSv,
-    // W-M2e item 3: the second lock holds for a run's FAILED_CLOSED record too.
-    retryable:
-      entry.kind === 'REFUSED' || entry.kind === 'INTEGRITY' || isNeverRetry(failureClass)
-        ? false
-        : typeof serverRetryable === 'boolean'
-          ? serverRetryable
-          : entry.retryable,
+    retryable: typeof serverRetryable === 'boolean' ? serverAllowsRetry(serverRetryable, entry) : null,
   };
 }
 
@@ -282,6 +307,9 @@ const ASSESSMENT_STATUS_LABEL: Readonly<Record<string, string>> = {
   NOT_ASSESSED: 'Ej bedömd',
   GOVERNANCE_DENIED: 'Ej bedömd – nekad av styrning',
   EXECUTION_FAILED: 'Ej bedömd – körning misslyckades',
+  // W-UI1 (U20CDF4 beslut 1+3; U20CDF4 verification L6.1): the run stored a record, but its integrity is not
+  // established -- no verdict, never ranked, never shown as a valid assessment.
+  RECORD_INTEGRITY_ERROR: 'Ingen giltig bedömning – postens integritet kan inte intygas',
 };
 
 /** W-M2e item 2 (moved from LuWorkspace.tsx; own entries only): the status label, or "Okänd status". */
@@ -311,61 +339,98 @@ export function presentLuRunReason(reasonCodes: unknown): { readonly code: strin
  * W-M2d items 5 + 6, W-M2e item 2 (moved here from PropertyFirstLuEntry.tsx so the inventory test
  * reads it): every failure code the project-context bootstrap worker records
  * (server/modules/localization/luProjectContextBootstrap.ts, PropertyLookupAmbiguousError,
- * W-BOOT projectContextBootstrapBindingGate.ts) with a Swedish reason and whether a new attempt can
- * change anything. The queue stores no retry flag, so it is decided here per code: a lasting gap in
- * the property data, a refusal or a lasting integrity fault is never offered "Försök igen"; a
- * technical failure is. Nothing beyond what the code says is claimed, and no action is invented.
+ * W-BOOT projectContextBootstrapBindingGate.ts, W-CATCH2 bootstrapFailurePresentation.ts) with a Swedish
+ * reason. Nothing beyond what the code says is claimed, and no action is invented.
+ * W-UI1 (owner decision 2; CATCH2-VERIFICATION finding 10): whether "Försök igen" is offered is NOT decided
+ * here any more -- bootstrap-status presents a FAILED request with the server's `retryable`
+ * (presentBootstrapRequestStatus), and presentBootstrapFailure follows it.
  */
-const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string; readonly retryable: boolean }>> = {
-  PROPERTY_LOOKUP_AMBIGUOUS: { reasonSv: PROPERTY_LOOKUP_AMBIGUOUS_SV, retryable: false },
+const BOOTSTRAP_FAILURE: Readonly<Record<string, { readonly reasonSv: string }>> = {
+  PROPERTY_LOOKUP_AMBIGUOUS: { reasonSv: PROPERTY_LOOKUP_AMBIGUOUS_SV },
   PROPERTY_LOOKUP_NOT_EXACT: {
     reasonSv: 'Fastighetsbeteckningen gav ingen exakt träff i fastighetsunderlaget, så fastigheten kan inte knytas till lokaliseringen.',
-    retryable: false,
   },
-  PROPERTY_GEOMETRY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar gräns (geometri) för fastigheten.', retryable: false },
-  PROPERTY_CENTROID_UNAVAILABLE: { reasonSv: 'Fastighetens mittpunkt kunde inte beräknas.', retryable: false },
+  PROPERTY_GEOMETRY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar gräns (geometri) för fastigheten.' },
+  PROPERTY_CENTROID_UNAVAILABLE: { reasonSv: 'Fastighetens mittpunkt kunde inte beräknas.' },
   PROPERTY_PROVENANCE_INCOMPLETE: {
     reasonSv: 'Fastighetsunderlaget saknar uppgifter om fastighetsuppgiftens källa (källa, nyckel eller uppdateringsdatum).',
-    retryable: false,
   },
-  PROPERTY_MUNICIPALITY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar kommun för fastigheten.', retryable: false },
+  PROPERTY_MUNICIPALITY_UNAVAILABLE: { reasonSv: 'Fastighetsunderlaget saknar kommun för fastigheten.' },
   // W-M2e item 2: the request named another property than the localization's own.
-  PROPERTY_MISMATCH: { reasonSv: 'Fastighetsbeteckningen i begäran stämmer inte med lokaliseringens egen fastighet.', retryable: false },
-  PROJECT_NOT_FOUND: { reasonSv: 'Lokaliseringen hittades inte.', retryable: false },
-  NO_LEGITIMATE_OWNER: { reasonSv: 'Lokaliseringen saknar en behörig ägare och kan därför inte förberedas.', retryable: false },
+  PROPERTY_MISMATCH: { reasonSv: 'Fastighetsbeteckningen i begäran stämmer inte med lokaliseringens egen fastighet.' },
+  PROJECT_NOT_FOUND: { reasonSv: 'Lokaliseringen hittades inte.' },
+  NO_LEGITIMATE_OWNER: { reasonSv: 'Lokaliseringen saknar en behörig ägare och kan därför inte förberedas.' },
+  // W-UI1: the bootstrap's own lookup found no such property in the local property data (W-CATCH2 #15).
+  LOCAL_PROPERTY_NOT_FOUND: { reasonSv: 'Fastigheten hittades inte i fastighetsunderlaget.' },
   FRESH_VERIFICATION_FAILED: {
     reasonSv: 'Den nyss skapade kopplingen mellan lokaliseringen och fastigheten klarade inte kontrollen.',
-    retryable: true,
   },
-  BOOTSTRAP_EXECUTION_ERROR: { reasonSv: 'Ett tekniskt fel uppstod när fastigheten skulle knytas till lokaliseringen.', retryable: true },
+  BOOTSTRAP_EXECUTION_ERROR: { reasonSv: 'Ett tekniskt fel uppstod när fastigheten skulle knytas till lokaliseringen.' },
+  // W-UI1 (W-CATCH2 #4): a lasting storage or integrity fault, or a refusal, met outside the binding gate.
+  BOOTSTRAP_STORAGE_INTEGRITY_FAULT: {
+    reasonSv:
+      'Ett sparat objekt som kopplingen bygger på saknas, är skadat eller motsäger ett annat (bestående lagrings- eller integritetsfel). ' +
+      'Ingen koppling skapades.',
+  },
+  BOOTSTRAP_REFUSED: { reasonSv: 'Ett steg i kopplingen av fastigheten till lokaliseringen underkändes vid kontrollen. Ingen koppling skapades.' },
   // W-M2e item 2 (W-BOOT ca2bfdbb): the localization already has a registered binding that could not be
   // read or verified -- the worker created no new one in its place (OD-R1/OD-R2).
   CURRENT_BINDING_READ_ERROR: {
     reasonSv:
       'Lokaliseringens befintliga koppling till fastigheten kunde inte läsas på grund av ett tekniskt fel. Ingen ny koppling skapades i dess ställe.',
-    retryable: true,
   },
   CURRENT_BINDING_INTEGRITY_FAULT: {
     reasonSv:
       'Lokaliseringens befintliga koppling till fastigheten kunde inte läsas eller bekräftas (bestående lagrings- eller integritetsfel). ' +
       'Ingen ny koppling skapades i dess ställe.',
-    retryable: false,
   },
   CURRENT_BINDING_REFUSED: {
     reasonSv: 'Lokaliseringens befintliga koppling till fastigheten underkändes vid kontrollen. Ingen ny koppling skapades i dess ställe.',
-    retryable: false,
   },
 };
 
 /** W-M2e item 2 (inventory): bootstrap failure codes with a text of their own. */
 export const LU_BOOTSTRAP_FAILURE_TEXTS: readonly string[] = Object.freeze(Object.keys(BOOTSTRAP_FAILURE));
 
-/** W-M2d items 5 + 6: the Swedish reason of a bootstrap failure code and whether "Försök igen" is offered. */
-export function describeBootstrapFailure(failureCode: string | null): { readonly reasonSv: string; readonly retryable: boolean } {
-  const known = own(BOOTSTRAP_FAILURE, failureCode);
-  if (known) return known;
-  if (failureCode && /NOT_FOUND/i.test(failureCode)) return { reasonSv: 'Fastigheten hittades inte i fastighetsunderlaget.', retryable: false };
-  return { reasonSv: 'Fastigheten kunde inte knytas till lokaliseringen.', retryable: true };
+const BOOTSTRAP_UNKNOWN_REASON_SV = 'Fastigheten kunde inte knytas till lokaliseringen.';
+
+/**
+ * The Swedish reason of a bootstrap failure code. W-UI1 (M2e verification finding 5): an unknown code claims
+ * no cause -- not even one whose name says NOT_FOUND.
+ */
+export function describeBootstrapFailure(failureCode: string | null): { readonly reasonSv: string } {
+  return { reasonSv: own(BOOTSTRAP_FAILURE, failureCode)?.reasonSv ?? BOOTSTRAP_UNKNOWN_REASON_SV };
+}
+
+export interface LuBootstrapFailureView {
+  readonly reasonSv: string;
+  /** Only the server's `retryable: true` on bootstrap-status (own property) offers "Försök igen". */
+  readonly retryable: boolean;
+  /** What the failure means for the localization, by the server's flag. */
+  readonly consequenceSv: string;
+}
+
+/**
+ * W-UI1 (owner decision 2): a FAILED bootstrap request as GET .../bootstrap-status presents it -- the reason
+ * by its code, "Försök igen" exactly when the server sends `retryable: true` (BOOTSTRAP_STORAGE_INTEGRITY_FAULT
+ * and BOOTSTRAP_REFUSED: retryable false), nothing promised when it sends no flag.
+ */
+export function presentBootstrapFailure(status: unknown): LuBootstrapFailureView {
+  const record = status !== null && typeof status === 'object' && !Array.isArray(status) ? (status as Record<string, unknown>) : null;
+  const ownValue = (key: string) => (record && Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined);
+  const code = ownValue('failureCode');
+  const flag = ownValue('retryable');
+  const retryable = flag === true;
+  return {
+    reasonSv: describeBootstrapFailure(typeof code === 'string' ? code : null).reasonSv,
+    retryable,
+    consequenceSv:
+      flag === true
+        ? 'Lokaliseringen är skapad, men fastigheten är ännu inte knuten till den. Ingen bedömning kan göras förrän det lyckas.'
+        : flag === false
+          ? 'Lokaliseringen är skapad, men fastigheten kan inte knytas till den. Ingen bedömning kan göras.'
+          : 'Lokaliseringen är skapad, men fastigheten är inte knuten till den. Ingen bedömning kan göras.',
+  };
 }
 
 /** U20-D/U20CDF: the read-back's own bound point could not be verified (ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED). */
@@ -500,47 +565,11 @@ function evidenceIntegrityText(cause: string | null, context: LuErrorContext): C
   };
 }
 
-/**
- * W-M2e item 3 (M2d verification finding 4): the SECOND lock on "never retry". The first is the server's
- * own `retryable` flag; this client list holds even if an answer's flag says otherwise. Owner rules: a
- * configuration error is never retried (OD-R3), a lasting storage/integrity fault is never retried
- * (OD-R1/OD-R2), a refusal is never retried. A code, failure class or reason code on this list -- in an
- * error answer, a run's FAILED_CLOSED record or the overall line -- never gets "Försök igen".
+/*
+ * W-UI1 (owner decision 2, 2026-10-03): the client's never-retry CODE LIST (W-M2e item 3, LU_NEVER_RETRY) is
+ * gone. "Försök igen" is the server's `retryable`; the UI keeps it away only where its OWN text calls the
+ * fault lasting or a refusal (CodeText.retryable false, kind REFUSED/INTEGRITY), so text and button agree.
  */
-export const LU_NEVER_RETRY: ReadonlySet<string> = new Set([
-  // configuration
-  'VERIFIER_CONFIGURATION',
-  // lasting storage / integrity faults
-  'CURRENTNESS_STORAGE_INTEGRITY_FAULT',
-  'ASSESSMENT_STORAGE_INTEGRITY_FAULT',
-  'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT',
-  'CURRENT_BINDING_INTEGRITY_FAULT',
-  'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
-  'EVIDENCE_TAMPERED',
-  'EVIDENCE_CORRUPTED',
-  'ROOT_PROVENANCE_TAMPERED',
-  'LOCALIZATION_GEOMETRY_MISSING',
-  'LOCALIZATION_GEOMETRY_TAMPERED',
-  'LOCALIZATION_GEOMETRY_NOT_BOUND',
-  'EVIDENCE_NOT_FOUND',
-  // refusals
-  'CURRENT_BINDING_REFUSED',
-  'ASSESSMENT_CONTRACT_REFUSED',
-  'ASSESSMENT_CONTRACT_INVALID',
-  'ASSESSMENT_CURRENT_AMBIGUOUS',
-  'ASSESSMENT_SELECTION_REFUSED',
-  'AMBIGUOUS_CURRENT_GEOMETRY',
-  'INVALID_SUPERSESSION_GRAPH',
-  'NO_VERIFIED_GEOMETRY_CANDIDATE',
-  'CURRENT_GEOMETRY_UNVERIFIED',
-  'INVALID_GEOMETRY_HEAD',
-  'PROPERTY_LOOKUP_AMBIGUOUS',
-]);
-
-/** W-M2e item 3: true when any of the given tokens is on the never-retry list. */
-export function isNeverRetry(...tokens: readonly unknown[]): boolean {
-  return tokens.some((token) => typeof token === 'string' && LU_NEVER_RETRY.has(token));
-}
 
 /** W-M2e item 2: a lookup that never reaches Object.prototype (a class named "constructor" is no entry). */
 function own<T>(table: Readonly<Record<string, T>>, key: string | null): T | undefined {
@@ -576,6 +605,94 @@ const LIVE_LANTMATERIET_OFF = fixed(
   (lead) => `${lead} Fastighetsuppslag mot Lantmäteriet är avstängt i den här miljön; endast det lokala fastighetsunderlaget används.`,
 );
 const PROPERTY_NOT_IN_DATA = fixed('NOT_FOUND', false, (lead) => `${lead} Fastigheten hittades inte i fastighetsunderlaget. Kontrollera beteckningen.`);
+
+/**
+ * W-UI1 (B; W-CATCH2/W-U20CDF5 shared read-fault classes, readFaultClassification.ts): what each class means
+ * for the user, in this UI's words. The four doctrines are kept apart: a read error (transient, a new attempt
+ * can help) is never a proven absence, a lasting storage/integrity fault, an inconsistent index or a refusal.
+ */
+const SHARED_FAULT_CLASS: Readonly<Record<string, { readonly kind: LuErrorKind; readonly retryable: boolean; readonly sentence: (subject: string) => string }>> = {
+  READ_ERROR: { kind: 'TECHNICAL', retryable: true, sentence: (subject) => `${subject} kunde inte läsas just nu (tekniskt fel).` },
+  STORAGE_INTEGRITY_FAULT: {
+    kind: 'INTEGRITY',
+    retryable: false,
+    sentence: (subject) => `${subject} kunde inte läsas eller bekräftas ur arkivet (bestående lagrings- eller integritetsfel).`,
+  },
+  MISSING_FROM_CAS: {
+    kind: 'INTEGRITY',
+    retryable: false,
+    sentence: (subject) => `${subject} kunde inte hämtas ur arkivet (bestående fel: objektet finns inte där det ska finnas).`,
+  },
+  BINDING_INDEX_INCONSISTENT: {
+    kind: 'INTEGRITY',
+    retryable: false,
+    sentence: (subject) => `${subject} kunde inte fastställas: registreringen av kopplingar motsäger sig själv (bestående fel).`,
+  },
+  REFUSED: { kind: 'REFUSED', retryable: false, sentence: (subject) => `${subject} underkändes vid kontrollen.` },
+};
+
+const RETRY_CAN_HELP_SV = 'Ett nytt försök kan lyckas.';
+const LASTING_SV = 'Felet försvinner inte vid ett nytt försök – kontakta systemets administratör.';
+
+/**
+ * A code answered in the shared classes: `subject` names what could not be read or verified, `consequence`
+ * what this path therefore does not do. A class this UI does not know claims no cause; whether it may be
+ * retried is then only the server's flag.
+ */
+function sharedFaultPresenter(
+  subject: (f: ErrorFields) => string,
+  consequence: (context: LuErrorContext, f: ErrorFields) => string,
+  refusedSentence?: (f: ErrorFields, subjectSv: string) => string | null,
+): CodePresenter {
+  const classes: Record<string, ClassPresenter> = {};
+  for (const [cls, c] of Object.entries(SHARED_FAULT_CLASS)) {
+    classes[cls] = (f, _lead, context) => {
+      const subjectSv = subject(f);
+      const what = (cls === 'REFUSED' ? refusedSentence?.(f, subjectSv) : null) ?? c.sentence(subjectSv);
+      return { kind: c.kind, retryable: c.retryable, messageSv: `${what} ${consequence(context, f)} ${c.retryable ? RETRY_CAN_HELP_SV : LASTING_SV}` };
+    };
+  }
+  return {
+    classes,
+    fallback: (f, _lead, context) => ({
+      kind: f.status === 409 ? 'REFUSED' : 'TECHNICAL',
+      retryable: f.status !== 409,
+      messageSv: `${subject(f)} kunde inte fastställas. ${consequence(context, f)}`,
+    }),
+  };
+}
+
+/** What an incomplete integrity check means on the path that answered (verify, the map, the read-back). */
+function uncheckedIntegritySv(context: LuErrorContext): string {
+  if (context === 'verify') return 'Bedömningens integritet kunde därför inte kontrolleras: reproducerbarhetskontrollen genomfördes inte och inget utfall anges.';
+  if (context === 'viewer-evidence') return 'Bedömningens integritet kunde därför inte kontrolleras, och kartan visar inte bedömningen.';
+  if (context === 'export') return 'Bedömningens integritet kunde därför inte kontrolleras, och ingen rapport skapades.';
+  return 'Bedömningens integritet kunde därför inte kontrolleras, och bedömningen visas inte.';
+}
+
+/** W-UI1 (D): a read error says nothing about the material -- said once, plainly, never "äkthet". */
+const READ_FAULT_NO_CLAIM_SV = 'Läsfelet säger inget om underlagets riktighet.';
+
+/** W-UI1 (B; U20CDF4 beslut 1): 424 ASSESSMENT_RECORD_INTEGRITY_ERROR -- never a valid assessment, never retried. */
+function recordIntegrityText(context: LuErrorContext): CodeText {
+  const consequence =
+    context === 'verify'
+      ? 'Reproducerbarhetskontrollen genomfördes inte.'
+      : context === 'export'
+        ? 'Ingen rapport skapades.'
+        : context === 'viewer-evidence'
+          ? 'Kartan visar inte bedömningen.'
+          : 'Bedömningen visas inte.';
+  return {
+    kind: 'INTEGRITY',
+    retryable: false,
+    messageSv:
+      'Postens integritet kan inte intygas: den lagrade bedömningen är motsägelsefull eller ligger utanför det styrda formatet. ' +
+      `Den redovisas inte som en giltig bedömning, och täckningsgrad och samlad risknivå kan inte fastställas. ${consequence} ` +
+      'De lagrade fynden finns bara som overifierad diagnostik under ”Lagrade fynd”. ' +
+      LASTING_SV,
+  };
+}
 
 /**
  * W-M2e item 2 (M2d verification finding 1: "every error code has its own Swedish text" kept drifting):
@@ -663,6 +780,67 @@ const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
     classes: {},
     fallback: fixed('TECHNICAL', true, (lead) => `${lead} För många datakällor var otillgängliga. Försök igen senare.`),
   },
+  // W-UI1 (B; W-U20CDF5 M1/R3): verify or the map could not read every pinned evidence (or the property root,
+  // reasonCode ROOT_READ_ERROR) -- the record's integrity was not checked, so nothing is replayed or shown.
+  ASSESSMENT_PINNED_EVIDENCE_UNREADABLE: sharedFaultPresenter(
+    (f) => (f.reasonCode === 'ROOT_READ_ERROR' ? 'Fastighetsrotens proveniens' : 'Den pinnade evidensen som bedömningen är bunden till'),
+    (context, f) => `${uncheckedIntegritySv(context)}${f.failureClass === 'READ_ERROR' ? ` ${READ_FAULT_NO_CLAIM_SV}` : ''}`,
+  ),
+  // W-UI1 (B; W-U20CDF5 B4): the assessment's binding to the project could not be read or verified.
+  ASSESSMENT_BINDING_UNRESOLVED: sharedFaultPresenter(
+    () => 'Bedömningens koppling till projektet',
+    (context) =>
+      context === 'export'
+        ? 'Ingen rapport skapades, och ingen annan bedömning används i dess ställe.'
+        : context === 'verify'
+          ? 'Reproducerbarhetskontrollen genomfördes inte.'
+          : 'Bedömningen visas inte, och ingen annan bedömning visas i dess ställe.',
+  ),
+  // W-UI1 (B; W-U20CDF5 B2): the map's governed presentation could not be read or verified.
+  VIEWER_PRESENTATION_UNRESOLVED: sharedFaultPresenter(
+    () => 'Kartans styrda underlag (bedömning, evidens eller visningsbehörighet)',
+    () => 'Kartan visar inte kontrollresultaten, och inget annat underlag används i stället.',
+  ),
+  // W-UI1 (B; W-U20CDF5 B5/L4/R3): the PDF's property/project context (or the property root) could not be read,
+  // verified or referenced -- no report is built, and nothing is printed as "missing" instead.
+  ASSESSMENT_PDF_CONTEXT_UNRESOLVED: sharedFaultPresenter(
+    (f) => (f.reasonCode === 'ROOT_READ_ERROR' ? 'Bedömningens fastighetsrot' : 'Bedömningens fastighets- eller projektkontext'),
+    () => 'Ingen rapport skapades. Ingen uppgift redovisas som saknad när den inte gick att läsa.',
+    (f, subjectSv) =>
+      f.reasonCode === 'MALFORMED_RECORD_ENTRY' ? `${subjectSv} underkändes vid kontrollen: bedömningen saknar en giltig referens till sin kontext.` : null,
+  ),
+  // W-UI1 (B; W-CATCH2 #14): the project-access facts could not be read (never "no permission").
+  PROJECT_ACCESS_UNRESOLVED: sharedFaultPresenter(
+    () => 'Behörigheten till projektet',
+    () => 'Begäran utfördes inte.',
+  ),
+  // W-UI1 (B; W-CATCH2 #8): the geometry routes could not read or verify the project's canonical context.
+  PROJECT_CONTEXT_UNRESOLVED: sharedFaultPresenter(
+    () => 'Projektets koppling till fastigheten',
+    () => 'Ingen kontrollpunkt hämtas, härleds eller sparas.',
+  ),
+  // W-UI1 (B; W-CATCH2 #13, W-CATCH3): the governed viewer capability could not be read or verified.
+  VIEWER_CAPABILITY_UNRESOLVED: sharedFaultPresenter(
+    () => 'Kartvisningens behörighet',
+    () => 'Kartan kan inte visa kontrollresultaten, och ingen annan behörighet används i dess ställe.',
+  ),
+  // W-UI1 (B; U20CDF4 beslut 1): the stored record is not established -- fail-closed 424, never a valid assessment.
+  ASSESSMENT_RECORD_INTEGRITY_ERROR: {
+    classes: { RECORD_INTEGRITY_ERROR: (_f, _lead, context) => recordIntegrityText(context) },
+    fallback: (_f, _lead, context) => recordIntegrityText(context),
+  },
+  // W-UI1 (B; U30-R5 K5, W-PLUMB-S LuVerifyConfigurationErrorAnswer): a configuration error of the server
+  // process (a test-mode flag outside an explicit test process) -- no fault of the assessment, never retried.
+  BOOTSTRAP_ADMIT_FLAG_OUTSIDE_TEST: {
+    classes: {},
+    fallback: fixed(
+      'TECHNICAL',
+      false,
+      (lead) =>
+        `${lead} Kontrollen kan inte köras: servern är felkonfigurerad (ett testläge är påslaget utanför testmiljön). ` +
+        `Det är inget fel i bedömningen. ${LASTING_SV}`,
+    ),
+  },
 };
 
 /** W-M2e item 2 (inventory): every error `code` with a text of its own, with its classes that have one. */
@@ -685,14 +863,25 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   const f = readFields(err);
   const lead = CONTEXT_LEAD[context];
   const technical = technicalRows(f);
-  // W-M2d item 5: the server's own `retryable` decides when it sends one; a refusal never is.
-  // W-M2e item 3: second lock -- an integrity fault or a code/class/reason on LU_NEVER_RETRY never is either.
-  const neverRetry = isNeverRetry(f.code, f.failureClass, f.reasonCode);
-  const make = (kind: LuErrorKind, messageSv: string, fallbackRetryable: boolean): LuErrorPresentation => ({
+  // W-UI1 (B): the stored findings of a record whose integrity cannot be attested -- only for that code, only
+  // as an unverified, non-authoritative diagnostic, and only when the envelope says so itself.
+  const diagnostic = f.code === 'ASSESSMENT_RECORD_INTEGRITY_ERROR' ? parseLuRecordIntegrityDiagnostic(f.recordIntegrity) : null;
+  /**
+   * W-UI1 (owner decision 2): "Försök igen" only when the server says `retryable: true` and the shown text
+   * allows it (a refusal, an integrity fault or a text that calls the fault lasting never). No HTTP answer at
+   * all (network, a UI-side message): the text decides, nothing was decided by a server. `reread`: the action
+   * is re-reading the assessment to resolve an incoherence between two answers, not repeating the failed call.
+   */
+  const make = (kind: LuErrorKind, messageSv: string, textAllowsRetry: boolean, opts: { reread?: boolean } = {}): LuErrorPresentation => ({
     kind,
     messageSv,
-    retryable: kind === 'REFUSED' || kind === 'INTEGRITY' || neverRetry ? false : (f.retryable ?? fallbackRetryable),
+    retryable: opts.reread
+      ? true
+      : f.status === null
+        ? textAllowsRetry && kind !== 'REFUSED' && kind !== 'INTEGRITY'
+        : serverAllowsRetry(f.retryable, { kind, messageSv, retryable: textAllowsRetry }),
     technical,
+    ...(diagnostic ? { diagnostic } : {}),
   });
   const fromTable = (entry: CodeText) => make(entry.kind, entry.messageSv, entry.retryable);
 
@@ -709,7 +898,7 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
     return make('NOT_FOUND', `${lead} ${NO_CANONICAL_PROJECT_CONTEXT_SV}`, false);
   }
   if (f.message === LU_SERVER_MESSAGE.NO_CURRENT_ASSESSMENT) {
-    if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NO_CURRENT, true);
+    if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NO_CURRENT, true, { reread: true });
     return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det finns ingen sparad bedömning.`, false);
   }
   if (f.message === LU_SERVER_MESSAGE.VIEWER_CAPABILITY_NOT_CONFIGURED) {
@@ -736,6 +925,10 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   if (f.message.startsWith(LU_SERVER_MESSAGE.PRESENTATION_REJECT_PREFIX)) {
     return make('INTEGRITY', 'Kontrollunderlaget klarade inte integritetskontrollen och visas därför inte.', false);
   }
+  // W-UI1 (M2e verification finding 5): the CSRF middleware's 403 is no project permission.
+  if (f.message === LU_SERVER_MESSAGE.CSRF_REJECTED) {
+    return make('TECHNICAL', `${lead} Sidans säkerhetstoken saknas eller har gått ut. Ladda om sidan och försök sedan igen.`, false);
+  }
 
   if (f.status === 401) return make('UNAUTHORIZED', `${lead} Sessionen har gått ut – logga in igen.`, false);
   if (f.status === 403 || f.message === LU_SERVER_MESSAGE.NOT_AUTHORIZED) {
@@ -745,15 +938,18 @@ export function presentLuError(err: unknown, context: LuErrorContext): LuErrorPr
   // binding, contract version, viewer capability): the text claims no particular cause.
   if (f.status === 424) return make('INTEGRITY', `${lead} Underlaget kunde inte bekräftas och visas därför inte.`, false);
   if (f.status === 404) {
-    if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NOT_FOUND, true);
-    return make('NOT_FOUND', NOT_FOUND_TEXT[context] ?? `${lead} Det som efterfrågades finns inte.`, false);
+    if (context === 'viewer-evidence') return make('INCOHERENT', VIEWER_EVIDENCE_NOT_FOUND, true, { reread: true });
+    // W-UI1 (M2e verification finding 5): only the exact "no current assessment" answer means absence (above);
+    // any other 404 says what the server answered, never "det finns ingen sparad bedömning".
+    return make('NOT_FOUND', `${lead} Servern hittade inte det som efterfrågades.`, false);
   }
   // W-M2e items 1-2: a 409 without a code of its own is a refusal -- not necessarily contradictory data.
   if (f.status === 409) return make('REFUSED', `${lead} Servern nekade åtgärden.`, false);
   if (f.status === 429) return make('TECHNICAL', `${lead} För många förfrågningar just nu – vänta en stund och försök igen.`, true);
   if (f.status === 400) {
     if (context === 'property-lookup' || context === 'property-search') {
-      return make('NOT_FOUND', `${lead} Kontrollera fastighetsbeteckningen.`, false);
+      // W-UI1 (M2e verification finding 5): the property routes answer 400 for every failure, also a technical one.
+      return make('NOT_FOUND', `${lead} Kontrollera fastighetsbeteckningen; om den stämmer kan felet vara tekniskt.`, false);
     }
     return make('TECHNICAL', `${lead} Begäran kunde inte behandlas.`, false);
   }

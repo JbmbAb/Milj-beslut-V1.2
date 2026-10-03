@@ -34,6 +34,9 @@ import { LuErrorNotice } from './LuErrorNotice';
 import { presentLuOverallStatement, type LuOverallTone } from './luOverallStatement';
 import { useLuRunOutcome, type LuRunOutcomeRecord } from './luSessionMemory';
 import { presentLuVerifyResult, type LuVerifyView } from './luVerifyPresentation';
+import { parseLuRecordIntegrityDiagnostic } from './luRecordIntegrity';
+import { LuRecordIntegrityDiagnostic } from './LuRecordIntegrityDiagnostic';
+import { presentLuSiteRanking, type LuSiteRankingView } from './luSiteRanking';
 import { LuVerifyResultView } from './LuVerifyResult';
 import { LuProgressSteps, type LuProgressStep } from './LuProgressSteps';
 
@@ -119,11 +122,15 @@ type ExecutionMotorMeta = {
   findings?: LuFindingView[];
   localization_geometry?: { status?: string; message_sv?: string | null; failure_class?: string | null; retryable?: boolean } | null;
   governed_layer_checks?: unknown;
+  /** W-UI1 (B; U20CDF5 L1): a fresh record whose integrity is not established -- the unverified diagnostic. */
+  record_integrity?: unknown;
 };
 
 type LocalizationReport = {
   ok?: boolean;
   siteAnalyses?: Array<{ executionMotor?: ExecutionMotorMeta }>;
+  /** W-UI1 (B; U20CDF4 beslut 4): assessed / not_ranked / unassessed (compatibility) site ids, best alternative. */
+  summary?: unknown;
 };
 
 /** GET /api/localization/:projectId/current-assessment (server/routes/localization.routes.ts). */
@@ -205,7 +212,37 @@ type RunOutcome = LuRunOutcomeRecord;
 function runOutcomeClause(status: string): string {
   if (status === 'GOVERNANCE_DENIED') return 'nekades av styrningen';
   if (status === 'EXECUTION_FAILED') return 'misslyckades';
+  // W-UI1 (B): a stored record whose integrity is not established is no assessment.
+  if (status === 'RECORD_INTEGRITY_ERROR') return 'gav en post vars integritet inte kan intygas';
   return 'inte gav någon bedömning';
+}
+
+/** W-UI1 (B): the run produced a record, but its integrity is not established (never a valid assessment). */
+const RUN_RECORD_INTEGRITY_SV =
+  'Körningen skapade en post vars integritet inte kan intygas. Den redovisas inte som en giltig bedömning och rangordnas inte.';
+
+/**
+ * W-UI1 (B; owner doctrine 2026-10-03): a read-back that answers 200 but states RECORD_INTEGRITY_ERROR as its
+ * overall state (an older server) is never shown in the form of a valid assessment either -- it is presented
+ * like the 424 the server answers today, without a diagnostic (the 200 form carries none).
+ */
+function recordIntegrityReadBack(result: CurrentAssessmentResponse): LuErrorPresentation | null {
+  const overall =
+    result.overallStatement && typeof result.overallStatement === 'object' ? (result.overallStatement as { coverage_state?: unknown }) : null;
+  if (overall?.coverage_state !== 'RECORD_INTEGRITY_ERROR') return null;
+  return presentLuError(
+    Object.assign(new Error('Läsningen svarade 200 med täckningstillståndet RECORD_INTEGRITY_ERROR; visas som integritetsfel, inte som bedömning.'), {
+      status: 200,
+      code: 'ASSESSMENT_RECORD_INTEGRITY_ERROR',
+      failureClass: 'RECORD_INTEGRITY_ERROR',
+    }),
+    'current-assessment',
+  );
+}
+
+/** W-UI1 (owner invariant): the stored HIGH/MEDIUM/LOW findings of the displayed record ("0 av M" never beside them). */
+function storedRiskFindingCount(findings: readonly { risk_level?: unknown }[]): number {
+  return findings.filter((f) => f.risk_level === 'HIGH' || f.risk_level === 'MEDIUM' || f.risk_level === 'LOW').length;
 }
 
 /** DEMO M2c item 2: the read-back's own bound point id, or null when the answer does not state one. */
@@ -350,6 +387,8 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   const [governed, setGoverned] = useState<GovernedResult | null>(null);
   const [runOutcome, setRunOutcome, runOutcomeInShell] = useLuRunOutcome(getActiveProjectId() || null);
   const [incoherence, setIncoherence] = useState<Incoherence | null>(null);
+  /** W-UI1 (B): the latest run's ranking of its site (summary.not_ranked_site_ids) -- never "best" when not ranked. */
+  const [siteRanking, setSiteRanking] = useState<LuSiteRankingView | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportPdfError, setExportPdfError] = useState<LuErrorPresentation | null>(null);
   const [verifyingAssessment, setVerifyingAssessment] = useState(false);
@@ -416,6 +455,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     setLookupError(null);
     setLookingUp(true);
     clearResultState();
+    setSiteRanking(null);
     setPending(null);
     setSaveOutcomeNote(null);
     expectedRunRef.current = null;
@@ -515,6 +555,12 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       }
       if (expected && expected.assessmentId !== currentId) {
         setIncoherence({ expectedId: expected.assessmentId, currentId, projectionRegistered: expected.projectionRegistered });
+        return;
+      }
+      // W-UI1 (B): never the valid assessment form for a record whose integrity is not established.
+      const integrityFault = recordIntegrityReadBack(result);
+      if (integrityFault) {
+        setPersistedAssessmentError(integrityFault);
         return;
       }
       setGoverned(governedFromCurrentAssessment(result, currentId));
@@ -709,6 +755,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     expectedRunRef.current = null;
     clearResultState();
     setRunOutcome(null);
+    setSiteRanking(null);
     setPersistedAssessmentNotFound(false);
     setPersistedAssessmentError(null);
     try {
@@ -729,6 +776,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
       const motor = result.siteAnalyses?.[0]?.executionMotor ?? {};
       const assessmentId = typeof motor.assessment_artifact_id === 'string' && motor.assessment_artifact_id ? motor.assessment_artifact_id : null;
       const status = motor.assessment_status ?? (assessmentId ? 'ASSESSED' : 'NOT_ASSESSED');
+      // W-UI1 (B): not_ranked_site_ids is the truthful field -- a site there is never ranked and never best.
+      const ranking = presentLuSiteRanking(result.summary, site.id, status);
+      setSiteRanking(ranking);
       if (status === 'ASSESSED' && assessmentId) {
         // Item 2: render the run's assessment only through the same read-back a reopen uses, and
         // only if the read-back IS that assessment.
@@ -748,12 +798,16 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
           ? motor.reason_codes.filter((code): code is string => typeof code === 'string' && code.length > 0)
           : [];
         const reasonText = presentLuRunReason(reasonCodes);
+        const integrityRun = status === 'RECORD_INTEGRITY_ERROR';
         setRunOutcome({
           status: status === 'ASSESSED' ? 'NOT_ASSESSED' : status,
-          messageSv: classText?.messageSv ?? reasonText?.messageSv ?? geometryRecord?.message_sv ?? null,
-          retryable: classText ? classText.retryable : typeof geometryRecord?.retryable === 'boolean' ? geometryRecord.retryable : null,
+          messageSv: integrityRun ? RUN_RECORD_INTEGRITY_SV : (classText?.messageSv ?? reasonText?.messageSv ?? geometryRecord?.message_sv ?? null),
+          // W-UI1 (owner decision 2): the server's flag only -- null when the record carries none.
+          retryable: integrityRun ? false : classText ? classText.retryable : typeof geometryRecord?.retryable === 'boolean' ? geometryRecord.retryable : null,
           endedAt: new Date().toISOString(),
           reasonCodes,
+          ...(integrityRun && motor.record_integrity !== undefined ? { recordIntegrity: motor.record_integrity } : {}),
+          rankingSv: ranking.textSv,
         });
         await loadCurrentAssessment();
       }
@@ -896,7 +950,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
   // W-M2d item 2 (§11, owner decision OD-K0-1 and the 2026-10-02 night specifications): the
   // assessment line is the SERVER's overallStatement, word for word -- the UI composes, counts and
   // names no risk level of its own. Notices under it come from the server's own machine fields.
-  const overall = useMemo(() => (governed ? presentLuOverallStatement(governed.overallStatement) : null), [governed]);
+  const overall = useMemo(
+    () => (governed ? presentLuOverallStatement(governed.overallStatement, { storedRiskFindings: storedRiskFindingCount(governed.findings) }) : null),
+    [governed],
+  );
 
   // W-M2d item 1: every check row as the server states it in the read-back -- no client derivation.
   const checks = useMemo(
@@ -926,8 +983,10 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
 
   // DEMO M2b item 1 / W-M2d item 1: one "Försök igen" for whatever failed technically in the PANEL.
   // The panel no longer reads the map's viewer evidence, so a map failure is retried on the map.
+  // W-UI1 (D): the property root's transient read error (ROOT_READ_ERROR) is re-read with the assessment.
+  const rootReadRetry = checks.some((c) => c.rootReadRetryable);
   const retryChecks = () => {
-    if (incoherence || persistedAssessmentError || overall?.retryable) void loadCurrentAssessment();
+    if (incoherence || persistedAssessmentError || overall?.retryable || rootReadRetry) void loadCurrentAssessment();
     if (geometryError) void loadCurrentGeometry();
     if (lookupError) void lookupProperty();
   };
@@ -935,6 +994,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     Boolean(incoherence) ||
     Boolean(persistedAssessmentError?.retryable) ||
     Boolean(overall?.retryable) ||
+    rootReadRetry ||
     Boolean(geometryError?.retryable) ||
     Boolean(lookupError?.retryable);
 
@@ -1186,6 +1246,11 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
               Körningen gav ingen ny bedömning.
               {governed ? ' Bedömningen som visas nedan är projektets aktuella sparade bedömning från en annan körning.' : ''}
             </p>
+            {(() => {
+              // W-UI1 (B): the stored findings of a record whose integrity cannot be attested -- collapsed, unverified.
+              const view = runOutcome.recordIntegrity === undefined ? null : parseLuRecordIntegrityDiagnostic(runOutcome.recordIntegrity);
+              return view ? <LuRecordIntegrityDiagnostic view={view} testId="lu-run-outcome-diagnostic" /> : null;
+            })()}
             {runOutcome.reasonCodes && runOutcome.reasonCodes.length > 0 ? (
               // W-M2e item 1: the run record's machine codes, collapsed -- never in the main text.
               <details data-testid="lu-run-outcome-technical" className="text-xs opacity-80">
@@ -1200,6 +1265,13 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
                 : 'Servern sparar inte nekade körningar, så uppgiften visas inte efter att sidan laddats om. Körningar i andra flikar eller av andra användare visas inte här.'}
             </p>
           </div>
+        ) : null}
+
+        {(runOutcome?.rankingSv ?? siteRanking?.textSv) ? (
+          // W-UI1 (B): a site that is not ranked says so, and why -- never "bästa alternativ".
+          <p data-testid="lu-site-ranking" data-ranking={siteRanking?.state ?? 'NOT_RANKED'} className="text-sm" style={{ color: '#FDBA74' }}>
+            {runOutcome?.rankingSv ?? siteRanking?.textSv}
+          </p>
         ) : null}
 
         {site ? (

@@ -34,6 +34,7 @@
  */
 
 import { LuClientError, type LuErrorDetailRow, type LuErrorPresentation } from './luErrorPresentation';
+import { presentServerTextSv } from './luServerText';
 
 export type LuCheckKey = 'property' | 'water' | 'ebh' | 'protected_area' | 'natura2000' | 'water_protection_area' | 'document';
 /** A row key: one of the LU v1 checks, or `extra-<layer>` for a layer only the server reported. */
@@ -240,6 +241,11 @@ export interface LuCheckView {
    * root for the displayed assessment, so "Hittad" is qualified and never plainly shown.
    */
   readonly rootAssuranceQualified: boolean;
+  /**
+   * W-UI1 (D): property row only -- the server reports the property root as a READ error of unknown
+   * persistence (ROOT_READ_ERROR): re-reading the assessment may help. Nothing is claimed about the root.
+   */
+  readonly rootReadRetryable: boolean;
 }
 
 export const MISSING = 'Saknas i underlaget';
@@ -292,7 +298,7 @@ function knownGapViews(raw: unknown): LuKnownGapView[] {
     if (!gap) return [];
     const kind = str(gap.kind) ?? 'OKÄND';
     const asOf = str(gap.as_of);
-    const statement = str(gap.text_sv) ?? MISSING;
+    const statement = presentServerTextSv(str(gap.text_sv) ?? MISSING);
     const label = (Object.prototype.hasOwnProperty.call(GAP_KIND_LABEL_SV, kind) ? GAP_KIND_LABEL_SV[kind] : undefined) ?? 'Annan känd begränsning';
     return [
       {
@@ -301,7 +307,7 @@ function knownGapViews(raw: unknown): LuKnownGapView[] {
         // A data gap carries its date in the line itself; a contract scope is the contract's statement.
         text: `${label}${kind === 'KNOWN_INCOMPLETE_DATA' && asOf ? ` (${asOf})` : ''}: ${statement}.`,
         asOf,
-        basis: str(gap.basis_sv),
+        basis: str(gap.basis_sv) === null ? null : presentServerTextSv(str(gap.basis_sv)!),
         rechecked: gap.rechecked_against_current_table === true,
         sources: Array.isArray(gap.sources) ? gap.sources.filter((s): s is string => typeof s === 'string') : [],
       },
@@ -395,6 +401,7 @@ function baseView(
     searchRadiusMeters: null,
     evidenceArtifactId: null,
     rootAssuranceQualified: false,
+    rootReadRetryable: false,
     ...extra,
   };
 }
@@ -496,12 +503,12 @@ function evidenceRows(detail: Record<string, unknown> | null, label: string): {
               ? `${MISSING} (befintliga data som adopterats)`
               : (str(contract.source_version) ?? MISSING),
         },
-        { label: 'Täckning', value: str(detail.coverage_limitation_sv) ?? MISSING },
+        { label: 'Täckning', value: presentServerTextSv(str(detail.coverage_limitation_sv) ?? MISSING) },
         { label: 'Hämtad', value: formatTimestamp(detail.retrieved_at) },
         { label: 'Upplösning/avgränsning', value: MISSING },
         { label: 'Importbatch', value: MISSING },
         { label: 'Integritet', value: integritySv(detail.integrity) },
-        { label: 'Bindning', value: str(detail.binding_note_sv) ?? MISSING },
+        { label: 'Bindning', value: presentServerTextSv(str(detail.binding_note_sv) ?? MISSING) },
       ];
   const cited = Array.isArray(detail.cited_by_finding_ids) ? detail.cited_by_finding_ids.filter((id) => typeof id === 'string') : [];
   const technical: LuCheckDetailRow[] = [
@@ -558,12 +565,15 @@ function serverRow(
       : `${MISSING}: kontrolltillståndet saknas i svaret.`
     : contradictory
       ? 'Kontrollposten från servern är motsägelsefull och visas därför inte som kontrollerad.'
-      : (str(entry.message_sv) ?? `${MISSING}: servern skickade ingen beskrivning av kontrollen.`);
+      : str(entry.message_sv) !== null
+        ? // W-UI1 (C): the server's row text without internal terms; the codes stay technical.
+          presentServerTextSv(str(entry.message_sv)!)
+        : `${MISSING}: servern skickade ingen beskrivning av kontrollen.`;
   const knownGaps = knownGapViews(entry.known_coverage_gaps);
   const checked = state === 'HIT' || state === 'NO_HIT';
   const limited = checked && (knownGaps.length > 0 || (layer !== null && limitedLayers.has(layer)));
   const knownDataGap = checked && knownGaps.some((gap) => gap.kind === 'KNOWN_INCOMPLETE_DATA');
-  const coverageText = str(entry.coverage_limitation_sv);
+  const coverageText = str(entry.coverage_limitation_sv) === null ? null : presentServerTextSv(str(entry.coverage_limitation_sv)!);
   // W-M2d item 3: the server says the dataset version is outside the import contracts.
   const versionUnknown =
     checked &&
@@ -628,6 +638,19 @@ const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string
     suffix: ' · fastighetsunderlagets ursprung kunde inte läsas',
     noteSv: 'Fastighetsrotens ursprung kunde inte läsas för den här bedömningen; fastigheten hittades vid uppslaget.',
   },
+  // W-UI1 (D; U20CDF5-R3 verification C.5): a READ error of unknown persistence -- transient, may pass on a
+  // re-read; it says nothing about the root itself.
+  'TECHNICAL_ERROR/ROOT_READ_ERROR': {
+    suffix: ' · fastighetsunderlagets proveniens kunde inte läsas just nu',
+    noteSv:
+      'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); försök igen. Läsfelet säger inget om fastighetsunderlagets ' +
+      'riktighet; fastigheten hittades vid uppslaget.',
+  },
+  // W-UI1 (D): the exact "never stored" signal of a root link -- a proven absence, not a read error.
+  'TECHNICAL_ERROR/ROOT_ARTIFACT_NOT_FOUND': {
+    suffix: ' · fastighetsunderlagets ursprung finns inte i arkivet',
+    noteSv: 'Fastighetsrotens ursprung finns inte i arkivet för den här bedömningen; fastigheten hittades vid uppslaget.',
+  },
   TAMPERED: {
     suffix: ' · fastighetsunderlagets ursprung klarade inte kontrollen',
     noteSv: 'Fastighetsrotens ursprung klarade inte integritetskontrollen.',
@@ -639,13 +662,30 @@ const ROOT_UNKNOWN_ASSURANCE = {
 };
 
 /** W-M2e item 2/3 (inventory): the property-root statuses and assurances with a text of their own. */
-export const LU_PROPERTY_ROOT_TEXTS: readonly string[] = Object.freeze(['RESOLVED', 'UNBOUND_METADATA', 'NOT_RECORDED', 'TECHNICAL_ERROR', 'TAMPERED']);
+export const LU_PROPERTY_ROOT_TEXTS: readonly string[] = Object.freeze([
+  'RESOLVED',
+  'UNBOUND_METADATA',
+  'NOT_RECORDED',
+  'TECHNICAL_ERROR',
+  'TAMPERED',
+  // W-UI1 (D): the root's technical error classes with a mark of their own.
+  'ROOT_READ_ERROR',
+  'ROOT_ARTIFACT_NOT_FOUND',
+]);
 
 function propertyRootQualifier(root: Record<string, unknown> | null): { readonly suffix: string; readonly noteSv: string } | null {
   if (!root) return null;
   const status = str(root.status);
+  const technicalClass = str(root.technical_error_class);
+  const classKey = status === 'TECHNICAL_ERROR' && technicalClass ? `TECHNICAL_ERROR/${technicalClass}` : null;
+  if (classKey && Object.prototype.hasOwnProperty.call(PROPERTY_ROOT_QUALIFIER, classKey)) return PROPERTY_ROOT_QUALIFIER[classKey]!;
   const key = status === 'RESOLVED' ? `RESOLVED/${str(root.assurance) ?? ''}` : (status ?? '');
   return Object.prototype.hasOwnProperty.call(PROPERTY_ROOT_QUALIFIER, key) ? PROPERTY_ROOT_QUALIFIER[key]! : ROOT_UNKNOWN_ASSURANCE;
+}
+
+/** W-UI1 (D): the server reports the root's READ error (ROOT_READ_ERROR) -- re-reading may help. */
+function isRootReadError(root: Record<string, unknown> | null): boolean {
+  return root !== null && str(root.status) === 'TECHNICAL_ERROR' && str(root.technical_error_class) === 'ROOT_READ_ERROR';
 }
 
 function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckView {
@@ -656,6 +696,7 @@ function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckV
       ...baseView(def.key, def.label, null, state, found && qualifier ? `${summary} ${qualifier.noteSv}` : summary, { details, technical }),
       stateLabel: found ? `${LU_PROPERTY_FOUND_LABEL}${qualifier ? qualifier.suffix : ''}` : LU_KNOWLEDGE_STATE_LABEL[state],
       rootAssuranceQualified: found && qualifier !== null,
+      rootReadRetryable: found && isRootReadError(obj(input.propertyRoot)),
     };
   };
   if (input.lookupError) {
@@ -681,7 +722,7 @@ function propertyCheck(def: LuCheckDefinition, input: LuPropertyInput): LuCheckV
     { label: 'Resultat', value: 'Fastigheten hittades' },
     { label: 'Kontrollpunkt', value: pointText },
     { label: 'Koordinater (WGS84)', value: `${lat.toFixed(6)}, ${lng.toFixed(6)}` },
-    ...(root ? [{ label: 'Fastighetsunderlag', value: str(root.message_sv) ?? MISSING }] : []),
+    ...(root ? [{ label: 'Fastighetsunderlag', value: presentServerTextSv(str(root.message_sv) ?? MISSING) }] : []),
   ];
   const binding = input.assessedPoint ?? 'none';
   const technical: LuCheckDetailRow[] = [

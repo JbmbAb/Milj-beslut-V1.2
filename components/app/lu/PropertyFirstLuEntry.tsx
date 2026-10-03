@@ -12,7 +12,7 @@ import { setActiveProjectId } from '../../../services/coreApiClient';
 import { LuWorkspace } from './LuWorkspace';
 import { LuProgressSteps } from './LuProgressSteps';
 import { LuErrorNotice } from './LuErrorNotice';
-import { LuClientError, describeBootstrapFailure, presentLuError, type LuErrorPresentation } from './luErrorPresentation';
+import { LuClientError, presentBootstrapFailure, presentLuError, type LuErrorPresentation } from './luErrorPresentation';
 
 /**
  * DEMO M2a items 6+7: plain-Swedish bootstrap status. Every step state comes from the durable
@@ -26,8 +26,9 @@ const BOOTSTRAP_STATUS_SV: Record<string, string> = {
   FAILED: 'misslyckades',
 };
 
-// W-M2d items 5 + 6 / W-M2e item 2: the Swedish reason and retry decision of every bootstrap failure
-// code live in luErrorPresentation.ts (describeBootstrapFailure), where the inventory test reads them.
+// W-M2d items 5 + 6 / W-M2e item 2: the Swedish reason of every bootstrap failure code lives in
+// luErrorPresentation.ts (describeBootstrapFailure), where the inventory test reads it. W-UI1 (owner decision 2):
+// "Försök igen" is the server's `retryable` on bootstrap-status (presentBootstrapFailure), never a client list.
 
 /**
  * PRODUCT-LU-PROPERTY-FIRST-WORKFLOW-01 Phase B (UI wiring).
@@ -60,7 +61,15 @@ type Phase =
   | { kind: 'propertyFound'; propertyDesignation: string; projects: LocalizationProjectListItem[] }
   | { kind: 'creating'; propertyDesignation: string }
   | { kind: 'bootstrapping'; propertyDesignation: string; project: LocalizationProjectListItem; status: BootstrapStatus['status'] }
-  | { kind: 'bootstrapFailed'; propertyDesignation: string; project: LocalizationProjectListItem; failureCode: string | null; failureDetail: string | null }
+  | {
+      kind: 'bootstrapFailed';
+      propertyDesignation: string;
+      project: LocalizationProjectListItem;
+      failureCode: string | null;
+      failureDetail: string | null;
+      /** W-UI1: the FAILED status as the server presented it (its `retryable` decides "Försök igen"). */
+      status: unknown;
+    }
   | { kind: 'ready'; propertyDesignation: string };
 
 export const PropertyFirstLuEntry: React.FC = () => {
@@ -109,7 +118,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
       if (status.status === 'FAILED') {
         stopPolling();
         localStorage.removeItem(PENDING_BOOTSTRAP_KEY);
-        setPhase({ kind: 'bootstrapFailed', propertyDesignation, project, failureCode: status.failureCode, failureDetail: status.failureDetail });
+        setPhase({ kind: 'bootstrapFailed', propertyDesignation, project, failureCode: status.failureCode, failureDetail: status.failureDetail, status });
         return;
       }
       setPhase({ kind: 'bootstrapping', propertyDesignation, project, status: status.status });
@@ -318,12 +327,8 @@ export const PropertyFirstLuEntry: React.FC = () => {
           <p className="text-sm font-semibold" style={{ color: '#F87171' }}>
             Lokaliseringen kunde inte etableras.
           </p>
-          <p data-testid="pf-bootstrap-failure-reason" className="text-sm">{describeBootstrapFailure(phase.failureCode).reasonSv}</p>
-          <p className="text-xs opacity-60">
-            {describeBootstrapFailure(phase.failureCode).retryable
-              ? 'Lokaliseringen är skapad, men fastigheten är ännu inte knuten till den. Ingen bedömning kan göras förrän det lyckas.'
-              : 'Lokaliseringen är skapad, men fastigheten kan inte knytas till den. Ingen bedömning kan göras.'}
-          </p>
+          <p data-testid="pf-bootstrap-failure-reason" className="text-sm">{presentBootstrapFailure(phase.status).reasonSv}</p>
+          <p className="text-xs opacity-60">{presentBootstrapFailure(phase.status).consequenceSv}</p>
           <details className="text-xs opacity-70">
             <summary className="cursor-pointer">Teknisk information</summary>
             <p className="mt-1 font-mono break-all">
@@ -333,7 +338,7 @@ export const PropertyFirstLuEntry: React.FC = () => {
           </details>
           {/* M2b: a failed retry was set but never shown in this phase. */}
           {searchError ? <LuErrorNotice testId="pf-retry-error" error={searchError} className="" /> : null}
-          {describeBootstrapFailure(phase.failureCode).retryable ? (
+          {presentBootstrapFailure(phase.status).retryable ? (
             <button
               type="button"
               data-testid="pf-retry"
