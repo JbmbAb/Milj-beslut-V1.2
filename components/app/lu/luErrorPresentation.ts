@@ -548,7 +548,9 @@ const CONTRACT_REFUSAL_TEXT: CodeText = {
 const EVIDENCE_INTEGRITY_CAUSE_SV: Readonly<Record<string, string>> = {
   EVIDENCE_TAMPERED: 'en evidens stämmer inte med sin egen identitet',
   EVIDENCE_CORRUPTED: 'en evidens lagrade innehåll stämmer inte med sin innehållskontroll',
-  ROOT_PROVENANCE_TAMPERED: 'fastighetsrotens artefakter stämmer inte med sin identitet',
+  // W-UI1 (D; owner decision R3-1): nothing is implied about the root's authenticity or present provenance.
+  ROOT_PROVENANCE_TAMPERED:
+    'fastighetsrotens artefakter stämmer inte med sin identitet. Ingen slutsats kan dras om fastighetsrotens äkthet eller om dess proveniens gäller nu',
 };
 
 function integrityConsequenceSv(context: LuErrorContext): string {

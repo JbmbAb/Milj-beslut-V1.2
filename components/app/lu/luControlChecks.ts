@@ -631,12 +631,18 @@ function serverRow(
  * this UI does not know reads "okänd säkerhet" -- never stronger than the server's own statement.
  */
 const ROOT_LOWER_ASSURANCE = { suffix: ' · lägre säkerhet i fastighetsunderlaget', noteSv: 'Fastighetsunderlaget har lägre säkerhet (rotens datasetbindning saknas).' };
+/**
+ * W-UI1 (D; owner decision R3-1, 2026-10-03): a root the read-back marks as a technical error or as tampered says
+ * plainly that no conclusion about its authenticity or present provenance can be drawn -- in the warning style,
+ * never a green confirmation, never the words "äkta", "verifierad proveniens" or "aktuell".
+ */
+export const LU_ROOT_NO_CONCLUSION_SV = 'Ingen slutsats kan dras om fastighetsrotens äkthet eller om dess proveniens gäller nu.';
 const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string; readonly noteSv: string }>> = {
   'RESOLVED/UNBOUND_METADATA': ROOT_LOWER_ASSURANCE,
   NOT_RECORDED: ROOT_LOWER_ASSURANCE,
   TECHNICAL_ERROR: {
     suffix: ' · fastighetsunderlagets ursprung kunde inte läsas',
-    noteSv: 'Fastighetsrotens ursprung kunde inte läsas för den här bedömningen; fastigheten hittades vid uppslaget.',
+    noteSv: `Fastighetsrotens ursprung kunde inte läsas för den här bedömningen. ${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
   },
   // W-UI1 (D; U20CDF5-R3 verification C.5): a READ error of unknown persistence -- transient, may pass on a
   // re-read; it says nothing about the root itself.
@@ -644,18 +650,28 @@ const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string
     suffix: ' · fastighetsunderlagets proveniens kunde inte läsas just nu',
     noteSv:
       'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); försök igen. Läsfelet säger inget om fastighetsunderlagets ' +
-      'riktighet; fastigheten hittades vid uppslaget.',
+      `riktighet. ${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
   },
   // W-UI1 (D): the exact "never stored" signal of a root link -- a proven absence, not a read error.
   'TECHNICAL_ERROR/ROOT_ARTIFACT_NOT_FOUND': {
     suffix: ' · fastighetsunderlagets ursprung finns inte i arkivet',
-    noteSv: 'Fastighetsrotens ursprung finns inte i arkivet för den här bedömningen; fastigheten hittades vid uppslaget.',
+    noteSv: `Fastighetsrotens ursprung finns inte i arkivet för den här bedömningen. ${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
   },
   TAMPERED: {
     suffix: ' · fastighetsunderlagets ursprung klarade inte kontrollen',
-    noteSv: 'Fastighetsrotens ursprung klarade inte integritetskontrollen.',
+    noteSv: `Fastighetsrotens ursprung klarade inte integritetskontrollen. ${LU_ROOT_NO_CONCLUSION_SV}`,
   },
 };
+
+/**
+ * W-UI1 (D; owner decision R3-1): the displayed read-back's root is a technical error or tampered -- then no
+ * reproducibility result is shown as a green confirmation next to it (see presentLuVerifyResult).
+ */
+export function isLuRootUnresolved(propertyRoot: unknown): boolean {
+  const root = obj(propertyRoot);
+  const status = root ? str(root.status) : null;
+  return status === 'TECHNICAL_ERROR' || status === 'TAMPERED';
+}
 const ROOT_UNKNOWN_ASSURANCE = {
   suffix: ' · okänd säkerhet i fastighetsunderlaget',
   noteSv: 'Servern anger en säkerhet för fastighetsunderlaget som inte kan visas här – se teknisk information.',

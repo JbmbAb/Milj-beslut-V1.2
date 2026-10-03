@@ -9,6 +9,7 @@ import {
   checkDefinitionForRule,
   checkEvidenceBinding,
   knowledgeStateForError,
+  isLuRootUnresolved,
   limitedCoverageLayersOf,
   parseServerArray,
   parseViewerEvidence,
@@ -880,6 +881,9 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
     if (verifyingAssessment) return; // duplicate-click guard
     const projectId = getActiveProjectId();
     const shownId = governed?.assessmentArtifactId ?? null;
+    // W-UI1 (D; owner decision R3-1): the displayed root is a technical error or tampered -- no PASS is shown as
+    // a confirmation next to it.
+    const rootUnresolved = isLuRootUnresolved(governed?.propertyRoot);
     if (!projectId || !shownId) {
       setVerifyError(presentLuError(new LuClientError('Det finns ingen visad bedömning att kontrollera.'), 'verify'));
       return;
@@ -895,7 +899,7 @@ export const LuWorkspace: React.FC<{ initialDesignation?: string }> = ({ initial
         // W-M2d item 9 (U20-D): bound to the DISPLAYED assessment; any other current one is refused (409).
         body: { assessmentArtifactId: shownId },
       });
-      setVerifyResult(presentLuVerifyResult(result, shownId));
+      setVerifyResult(presentLuVerifyResult(result, shownId, { rootUnresolved }));
     } catch (err) {
       setVerifyError(presentLuError(err, 'verify'));
     } finally {

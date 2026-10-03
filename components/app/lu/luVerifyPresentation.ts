@@ -215,12 +215,31 @@ function view(
 }
 
 /**
- * The presentation of one verify answer for the DISPLAYED assessment `shownId`. Never throws: anything it
- * cannot read is NOT_VERIFIED.
+ * W-UI1 (D; owner decision R3-1, 2026-10-03): the displayed assessment's property root is a technical error or
+ * tampered -- a PASS (green or the older form's notice) is then not shown as a confirmation next to it: nothing
+ * about the root's authenticity or present provenance may be implied. Re-reading the assessment resolves it.
  */
-export function presentLuVerifyResult(raw: unknown, shownId: string | null): LuVerifyView {
+export const LU_VERIFY_ROOT_UNRESOLVED_SV =
+  'Reproducerbarheten visas inte som bekräftad: fastighetsrotens proveniens i den visade bedömningen kunde inte läsas eller ' +
+  'klarade inte kontrollen, och ingen slutsats kan dras om dess äkthet. Läs in bedömningen på nytt och kontrollera igen.';
+
+/**
+ * The presentation of one verify answer for the DISPLAYED assessment `shownId`. Never throws: anything it
+ * cannot read is NOT_VERIFIED. `rootUnresolved`: the displayed read-back's root is a technical error or
+ * tampered (isLuRootUnresolved) -- then a PASS form is shown as NOT_VERIFIED (owner decision R3-1).
+ */
+export function presentLuVerifyResult(raw: unknown, shownId: string | null, opts: { readonly rootUnresolved?: boolean } = {}): LuVerifyView {
   try {
-    return classify(raw, shownId);
+    const v = classify(raw, shownId);
+    // Both PASS forms: no confirmation (green, or the older form's consistency line) stands next to a root error.
+    if (opts.rootUnresolved === true && (v.kind === 'FULLY_BOUND_GREEN' || v.kind === 'LEGACY_UNBOUND_NOTICE')) {
+      return view('NOT_VERIFIED', 'neutral', LU_VERIFY_ROOT_UNRESOLVED_SV, {
+        verifiedId: v.verifiedId,
+        mismatchCount: 0,
+        technical: [...v.technical, { label: 'Fastighetsrot', value: 'tekniskt fel eller integritetsfel i den visade bedömningen' }],
+      });
+    }
+    return v;
   } catch {
     return view('NOT_VERIFIED', 'neutral', LU_VERIFY_NOT_VERIFIED_SV, {
       technical: [{ label: 'Svar', value: 'kunde inte läsas' }],
