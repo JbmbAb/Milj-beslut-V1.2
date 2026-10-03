@@ -171,8 +171,13 @@ export async function verifyProjectContextBindingSupersessionAuthority(args: {
 }
 
 /**
- * Owner-side product bootstrap write boundary. All signatures and subject bindings are checked
- * before any product-context artifact enters CAS or its lookup projection.
+ * Owner-side product bootstrap write boundary. The subject bindings are checked before anything is written. Three
+ * content-addressed artifacts are then put into CAS BEFORE the two authority verifications: the issuer (it must be --
+ * verifyProjectContextBindingArtifactAuthority reads the issuer from CAS), the geometry and the property observation.
+ * The verifications gate everything that follows (the property binding, the property and project contexts, the context
+ * binding and the lookup projection), so a failed verification leaves at most those three unindexed, unreferenced,
+ * content-addressed objects behind -- a retry writes identical bytes (WORM allows that). W-GAP1 (F6b; TRIAGE-A-PRERUN
+ * F6b): this comment used to say that all checks precede every CAS write; the code is unchanged.
  */
 export async function installVerifiedProductLuContext(args: {
   readonly artifactRepository: ArtifactRepositoryPort;
