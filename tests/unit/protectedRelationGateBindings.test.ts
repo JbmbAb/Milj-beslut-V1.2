@@ -79,6 +79,15 @@ const UNPROTECTED_TARGETS: readonly Target[] = [
   [null, 'scratch_table'],
 ];
 
+/**
+ * U30F5 (D-7): the verdict of a generated statement by construction -- a protected target is PROTECTED; otherwise a
+ * TRUNCATE/DROP ... CASCADE is UNRESOLVABLE (it reaches dependent objects no name shows), anything else ALLOWED.
+ */
+function verdictOf(isProtected: boolean, statementText: string): Verdict {
+  if (isProtected) return 'PROTECTED';
+  return / CASCADE\b/.test(statementText) ? 'UNRESOLVABLE' : 'ALLOWED';
+}
+
 function generate(seed: number, count: { sql: number; ogr: number; cmd: number }): Case[] {
   const r = mulberry32(seed);
   const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
@@ -118,7 +127,8 @@ function generate(seed: number, count: { sql: number; ogr: number; cmd: number }
   const cases: Case[] = [];
   for (let n = 0; n < count.sql; n += 1) {
     const { t, protected: isProtected } = target();
-    let sql = statement(renderName(t));
+    const plainStatement = statement(renderName(t));
+    let sql = plainStatement;
     const wrap = Math.floor(r() * 4);
     if (wrap === 1) sql = `DO $$ BEGIN EXECUTE '${sql.replace(/'/g, "''")}'; END $$`;
     if (wrap === 2) {
@@ -132,14 +142,14 @@ function generate(seed: number, count: { sql: number; ogr: number; cmd: number }
     }
     const prefix = pick(['', 'SELECT 1; ', '-- note\n', '/* c */ ', "INSERT INTO public.log VALUES ('--'); ", "SELECT '/*'; "]);
     const suffix = pick(['', ';', '; SELECT 1', ' -- trailing']);
-    cases.push({ id: `gen-sql-${n}`, kind: 'sql', text: `${prefix}${sql}${suffix}`, expect: { verdict: isProtected && !commented ? 'PROTECTED' : 'ALLOWED' } });
+    cases.push({ id: `gen-sql-${n}`, kind: 'sql', text: `${prefix}${sql}${suffix}`, expect: { verdict: commented ? 'ALLOWED' : verdictOf(isProtected, plainStatement) } });
   }
   for (let n = 0; n < count.ogr; n += 1) {
     const { t, protected: isProtected } = target();
     const variant = Math.floor(r() * 3);
     if (variant === 2) {
       const stmt = statement(plainName(t));
-      cases.push({ id: `gen-ogr-${n}`, kind: 'ogr2ogr', args: ['-f', 'GPKG', 'out.gpkg', 'PG:dbname=x', '-sql', stmt], expect: { verdict: isProtected ? 'PROTECTED' : 'ALLOWED' } });
+      cases.push({ id: `gen-ogr-${n}`, kind: 'ogr2ogr', args: ['-f', 'GPKG', 'out.gpkg', 'PG:dbname=x', '-sql', stmt], expect: { verdict: verdictOf(isProtected, stmt) } });
       continue;
     }
     if (variant === 1) {
@@ -159,14 +169,16 @@ function generate(seed: number, count: { sql: number; ogr: number; cmd: number }
   }
   for (let n = 0; n < count.cmd; n += 1) {
     const { t, protected: isProtected } = target();
-    const expect = { verdict: (isProtected ? 'PROTECTED' : 'ALLOWED') as Verdict };
     const stmt = statement(plainName(t)).replace(/\n|\t|--[^\n]*\n|\/\*[^*]*\*\//g, ' ');
+    // (pg_restore and shp2pgsql carry no statement: their verdict is the target's)
+    const expect = { verdict: verdictOf(isProtected, stmt) };
+    const plain = { verdict: (isProtected ? 'PROTECTED' : 'ALLOWED') as Verdict };
     const variant = Math.floor(r() * 5);
     if (variant === 0) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `psql -c "${stmt}"`, expect });
     else if (variant === 1) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `docker exec -i db psql -U postgres -c "${stmt}"`, expect });
     else if (variant === 2) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `${pick(['bash', 'sh'])} -c "psql -c '${stmt}'"`, expect });
-    else if (variant === 3) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `shp2pgsql ${pick(['-d', '-a', '-c'])} -s 3006 a.shp ${plainName(t)} | psql`, expect });
-    else if (t[0] !== null) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `pg_restore --clean -n ${t[0]} -t ${t[1]} x.dump`, expect });
+    else if (variant === 3) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `shp2pgsql ${pick(['-d', '-a', '-c'])} -s 3006 a.shp ${plainName(t)} | psql`, expect: plain });
+    else if (t[0] !== null) cases.push({ id: `gen-cmd-${n}`, kind: 'command', text: `pg_restore --clean -n ${t[0]} -t ${t[1]} x.dump`, expect: plain });
     else cases.push({ id: `gen-cmd-${n}`, kind: 'argv', args: ['psql', '-c', stmt], expect });
   }
   return cases;
