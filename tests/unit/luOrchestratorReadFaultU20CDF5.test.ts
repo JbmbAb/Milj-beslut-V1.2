@@ -808,6 +808,16 @@ describe('W-U20CDF5-R2 G (verifier probes B5b, Gc): a context object read under 
 });
 
 describe('W-U20CDF5-R2 L4: a damaged context object or a record without its context ref is never printed as "saknas"', () => {
+  it('W-U20CDF5-R3 (U20CDF5-R2 verification R2-7): a project context whose payload is an ARRAY -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED, STORAGE_INTEGRITY_FAULT; no PDF', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await repository.put({ artifact_id: CONTEXT.artifact_id, body: { artifact_id: CONTEXT.artifact_id, artifact_type: CONTEXT.artifact_type, payload: ['Fel projekt'] } });
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'STORAGE_INTEGRITY_FAULT', retryable: false });
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
   it('a truncated project context (no payload) -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED, STORAGE_INTEGRITY_FAULT; no PDF of empty fields', async () => {
     const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
     await putContexts(repository);
@@ -905,5 +915,139 @@ describe('W-U20CDF5-R2 G (property root): every link of the root is the object i
     const read = await root.details();
     expect(read.propertyRoot).toMatchObject({ status: 'TAMPERED', technical_error_class: 'ROOT_PROVENANCE_TAMPERED' });
     expect(read.integrity).toMatchObject({ ok: false, failureClass: 'ROOT_PROVENANCE_TAMPERED' });
+  });
+});
+
+/**
+ * W-U20CDF5-R3 (U20CDF5-R2 verification R2-1, probe R2-B6, "M1-rot"): the property root is part of the integrity
+ * pre-check (a tampered root is the 424 on every path). A root that could not be READ (ROOT_READ_ERROR) left the
+ * pre-check incomplete, and verify replayed (PASS) and the map presented (200) a record whose root is a lasting break.
+ */
+describe('W-U20CDF5-R3 R2-1: a transient read fault on the property root never hides a lasting root break -- verify and the map answer a typed retryable 503, the PDF builds nothing', () => {
+  const misfileRoot = async (repository: FaultyMemoryRepository) => {
+    const stored = repository.values.get(PROPERTY_REF.artifact_id) as Record<string, unknown>;
+    await repository.put({ artifact_id: PROPERTY_REF.artifact_id, body: { ...stored, artifact_type: 'MISFILED_TYPE' } });
+  };
+  const ROOT_READ = { ok: false, code: 'ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', failureClass: 'READ_ERROR', reasonCode: 'ROOT_READ_ERROR', retryable: true };
+  const ROOT_READ_SV = /^Fastighetsroten som bedömningen är bunden till kunde inte läsas \(tekniskt fel\)\. Ett nytt försök kan lyckas\. /;
+
+  it.each(['readBack', 'verify', 'map', 'pdf'] as const)('control: the lasting misfiled root context alone -> %s 424 ROOT_PROVENANCE_TAMPERED, never replayed, no PDF', async (path) => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await misfileRoot(repository);
+    const res = await PATHS[path]();
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: 'ROOT_PROVENANCE_TAMPERED' });
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it.each(['verify', 'map'] as const)('%s: the same record plus ONE transient EIO on the root\'s first read -> 503 ASSESSMENT_PINNED_EVIDENCE_UNREADABLE (READ_ERROR, ROOT_READ_ERROR, retryable), never replayed (it was 200 PASS / 200)', async (path) => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await misfileRoot(repository);
+    repository.failFirstRead(PROPERTY_REF.artifact_id, eio);
+    const res = await PATHS[path]();
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(503);
+    expect(res.body).toMatchObject(ROOT_READ);
+    expect(res.body.error).toMatch(ROOT_READ_SV);
+    expect(res.body.error).toMatch(
+      path === 'verify'
+        ? /Bedömningens integritet kunde därför inte kontrolleras: reproducerbarhetskontrollen genomfördes inte och inget utfall anges\.$/
+        : /Bedömningens integritet kunde därför inte kontrolleras, och kartan visar inte bedömningen\.$/,
+    );
+    expectNoRawText(res);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+  });
+
+  it('PDF: the same record plus the root EIO -> 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED (READ_ERROR, ROOT_READ_ERROR, retryable); no PDF', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await misfileRoot(repository);
+    repository.failFirstRead(PROPERTY_REF.artifact_id, eio);
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'READ_ERROR', reasonCode: 'ROOT_READ_ERROR', retryable: true });
+    expect(res.body.error).toBe(
+      'Bedömningens fastighetsrot kunde inte läsas (tekniskt fel). Ett nytt försök kan lyckas. ' +
+        'Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.',
+    );
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('read-back (doctrine, unchanged): the same record plus the root EIO -> 200, the root a TECHNICAL_ERROR (ROOT_READ_ERROR) -- never its designation, never "saknas", never NOT_RECORDED', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    await misfileRoot(repository);
+    repository.failFirstRead(PROPERTY_REF.artifact_id, eio);
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(200);
+    expect(res.body.propertyRoot).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR', property_designation: null });
+    // ROOT_UNBOUND_SV ("Rotens datasetbindning saknas ...") is the root's standing assurance note, not an absence claim.
+    expect(res.body.propertyRoot.message_sv).toContain('Fastighetsrotens proveniens kunde inte läsas (ROOT_READ_ERROR).');
+    expect(JSON.stringify(res.body.propertyRoot)).not.toMatch(/GÄVLE TEST|äldre kontrakt|finns inte i arkivet/i);
+  });
+
+  it.each(['verify', 'map'] as const)('no over-closing: a CLEAN record with the same transient root EIO -> %s the same retryable 503, never a lasting 424, never replayed', async (path) => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    repository.failFirstRead(PROPERTY_REF.artifact_id, eio);
+    const res = await PATHS[path]();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject(ROOT_READ);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+  });
+
+  it('no over-closing: a CLEAN record with the same transient root EIO -> the PDF the same retryable 503 (it was a PDF printing the root as a technical error)', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    repository.failFirstRead(PROPERTY_REF.artifact_id, eio);
+    const res = await PATHS.pdf();
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'READ_ERROR', reasonCode: 'ROOT_READ_ERROR', retryable: true });
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('no over-closing: the root PROVEN absent (never stored, ROOT_ARTIFACT_NOT_FOUND) behaves as before -- verify replays (H15 once), the map 200, the read-back 200, the PDF prints its absence note', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const verify = await PATHS.verify();
+    expect(verify.status).toBe(200);
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect((await PATHS.map()).status).toBe(200);
+    const back = await PATHS.readBack();
+    expect(back.status).toBe(200);
+    expect(back.body.propertyRoot).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_ARTIFACT_NOT_FOUND' });
+    expect((await PATHS.pdf()).status).toBe(200);
+    expect(pdfDataOf()).toMatchObject({ property: { note: expect.stringMatching(/bevisat saknad/) } });
+  });
+
+  it('no over-closing: a legitimate root -> 200 on every path, verify replays once', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    expect((await PATHS.readBack()).status).toBe(200);
+    expect((await PATHS.verify()).status).toBe(200);
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect((await PATHS.map()).status).toBe(200);
+    expect((await PATHS.pdf()).status).toBe(200);
+  });
+});
+
+describe('W-U20CDF5-R3 R2-3: a truncated root context or observation is a damaged object (an integrity verdict), never "an older contract"', () => {
+  it.each(['context', 'observation'] as const)('the %s without a payload object (truncated) -> TAMPERED / ROOT_PROVENANCE_TAMPERED, never NOT_RECORDED with a contract text', async (link) => {
+    const root = await productRoot();
+    const object = root[link] as { artifact_id: string; artifact_type: string };
+    await root.repository.put({ artifact_id: object.artifact_id, body: { artifact_id: object.artifact_id, artifact_type: object.artifact_type } });
+    const read = await root.details();
+    expect(read.propertyRoot).toMatchObject({ status: 'TAMPERED', technical_error_class: 'ROOT_PROVENANCE_TAMPERED' });
+    expect(read.integrity).toMatchObject({ ok: false, failureClass: 'ROOT_PROVENANCE_TAMPERED' });
+    expect(read.propertyRoot.message_sv).not.toMatch(/äldre kontrakt|kontraktsversion tolkas inte/);
+  });
+
+  it('control: an observation of another contract version (payload intact) stays NOT_RECORDED -- only a missing payload is damage', async () => {
+    const root = await productRoot();
+    const stored = root.repository.values.get(root.observation.artifact_id) as { payload: Record<string, unknown> };
+    await root.repository.put({ artifact_id: root.observation.artifact_id, body: { ...stored, payload: { ...stored.payload, resolver_version: 'canonical-property-observation-v2' } } });
+    const read = await root.details();
+    expect(read.propertyRoot).toMatchObject({ status: 'NOT_RECORDED' });
   });
 });
