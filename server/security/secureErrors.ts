@@ -54,7 +54,10 @@ export function toSafeErrorResponse(error: unknown): {
     } else if (msg.includes('invalid') && msg.includes('token')) {
       statusCode = 401;
       publicMessage = 'Authentication failed';
-    } else if (msg.includes('expired')) {
+    } else if (msg.includes('session expired') || msg.includes('token expired') || msg.includes('jwt expired')) {
+      // W-TEXT2 (4; UI1-R2 finding L4): only a real session or token expiry -- auth.ts 'Token expired', the BankID
+      // 'session expired' texts, jsonwebtoken's 'jwt expired', a refresh token -- is the session. Any other expired
+      // thing (a capability, a qualification, a lease, a ticket) is not, and falls through to the generic answer.
       statusCode = 401;
       publicMessage = 'Session expired';
     } else if (msg.includes('live_lantmateriet_required')) {
