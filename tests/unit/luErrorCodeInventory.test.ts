@@ -33,7 +33,25 @@
  *     needs a STATUS label specifically.
  *  4. W-UI1: the reviewed list cannot grow (or change) silently: its size per group and a digest of its
  *     token/group/parent lines are pinned below. A change fails until the pin is updated in the same
- *     commit -- the reviewer sees both files change.
+ *     commit -- the reviewer sees both files change. W-UI1-R2 (UI1-VERIFICATION finding 3c): the digest
+ *     covers every NOTE too (a rewritten justification is a change), and the reviewed middleware lists.
+ *  5. W-UI1-R2 (UI1-VERIFICATION finding 3a): the middleware before the LU router is not only a hand-kept
+ *     list -- every app.use(...) createApp.ts makes before app.use(localizationRouter), and every router-level
+ *     .use(...) in the routers mounted there, is derived from the source and must be reviewed
+ *     (LU_REVIEWED_MIDDLEWARE, LU_REVIEWED_ROUTER_LEVEL_USES).
+ *
+ * KNOWN LIMITS (static forms the scan does not see; UI1-VERIFICATION finding 3b and W-UI1's own list):
+ *  - a code that exists only in data (a database row, a stored artifact, a JSON file read at run time);
+ *  - a code built at run time beyond templates and simple concatenations: `${PREFIX}${x}` whose code-shaped
+ *    part lives only in a constant, `a + '_' + b`, `.toUpperCase()`, `[...].join('_')` outside the LU core;
+ *  - an enum member without an initializer that is looked up backwards (`Enum[value]`);
+ *  - an object key on the same line as other keys, read through `Object.keys(...)`;
+ *  - a single upper-case word in a field that carries no code, in the reach but outside the LU core;
+ *  - a code with mixed case (`Reject_Foo`);
+ *  - a dynamic import with a variable path;
+ *  - middleware a router mounts on a PATH before the LU router (router.use('/api/x', ...)) is not derived,
+ *    only the path-less router-level .use(...) is;
+ *  - the notes justify per code family, not per call site.
  *
  * Pure: reads source files as text and calls pure presentation functions. No network, no database,
  * no process environment.
@@ -79,10 +97,21 @@ import {
 import {
   LU_FALLBACK_GROUPS,
   LU_REVIEWED_FALLBACK,
+  LU_REVIEWED_MIDDLEWARE,
+  LU_REVIEWED_ROUTER_LEVEL_USES,
   LU_REVIEWED_TEMPLATES,
   type LuFallbackGroup,
 } from './luErrorCodeInventory.reviewed';
-import { LU_ENTRY_MODULES, LU_MIDDLEWARE_MODULES, LU_SHELL_MODULES, codeTemplatesIn, luReachClosure, scanServerTokens } from './luErrorCodeInventory.scan.mjs';
+import {
+  LU_ENTRY_MODULES,
+  LU_MIDDLEWARE_MODULES,
+  LU_SHELL_MODULES,
+  appUsesBeforeLuRouter,
+  codeTemplatesIn,
+  luReachClosure,
+  routerLevelUsesBeforeLuRouter,
+  scanServerTokens,
+} from './luErrorCodeInventory.scan.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -178,20 +207,26 @@ const REVIEWED_LIST_PIN = {
     SERVER_TEXT_VERBATIM: 28,
   } as Record<string, number>,
   // W-UI1 2026-10-03: 861 W-M2e/lane entries - 14 that now have their own UI text + 247 from the widened scan.
-  sha256: '2489889c4a35f674507328ca7f9d53cd7d3d104efcb64cad9bfbb02c161c78e0',
+  // W-UI1-R2: the digest now covers every note and the reviewed middleware; REJECT_DOCUMENT_FACT_CANDIDATE's note corrected.
+  sha256: '898251c2d1657e9bb70cb58b87c724291c86308ec318b93b8d7fef6eee986444',
 };
 
 function reviewedDigest(): { total: number; groups: Record<string, number>; sha256: string } {
+  // W-UI1-R2 (UI1-VERIFICATION finding 3c): the note is part of every line -- a rewritten justification is a change.
   const lines = Object.entries(LU_REVIEWED_FALLBACK)
-    .map(([token, entry]) => `${token}\t${entry.group}\t${entry.parent ?? ''}`)
+    .map(([token, entry]) => `${token}\t${entry.group}\t${entry.parent ?? ''}\t${entry.note}`)
     .sort();
   const groups: Record<string, number> = {};
   for (const entry of Object.values(LU_REVIEWED_FALLBACK)) groups[entry.group] = (groups[entry.group] ?? 0) + 1;
-  const templates = LU_REVIEWED_TEMPLATES.map((t) => `T\t${t.file}\t${t.template}\t${[...t.expansions].sort().join(',')}`).sort();
+  const templates = LU_REVIEWED_TEMPLATES.map((t) => `T\t${t.file}\t${t.template}\t${[...t.expansions].sort().join(',')}\t${t.note}`).sort();
+  const middleware = [
+    ...LU_REVIEWED_MIDDLEWARE.map((m) => `M\t${m.key}\t${m.module ?? ''}\t${m.review}\t${m.scannedAs ?? ''}\t${m.note}`),
+    ...Object.entries(LU_REVIEWED_ROUTER_LEVEL_USES).map(([use, note]) => `R\t${use}\t${note}`),
+  ].sort();
   return {
     total: lines.length,
     groups: Object.fromEntries(Object.entries(groups).sort(([a], [b]) => (a < b ? -1 : 1))),
-    sha256: createHash('sha256').update([...lines, ...templates].join('\n')).digest('hex'),
+    sha256: createHash('sha256').update([...lines, ...templates, ...middleware].join('\n')).digest('hex'),
   };
 }
 
@@ -404,6 +439,37 @@ describe('W-M2e item 2: exhaustive inventory of server error codes against the L
         : new RegExp(`^${t.template.replace(/\$\{[^}]+\}/g, '[A-Z0-9_]+')}$`);
       for (const token of t.expansions) expect(token, key(t)).toMatch(pattern);
     }
+  });
+
+  it('W-UI1-R2 (finding 3a): every app.use before the LU router is derived from createApp.ts and reviewed; a scanned one is in the reach', () => {
+    const found = appUsesBeforeLuRouter(ROOT).map((u) => `${u.key}@${u.module ?? '-'}`).sort();
+    const reviewed = LU_REVIEWED_MIDDLEWARE.map((m) => `${m.key}@${m.module ?? '-'}`).sort();
+    expect(found.filter((k) => !reviewed.includes(k)), 'a new middleware before the LU router: review it in LU_REVIEWED_MIDDLEWARE').toEqual([]);
+    expect(reviewed.filter((k) => !found.includes(k)), 'remove reviewed middleware that createApp.ts no longer mounts').toEqual([]);
+    // As many of each as reviewed: a second inline handler (or a second mount of one module) is a new middleware too.
+    expect(found, 'the same middleware mounted once more before the LU router: review it').toEqual(reviewed);
+    for (const m of LU_REVIEWED_MIDDLEWARE) {
+      expect(m.note.trim().length, m.key).toBeGreaterThan(20);
+      if (m.review === 'SCANNED') {
+        const scanned =
+          (m.key === 'inline' && m.module === null && LU_SHELL_MODULES.includes('server/createApp.ts')) ||
+          (m.module !== null && (LU_MIDDLEWARE_MODULES.includes(m.module) || LU_ENTRY_MODULES.includes(m.module))) ||
+          (m.scannedAs !== undefined && LU_ENTRY_MODULES.includes(m.scannedAs) && fs.readFileSync(path.join(ROOT, m.module!), 'utf8').includes(path.basename(m.scannedAs, '.ts')));
+        expect(scanned, `${m.key} is reviewed as SCANNED but is not in the scan's reach`).toBe(true);
+      }
+      if (m.review === 'NO_LU_ROUTE') {
+        expect(m.module, m.key).not.toBeNull();
+        expect(fs.readFileSync(path.join(ROOT, m.module!), 'utf8'), `${m.key} names an LU path`).not.toContain('/api/localization');
+      }
+      if (m.review === 'THIRD_PARTY') expect(m.module, m.key).toBeNull();
+    }
+  });
+
+  it('W-UI1-R2 (finding 3a): every router-level .use(...) in the routers mounted before the LU router is reviewed', () => {
+    const found = routerLevelUsesBeforeLuRouter(ROOT);
+    const reviewed = Object.keys(LU_REVIEWED_ROUTER_LEVEL_USES).sort();
+    expect(found).toEqual(reviewed);
+    for (const [use, note] of Object.entries(LU_REVIEWED_ROUTER_LEVEL_USES)) expect(note.trim().length, use).toBeGreaterThan(20);
   });
 
   it('W-UI1 (C5): the template net sees a code built after an interpolation or by concatenation, and no constant name inside ${...}', () => {

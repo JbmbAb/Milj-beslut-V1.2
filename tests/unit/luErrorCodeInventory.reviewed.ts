@@ -740,7 +740,7 @@ export const LU_REVIEWED_FALLBACK: Readonly<Record<string, LuFallbackEntry>> = {
   REJECT_DOCUMENT_EVIDENCE_PROPERTY_BINDING: { group: 'OUTSIDE_LU_REACH', note: 'only in packages/mps-lu' },
   REJECT_DOCUMENT_EVIDENCE_V2: { group: 'RAW_MESSAGE_ONLY', note: 'document evidence/fact refusal in a fresh run: EXECUTION_KERNEL_ERROR ("körning misslyckades") or the document row\'s own state; raw text only in the log' },
   REJECT_DOCUMENT_FACT: { group: 'RAW_MESSAGE_ONLY', note: 'document evidence/fact refusal in a fresh run: EXECUTION_KERNEL_ERROR ("körning misslyckades") or the document row\'s own state; raw text only in the log' },
-  REJECT_DOCUMENT_FACT_CANDIDATE: { group: 'RAW_MESSAGE_ONLY', note: 'document evidence/fact refusal in a fresh run: EXECUTION_KERNEL_ERROR ("körning misslyckades") or the document row\'s own state; raw text only in the log' },
+  REJECT_DOCUMENT_FACT_CANDIDATE: { group: 'RAW_MESSAGE_ONLY', note: 'thrown only by packages/mps-data-governance createDocumentFactCandidate (document-fact import tooling); no LU route, worker or use case calls it (W-UI1-R2, M2e verification finding 9: the earlier "in a fresh run" was wrong), so no LU answer carries it; were it ever to leave a route via next(err), the sanitized 500 says only "tekniskt fel"' },
   REJECT_DOCUMENT_FACT_VERIFICATION: { group: 'RAW_MESSAGE_ONLY', note: 'document evidence/fact refusal in a fresh run: EXECUTION_KERNEL_ERROR ("körning misslyckades") or the document row\'s own state; raw text only in the log' },
   REJECT_DOCUMENT_IDENTITY: { group: 'OUTSIDE_LU_REACH', note: 'only in packages/mps-knowledge-corpus' },
   REJECT_DUPLICATE_AUTHORITY: { group: 'OUTSIDE_LU_REACH', note: 'only in packages/mps-data-governance' },
@@ -1174,4 +1174,81 @@ export const LU_REVIEWED_FALLBACK: Readonly<Record<string, LuFallbackEntry>> = {
   WORKFLOW_PROVENANCE_MISSING: { group: 'OUTSIDE_LU_REACH', note: 'only in packages/mps-workflow' },
   WOULD_RECORD: { group: 'SERVER_INTERNAL', note: 'import/retention tooling of spatial-provider-postgis (SpatialDatasetRetention.ts, RetentionDigestPrecondition.ts; reached through the package barrel); never produced on an LU request' },
   WRONG_TYPE: { group: 'SERVER_INTERNAL', note: 'reason of the operator projection reconciliation (reconcileAssessmentProjection) or of the attestation check; not part of an LU answer' },
+};
+
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 3a): every app.use(...) server/createApp.ts makes BEFORE app.use(localizationRouter)
+ * (appUsesBeforeLuRouter), reviewed. Every LU request passes them, so a new one fails the test until it is reviewed here.
+ *  - SCANNED: its module is in the scan's reach (LU_MIDDLEWARE_MODULES or LU_ENTRY_MODULES; `scannedAs` names the entry
+ *    module a re-export points to), or it is createApp.ts's own inline handler (LU_SHELL_MODULES);
+ *  - THIRD_PARTY: a package middleware; the note says why it answers no LU request with a code of its own;
+ *  - NO_LU_ROUTE: a repository router with no route under /api/localization (checked: its source does not contain the
+ *    path); only its router-level middleware runs for an LU request, and that is pinned in LU_REVIEWED_ROUTER_LEVEL_USES.
+ */
+export interface LuReviewedMiddleware {
+  readonly key: string;
+  readonly module: string | null;
+  readonly review: 'SCANNED' | 'THIRD_PARTY' | 'NO_LU_ROUTE';
+  readonly scannedAs?: string;
+  readonly note: string;
+}
+
+const NO_LU_ROUTE_NOTE =
+  'a domain router mounted before the LU router; none of its routes is under /api/localization, so an LU request only passes it (its router-level middleware is pinned separately)';
+const LEGACY_ONLY = '; mounted only when legacy routes are enabled';
+
+export const LU_REVIEWED_MIDDLEWARE: readonly LuReviewedMiddleware[] = [
+  { key: 'helmet', module: null, review: 'THIRD_PARTY', note: 'security headers only; it sets headers and calls next, never answers a request' },
+  {
+    key: 'rateLimit',
+    module: null,
+    review: 'THIRD_PARTY',
+    note: 'express-rate-limit: a 429 with the package text when the global window is exceeded; the UI shows its generic technical text for a 429 (no code); whether 429 carries retryable is the server lane\'s',
+  },
+  { key: 'traceMiddleware', module: 'server/observability/trace.ts', review: 'SCANNED', note: 'trace id middleware; in LU_MIDDLEWARE_MODULES, scanned like an entry module' },
+  { key: 'requestLogger', module: 'server/security/requestLogging.ts', review: 'SCANNED', note: 'request logging; in LU_MIDDLEWARE_MODULES, scanned like an entry module' },
+  { key: 'compression', module: null, review: 'THIRD_PARTY', note: 'response compression; it never answers a request' },
+  {
+    key: 'express.json',
+    module: null,
+    review: 'THIRD_PARTY',
+    note: 'body parser (10 MB): a malformed or oversized body becomes an error the app error handler (secureErrors.ts, scanned) maps; it carries no LU code',
+  },
+  { key: 'inline', module: null, review: 'SCANNED', note: 'createApp.ts\'s own CORS handler (a 204 for OPTIONS, no body); createApp.ts is in LU_SHELL_MODULES and its own text is scanned' },
+  { key: 'internalBackgroundRouter', module: 'server/routes/internal.background.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'csrfProtection', module: 'server/security/csrf.ts', review: 'SCANNED', note: 'the CSRF 403 (no code; the UI has its own text for it); in LU_MIDDLEWARE_MODULES' },
+  { key: 'coreRouter', module: 'server/coreApi.express.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'documentRouter', module: 'server/routes/document.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'requirementsRouter', module: 'server/routes/requirements.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'classificationReviewRouter', module: 'server/routes/classification-review.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'pdfExportRouter', module: 'server/routes/pdf-export.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'sewageApplicationsRouter', module: 'server/routes/sewage.applications.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE + LEGACY_ONLY },
+  { key: 'sewageLegacyAliasRouter', module: 'server/routes/sewage.legacy-alias.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE + LEGACY_ONLY },
+  { key: 'sewageDocumentRouter', module: 'server/routes/sewage.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE + LEGACY_ONLY },
+  { key: 'cNotificationMassRouter', module: 'server/routes/cNotificationMass.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE + LEGACY_ONLY },
+  { key: 'hydroRouter', module: 'server/routes/hydro.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'tilesRouter', module: 'server/routes/tiles.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  {
+    key: 'propertyLookupRouter',
+    module: 'server/integrations/propertyLookup.ts',
+    review: 'SCANNED',
+    scannedAs: 'server/routes/property.routes.ts',
+    note: 're-exports the property router, an LU entry module (scanned)',
+  },
+  { key: 'erpSyncRouter', module: 'server/routes/erpSync.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'gisRouter', module: 'server/routes/gis.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'geodataRouter', module: 'server/routes/geodata.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+  { key: 'geoRouter', module: 'server/routes/geo.routes.ts', review: 'NO_LU_ROUTE', note: NO_LU_ROUTE_NOTE },
+];
+
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 3a): router-level middleware (a `.use(` without a path) in the routers mounted
+ * before the LU router (routerLevelUsesBeforeLuRouter) -- it runs for every LU request that passes the router.
+ */
+export const LU_REVIEWED_ROUTER_LEVEL_USES: Readonly<Record<string, string>> = {
+  'server/coreApi.express.ts: bodyParser.json':
+    'a second JSON body parser (5 MB); the app-level express.json (10 MB) has already parsed the body, so it passes on; a parse error would go to the app error handler (scanned)',
+  'server/coreApi.express.ts: inline': 'sets res.locals.traceId and an X-Trace-Id header, then next(); it never answers',
+  'server/routes/sewage.legacy-alias.routes.ts: inline':
+    'sets Deprecation/Link headers, then next(); it never answers (only when legacy routes are enabled; it also stamps those headers on LU answers, harmless to codes)',
 };

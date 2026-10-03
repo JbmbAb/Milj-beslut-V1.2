@@ -185,6 +185,71 @@ export function luReachClosure(root) {
   return new Set([...seen].map((f) => posix(path.relative(root, f))));
 }
 
+/** The text inside the parentheses that open at `open` (balanced; strings are not special-cased). */
+function balancedArgument(source, open) {
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === '(') depth += 1;
+    else if (source[index] === ')') {
+      depth -= 1;
+      if (depth === 0) return { text: source.slice(open + 1, index), end: index };
+    }
+  }
+  return { text: source.slice(open + 1), end: source.length };
+}
+
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 3a): what server/createApp.ts mounts BEFORE `app.use(localizationRouter)` --
+ * every `app.use(...)`, by its callee (`inline` for a handler written in place) and the repository module that callee
+ * is imported from (null for a third-party package or an inline handler). Every LU request passes all of them, so the
+ * test pins this list: a new middleware fails until it is reviewed (scanned, or reviewed as unable to answer an LU
+ * request), instead of being taken in only through a hand-kept LU_MIDDLEWARE_MODULES.
+ * @returns {{ key: string, module: string | null }[]}
+ */
+export function appUsesBeforeLuRouter(root) {
+  const file = path.join(root, 'server', 'createApp.ts');
+  const source = stripComments(fs.readFileSync(file, 'utf8'));
+  const end = source.indexOf('app.use(localizationRouter)');
+  if (end < 0) throw new Error('app.use(localizationRouter) not found in server/createApp.ts');
+  const importOf = new Map();
+  for (const m of source.matchAll(/\bimport\s+(?!type\b)([\w$]+)?\s*,?\s*(?:\{([^}]*)\})?\s*from\s*['"]([^'"]+)['"]/g)) {
+    const names = [m[1], ...(m[2] ?? '').split(',').map((part) => part.trim().split(/\s+as\s+/).pop())].filter(Boolean);
+    for (const name of names) importOf.set(name, m[3]);
+  }
+  const uses = [];
+  let at = source.indexOf('app.use(');
+  while (at >= 0 && at < end) {
+    const { text, end: close } = balancedArgument(source, at + 'app.use'.length);
+    const callee = /^\s*([A-Za-z_$][\w$.]*)/.exec(text)?.[1] ?? null;
+    const spec = callee ? importOf.get(callee.split('.')[0]) : undefined;
+    const resolved = spec ? resolveSpecifier(root, spec, file) : null;
+    uses.push({ key: callee ?? 'inline', module: resolved ? posix(path.relative(root, resolved)) : null });
+    at = source.indexOf('app.use(', close);
+  }
+  return uses;
+}
+
+/**
+ * W-UI1-R2 (UI1-VERIFICATION finding 3a): router-level middleware -- a `.use(` whose first argument is not a path
+ * string -- in the repository modules mounted before the LU router: such a middleware runs for every request that
+ * passes the router, also an LU one. Returned as `<module>: <callee>` for the test to pin.
+ * @returns {string[]}
+ */
+export function routerLevelUsesBeforeLuRouter(root) {
+  const out = [];
+  for (const use of appUsesBeforeLuRouter(root)) {
+    if (!use.module || use.module === 'server/createApp.ts') continue;
+    const source = stripComments(fs.readFileSync(path.join(root, use.module), 'utf8'));
+    for (const m of source.matchAll(/\b[A-Za-z_$][\w$]*\.use\(/g)) {
+      const { text } = balancedArgument(source, m.index + m[0].length - 1);
+      if (/^\s*['"`]/.test(text)) continue;
+      const callee = /^\s*([A-Za-z_$][\w$.]*)/.exec(text)?.[1] ?? 'inline';
+      out.push(`${use.module}: ${callee}`);
+    }
+  }
+  return [...new Set(out)].sort();
+}
+
 /**
  * Scans server/, src/application/, packages/<pkg>/src and every file of the LU reach (non-test sources,
  * comments stripped).

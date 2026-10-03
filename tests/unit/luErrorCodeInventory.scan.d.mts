@@ -10,3 +10,5 @@ export declare function scanServerTokens(root: string): {
 };
 export declare function luReachClosure(root: string): Set<string>;
 export declare function codeTemplatesIn(source: string): string[];
+export declare function appUsesBeforeLuRouter(root: string): { readonly key: string; readonly module: string | null }[];
+export declare function routerLevelUsesBeforeLuRouter(root: string): string[];
