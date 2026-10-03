@@ -87,7 +87,8 @@ export const READ_FAULT_CATCH_REVIEWED: readonly ReviewedCatch[] = [
   // classifies (projectAccessFailure for the access re-check, classifyReadFault for the binding); its inner
   // access-check catch propagates the failure -- both accepted by the scanner, no longer listed here.
   // W-U20CDF5 (B5): the two PDF context catches (former OPEN_NOT_FIXED 054922544981d0f7, 37dd1e5d75a57bb2) are one
-  // readPdfContext catch that classifies (readExistingOrProvenAbsent + toReadFaultError) -- a failed read is a typed
-  // fail-closed answer without a PDF, only a proven absence is printed; accepted by the scanner, not listed here.
+  // readPdfContext catch that classifies (toReadFaultError) -- a failed read is a typed fail-closed answer without a PDF;
+  // W-GAP1 (F2): the exact "never stored" of the record's own context ref is MISSING_FROM_CAS (no PDF) too -- nothing is
+  // printed as absent any more. Accepted by the scanner, not listed here.
   // No OPEN_NOT_FIXED entry remains in localizationOrchestrator.ts.
 ];

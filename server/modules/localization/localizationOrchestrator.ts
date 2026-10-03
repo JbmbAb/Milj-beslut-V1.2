@@ -67,7 +67,6 @@ import {
   LuReadFaultError,
   projectAccessFailure,
   readFaultHttpStatus,
-  readExistingOrProvenAbsent,
   readFaultOfClass,
   readFaultSentenceSv,
   toReadFaultError,
@@ -778,7 +777,11 @@ export interface PinnedEvidenceUnreadableRefusal {
   readonly error: string;
   readonly code: typeof ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE;
   readonly failureClass: ReadFaultClass;
-  /** EVIDENCE_READ_ERROR / EVIDENCE_NOT_FOUND (governedEvidenceDetails' class of the failed reads), else PINNED_EVIDENCE_UNREADABLE. */
+  /**
+   * EVIDENCE_READ_ERROR / EVIDENCE_NOT_FOUND (governedEvidenceDetails' class of the failed reads), else
+   * PINNED_EVIDENCE_UNREADABLE; for the property root ROOT_READ_ERROR (retryable) or -- W-GAP1 (F2) --
+   * ROOT_MISSING_FROM_CAS (a root link the CAS does not hold: lasting).
+   */
   readonly reasonCode: string;
   readonly retryable: boolean;
 }
@@ -810,22 +813,40 @@ function pinnedEvidenceUnreadableRefusal(statement: GovernedOverallStatement, pa
  * W-U20CDF5-R3 (U20CDF5-R2 verification R2-1, "M1-rot"): the property root is part of the integrity pre-check -- a
  * tampered root is the 424 on every path. A root link that could not be READ (governedEvidenceDetails' ROOT_READ_ERROR:
  * a read of unknown persistence) leaves the pre-check incomplete: it may hide a lasting root break, so verify does not
- * replay and the map does not present. ROOT_ARTIFACT_NOT_FOUND -- the exact "never stored" signal -- cannot hide a
- * break and is not refused here (a genuine record without a stored root behaves as before).
+ * replay and the map does not present.
+ * W-GAP1 (F2; owner decision Round 15-16, 2026-10-03): a root link the CAS does not hold (governedEvidenceDetails'
+ * ROOT_MISSING_FROM_CAS -- the former ROOT_ARTIFACT_NOT_FOUND) is a LOST referenced artifact, not "a genuine record
+ * without a stored root": the record's content-verified property_ref (R2-5) and the root's own verified refs say it must
+ * exist, and the product bootstrap writes it before any assessment. It is refused on both paths as the lasting
+ * MISSING_FROM_CAS (503, not retryable) BEFORE any further materialization -- no H15 replay, no map -- and the PDF
+ * refuses it too (exportCurrentLuAssessmentPdf). This revokes the W-U20CDF5-R3 pass-through, which was test-locked.
  */
 function isPropertyRootReadError(root: PropertyRootDetails): boolean {
   return root.status === 'TECHNICAL_ERROR' && root.technical_error_class === 'ROOT_READ_ERROR';
 }
 
+/** W-GAP1 (F2): the root's context, binding or observation is a well-formed reference the CAS does not hold. */
+function isPropertyRootMissing(root: PropertyRootDetails): boolean {
+  return root.status === 'TECHNICAL_ERROR' && root.technical_error_class === 'ROOT_MISSING_FROM_CAS';
+}
+
 function propertyRootUnreadableRefusal(path: 'verify' | 'map'): PinnedEvidenceUnreadableRefusal {
-  const fault = readFaultOfClass('READ_ERROR');
+  return propertyRootRefusal(path, readFaultOfClass('READ_ERROR'), 'ROOT_READ_ERROR');
+}
+
+/** W-GAP1 (F2): the lost root link -- the shared lasting MISSING_FROM_CAS class, the root's own reason code. */
+function propertyRootMissingRefusal(path: 'verify' | 'map'): PinnedEvidenceUnreadableRefusal {
+  return propertyRootRefusal(path, readFaultOfClass('MISSING_FROM_CAS'), 'ROOT_MISSING_FROM_CAS');
+}
+
+function propertyRootRefusal(path: 'verify' | 'map', fault: ReadFault, reasonCode: 'ROOT_READ_ERROR' | 'ROOT_MISSING_FROM_CAS'): PinnedEvidenceUnreadableRefusal {
   return {
     ok: false,
     status: readFaultHttpStatus(fault),
     error: `${readFaultSentenceSv(fault, 'Fastighetsroten som bedömningen är bunden till')} ${uncheckedIntegrityConsequenceSv(path)}`,
     code: ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE,
     failureClass: fault.faultClass,
-    reasonCode: 'ROOT_READ_ERROR',
+    reasonCode,
     retryable: fault.retryable,
   };
 }
@@ -861,6 +882,8 @@ async function currentRecordIntegrityRefusal(
   if (statement.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') return pinnedEvidenceUnreadableRefusal(statement, path);
   // W-U20CDF5-R3 (R2-1): last -- a break visible without the root and a lasting pinned-evidence loss name more.
   if (isPropertyRootReadError(details.propertyRoot)) return propertyRootUnreadableRefusal(path);
+  // W-GAP1 (F2): a lost root link is refused here too -- never replayed, never presented.
+  if (isPropertyRootMissing(details.propertyRoot)) return propertyRootMissingRefusal(path);
   return null;
 }
 
@@ -1497,27 +1520,30 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
     const rootFault = new LuReadFaultError('assessment-property-root', readFaultOfClass('READ_ERROR'), null);
     return pdfContextFailure(rootFault, 'Bedömningens fastighetsrot', 'ROOT_READ_ERROR');
   }
+  // W-GAP1 (F2; owner decision Round 15-16): a root link the CAS does not hold is a lost referenced artifact -- no
+  // document is built, the lasting MISSING_FROM_CAS answer with the root's own reason code (it used to print "bevisat saknad").
+  if (isPropertyRootMissing(summary.propertyRoot)) {
+    const rootFault = new LuReadFaultError('assessment-property-root', readFaultOfClass('MISSING_FROM_CAS'), null);
+    return pdfContextFailure(rootFault, 'Bedömningens fastighetsrot', 'ROOT_MISSING_FROM_CAS');
+  }
 
   // W-U20CDF5 (B5; OD-R2 class, CATCH2-REPORT section 11 item 5): the property and project context give the PDF
   // its names. A context whose read FAILED is never printed as a gap: no PDF is built, a typed fault in the shared
-  // classes is answered (READ_ERROR retryable; a lasting storage fault or a refusal not). Only a PROVEN absence --
-  // the repository's exact "never stored" for exactly that id -- is printed, in its own words.
+  // classes is answered (READ_ERROR retryable; a lasting storage fault or a refusal not).
+  // W-GAP1 (F2): nor is the repository's exact "never stored" printed any more -- the record's own property_ref and
+  // project_context_ref are references that must exist, so that answer is MISSING_FROM_CAS (lasting), no PDF.
   const propertyRead = await readPdfContext(artifactRepository, summary.propertyContextRef, 'assessment-property-context');
   if (propertyRead.ok === false) return pdfContextFailure(propertyRead.fault, 'Bedömningens fastighetskontext');
   const projectRead = await readPdfContext(artifactRepository, summary.projectContextRef, 'assessment-project-context');
   if (projectRead.ok === false) return pdfContextFailure(projectRead.fault, 'Bedömningens projektkontext');
-  const contextText = (payload: Record<string, unknown> | null, key: string) =>
-    typeof payload?.[key] === 'string' ? (payload[key] as string) : MISSING_IN_BASIS_SV;
-  const property = propertyRead.payload
-    ? {
-        property_ref: contextText(propertyRead.payload, 'property_ref'),
-        official_name: contextText(propertyRead.payload, 'official_name'),
-        municipality: contextText(propertyRead.payload, 'municipality'),
-      }
-    : null;
-  const project = projectRead.payload
-    ? { project_name: contextText(projectRead.payload, 'project_name'), description: contextText(projectRead.payload, 'description') }
-    : null;
+  const contextText = (payload: Record<string, unknown>, key: string) =>
+    typeof payload[key] === 'string' ? (payload[key] as string) : MISSING_IN_BASIS_SV;
+  const property = {
+    property_ref: contextText(propertyRead.payload, 'property_ref'),
+    official_name: contextText(propertyRead.payload, 'official_name'),
+    municipality: contextText(propertyRead.payload, 'municipality'),
+  };
+  const project = { project_name: contextText(projectRead.payload, 'project_name'), description: contextText(projectRead.payload, 'description') };
 
   const pdfData = {
     title: 'Lokaliseringsbedömning',
@@ -1527,9 +1553,10 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
       'Human in the Loop: Detta dokument är genererat från ett styrt (governed) underlag och ' +
       'ersätter inte juridisk eller teknisk expertbedömning. Alla slutsatser ska granskas av ' +
       'behörig handläggare innan formellt beslut fattas.',
-    // W-U20CDF5 (B5): reached only for a PROVEN absence (a failed read answers above, without a PDF).
-    property: property ?? { note: PDF_PROPERTY_CONTEXT_ABSENT_SV },
-    project: project ?? { note: PDF_PROJECT_CONTEXT_ABSENT_SV },
+    // W-GAP1 (F2): both contexts were read and verified above -- a context that could not be read, or is not in the
+    // CAS, answered without a PDF; nothing is ever printed as absent.
+    property,
+    project,
     systemSummary: summary.systemSummary,
     // DEMO M1a / D9(a): geometry provenance survives into the exported report.
     lokalisering: {
@@ -1622,14 +1649,12 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
   return { ok: true, buffer, filename: `lokaliseringsbedomning-${safeId}.pdf`, assessmentArtifactId: summary.assessmentArtifactId };
 }
 
-/** W-U20CDF5 (B5): the PDF's property or project context could not be read or verified -- no PDF is built. */
+/**
+ * W-U20CDF5 (B5): the PDF's property or project context could not be read or verified -- no PDF is built.
+ * W-GAP1 (F2): or is not in the CAS (MISSING_FROM_CAS), or the property root is (reasonCode ROOT_MISSING_FROM_CAS). The
+ * former "bevisat saknad" notes are gone: the record's own context refs are references that must exist.
+ */
 export const ASSESSMENT_PDF_CONTEXT_UNRESOLVED = 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED';
-
-/** W-U20CDF5 (B5): what the PDF prints for a context whose absence is PROVEN (never for a failed read). */
-const PDF_PROPERTY_CONTEXT_ABSENT_SV =
-  'Fastighetskontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Fastighetens beteckning, namn och kommun anges därför inte.';
-const PDF_PROJECT_CONTEXT_ABSENT_SV =
-  'Projektkontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Projektets namn och beskrivning anges därför inte.';
 
 export interface PdfContextUnresolved {
   readonly ok: false;
@@ -1642,9 +1667,12 @@ export interface PdfContextUnresolved {
 }
 
 /**
- * W-U20CDF5 (B5): reads one context the PDF names (the assessment's own property_ref / project_context_ref).
- * `payload: null` ONLY for a proven absence (readExistingOrProvenAbsent: the repository's exact "never stored"
- * for exactly that id); every other failure is a typed LuReadFaultError.
+ * W-U20CDF5 (B5): reads one context the PDF names (the assessment's own property_ref / project_context_ref). Every
+ * failure is a typed LuReadFaultError.
+ * W-GAP1 (F2; owner decision Round 15-16): the context MUST exist -- the record's own ref is a reference, not an id the
+ * caller is about to mint (readExistingOrProvenAbsent is reserved for those, readFaultClassification.ts), so the
+ * repository's exact "never stored" is the shared MISSING_FROM_CAS (lasting, not retryable) through classifyReadFault,
+ * never a printed absence. (It used to return `payload: null` and print "bevisat saknad".)
  * W-U20CDF5-R2 (U20CDF5 verification L4): a record that names no well-formed ref proves no absence -- it breaks the
  * record contract (REFUSED, MALFORMED_RECORD_ENTRY); a context object without a payload object is a damaged
  * (truncated) object, a lasting integrity fault (STORAGE_INTEGRITY_FAULT) -- neither is printed as missing.
@@ -1653,20 +1681,19 @@ async function readPdfContext(
   repository: ArtifactRepositoryPort,
   ref: { readonly artifact_id?: unknown; readonly artifact_type?: unknown } | null | undefined,
   subject: string,
-): Promise<{ readonly ok: true; readonly payload: Record<string, unknown> | null } | { readonly ok: false; readonly fault: LuReadFaultError }> {
+): Promise<{ readonly ok: true; readonly payload: Record<string, unknown> } | { readonly ok: false; readonly fault: LuReadFaultError }> {
   if (!ref || typeof ref.artifact_id !== 'string' || !ref.artifact_id || typeof ref.artifact_type !== 'string' || !ref.artifact_type) {
     const refusal: ReadFault = { ...readFaultOfClass('REFUSED'), refusalCode: 'MALFORMED_RECORD_ENTRY' };
     return { ok: false, fault: new LuReadFaultError(subject, refusal, new Error('the assessment names no well-formed context ref')) };
   }
   const target = { artifact_id: ref.artifact_id, artifact_type: ref.artifact_type };
   try {
-    const read = await readExistingOrProvenAbsent<{ payload?: unknown }>(repository, target, subject);
-    if (!read.found) return { ok: true, payload: null };
+    const value = await repository.resolve<{ payload?: unknown }>(target);
     // W-U20CDF5-R2 (U20CDF5 verification G, probe B5b; the CATCH3 class): the context read under the record's ref
     // must BE that context -- another property or project under a misdirected entry is a lasting integrity fault
     // (STORAGE_INTEGRITY_FAULT, 503, not retryable), never its names in the PDF.
-    assertReadUnderItsOwnId(subject, read.value, target.artifact_id, target.artifact_type);
-    const payload = read.value?.payload;
+    assertReadUnderItsOwnId(subject, value, target.artifact_id, target.artifact_type);
+    const payload = value?.payload;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new LuReadFaultError(subject, readFaultOfClass('STORAGE_INTEGRITY_FAULT'), new Error('the context object carries no payload object'));
     }
@@ -1736,6 +1763,12 @@ function pdfKnownCoverageGaps(gaps: readonly KnownCoverageGap[]) {
   }));
 }
 
+/**
+ * W-GAP1 (F2, the skeptic's PDF note): a root in a technical error never reaches a built PDF any more (ROOT_READ_ERROR and
+ * ROOT_MISSING_FROM_CAS answer above without a document; a tampered root is the read-back's 424), so the raw machine class
+ * field `tekniskt_fel` is gone from the formal document. `uppslag_artifact_id` (a verified observation's reference, like the
+ * document's other `*_artifact_id` references) is kept -- see GAP1-REPORT, owner question.
+ */
 function pdfPropertyRoot(root: PropertyRootDetails) {
   return {
     status: root.status,
@@ -1747,7 +1780,6 @@ function pdfPropertyRoot(root: PropertyRootDetails) {
     kontraktsversion: orMissing(root.observation_contract_version),
     datasetbindning: orMissing(root.dataset_binding),
     sakerhet: root.assurance,
-    tekniskt_fel: root.technical_error_class,
     beskrivning: root.message_sv,
   };
 }

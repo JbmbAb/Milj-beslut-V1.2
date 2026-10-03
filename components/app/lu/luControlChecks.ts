@@ -666,10 +666,20 @@ const PROPERTY_ROOT_QUALIFIER: Readonly<Record<string, { readonly suffix: string
       'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); läs in på nytt. Läsfelet säger inget om fastighetsunderlagets ' +
       `riktighet. ${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
   },
-  // W-UI1 (D): the exact "never stored" signal of a root link -- a proven absence, not a read error.
+  // W-UI1 (D): the exact "never stored" signal of a root link -- a proven absence, not a read error. (W-GAP1 F2: the
+  // server no longer emits this class for a well-formed ref -- it emits ROOT_MISSING_FROM_CAS below; the mark stays for
+  // older answers.)
   'TECHNICAL_ERROR/ROOT_ARTIFACT_NOT_FOUND': {
     suffix: ' · fastighetsunderlagets ursprung finns inte i arkivet',
     noteSv: `Fastighetsrotens ursprung finns inte i arkivet för den här bedömningen. ${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
+  },
+  // W-GAP1 (F2; owner decision Round 15-16): a well-formed root link the archive does not hold -- a lost referenced
+  // artifact (lasting), never an absence claim, no re-read offered.
+  'TECHNICAL_ERROR/ROOT_MISSING_FROM_CAS': {
+    suffix: ' · fastighetsunderlagets ursprung kunde inte läsas ur arkivet (bestående fel)',
+    noteSv:
+      'Fastighetsrotens ursprung kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). ' +
+      `${LU_ROOT_NO_CONCLUSION_SV} Fastigheten hittades vid uppslaget.`,
   },
   TAMPERED: {
     suffix: ' · fastighetsunderlagets ursprung klarade inte kontrollen',
@@ -714,6 +724,8 @@ export const LU_PROPERTY_ROOT_TEXTS: readonly string[] = Object.freeze([
   // W-UI1 (D): the root's technical error classes with a mark of their own.
   'ROOT_READ_ERROR',
   'ROOT_ARTIFACT_NOT_FOUND',
+  // W-GAP1 (F2): a root link the archive does not hold (lost referenced artifact).
+  'ROOT_MISSING_FROM_CAS',
 ]);
 
 function propertyRootQualifier(root: Record<string, unknown> | null): { readonly suffix: string; readonly noteSv: string } | null {

@@ -733,6 +733,11 @@ function uncheckedIntegritySv(context: LuErrorContext): string {
 /** W-UI1 (D): a read error says nothing about the material -- said once, plainly, never "äkthet". */
 const READ_FAULT_NO_CLAIM_SV = 'Läsfelet säger inget om underlagets riktighet.';
 
+/** The reason codes under which an answer concerns the PROPERTY ROOT (W-U20CDF5-R3 ROOT_READ_ERROR; W-GAP1 F2 ROOT_MISSING_FROM_CAS). */
+function isRootReasonCode(reasonCode: unknown): boolean {
+  return reasonCode === 'ROOT_READ_ERROR' || reasonCode === 'ROOT_MISSING_FROM_CAS';
+}
+
 /** W-UI1 (B; U20CDF4 beslut 1): 424 ASSESSMENT_RECORD_INTEGRITY_ERROR -- never a valid assessment, never retried. */
 function recordIntegrityText(context: LuErrorContext): CodeText {
   const consequence =
@@ -841,9 +846,10 @@ const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
     fallback: fixed('TECHNICAL', true, (lead) => `${lead} För många datakällor var otillgängliga. Försök igen senare.`),
   },
   // W-UI1 (B; W-U20CDF5 M1/R3): verify or the map could not read every pinned evidence (or the property root,
-  // reasonCode ROOT_READ_ERROR) -- the record's integrity was not checked, so nothing is replayed or shown.
+  // reasonCode ROOT_READ_ERROR; W-GAP1 F2: or the root is not in the archive, ROOT_MISSING_FROM_CAS) -- the record's
+  // integrity was not checked, so nothing is replayed or shown.
   ASSESSMENT_PINNED_EVIDENCE_UNREADABLE: sharedFaultPresenter(
-    (f) => (f.reasonCode === 'ROOT_READ_ERROR' ? 'Fastighetsrotens proveniens' : 'Den pinnade evidensen som bedömningen är bunden till'),
+    (f) => (isRootReasonCode(f.reasonCode) ? 'Fastighetsrotens proveniens' : 'Den pinnade evidensen som bedömningen är bunden till'),
     (context, f) => `${uncheckedIntegritySv(context)}${f.failureClass === 'READ_ERROR' ? ` ${READ_FAULT_NO_CLAIM_SV}` : ''}`,
   ),
   // W-UI1 (B; W-U20CDF5 B4): the assessment's binding to the project could not be read or verified.
@@ -864,7 +870,7 @@ const CODE_PRESENTERS: Readonly<Record<string, CodePresenter>> = {
   // W-UI1 (B; W-U20CDF5 B5/L4/R3): the PDF's property/project context (or the property root) could not be read,
   // verified or referenced -- no report is built, and nothing is printed as "missing" instead.
   ASSESSMENT_PDF_CONTEXT_UNRESOLVED: sharedFaultPresenter(
-    (f) => (f.reasonCode === 'ROOT_READ_ERROR' ? 'Bedömningens fastighetsrot' : 'Bedömningens fastighets- eller projektkontext'),
+    (f) => (isRootReasonCode(f.reasonCode) ? 'Bedömningens fastighetsrot' : 'Bedömningens fastighets- eller projektkontext'),
     () => 'Ingen rapport skapades. Ingen uppgift redovisas som saknad när den inte gick att läsa.',
     (f, subjectSv) =>
       f.reasonCode === 'MALFORMED_RECORD_ENTRY' ? `${subjectSv} underkändes vid kontrollen: bedömningen saknar en giltig referens till sin kontext.` : null,

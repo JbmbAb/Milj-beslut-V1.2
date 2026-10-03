@@ -13,7 +13,10 @@
  *    read-back and the PDF fail closed with 424 (resolveGovernedAssessmentDetails reports it in
  *    `integrity`; the fresh run only reports it);
  *  - an artifact that could not be read is a technical error with a class (EVIDENCE_NOT_FOUND /
- *    EVIDENCE_READ_ERROR, ROOT_ARTIFACT_NOT_FOUND / ROOT_READ_ERROR) on that entry;
+ *    EVIDENCE_READ_ERROR, ROOT_MISSING_FROM_CAS / ROOT_READ_ERROR) on that entry. W-GAP1 (F2, owner decision
+ *    Round 15-16, 2026-10-03): a well-formed root link the CAS does not hold is a LOST referenced artifact
+ *    (ROOT_MISSING_FROM_CAS: lasting, not retryable; verify, the map and the PDF refuse on it), never the former
+ *    ROOT_ARTIFACT_NOT_FOUND "proven absence";
  *  - an evidence family this view does not interpret is listed as NOT_INTERPRETED (owner decision:
  *    SPATIAL_LAYER_UNAVAILABLE is not adopted, so nothing here depends on it).
  *
@@ -890,6 +893,18 @@ function isReadUnderItsOwnRef(artifact: unknown, ref: { artifact_id: string; art
   }
 }
 
+/**
+ * W-GAP1 (F2; owner decision Round 15-16, 2026-10-03; TRIAGE-A-PRERUN F2): the property root's three links are REFERENCED
+ * artifacts that must exist -- `property_ref` is mandatory (R2-5) and sits in a content-verified record, the binding ref
+ * comes out of the identity-verified context, the observation ref out of the validated binding, and the product bootstrap
+ * writes the context before any assessment. The repository's exact "never stored" for any of them is therefore a LOST
+ * referenced artifact (ROOT_MISSING_FROM_CAS: lasting, not retryable; the orchestrator refuses verify, the map and the PDF
+ * on it, the read-back marks the root as a technical error without an absence claim), never the former
+ * ROOT_ARTIFACT_NOT_FOUND "proven absence" (readFaultClassification.ts KNOWN LIMIT: an ENOENT on the index entry proves
+ * no entry is readable now, not that nothing was ever stored). Case (a) -- no well-formed ref -- stays NOT_RECORDED (the
+ * record check answers it, R2-5); case (c) -- a read error -- stays ROOT_READ_ERROR (retryable). readArtifact's own
+ * classification of other errors is untouched (F4, out of scope).
+ */
 async function resolvePropertyRoot(
   repo: ArtifactRepositoryPort,
   propertyRef: unknown,
@@ -898,17 +913,17 @@ async function resolvePropertyRoot(
   if (!ref) {
     return rootDetails({ status: 'NOT_RECORDED', message_sv: `${ROOT_UNBOUND_SV} Bedömningen saknar fastighetsreferens.` });
   }
-  const technical = (cls: string) =>
+  const technical = (cls: 'ROOT_READ_ERROR' | 'ROOT_MISSING_FROM_CAS') =>
     rootDetails({
       status: 'TECHNICAL_ERROR',
       technical_error_class: cls,
       property_context_artifact_id: ref.artifact_id,
+      // W-GAP1 (F2): the lost root says what the shared MISSING_FROM_CAS sentence says -- never "finns inte i arkivet",
+      // never the class or the id (the class stays in technical_error_class).
       message_sv:
         cls === 'ROOT_READ_ERROR'
           ? `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens kunde inte läsas just nu (läsfel).`
-          : cls === 'ROOT_ARTIFACT_NOT_FOUND'
-            ? `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens finns inte i arkivet.`
-            : `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens kunde inte läsas.`,
+          : `${ROOT_UNBOUND_SV} Fastighetsrotens proveniens kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).`,
     });
   const tampered = () =>
     rootDetails({
@@ -919,7 +934,7 @@ async function resolvePropertyRoot(
     });
 
   const contextRead = await readArtifact(repo, ref);
-  if (contextRead.kind === 'not_found') return technical('ROOT_ARTIFACT_NOT_FOUND');
+  if (contextRead.kind === 'not_found') return technical('ROOT_MISSING_FROM_CAS');
   if (contextRead.kind === 'corrupted') return tampered();
   if (contextRead.kind === 'error') return technical('ROOT_READ_ERROR');
   if (!isReadUnderItsOwnRef(contextRead.artifact, ref)) return tampered();
@@ -955,7 +970,7 @@ async function resolvePropertyRoot(
   }
 
   const bindingRead = await readArtifact(repo, bindingRef);
-  if (bindingRead.kind === 'not_found') return technical('ROOT_ARTIFACT_NOT_FOUND');
+  if (bindingRead.kind === 'not_found') return technical('ROOT_MISSING_FROM_CAS');
   if (bindingRead.kind === 'corrupted') return tampered();
   if (bindingRead.kind === 'error') return technical('ROOT_READ_ERROR');
   if (!isReadUnderItsOwnRef(bindingRead.artifact, bindingRef)) return tampered();
@@ -980,7 +995,7 @@ async function resolvePropertyRoot(
     });
   }
   const observationRead = await readArtifact(repo, observationRef);
-  if (observationRead.kind === 'not_found') return { ...technical('ROOT_ARTIFACT_NOT_FOUND'), ...base, observation_artifact_id: observationRef.artifact_id };
+  if (observationRead.kind === 'not_found') return { ...technical('ROOT_MISSING_FROM_CAS'), ...base, observation_artifact_id: observationRef.artifact_id };
   if (observationRead.kind === 'corrupted') return tampered();
   if (observationRead.kind === 'error') return { ...technical('ROOT_READ_ERROR'), ...base, observation_artifact_id: observationRef.artifact_id };
   if (!isReadUnderItsOwnRef(observationRead.artifact, observationRef)) return tampered();
