@@ -6,11 +6,18 @@
  */
 import { logger } from '../logger';
 import { startLuProjectContextBootstrapWorker } from '../services/luProjectContextBootstrapWorker';
-import { assertLuWorkerDurableCas, assertLuWorkerProductReleaseIdentity, bootstrapWorkerProcess } from './bootstrap';
+import {
+  assertLuWorkerBootstrapAdmitFlag,
+  assertLuWorkerDurableCas,
+  assertLuWorkerProductReleaseIdentity,
+  bootstrapWorkerProcess,
+} from './bootstrap';
 
 bootstrapWorkerProcess();
 
 async function main(): Promise<void> {
+  // W-U402 (U40-2, K7): MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process refuses the start, before anything else.
+  await assertLuWorkerBootstrapAdmitFlag('lu-bootstrap-worker');
   if (!process.env.PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_PEM) {
     logger.error('lu-bootstrap-worker: PROJECT_CONTEXT_BINDING_ISSUER_PRIVATE_KEY_PEM is not set -- refusing to start.');
     process.exit(1);

@@ -6,11 +6,18 @@
  */
 import { logger } from '../logger';
 import { startGeometrySupersessionProvisioningWorker } from '../services/luGeometrySupersessionProvisioningWorker';
-import { assertLuWorkerDurableCas, assertLuWorkerProductReleaseIdentity, bootstrapWorkerProcess } from './bootstrap';
+import {
+  assertLuWorkerBootstrapAdmitFlag,
+  assertLuWorkerDurableCas,
+  assertLuWorkerProductReleaseIdentity,
+  bootstrapWorkerProcess,
+} from './bootstrap';
 
 bootstrapWorkerProcess();
 
 async function main(): Promise<void> {
+  // W-U402 (U40-2, K7): MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process refuses the start, before anything else.
+  await assertLuWorkerBootstrapAdmitFlag('lu-geometry-supersession-worker');
   if (!process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM) {
     logger.error('lu-geometry-supersession-worker: LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PRIVATE_KEY_PEM is not set -- refusing to start.');
     process.exit(1);
