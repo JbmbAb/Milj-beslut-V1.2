@@ -33,6 +33,21 @@ dist
 GEO_Master_Archive
 Claude outputs
 
+# Nyckelmaterial och lokalt npm-/CAS-tillstånd. Inget av detta är spårat i
+# repot, så ett git archive-bygge påverkas inte; raderna skyddar ett bygge från
+# ett smutsigt arbetsträd (config/ och scripts/ kopieras till runtime).
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/id_rsa*
+**/id_ed25519*
+**/id_ecdsa*
+**/.npmrc
+**/.mimers
+**/secrets
+
 # Byggrecept och IaC behövs inte bland appens filer. Utanför kontexten
 # bygger en ändring i dem inte heller om applagren.
 Dockerfile*
