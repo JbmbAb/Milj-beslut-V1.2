@@ -989,6 +989,112 @@ describe('canaries: U30F4 -- B2 SQL-executing methods of read clients, B1 reflec
 });
 
 // ---------------------------------------------------------------------------------------------
+// U30F5 (verifier U30F3+F4: D-1, D-2, D-5, D-6, D-7, B8, D-11; the cheap known forms closed now)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * U30F5 (D-1): the problems of a set of NEW files (path -> text), scanned in memory against the real repository
+ * together with the repository files they name (their callers' context changes) and the files they launch.
+ */
+function problemsOfTree(files: Readonly<Record<string, string>>): Problem[] {
+  const realRead = readRepo(REPO_ROOT);
+  const read = (p: string): string | null => (Object.prototype.hasOwnProperty.call(files, p) ? files[p]! : realRead(p));
+  const texts = new Map(REPO.texts);
+  const scans = new Map(REPO.scans);
+  for (const [f, text] of Object.entries(files)) {
+    expect(fs.existsSync(path.join(REPO_ROOT, f)), `${f} must be new`).toBe(false);
+    texts.set(f, text);
+    if (isScannedPath(f)) scans.set(f, scanFile(f, text, { readRepoFile: read }));
+  }
+  const overlay: RepositoryScan = { files: [...new Set([...REPO.files, ...Object.keys(files)])].sort(), scans, texts };
+  const ctx = contextFor(overlay);
+  const named = REPO.files.filter((f) => Object.values(files).some((t) => t.includes(f)));
+  const out: Problem[] = [];
+  for (const f of new Set([...Object.keys(files), ...named])) {
+    const scan = scans.get(f);
+    if (scan) out.push(...evaluateFile(f, texts.get(f)!, scan, ctx));
+  }
+  return out;
+}
+
+const PG5 = "import pg from 'pg';\nconst pool = new pg.Pool();\n";
+const PURGE_TS = `${PG5}await pool.query('TRUNCATE env.sgu_well');\n`;
+const npm = (scripts: Record<string, string>) => `${JSON.stringify({ name: 'x', private: true, scripts }, null, 2)}\n`;
+const ci = (step: string) => `on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n${step}`;
+
+describe('canaries: U30F5 -- D-1 a file run outside the scan (a launched test source, data file or mis-named script)', () => {
+  it.each([
+    ['npm script: tsx of a unit-glob *.test.ts', { 'tools/u5a/package.json': npm({ 'ops:purge': 'tsx scripts/ops/unit/purge.test.ts' }), 'scripts/ops/unit/purge.test.ts': PURGE_TS }],
+    ['npm script: node --import tsx of a scripts/audit *.test.ts', { 'tools/u5b/package.json': npm({ purge: 'node --import tsx scripts/audit/purge.test.ts' }), 'scripts/audit/purge.test.ts': PURGE_TS }],
+    ['CI step: npx tsx of a package *.test.ts', { '.github/workflows/u5c.yml': ci('      - run: npx tsx packages/spatial-provider-postgis/scripts/purge.test.ts\n'), 'packages/spatial-provider-postgis/scripts/purge.test.ts': PURGE_TS }],
+    ['Dockerfile RUN: npx tsx of an e2e spec', { 'deploy/u5d/Dockerfile': 'FROM node:22\nRUN npx tsx tests/e2e/purge.spec.ts\n', 'tests/e2e/purge.spec.ts': PURGE_TS }],
+    ['shell script: tsx of a unit-glob *.test.ts', { 'scripts/ops/u5e.sh': '#!/bin/sh\ntsx scripts/ops/unit/purge.test.ts\n', 'scripts/ops/unit/purge.test.ts': PURGE_TS }],
+    ['JS process call: execSync of npx tsx *.test.ts', { 'scripts/ops/u5f.ts': "import { execSync } from 'node:child_process';\nexecSync('npx tsx scripts/ops/unit/purge.test.ts');\n", 'scripts/ops/unit/purge.test.ts': PURGE_TS }],
+    ['runbook: a fenced bash line runs a *.test.ts', { 'docs/ops/u5g-runbook.md': '# Purge\n\n```bash\nnpx tsx scripts/ops/unit/purge.test.ts\n```\n', 'scripts/ops/unit/purge.test.ts': PURGE_TS }],
+    ['npm script: bash of a .txt', { 'tools/u5h/package.json': npm({ wipe: 'bash scripts/ops/wipe-sh.txt' }), 'scripts/ops/wipe-sh.txt': 'psql "$DB" -c "TRUNCATE env.sgu_well"\n' }],
+    ['npm script: python of a .md', { 'tools/u5i/package.json': npm({ wipe: 'python scripts/ops/wipe-py.md' }), 'scripts/ops/wipe-py.md': "import os, psycopg2\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\n" }],
+    ['npm script: python of a .sh (run as Python, not shell)', { 'tools/u5j/package.json': npm({ wipe: 'python scripts/ops/wipe2.sh' }), 'scripts/ops/wipe2.sh': "import os, psycopg2\npsycopg2.connect('').cursor().execute(os.environ['SQL'])\n" }],
+    ['npm script: a data file executed directly', { 'tools/u5k/package.json': npm({ wipe: './scripts/ops/wipe3.txt' }), 'scripts/ops/wipe3.txt': '#!/bin/sh\npsql -c "$SQL"\n' }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['npm script: tsx of a test source that writes nothing (scanned, no site)', { 'tools/u5l/package.json': npm({ hello: 'tsx scripts/ops/unit/hello.test.ts' }), 'scripts/ops/unit/hello.test.ts': "console.log('hello');\n" }],
+    ['npm script: vitest runs a test source (its runner, behind TEST-DB-GUARD)', { 'tools/u5m/package.json': npm({ t: 'vitest run scripts/ops/unit/purge.test.ts' }), 'scripts/ops/unit/purge.test.ts': PURGE_TS }],
+    ['npm script: bash of a .txt that runs no DB tool', { 'tools/u5n/package.json': npm({ hello: 'bash scripts/ops/hello.txt' }), 'scripts/ops/hello.txt': 'echo hello\n' }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfTree(files)).toEqual([]);
+  });
+
+  it('D-11: a TEST_HARNESS file reached from a package.json script (not a runner configuration) fails', () => {
+    const problems = problemsOfTree({ 'tools/u5o/package.json': npm({ seed: 'tsx tests/helpers/postgisSeed.ts' }) });
+    expect(problems.some((p) => p.file === 'tests/helpers/postgisSeed.ts' && /TEST_HARNESS/.test(p.problem)), JSON.stringify(problems)).toBe(true);
+  });
+});
+
+describe('canaries: U30F5 -- D-2 inline code, D-5 substituted SQL, D-6 process and GDAL modules, D-7 CASCADE, D-3/D-4/B8', () => {
+  it.each([
+    ['D-2 npm script: node -e running a command from the environment (N15)', 'tools/u5p/package.json', npm({ wipe: "node -e \"require('child_process').execSync(process.env.CMD)\"" })],
+    ['D-2 npm script: node -e with a dynamic pool.query', 'tools/u5q/package.json', npm({ wipe: "node -e \"const pool = new (require('pg').Pool)(); pool.query(process.argv[1])\"" })],
+    ['D-2 Dockerfile RUN python -c with a dynamic execute (N72)', 'deploy/u5r/Dockerfile', "FROM python:3.12\nRUN python -c \"import os,psycopg2; psycopg2.connect('').cursor().execute(os.environ['SQL'])\"\n"],
+    ['D-2 CI step with shell: python and a dynamic execute (N70)', '.github/workflows/u5s.yml', ci("      - shell: python\n        run: |\n          import os, psycopg2\n          psycopg2.connect(os.environ['DB']).cursor().execute(os.environ['SQL'])\n")],
+    ['D-2 CI step with shell: python, shell after run', '.github/workflows/u5t.yml', ci("      - name: wipe\n        run: |\n          import os, psycopg2\n          psycopg2.connect('').cursor().execute(os.environ['SQL'])\n        shell: python\n")],
+    ['D-2 CI defaults run shell: pwsh with Npgsql', '.github/workflows/u5u.yml', 'on: push\ndefaults:\n  run:\n    shell: pwsh\njobs:\n  x:\n    runs-on: windows-latest\n    steps:\n      - run: |\n          $cmd = $conn.CreateCommand()\n          $cmd.CommandText = $env:SQL\n          $cmd.ExecuteNonQuery()\n'],
+    ['D-2 npm script: pwsh -Command with Npgsql ExecuteNonQuery', 'tools/u5v/package.json', npm({ wipe: 'pwsh -NoProfile -Command "$c = $conn.CreateCommand(); $c.CommandText = $env:SQL; $c.ExecuteNonQuery()"' })],
+    ['D-5 .cmd for /f loop feeding psql (N45)', 'scripts/vrogue/u5w.cmd', '@echo off\r\nfor /f "delims=" %%i in (wipe.txt) do psql -c "%%i"\r\n'],
+    ['D-5 sh: xargs -I{} psql -c (N44)', 'scripts/vrogue/u5x.sh', "#!/bin/sh\ncat stmts.txt | xargs -I{} psql -c '{}'\n"],
+    ['D-6 zx $ used as a value (N07)', 'scripts/vrogue/u5y.mjs', "import { $ } from 'zx';\nconst run = $;\nawait run`psql -c ${process.argv[2]}`;\n"],
+    ['D-6 execa renamed import (N08)', 'scripts/vrogue/u5z.ts', "import { execaCommand as run } from 'execa';\nawait run(process.argv[2]!);\n"],
+    ['D-6 osgeo gdal.VectorTranslate into PG (N26)', 'scripts/vrogue/u6a.py', "from osgeo import gdal\ngdal.VectorTranslate('PG:dbname=x', 'a.gpkg', layerName='env.sgu_well', accessMode='overwrite')\n"],
+    ['D-6 pyogrio.write_dataframe to PG (N27)', 'scripts/vrogue/u6b.py', "import pyogrio\npyogrio.write_dataframe(gdf, 'PG:dbname=x', layer='sgu_well', layer_options={'SCHEMA': 'env'})\n"],
+    ['D-6 polars write_database replace (N25)', 'scripts/vrogue/u6c.py', "import polars as pl\npl.DataFrame({'a': [1]}).write_database('env.sgu_well', 'postgresql://x', if_table_exists='replace')\n"],
+    ['D-6 fiona open of a PG layer', 'scripts/vrogue/u6d.py', "import fiona\nwith fiona.open('PG:dbname=x', 'w', layer='env.sgu_well') as dst:\n    pass\n"],
+    ['D-6 from osgeo import ogr', 'scripts/vrogue/u6e.py', "from osgeo import ogr\nogr.Open('PG:dbname=x', 1).ExecuteSQL('TRUNCATE ' + table)\n"],
+    ['D-7 pool.query TRUNCATE of an unprotected parent CASCADE (N53)', 'scripts/vrogue/u6f.ts', `${PG5}await pool.query('TRUNCATE public.parent CASCADE');\n`],
+    ['D-7 SQL file: DROP of the N-1 base CASCADE (N54)', 'docs/ops/u6g.sql', 'DROP TABLE env.sgu_well_actual CASCADE;\n'],
+    ['D-7 sh: psql -c DROP TYPE CASCADE', 'scripts/vrogue/u6h.sh', '#!/bin/sh\npsql "$DB" -c "DROP TYPE public.t CASCADE"\n'],
+    ['D-3 SQL file: COPY (SELECT 1) TO PROGRAM (N56)', 'docs/ops/u6i.sql', "COPY (SELECT 1) TO PROGRAM 'sh /tmp/x.sh';\n"],
+    ['D-4 SQL file: CREATE FOREIGN TABLE over env.sgu_well (N63)', 'docs/ops/u6j.sql', "CREATE FOREIGN TABLE public.f (id int) SERVER loopback OPTIONS (schema_name 'env', table_name 'sgu_well');\n"],
+    ['B8 SQL file: GRANT ALL ON env.sgu_well TO PUBLIC (N64)', 'docs/ops/u6k.sql', 'GRANT ALL ON env.sgu_well TO PUBLIC;\n'],
+  ])('%s -> caught', (_label, file, content) => {
+    expect(isScannedPath(file), file).toBe(true);
+    expect(problemsOf(file, content).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['D-2 npm script: node -e that logs', 'tools/u6l/package.json', npm({ hello: 'node -e "console.log(1)"' })],
+    ['D-2 CI step with shell: python that prints', '.github/workflows/u6m.yml', ci("      - shell: python\n        run: |\n          print('hello')\n")],
+    ['D-2 Dockerfile RUN python -c that prints', 'deploy/u6n/Dockerfile', 'FROM python:3.12\nRUN python -c "print(1)"\n'],
+    ['D-6 geopandas read_file (a reader, not a GDAL writer)', 'scripts/vrogue/u6o.py', "import geopandas as gpd\ngdf = gpd.read_file('a.gpkg')\n"],
+    ['D-7 a gated TRUNCATE ... CASCADE (the gate judges its targets)', 'scripts/vrogue/u6p.ts', `${PG5}import { gatedSql } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';\nawait pool.query(gatedSql('scripts/vrogue/u6p.ts', 'TRUNCATE public.parent CASCADE'));\n`],
+    ['D-7 SQL file: a foreign key ON DELETE CASCADE', 'docs/ops/u6q.sql', 'ALTER TABLE public.c ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES public.p (id) ON DELETE CASCADE;\n'],
+  ])('control: %s passes', (_label, file, content) => {
+    expect(problemsOf(file, content)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // Generated violations: languages x channels x relations x obfuscations x paths
 // ---------------------------------------------------------------------------------------------
 
