@@ -204,8 +204,11 @@ export function createProductReleaseManifestArtifact(input: {
   return { ...artifact, content_hash: sha256ContentHash(artifact) };
 }
 
-/** Validates and canonicalizes a V3 build identity: every field present, canonical hex of the right length. */
-function canonicalBuildIdentityV3(input: unknown): ProductReleaseBuildIdentityV3 {
+/**
+ * Validates and canonicalizes a V3 build identity: every field present, canonical hex of the right length. Also
+ * the ONE check a process applies to its release-identity.json before comparing it (productReleaseBuildIdentity.ts).
+ */
+export function canonicalProductReleaseBuildIdentityV3(input: unknown): ProductReleaseBuildIdentityV3 {
   if (!input || typeof input !== 'object') throw new Error('REJECT_PRODUCT_RELEASE: build_identity is required');
   const source = input as Record<string, unknown>;
   const out: Record<string, string> = {};
@@ -224,7 +227,7 @@ export function createProductReleaseManifestArtifactV3(input: {
   const payload = {
     contract_version: PRODUCT_RELEASE_CONTRACT_VERSION_V3,
     product_name: required(input.product_name, 'product_name'),
-    build_identity: canonicalBuildIdentityV3(input.build_identity),
+    build_identity: canonicalProductReleaseBuildIdentityV3(input.build_identity),
     issuer_ref: {
       artifact_id: required(input.issuer_ref.artifact_id, 'issuer_ref.artifact_id'),
       artifact_type: required(input.issuer_ref.artifact_type, 'issuer_ref.artifact_type'),
@@ -293,7 +296,7 @@ export function validateProductReleaseManifestArtifactV3(
   if (artifact.payload.contract_version !== PRODUCT_RELEASE_CONTRACT_VERSION_V3) {
     throw new Error('REJECT_PRODUCT_RELEASE_CONTRACT_VERSION');
   }
-  canonicalBuildIdentityV3(artifact.payload.build_identity);
+  canonicalProductReleaseBuildIdentityV3(artifact.payload.build_identity);
   assertCanonicalPayload(artifact);
 }
 
