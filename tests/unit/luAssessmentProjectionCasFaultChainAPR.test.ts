@@ -431,10 +431,10 @@ const SABOTAGE: Record<string, Sabotage> = {
 
 const TEXT_LASTING =
   'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas eller ' +
-  'verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. Felet är ' +
+  'verifieras ur arkivet (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. Felet är ' +
   'bestående och löses inte av ett nytt försök. Kontakta systemets administratör.';
 const TEXT_TRANSIENT =
-  'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ur CAS ' +
+  'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ur arkivet ' +
   '(tekniskt fel). Den saknas inte, men kan inte visas nu. En äldre bedömning visas aldrig i stället. Ett nytt försök kan lyckas.';
 const LASTING = { failureClass: 'ASSESSMENT_STORAGE_INTEGRITY_FAULT', reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_INTEGRITY_FAULT', retryable: false, error: TEXT_LASTING } as const;
 const TRANSIENT = { failureClass: 'ASSESSMENT_READ_ERROR', reasonCode: 'CURRENT_ASSESSMENT_CANDIDATE_READ_ERROR', retryable: true, error: TEXT_TRANSIENT } as const;
@@ -612,7 +612,7 @@ const TEXT_BINDING_TRANSIENT =
   'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas (tekniskt fel). Den ' +
   'saknas inte, men ingen bedömning kan visas nu. En äldre bedömning visas aldrig i stället. Ett nytt försök kan lyckas.';
 const TEXT_BINDING_LASTING =
-  'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas ur CAS (bestående ' +
+  'Projektets aktuella bedömning kan inte fastställas: projektets aktuella bindning kunde inte läsas ur arkivet (bestående ' +
   'lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. Felet är bestående och löses inte av ett nytt ' +
   'försök. Kontakta systemets administratör.';
 const TEXT_BINDING_REFUSED =

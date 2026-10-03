@@ -358,9 +358,12 @@ describe('U20CDF4 (owner decisions (4) points 1 and 3; coordinator clarification
     expect(site.complianceAnalysis).toEqual({ restrictions: [], rules: [], summary, assessment_status: 'RECORD_INTEGRITY_ERROR' });
     for (const key of ['overallRisk', 'permitProbability', 'unresolvedChecks']) expect(site.complianceAnalysis).not.toHaveProperty(key);
     expect(site.warnings).toEqual([
-      'Integritetsfel: den styrda bedömning som körningen sparade (assessment-integrity) har ett lagrat underlag som är motsägelsefullt ' +
-        'eller ligger utanför det styrda formatet (RECORD_INTEGRITY_ERROR). Ingen risknivå och ingen sannolikhet anges, och alternativet rangordnas inte.',
+      'Integritetsfel: den styrda bedömning som körningen sparade har ett lagrat underlag som är motsägelsefullt ' +
+        'eller ligger utanför det styrda formatet. Ingen risknivå och ingen sannolikhet anges, och alternativet rangordnas inte.',
     ]);
+    // W-TEXT2 (U6-3): the id and the class stay in executionMotor (assessment_artifact_id, governed_coverage_state,
+    // record_integrity) -- the warning, which reaches the PDF data, carries neither.
+    expect(site.warnings.join(' ')).not.toMatch(/assessment-integrity|RECORD_INTEGRITY_ERROR|\(|[A-Z]{3,}_[A-Z0-9_]{3,}/);
     expect(res.body.summary.bestAlternativeId).toBeUndefined();
     expect(res.body.summary.comparison_status).toBe('UNAVAILABLE');
     expect(res.body.summary.assessed_site_ids).toEqual([]);

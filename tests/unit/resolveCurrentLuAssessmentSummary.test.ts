@@ -313,7 +313,7 @@ describe('LU-ASSESSMENT-PERSISTENCE-READ-V1: resolveCurrentLuAssessmentSummary',
       retryable: false,
       error:
         'Projektets aktuella bedömning kan inte fastställas: en bedömning som kan vara den aktuella kunde inte läsas ' +
-        'eller verifieras ur CAS (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
+        'eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). En äldre bedömning visas aldrig i stället. ' +
         'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör.',
     });
     expect(JSON.stringify(result)).not.toContain(assessment.artifact_id);

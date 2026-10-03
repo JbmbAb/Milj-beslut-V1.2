@@ -318,7 +318,7 @@ const NO_NEW_BINDING =
   'Ingen ny bindning skapades, eftersom projektet redan kan ha en och en ny då skulle kunna ge det en andra fastighetsrot.';
 const LASTING = 'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör.';
 const TEXT_READ = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas (tekniskt fel). ${NO_NEW_BINDING} Ett nytt försök kan lyckas.`;
-const TEXT_STORAGE = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
+const TEXT_STORAGE = `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
 const TEXT_REFUSED = `Projektkontexten kunde inte etableras: projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja). ${NO_NEW_BINDING} ${LASTING}`;
 const TEXT_INCONSISTENT = `Projektkontexten kunde inte etableras: projektets bindningsindex är inkonsekvent: indexen visar att en bindning har funnits, men den saknas, är dubblerad eller hör till ett annat projekt (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`;
 

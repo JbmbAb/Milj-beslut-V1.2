@@ -266,12 +266,14 @@ function expectRecordIntegrity424(res: request.Response, assessmentId: string) {
   for (const key of ASSESSMENT_KEYS) expect(res.body, key).not.toHaveProperty(key);
   // A known risk never disappears: the stored HIGH is named, and the unknown one too -- unverified.
   expect(res.body.error).toBe(
-    'Bedömningen kan inte visas: dess lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet ' +
-      '(RECORD_INTEGRITY_ERROR: UNKNOWN_SEVERITY). Täckningsgrad och samlad risknivå kan därför inte fastställas, och bedömningen ' +
+    'Bedömningen kan inte visas: dess lagrade underlag är motsägelsefullt eller ligger utanför det styrda formatet. ' +
+      'Täckningsgrad och samlad risknivå kan därför inte fastställas, och bedömningen ' +
       'redovisas inte som en giltig bedömning. Den lagrade posten innehåller 2 fynd som inte kan verifieras (högsta lagrade risknivå, ' +
       'overifierad: hög): risknivå hög – Potentiellt förorenade områden (EBH); okänd allvarlighetsgrad – Brunnar. ' +
       'Felet löses inte av ett nytt försök. Kontakta systemets administratör.',
   );
+  // W-TEXT2: the basis codes travel in reasonCode and record_integrity.basis_codes only -- never in the user text.
+  expect(res.body.error).not.toMatch(/RECORD_INTEGRITY_ERROR|UNKNOWN_SEVERITY|[A-Z]{3,}_[A-Z0-9_]{3,}/);
   const diagnostic = res.body.record_integrity;
   expect(Object.keys(diagnostic).sort()).toEqual(['assessment_artifact_id', 'authoritative', 'basis_codes', 'note_sv', 'stored_findings_unverified', 'verified']);
   expect(diagnostic).toMatchObject({

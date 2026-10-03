@@ -1388,12 +1388,12 @@ describe('U20CDF2 (coordinator add-on 2; OD-R2): an assessment that cannot be RE
     [
       'a read error (EIO)', Object.assign(new Error('EIO: i/o error, read C:/cas/x'), { code: 'EIO' }),
       'ASSESSMENT_READ_ERROR', true,
-      'Bedömningen kunde inte läsas ur CAS (tekniskt fel). Den saknas inte, men kan inte visas nu. Ett nytt försök kan lyckas.',
+      'Bedömningen kunde inte läsas ur arkivet (tekniskt fel). Den saknas inte, men kan inte visas nu. Ett nytt försök kan lyckas.',
     ],
     [
       'a lasting storage fault (object missing behind its index entry)', Object.assign(new Error('gone'), { code: 'MIMERS_ARTIFACT_OBJECT_MISSING' }),
       'ASSESSMENT_STORAGE_INTEGRITY_FAULT', false,
-      'Bedömningen kunde inte läsas ur CAS (bestående lagringsfel). Felet är bestående och löses inte av ett nytt försök.',
+      'Bedömningen kunde inte läsas ur arkivet (bestående lagringsfel). Felet är bestående och löses inte av ett nytt försök.',
     ],
   ])('%s -> 503 %s in read-back, HTTP, PDF and verify', async (_label, fault, failureClass, retryable, error) => {
     const s = await setup();

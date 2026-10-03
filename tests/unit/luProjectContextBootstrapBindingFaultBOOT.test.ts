@@ -234,8 +234,8 @@ const LASTING = 'Felet är bestående och löses inte av ett nytt försök. Kont
 /** The complete Swedish text per class (the outcome's failureDetail, which the bootstrap-status API shows). */
 const TEXT: Record<Expected['reason'], string> = {
   READ_ERROR: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas (tekniskt fel). ${NO_NEW_BINDING} ${RETRYABLE}`,
-  STORAGE_INTEGRITY_FAULT: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
-  MISSING_FROM_CAS: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur CAS (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
+  STORAGE_INTEGRITY_FAULT: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
+  MISSING_FROM_CAS: `Projektkontexten kunde inte etableras: projektets befintliga bindning kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
   REFUSED: `Projektkontexten kunde inte etableras: projektets befintliga bindning underkändes vid verifieringen (utfärdare, signatur, innehåll, kontraktsversion eller ersättningskedja). ${NO_NEW_BINDING} ${LASTING}`,
   BINDING_INDEX_INCONSISTENT: `Projektkontexten kunde inte etableras: projektets bindningsindex är inkonsekvent: indexen visar att en bindning har funnits, men den saknas, är dubblerad eller hör till ett annat projekt (bestående integritetsfel). ${NO_NEW_BINDING} ${LASTING}`,
 };

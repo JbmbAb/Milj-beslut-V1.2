@@ -517,18 +517,22 @@ describe('W-U20CDF5-R2 M1-rest (verifier probe R1): a pre-check whose read conte
 
 describe('W-U20CDF5-R3 (U20CDF5-R2 verification R2-6): the text of GOVERNED_EVIDENCE_INTEGRITY_FAILED is true for the path that answers it', () => {
   const corrupt = () => Object.assign(new Error('digest mismatch'), { name: 'CASIntegrityError' });
+  // W-TEXT2: the class stays in failureClass/reasonCode; the user text carries no code in parentheses and no artifact id.
   it.each([
-    ['verify', /\(EVIDENCE_CORRUPTED: [^)]+\)\. Reproducerbarhetskontrollen genomfördes därför inte och inget utfall anges\.$/],
-    ['map', /\(EVIDENCE_CORRUPTED: [^)]+\)\. Kartan visar därför inte bedömningen\.$/],
-    ['readBack', /\(EVIDENCE_CORRUPTED: [^)]+\)\. Bedömningen visas inte\.$/],
+    ['verify', 'Bedömningens underlag klarade inte integritetskontrollen. Reproducerbarhetskontrollen genomfördes därför inte och inget utfall anges.'],
+    ['map', 'Bedömningens underlag klarade inte integritetskontrollen. Kartan visar därför inte bedömningen.'],
+    ['readBack', 'Bedömningens underlag klarade inte integritetskontrollen. Bedömningen visas inte.'],
   ] as const)('%s', async (path, text) => {
     const { repository } = await provision({ findings: [] });
     repository.failFirstRead(WATER_EVIDENCE.artifact_id, corrupt);
     const res = await PATHS[path]();
     expect(res.status).toBe(424);
     expect(res.body.code).toBe('GOVERNED_EVIDENCE_INTEGRITY_FAILED');
-    expect(res.body.error).toMatch(/^Bedömningens underlag klarade inte integritetskontrollen \(/);
-    expect(res.body.error).toMatch(text);
+    expect(res.body.failureClass).toBe('EVIDENCE_CORRUPTED');
+    expect(res.body.reasonCode).toBe('EVIDENCE_CORRUPTED');
+    expect(res.body.error).toBe(text);
+    expect(res.body.error).not.toMatch(/EVIDENCE_CORRUPTED|\(|[A-Z]{3,}_[A-Z0-9_]{3,}/);
+    expect(res.body.error).not.toContain(WATER_EVIDENCE.artifact_id);
     if (path !== 'readBack') expect(res.body.error).not.toMatch(/Bedömningen visas inte/);
   });
 });
