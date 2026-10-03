@@ -157,5 +157,17 @@ eller att `DATABASE_URL` pekar på körbar PostGIS-instans för DB-tester.
 - De tre styrande modulflödena är **Lokaliseringsutredning**, **C-anmälan** och **Enskilt avlopp**.
 - SLU-nycklar läggs lokalt i `.env`/`.env.local` (ej incheckat), i staging som environment secret, och i GCP-produktion via Secret Manager mappat till `SLU_API_KEY` eller produktspecifika `SLU_*_API_KEY`.
 
+### Lokaliseringsutredning (LU): reproducerbarhetskontrollen är konsistens, inte äkthet
+
+Mimer LU lagrar bedömningar och allt underlag innehållsadresserat (CAS). Knappen **Kontrollera reproducerbarhet** (`POST /api/localization/:projectId/verify-assessment`) kör om regelmotorn på det sparade underlaget och kontrollerar att alla delar hänger ihop med varandra. Det är en konsistenskontroll: konsistens mot sparat underlag, inte mot datakällan och inte vem som matade in det. Den kontrollerar **inte** digitala signaturer, **inte** vem eller vilken process som skapade underlaget, **inte** att underlaget stämmer med datakällorna i dag, och **inte** att det är den senaste bedömningen. Den som har skrivrätt till lagret eller kontroll över en producerande process kan skapa underlag som klarar kontrollen. Äkthetsverifiering med signaturer är planerad och krävs innan produkten kan kallas bevisad.
+
+Säkerhetsgräns i en mening: verify är fail-closed konsistensverifiering av sparat underlag; förfalskat grönt kräver skrivrätt i CAS eller kontroll över en producerande process; DB-skrivrätt kan ge en äldre äkta bedömning som "aktuell"; ingen signatur kontrolleras i dag.
+
+Ordval: *verify* betyder här replay-/konsistenskontroll, aldrig äkthetskontroll. Det gröna resultatet (`FULLY_BOUND_GREEN`) lyder exakt:
+
+> Reproducerbar konsistens verifierad mot sparat underlag – resultatet matchar de pinnade artefakterna. Äkthet, ursprung (datakälla och vem som matade in underlaget) och aktuell authority är inte verifierade.
+
+Äldre, obundna artefaktformer får i stället notisen "Reproducerbar konsistens verifierad för äldre obunden artefaktform – äkthet och aktuell authority är inte verifierade." och visas aldrig grönt.
+
 Human-in-the-loop remains mandatory for legal/compliance decisions.
 Use `docs/qa/legal-review-checklist.md` before merge.
