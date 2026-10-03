@@ -331,6 +331,8 @@ async function provisionRecord(input: {
   readonly hits?: readonly string[];
   readonly findings: readonly unknown[] | 'ABSENT';
   readonly rawFindings?: unknown;
+  /** W-GAP1 (F2): the record's property_ref (default PROPERTY_REF) -- a product root chain's context for the root sub-cases. */
+  readonly propertyRef?: { readonly artifact_id: string; readonly artifact_type: string };
 }) {
   const repository = new FaultyMemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
@@ -353,7 +355,7 @@ async function provisionRecord(input: {
     result: 'success' as const, content_hash: sha256ContentHash({ result: 'success', nonce: Math.random() }),
   };
   const created = createGovernedLocalizationAssessment({
-    draft: { site_id: 'site-u20cdf5-epoch', project_context_ref: CONTEXT, property_ref: PROPERTY_REF, evidence_refs: evidence.map(ref), system_summary: 'U20CDF5 epoch' },
+    draft: { site_id: 'site-u20cdf5-epoch', project_context_ref: CONTEXT, property_ref: input.propertyRef ?? PROPERTY_REF, evidence_refs: evidence.map(ref), system_summary: 'U20CDF5 epoch' },
     findings: (input.findings === 'ABSENT' ? [] : input.findings) as AssessmentFinding[], outcome, attestation: security.attestOutcome(outcome.content_hash),
   });
   const payload: Record<string, unknown> = { ...created.payload };
@@ -661,14 +663,37 @@ describe('W-U20CDF5 B5: the PDF\'s property and project context -- a read fault 
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 
-  it('a PROVEN absence (the repository\'s exact "never stored" for that id) is printed as absent -- in its own words', async () => {
+  // W-GAP1 (F2; owner decision Round 15-16, 2026-10-03): REVOKED expectation. It read "a PROVEN absence (the repository's
+  // exact 'never stored' for that id) is printed as absent -- in its own words" (a 200 PDF with "bevisat saknad").
+  // property_ref is mandatory (R2-5) and sits in a content-verified record, and the product bootstrap writes the context
+  // BEFORE any assessment, so the repository's exact "never stored" for it is a LOST referenced artifact: no PDF, a
+  // lasting typed answer, never an absence claim. (readExistingOrProvenAbsent is for an id the caller is about to mint.)
+  it('W-GAP1 F2: the record\'s property context is not in the CAS (exact "Artifact not found") -> no PDF; 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED / MISSING_FROM_CAS / ROOT_MISSING_FROM_CAS, not retryable; never "bevisat saknad" (it was a 200 PDF printing the absence)', async () => {
     await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
     const res = await PATHS.pdf();
-    expect(res.status).toBe(200);
-    expect(pdfDataOf()).toMatchObject({
-      property: { note: 'Fastighetskontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Fastighetens beteckning, namn och kommun anges därför inte.' },
-      project: { note: 'Projektkontexten som bedömningen refererar till finns inte i arkivet (bevisat saknad). Projektets namn och beskrivning anges därför inte.' },
-    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'MISSING_FROM_CAS', reasonCode: 'ROOT_MISSING_FROM_CAS', retryable: false });
+    expect(res.body.error).toBe(
+      'Bedömningens fastighetsrot kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). ' +
+        'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör. ' +
+        'Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.',
+    );
+    expect(JSON.stringify(res.body)).not.toMatch(/bevisat saknad|finns inte i arkivet/);
+    expectNoRawText(res);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('W-GAP1 F2: only the PROJECT context is not in the CAS -> no PDF; 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED / MISSING_FROM_CAS, not retryable; never "bevisat saknad"', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    await putContexts(repository);
+    repository.values.delete(CONTEXT.artifact_id);
+    const res = await PATHS.pdf();
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'MISSING_FROM_CAS', reasonCode: 'MISSING_FROM_CAS', retryable: false });
+    expect(res.body.error).toMatch(/^Bedömningens projektkontext kunde inte läsas eller verifieras ur arkivet \(bestående lagrings- eller integritetsfel\)\. /);
+    expect(JSON.stringify(res.body)).not.toMatch(/bevisat saknad|finns inte i arkivet/);
+    expectNoRawText(res);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 });
 
@@ -1292,18 +1317,9 @@ describe('W-U20CDF5-R3 R2-1: a transient read fault on the property root never h
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 
-  it('no over-closing: the root PROVEN absent (never stored, ROOT_ARTIFACT_NOT_FOUND) behaves as before -- verify replays (H15 once), the map 200, the read-back 200, the PDF prints its absence note', async () => {
-    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
-    const verify = await PATHS.verify();
-    expect(verify.status).toBe(200);
-    expect(spies.reExecute).toHaveBeenCalledTimes(1);
-    expect((await PATHS.map()).status).toBe(200);
-    const back = await PATHS.readBack();
-    expect(back.status).toBe(200);
-    expect(back.body.propertyRoot).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_ARTIFACT_NOT_FOUND' });
-    expect((await PATHS.pdf()).status).toBe(200);
-    expect(pdfDataOf()).toMatchObject({ property: { note: expect.stringMatching(/bevisat saknad/) } });
-  });
+  // W-GAP1 (F2): the former control "the root PROVEN absent (never stored, ROOT_ARTIFACT_NOT_FOUND) behaves as before --
+  // verify replays (H15 once), the map 200, the read-back 200, the PDF prints its absence note" is REVOKED (owner decision
+  // Round 15-16); its replacement is the W-GAP1 F2 describe below.
 
   it('no over-closing: a legitimate root -> 200 on every path, verify replays once', async () => {
     const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
@@ -1313,6 +1329,139 @@ describe('W-U20CDF5-R3 R2-1: a transient read fault on the property root never h
     expect(spies.reExecute).toHaveBeenCalledTimes(1);
     expect((await PATHS.map()).status).toBe(200);
     expect((await PATHS.pdf()).status).toBe(200);
+  });
+});
+
+/**
+ * W-GAP1 (F2; owner decision Round 15-16, 2026-10-03; TRIAGE-A-PRERUN F2 + the skeptic's PDF note): a well-formed
+ * `property_ref` is mandatory (R2-5) and sits in a content-verified record; the root's binding and observation refs come
+ * out of content-verified root artifacts; the product bootstrap writes the context BEFORE any assessment. The repository's
+ * exact "never stored" for any of them is therefore a LOST referenced artifact (ROOT_MISSING_FROM_CAS: lasting, not
+ * retryable), never the former ROOT_ARTIFACT_NOT_FOUND "absence". Verify, the map and the PDF refuse BEFORE any further
+ * materialization (no H15 replay, no 200 map, no PDF); the read-back keeps its 200 with the root marked as a technical
+ * error -- without an absence claim and without any code or id in its text. Case (a) (no well-formed property_ref ->
+ * 424 MALFORMED_RECORD_ENTRY) and case (c) (a read error -> 503 READ_ERROR, retryable) are unchanged (controls).
+ */
+const ROOT_MISSING = { ok: false, code: 'ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', failureClass: 'MISSING_FROM_CAS', reasonCode: 'ROOT_MISSING_FROM_CAS', retryable: false };
+const ROOT_MISSING_SV =
+  'Fastighetsroten som bedömningen är bunden till kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel). ' +
+  'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör. ';
+const ROOT_MISSING_PDF = { ok: false, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'MISSING_FROM_CAS', reasonCode: 'ROOT_MISSING_FROM_CAS', retryable: false };
+const ABSENCE_CLAIM = /bevisat saknad|finns inte i arkivet|ROOT_ARTIFACT_NOT_FOUND/;
+
+/** The product root chain as the bootstrap worker issues it (content-addressed): geometry, observation, binding, context. */
+function rootChain() {
+  const geometry = createCanonicalPropertyGeometryArtifact({ geometry: { type: 'Point', coordinates: [17.14, 60.67] } });
+  const geometryRef = ref(geometry);
+  const observation = createPropertyLookupObservationArtifact({
+    property_identity: 'core.property_unit:gap1-key', property_designation: 'GÄVLE TEST 1:1', source_key: 'gap1-key',
+    source_dataset: 'core.property_unit', source_updated_at: '2026-06-28T00:00:00.000Z', municipality: 'Gävle', geometry_ref: geometryRef,
+  });
+  const binding = createProjectPropertyBindingArtifact({
+    project_id: PROJECT_ID, property_identity: observation.payload.property_identity, property_designation: observation.payload.property_designation,
+    geometry_ref: geometryRef, source_refs: [ref(observation)],
+    resolver_id: 'postgis-property-unit-exact', resolver_version: 'canonical-property-observation-v1', contract_version: 'project-property-binding-v1',
+  });
+  const context = createProductLuPropertyContextArtifact({
+    property_identity: observation.payload.property_identity, property_ref: 'GÄVLE TEST 1:1', official_name: 'Gävle Test 1:1',
+    geometry_ref: geometryRef, municipality: 'Gävle', coordinates: [60.67, 17.14], project_property_binding_ref: ref(binding),
+  });
+  return { geometry, observation, binding, context };
+}
+
+/** A record whose property_ref is the product chain's context; every link except `without` is stored (plus the PDF's project context). */
+async function provisionWithRoot(without: 'context' | 'binding' | 'observation' | null) {
+  const chain = rootChain();
+  const { assessment, repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [], propertyRef: ref(chain.context) });
+  for (const [link, artifact] of Object.entries(chain)) {
+    if (link !== without) await repository.put({ artifact_id: artifact.artifact_id, body: artifact });
+  }
+  await repository.put({
+    artifact_id: CONTEXT.artifact_id,
+    body: { artifact_id: CONTEXT.artifact_id, artifact_type: CONTEXT.artifact_type, payload: { project_name: 'Projekt B-test', description: 'Testprojekt' } },
+  });
+  return { assessment, repository, chain };
+}
+
+describe('W-GAP1 F2: a well-formed property_ref whose root (context, binding or observation) is not in the CAS is a lost referenced artifact -- verify, the map and the PDF refuse, the read-back marks a technical error without an absence claim', () => {
+  it.each(['verify', 'map'] as const)('%s: the record\'s property context is not in the CAS (exact "Artifact not found") -> 503 ASSESSMENT_PINNED_EVIDENCE_UNREADABLE / MISSING_FROM_CAS / ROOT_MISSING_FROM_CAS, not retryable; never replayed, never 200 (it replayed PASS / was 200)', async (path) => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const res = await PATHS[path]();
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(503);
+    expect(res.body).toMatchObject(ROOT_MISSING);
+    expect(res.body.error).toBe(ROOT_MISSING_SV + (path === 'verify'
+      ? 'Bedömningens integritet kunde därför inte kontrolleras: reproducerbarhetskontrollen genomfördes inte och inget utfall anges.'
+      : 'Bedömningens integritet kunde därför inte kontrolleras, och kartan visar inte bedömningen.'));
+    expect(JSON.stringify(res.body)).not.toMatch(ABSENCE_CLAIM);
+    expectNoRawText(res);
+    expect(spies.reExecute).not.toHaveBeenCalled();
+  });
+
+  it('read-back: the record\'s property context is not in the CAS -> 200 with the root a TECHNICAL_ERROR of class ROOT_MISSING_FROM_CAS -- no designation, no absence claim, no code or id in the text (it was ROOT_ARTIFACT_NOT_FOUND "finns inte i arkivet")', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(200);
+    expect(res.body.propertyRoot).toMatchObject({
+      status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_MISSING_FROM_CAS', property_designation: null, property_context_artifact_id: PROPERTY_REF.artifact_id,
+    });
+    expect(res.body.propertyRoot.message_sv).toBe(
+      'Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
+    );
+    expect(res.body.propertyRoot.message_sv).not.toMatch(/finns inte|bevisat saknad|[A-Z]{3,}_[A-Z0-9_]{3,}|property-u20cdf5/);
+  });
+
+  it.each(['binding', 'observation'] as const)('the root\'s %s link is not in the CAS (exact "Artifact not found") -> verify and the map 503 ROOT_MISSING_FROM_CAS (never replayed), the PDF 503 ROOT_MISSING_FROM_CAS (no PDF), the read-back 200 with the root ROOT_MISSING_FROM_CAS and no absence claim', async (link) => {
+    const { repository } = await provisionWithRoot(link);
+    for (const path of ['verify', 'map'] as const) {
+      const res = await PATHS[path]();
+      expect(res.status, `${path}: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(503);
+      expect(res.body, path).toMatchObject(ROOT_MISSING);
+      expect(res.body.error, path).toMatch(/^Fastighetsroten som bedömningen är bunden till kunde inte läsas eller verifieras ur arkivet/);
+      expect(JSON.stringify(res.body), path).not.toMatch(ABSENCE_CLAIM);
+    }
+    expect(spies.reExecute).not.toHaveBeenCalled();
+    const pdf = await PATHS.pdf();
+    expect(pdf.status, JSON.stringify(pdf.body).slice(0, 300)).toBe(503);
+    expect(pdf.body).toMatchObject(ROOT_MISSING_PDF);
+    expect(JSON.stringify(pdf.body)).not.toMatch(ABSENCE_CLAIM);
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+    const back = await PATHS.readBack();
+    expect(back.status).toBe(200);
+    expect(back.body.propertyRoot).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_MISSING_FROM_CAS' });
+    expect(JSON.stringify(back.body.propertyRoot)).not.toMatch(ABSENCE_CLAIM);
+    // The read-back shows nothing read from the missing link; a designation shown comes only from a VERIFIED binding (the
+    // observation sub-case, the skeptic's note: verified content, no false statement).
+    if (link === 'binding') expect(back.body.propertyRoot.property_designation).toBeNull();
+    expect(repository.values.has(PROPERTY_REF.artifact_id)).toBe(false);
+  });
+
+  it('control (no over-closing): the whole product root chain stored -> 200 on every path, verify replays once, the read-back root RESOLVED with its designation, the PDF\'s fastighetsrot carries no raw machine class', async () => {
+    await provisionWithRoot(null);
+    const back = await PATHS.readBack();
+    expect(back.status, JSON.stringify(back.body).slice(0, 300)).toBe(200);
+    expect(back.body.propertyRoot).toMatchObject({ status: 'RESOLVED', technical_error_class: null, property_designation: 'GÄVLE TEST 1:1', assurance: 'UNBOUND_METADATA' });
+    expect((await PATHS.verify()).status).toBe(200);
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect((await PATHS.map()).status).toBe(200);
+    expect((await PATHS.pdf()).status).toBe(200);
+    expect(spies.buildPdf).toHaveBeenCalledTimes(1);
+    const root = pdfDataOf()!.fastighetsrot as Record<string, unknown>;
+    expect(root).toMatchObject({ status: 'RESOLVED', fastighet: 'GÄVLE TEST 1:1', kalla: 'core.property_unit', sakerhet: 'UNBOUND_METADATA' });
+    // W-GAP1 (F2, the skeptic's PDF note): the formal document carries no raw technical class field for the root.
+    expect(root).not.toHaveProperty('tekniskt_fel');
+    expect(JSON.stringify(pdfDataOf())).not.toMatch(ABSENCE_CLAIM);
+  });
+
+  it('control (case a, unchanged): a record without a well-formed property_ref is NOT_RECORDED at the root (never ROOT_MISSING_FROM_CAS) -- its 424 MALFORMED_RECORD_ENTRY comes from the record check', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    for (const propertyRef of [undefined, null, { artifact_id: '' , artifact_type: PROPERTY_REF.artifact_type }, 'property-u20cdf5']) {
+      const details = await resolveGovernedAssessmentDetails({
+        assessment: { payload: { evidence_refs: [], findings: [], property_ref: propertyRef } } as never,
+        artifactRepository: repository as never,
+      });
+      expect(details.propertyRoot, JSON.stringify(propertyRef)).toMatchObject({ status: 'NOT_RECORDED', technical_error_class: null });
+      expect(details.propertyRoot.message_sv).toContain('Bedömningen saknar fastighetsreferens.');
+    }
   });
 });
 

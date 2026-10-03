@@ -33,6 +33,8 @@ describe('W-UI1 B: own Swedish text for every new code -- headline, what happene
     ['ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', 'READ_ERROR', 'EVIDENCE_READ_ERROR', 503, true, 'Den pinnade evidensen som bedömningen är bunden till kunde inte läsas just nu', 'TECHNICAL'],
     ['ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', 'MISSING_FROM_CAS', 'EVIDENCE_NOT_FOUND', 503, false, 'Den pinnade evidensen som bedömningen är bunden till kunde inte hämtas ur arkivet', 'INTEGRITY'],
     ['ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', 'READ_ERROR', 'ROOT_READ_ERROR', 503, true, 'Fastighetsrotens proveniens kunde inte läsas just nu', 'TECHNICAL'],
+    // W-GAP1 (F2): the root link is referenced but not in the archive -- the root's subject, the lasting MISSING_FROM_CAS sentence.
+    ['ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', 'MISSING_FROM_CAS', 'ROOT_MISSING_FROM_CAS', 503, false, 'Fastighetsrotens proveniens kunde inte hämtas ur arkivet', 'INTEGRITY'],
     ['ASSESSMENT_BINDING_UNRESOLVED', 'READ_ERROR', 'READ_ERROR', 503, true, 'Bedömningens koppling till projektet kunde inte läsas just nu', 'TECHNICAL'],
     ['ASSESSMENT_BINDING_UNRESOLVED', 'STORAGE_INTEGRITY_FAULT', 'STORAGE_INTEGRITY_FAULT', 503, false, 'Bedömningens koppling till projektet kunde inte läsas eller bekräftas ur arkivet', 'INTEGRITY'],
     ['ASSESSMENT_BINDING_UNRESOLVED', 'MISSING_FROM_CAS', 'MISSING_FROM_CAS', 503, false, 'Bedömningens koppling till projektet kunde inte hämtas ur arkivet', 'INTEGRITY'],
@@ -40,6 +42,7 @@ describe('W-UI1 B: own Swedish text for every new code -- headline, what happene
     ['VIEWER_PRESENTATION_UNRESOLVED', 'REFUSED', 'REJECT_LOCALIZATION_PRESENTATION', 424, false, 'Kartans styrda underlag (bedömning, evidens eller visningsbehörighet) underkändes vid kontrollen', 'REFUSED'],
     ['VIEWER_PRESENTATION_UNRESOLVED', 'READ_ERROR', 'READ_ERROR', 503, true, 'Kartans styrda underlag (bedömning, evidens eller visningsbehörighet) kunde inte läsas just nu', 'TECHNICAL'],
     ['ASSESSMENT_PDF_CONTEXT_UNRESOLVED', 'READ_ERROR', 'ROOT_READ_ERROR', 503, true, 'Bedömningens fastighetsrot kunde inte läsas just nu', 'TECHNICAL'],
+    ['ASSESSMENT_PDF_CONTEXT_UNRESOLVED', 'MISSING_FROM_CAS', 'ROOT_MISSING_FROM_CAS', 503, false, 'Bedömningens fastighetsrot kunde inte hämtas ur arkivet', 'INTEGRITY'],
     ['ASSESSMENT_PDF_CONTEXT_UNRESOLVED', 'STORAGE_INTEGRITY_FAULT', 'STORAGE_INTEGRITY_FAULT', 503, false, 'Bedömningens fastighets- eller projektkontext kunde inte läsas eller bekräftas ur arkivet', 'INTEGRITY'],
     ['ASSESSMENT_PDF_CONTEXT_UNRESOLVED', 'REFUSED', 'MALFORMED_RECORD_ENTRY', 409, false, 'bedömningen saknar en giltig referens till sin kontext', 'REFUSED'],
     ['PROJECT_ACCESS_UNRESOLVED', 'READ_ERROR', 'READ_ERROR', 503, true, 'Behörigheten till projektet kunde inte läsas just nu', 'TECHNICAL'],

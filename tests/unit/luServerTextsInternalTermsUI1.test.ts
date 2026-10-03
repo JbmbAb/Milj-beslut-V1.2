@@ -145,7 +145,10 @@ describe('W-U20CDF6 (UI1-DEFERRED-C): the coverage line, the unreadable layer ro
     expect(details.evidenceDetails[0]!.technical_error_class).toBe('EVIDENCE_NOT_FOUND');
   });
 
-  it('the property root that could not be read: "just nu (läsfel)" for a read error, "finns inte i arkivet" for a proven absence -- the class stays in technical_error_class', async () => {
+  // W-GAP1 (F2, owner decision Round 15-16): the "not found" case used to be ROOT_ARTIFACT_NOT_FOUND "finns inte i arkivet"
+  // (an absence claim); a well-formed root ref the CAS does not hold is a LOST referenced artifact (ROOT_MISSING_FROM_CAS)
+  // and its text claims no absence.
+  it('the property root that could not be read: "just nu (läsfel)" for a read error, "kunde inte läsas eller verifieras ur arkivet" for a root the CAS does not hold -- the class stays in technical_error_class', async () => {
     const root = async (answer: 'read_error' | 'not_found') =>
       (
         await resolveGovernedAssessmentDetails({
@@ -157,10 +160,14 @@ describe('W-U20CDF6 (UI1-DEFERRED-C): the coverage line, the unreadable layer ro
     expect(readError).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR' });
     expect(readError.message_sv).toBe('Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens kunde inte läsas just nu (läsfel).');
     const notFound = await root('not_found');
-    expect(notFound).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_ARTIFACT_NOT_FOUND' });
-    expect(notFound.message_sv).toBe('Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens finns inte i arkivet.');
-    // A read error never claims an absence; neither text names its class.
-    expect(readError.message_sv).not.toMatch(/finns inte/);
-    for (const text of [readError.message_sv, notFound.message_sv]) expect(text).not.toMatch(INTERNAL);
+    expect(notFound).toMatchObject({ status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_MISSING_FROM_CAS' });
+    expect(notFound.message_sv).toBe(
+      'Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
+    );
+    // Neither a read error nor a lost root claims an absence; neither text names its class or the id.
+    for (const text of [readError.message_sv, notFound.message_sv]) {
+      expect(text).not.toMatch(/finns inte|bevisat saknad|prop-1/);
+      expect(text).not.toMatch(INTERNAL);
+    }
   });
 });

@@ -104,18 +104,25 @@ function expectLegacyUnboundAnswer(result: Record<string, unknown>) {
 
 class MemoryRepository {
   readonly values = new Map<string, unknown>();
+  /** W-GAP1 (F2): every id read, in order -- how many times the assessment itself was read tells whether H15 ran. */
+  readonly reads: string[] = [];
   async put(artifact: { artifact_id: string; body: unknown }): Promise<void> {
     this.values.set(artifact.artifact_id, artifact.body);
   }
   async resolve<T>(reference: ArtifactReference): Promise<T> {
+    this.reads.push(reference.artifact_id);
     const value = this.values.get(reference.artifact_id);
     // W-U20CDF5-R3 (U20CDF5-R2 verification R2-1): the repository's frozen never-stored contract, the CAS's exact text.
-    // The property root this fixture never stores is then a PROVEN absence (ROOT_ARTIFACT_NOT_FOUND), which verify does
-    // not refuse; "not found: <id>" is a read of unknown persistence (READ_ERROR), which it now does.
+    // W-GAP1 (F2, owner decision Round 15-16): a well-formed property_ref whose object answers this is a LOST referenced
+    // root (ROOT_MISSING_FROM_CAS), which verify refuses before H15 -- so the fixture now STORES its root (setup()).
     if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
     return value as T;
   }
 }
+
+/** W-GAP1 (F2): the fixture's property root -- a stored (legacy-contract) property context under the record's property_ref. */
+const PROPERTY_ROOT_REF = { artifact_id: 'property-verify', artifact_type: 'PROPERTY' } as const;
+const PROPERTY_ROOT_BODY = { artifact_id: PROPERTY_ROOT_REF.artifact_id, artifact_type: PROPERTY_ROOT_REF.artifact_type, payload: { property_ref: 'VERIFY 1:1' } };
 
 class MemoryBindingIndex implements ProjectContextBindingIndex {
   private readonly byProjectAndContext = new Map<string, string>();
@@ -217,6 +224,9 @@ async function setup() {
   const repository = new MemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
   await repository.put({ artifact_id: pcbIssuer.artifact_id, body: pcbIssuer });
+  // W-GAP1 (F2): the record's property_ref must resolve to a stored root. A legacy context without a binding ref reads
+  // back as NOT_RECORDED (no refusal); a well-formed ref whose object is NOT in the CAS is refused by verify (see below).
+  await repository.put({ artifact_id: PROPERTY_ROOT_REF.artifact_id, body: PROPERTY_ROOT_BODY });
 
   process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
   process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
@@ -258,7 +268,7 @@ async function setup() {
       assessment_draft: {
         site_id: siteId,
         project_context_ref: contextNew,
-        property_ref: { artifact_id: 'property-verify', artifact_type: 'PROPERTY' },
+        property_ref: PROPERTY_ROOT_REF,
         evidence_refs: [{ artifact_id: evidence.artifact_id, artifact_type: evidence.artifact_type }, ...evidenceRefsOf(otherLayers)],
         system_summary: `verify test summary ${siteId}`,
       },
@@ -311,6 +321,50 @@ describe('LU-REEXECUTION-VERIFY-UI-V1: verifyCurrentLuAssessment', () => {
     expect(result.mismatches).toEqual([]);
     // W-PLUMB-S (K19): notice AND strength, and never the green presentation.
     expectLegacyUnboundAnswer(result as unknown as Record<string, unknown>);
+  });
+
+  /**
+   * W-GAP1 (F2; owner decision Round 15-16, 2026-10-03) with the REAL H15: a well-formed property_ref whose context is not in
+   * the CAS (the repository's exact "Artifact not found: <id>") is a lost referenced root -- verify refuses with the lasting
+   * MISSING_FROM_CAS / ROOT_MISSING_FROM_CAS before the re-execution, so H15 never runs (it used to replay and answer PASS:
+   * H15 reads no property root). The fixture's formerly unstored root was exactly this case.
+   */
+  it('W-GAP1 F2 (real H15): a well-formed property_ref whose context is NOT in the CAS -> 503 ASSESSMENT_PINNED_EVIDENCE_UNREADABLE / MISSING_FROM_CAS / ROOT_MISSING_FROM_CAS, not retryable; H15 never runs (the assessment is read exactly twice: selection and core, never H15\'s third read)', async () => {
+    const s = await setup();
+    const assessment = await s.buildAndPersistAssessment();
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    s.repository.values.delete(PROPERTY_ROOT_REF.artifact_id);
+    s.repository.reads.length = 0;
+
+    const result = await verifyCurrentLuAssessment({
+      authUser: AUTH_USER, projectId: PROJECT_ID,
+      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      assessmentProjectionIndex: projectionIndex,
+    });
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'ASSESSMENT_PINNED_EVIDENCE_UNREADABLE', failureClass: 'MISSING_FROM_CAS', reasonCode: 'ROOT_MISSING_FROM_CAS', retryable: false });
+    const error = (result as { error: string }).error;
+    expect(error).toMatch(/^Fastighetsroten som bedömningen är bunden till kunde inte läsas eller verifieras ur arkivet \(bestående lagrings- eller integritetsfel\)\. /);
+    expect(error).toContain('reproducerbarhetskontrollen genomfördes inte och inget utfall anges.');
+    expect(error).not.toMatch(/finns inte i arkivet|bevisat saknad|Artifact not found|property-verify|[A-Z]{3,}_[A-Z0-9_]{3,}/);
+    expect(JSON.stringify(result)).not.toMatch(/PASS|outcome/);
+    // Read 1 = the selection, read 2 = the core; H15's own read of the assessment (its third) never happened.
+    expect(s.repository.reads.filter((id) => id === assessment.artifact_id)).toHaveLength(2);
+  });
+
+  it('W-GAP1 control (real H15): the same record with its root stored -> PASS as before, and H15 DID read the assessment a third time', async () => {
+    const s = await setup();
+    const assessment = await s.buildAndPersistAssessment();
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    s.repository.reads.length = 0;
+    const result = await verifyCurrentLuAssessment({
+      authUser: AUTH_USER, projectId: PROJECT_ID,
+      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      assessmentProjectionIndex: projectionIndex,
+    });
+    expect(result).toMatchObject({ ok: true, outcome: 'PASS' });
+    expect(s.repository.reads.filter((id) => id === assessment.artifact_id).length).toBeGreaterThanOrEqual(3);
   });
 
   it('proof 3: a tampered finding reports mismatch/DENY, never PASS', async () => {

@@ -49,6 +49,8 @@ import {
   createGovernedLocalizationAssessment,
   createProductLuPropertyContextArtifact,
   createProductLuProjectContextArtifact,
+  createProjectPropertyBindingArtifact,
+  createPropertyLookupObservationArtifact,
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
@@ -85,9 +87,9 @@ class MemoryRepository {
   async resolve<T>(reference: ArtifactReference): Promise<T> {
     const value = this.values.get(reference.artifact_id);
     // W-U20CDF5-R3 (U20CDF5-R2 verification R2-1): the repository's frozen never-stored contract, the CAS's exact text.
-    // The project-property binding this fixture names but never stores is then a PROVEN absence of a root link
-    // (ROOT_ARTIFACT_NOT_FOUND), which the PDF does not refuse; "not found: <id>" is a read of unknown persistence
-    // (ROOT_READ_ERROR), which it now does.
+    // W-GAP1 (F2, owner decision Round 15-16): a root link whose object answers this is a LOST referenced artifact
+    // (ROOT_MISSING_FROM_CAS), which the PDF refuses -- so the fixture now STORES the whole root chain (binding and
+    // observation below); "not found: <id>" is a read of unknown persistence (ROOT_READ_ERROR), refused as before.
     if (!value) throw new Error(`Artifact not found: ${reference.artifact_id}`);
     return value as T;
   }
@@ -154,8 +156,20 @@ class FakeAssessmentProjectionIndex implements ProjectAssessmentProjectionIndex 
 }
 
 const PROJECT_ID = 'project-export-pdf';
-const propertyBinding = { artifact_id: 'project-property-binding-export-pdf', artifact_type: 'project_property_binding' } as const;
 const geometryRef = { artifact_id: 'geometry-export-pdf', artifact_type: 'CANONICAL_GEOMETRY' } as const;
+// W-GAP1 (F2): the property root is STORED in full (context -> binding -> observation), built with the product factories
+// (content-addressed ids) as the bootstrap worker does. The former fixture named a binding it never stored, which the PDF
+// printed as a proven absence; a well-formed root link whose object is not in the CAS now refuses the PDF.
+const propertyObservation = createPropertyLookupObservationArtifact({
+  property_identity: 'property-identity-export-pdf', property_designation: 'GÄVLE EXPORT 1:1', source_key: 'export-pdf-key',
+  source_dataset: 'core.property_unit', source_updated_at: '2026-06-28T00:00:00.000Z', municipality: 'Gävle', geometry_ref: geometryRef,
+});
+const propertyBindingArtifact = createProjectPropertyBindingArtifact({
+  project_id: PROJECT_ID, property_identity: propertyObservation.payload.property_identity, property_designation: propertyObservation.payload.property_designation,
+  geometry_ref: geometryRef, source_refs: [{ artifact_id: propertyObservation.artifact_id, artifact_type: propertyObservation.artifact_type }],
+  resolver_id: 'postgis-property-unit-exact', resolver_version: 'canonical-property-observation-v1', contract_version: 'project-property-binding-v1',
+});
+const propertyBinding = { artifact_id: propertyBindingArtifact.artifact_id, artifact_type: propertyBindingArtifact.artifact_type } as const;
 
 const pcbIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-issuer-export-pdf-test');
 const pcbVerification = new LocalPemVerificationKeyProvider(pcbIssuerKey.provider.keyId, pcbIssuerKey.publicKey);
@@ -179,6 +193,9 @@ async function setup() {
   const repository = new MemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
   await repository.put({ artifact_id: pcbIssuer.artifact_id, body: pcbIssuer });
+  // W-GAP1 (F2): the root's binding and observation links are stored (the context below names the binding).
+  await repository.put({ artifact_id: propertyObservation.artifact_id, body: propertyObservation });
+  await repository.put({ artifact_id: propertyBindingArtifact.artifact_id, body: propertyBindingArtifact });
 
   process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
   process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
@@ -284,6 +301,25 @@ describe('LU-REPORT-EXPORT-UI-V1: exportCurrentLuAssessmentPdf', () => {
       findings: [expect.objectContaining({ finding_id: waterFinding.finding_id, rule_id: 'LU-WATER-001' })],
       verification: { assessment_artifact_id: assessment.artifact_id, content_hash_verified: true },
     });
+  });
+
+  it('W-GAP1 F2: the root\'s binding link is not in the CAS (exact "Artifact not found") -> no PDF; 503 ASSESSMENT_PDF_CONTEXT_UNRESOLVED / MISSING_FROM_CAS / ROOT_MISSING_FROM_CAS, not retryable; never "bevisat saknad" (it was a 200 PDF)', async () => {
+    const s = await setup();
+    s.repository.values.delete(propertyBinding.artifact_id);
+    const assessment = await s.buildAndPersistAssessment([waterFinding]);
+    const projectionIndex = new FakeAssessmentProjectionIndex();
+    await registerAssessmentProjection({ projectId: PROJECT_ID, assessment, contextBindingRef: s.newBindingRef, releaseRef: RELEASE_REF, index: projectionIndex });
+    const pdfCallsBefore = pdfBufferMock.mock.calls.length;
+
+    const result = await exportCurrentLuAssessmentPdf({
+      authUser: AUTH_USER, projectId: PROJECT_ID,
+      artifactRepository: s.repository, currentBindingProvider: s.currentBindingProvider(),
+      assessmentProjectionIndex: projectionIndex,
+    });
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'MISSING_FROM_CAS', reasonCode: 'ROOT_MISSING_FROM_CAS', retryable: false });
+    expect((result as { error: string }).error).toMatch(/^Bedömningens fastighetsrot kunde inte läsas eller verifieras ur arkivet \(bestående lagrings- eller integritetsfel\)\. /);
+    expect(JSON.stringify(result)).not.toMatch(/bevisat saknad|finns inte i arkivet|Artifact not found|project-property-binding-/);
+    expect(pdfBufferMock.mock.calls.length).toBe(pdfCallsBefore);
   });
 
   it('negative proof: client-supplied findings/coordinates cannot change the exported content -- the function accepts no such input at all', async () => {

@@ -120,6 +120,16 @@ const ROOTS = [
     says: 'Fastighetsrotens ursprung finns inte i arkivet för den här bedömningen.',
   },
   {
+    // W-GAP1 (F2): a well-formed root link the CAS does not hold -- a lost referenced artifact, never "finns inte i arkivet".
+    name: 'ROOT_MISSING_FROM_CAS (the root link is referenced but not in the archive -- lost, not absent)',
+    root: {
+      status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_MISSING_FROM_CAS',
+      message_sv: 'Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
+    },
+    chip: 'Hittad · fastighetsunderlagets ursprung kunde inte läsas ur arkivet (bestående fel)',
+    says: 'Fastighetsrotens ursprung kunde inte läsas eller verifieras ur arkivet (bestående lagrings- eller integritetsfel).',
+  },
+  {
     name: 'a technical error of a class this UI has no mark for',
     root: { status: 'TECHNICAL_ERROR', technical_error_class: 'SOME_FUTURE_ROOT_FAULT', message_sv: 'Rotens datasetbindning saknas (lägre säkerhet).' },
     chip: 'Hittad · fastighetsunderlagets ursprung kunde inte läsas',
