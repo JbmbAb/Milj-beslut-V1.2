@@ -8,6 +8,9 @@
 # - Exporten tvingas till LF. Annars skriver git archive CRLF för text=auto-filer
 #   på en Windows-värd (core.eol=native), och samma commit ger olika bytes
 #   beroende på värd.
+# - tar.umask pinnas (0002, gits default). Annars styr användarens git-konfig
+#   filrättigheterna i kontexten, och samma commit ger olika kontext-bytes och
+#   olika lager beroende på användare.
 # - Imagen märks med org.opencontainers.image.revision=<SHA>.
 # - Ingenting pushas och ingen registry-inloggning görs.
 #
@@ -21,7 +24,7 @@ tag="${2:-mimer-app:$(printf '%s' "$sha" | cut -c1-12)}"
 target="${MIMER_IMAGE_TARGET:-web}"
 
 archive() {
-  git -c core.autocrlf=false -c core.eol=lf archive --format=tar "$sha"
+  git -c core.autocrlf=false -c core.eol=lf -c tar.umask=0002 archive --format=tar "$sha"
 }
 
 echo "source_commit=$sha"
