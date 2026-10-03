@@ -104,7 +104,8 @@ const ROOTS = [
     name: 'ROOT_READ_ERROR (a read of unknown persistence)',
     root: { status: 'TECHNICAL_ERROR', technical_error_class: 'ROOT_READ_ERROR', message_sv: 'Rotens datasetbindning saknas (lägre säkerhet). Fastighetsrotens proveniens kunde inte läsas (ROOT_READ_ERROR).' },
     chip: 'Hittad · fastighetsunderlagets proveniens kunde inte läsas just nu',
-    says: 'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); försök igen.',
+    // W-UI1-R3 (owner decision 2026-10-03): a re-read -- "läs in på nytt".
+    says: 'Fastighetsrotens proveniens kunde inte läsas just nu (tekniskt fel); läs in på nytt.',
   },
   {
     name: 'ROOT_PROVENANCE_TAMPERED (the root does not match its own identity)',
