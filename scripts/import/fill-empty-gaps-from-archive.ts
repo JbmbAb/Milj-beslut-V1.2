@@ -107,7 +107,8 @@ function loadJob(job: Job): boolean {
   }
   const [schema, table] = job.target.split('.');
   if (job.dropFirst) {
-    if (!psql(gatedSql('scripts/import/fill-empty-gaps-from-archive.ts', `DROP TABLE IF EXISTS ${schema}.${table} CASCADE;`), `drop ${job.target}`)) return false;
+    // U30F7 (owner decision 2026-10-03): no CASCADE -- PostgreSQL refuses to drop a dependent object instead of taking it along
+    if (!psql(gatedSql('scripts/import/fill-empty-gaps-from-archive.ts', `DROP TABLE IF EXISTS ${schema}.${table};`), `drop ${job.target}`)) return false;
   }
   const args = [
     '-f',
@@ -170,7 +171,8 @@ function loadFriluft(): boolean {
     return true;
   }
 
-  psql('DROP TABLE IF EXISTS env.friluftsliv CASCADE;', 'drop env.friluftsliv');
+  // U30F7 (owner decision 2026-10-03): behind the same gate as the job DROP, without CASCADE
+  if (!psql(gatedSql('scripts/import/fill-empty-gaps-from-archive.ts', 'DROP TABLE IF EXISTS env.friluftsliv;'), 'drop env.friluftsliv')) return false;
 
   let ok = true;
   if (anordShp) {

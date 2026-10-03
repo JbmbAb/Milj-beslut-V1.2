@@ -68,25 +68,25 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 62,
-  reviewedSites: 137,
-  reviewedSha256: '8e04b133a66c3889b7466ffc9429f0fdb88fe7f73dfbccaafb092f8a12c46953',
+  reviewedEntries: 61,
+  reviewedSites: 136,
+  reviewedSha256: 'b9d4aaf834b0b0fad49e1ea2de31875d952c2326f41a5d5a390de5f2269363eb',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
   pathExclusionsSha256: '4becd2b0307d48979f6cd9428aa35b4fff76df21c9bcd571effefaf2a67583f7',
   unscannedSha256: 'f860776a464e23399d4f996737d917154ef3cc12cd3a7f56b2e834d65d24fddd',
   testSourcesSha256: '42f868346e882e2a4a9cc20db07e20782b24e553633d550933d1aeff815a67d5',
-  retiredCount: 18,
+  retiredCount: 20,
   // U30F2 LOW (verifier L3): the retired list is pinned by content too -- an entry swapped for another
   // with the same count, or an entry's relations, justification or replacement changed, fails here.
-  retiredSha256: '95a7f253f4e39e1c8d3aed638ab5b71abda678a44d4a1f6bfe56c8793381b645',
+  retiredSha256: 'bf8aa6f8e83cbd59a0e510d1af87754d8db9d90bd67bea2562de8f76f6843036',
   // U30F3 (verifier L-1): the closed list of gate doors a reviewed marker may name
   markerDoorsSha256: '806f99ebb2450096d501ba639356a17768d989e541c3a630c98d7ca04bab32a6',
   // U30F4 (B5): the file types decided to be data
   fileTypeDecisionsSha256: '490bbe38db7f2569773f3de5140e8135271c9bce57a5bbfd4e1578ed2819aa40',
   // U30F5 (D-7): the open owner decisions (BLOCKERARE, failed by their own test)
-  openDecisionsSha256: '8b758f120f081e399f40afb73a84749980fa4d0a3edf8a5d413d5ea7958ad343',
+  openDecisionsSha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
   // U30F6 (F5-3): the reviewed launches that resolve to no repository file (and their category arguments)
   unresolvedLaunches: 58,
   unresolvedLaunchesSha256: '10a28d91846a54a6b2b526fe9a36b097940b055630cab86556a99b1ab0ca4121',
@@ -188,19 +188,10 @@ interface Problem {
  * exactly these sites; every other test sees them as known, so a NEW site in these files still fails as before. A site
  * is matched with its detail too: an open site whose verdict gains another reason is new.
  */
-const OPEN_OWNER_DECISIONS: Readonly<Record<string, readonly string[]>> = {
-  'scripts/db/cleanup-db.ts': [
-    'CASCADE :: UNRESOLVABLE SQL_TEXT literal | `DROP TABLE IF EXISTS "${table}" CASCADE`',
-    'CASCADE :: UNRESOLVABLE SQL_CALL prisma.$executeRawUnsafe | prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}" CASCADE`)',
-  ],
-  'scripts/import/fill-empty-gaps-from-archive.ts': ["CASCADE :: UNRESOLVABLE SQL_TEXT literal | 'DROP TABLE IF EXISTS env.friluftsliv CASCADE;'"],
-  'scripts/import/sanitize-postgis-failed-imports.ps1': [
-    'CASCADE, DROP :: UNRESOLVABLE SQL_TEXT literal | "DROP TABLE IF EXISTS $t CASCADE;"',
-    'CASCADE, DROP :: UNRESOLVABLE SQL_TEXT literal | "DROP TABLE IF EXISTS $t CASCADE;"',
-    "CASCADE :: UNRESOLVABLE SQL_TEXT literal | 'DROP SCHEMA IF EXISTS stage CASCADE;'",
-    "CASCADE :: UNRESOLVABLE SQL_TEXT literal | 'DROP SCHEMA IF EXISTS transport CASCADE;'",
-  ],
-};
+// U30F7 (owner decision 2026-10-03): all seven sites are closed -- cleanup-db.ts and sanitize-postgis-failed-imports.ps1
+// are retired entry points that are nothing but their refusal (RETIRED_ENTRYPOINT_ONLY), fill-empty-gaps-from-archive.ts
+// drops without CASCADE through gatedSql. No open decision remains; a new one is a reviewed edit of this list.
+const OPEN_OWNER_DECISIONS: Readonly<Record<string, readonly string[]>> = {};
 
 /** The key of an open site: its detail (the verdict's reasons) and its site key. */
 function openKey(s: ChannelSite): string {
@@ -232,6 +223,14 @@ function retiredRefusesFirst(file: string, text: string): string | null {
     }
     return null;
   }
+  if (file.endsWith('.ps1')) {
+    // U30F7: a retired PowerShell entry point writes its refusal to stderr and exits non-zero before any other statement
+    const lines = code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    if (!lines[0]?.startsWith(`[Console]::Error.WriteLine('REJECT_RETIRED_DESTRUCTIVE_SCRIPT: ${file} `) || !/^exit\s+[1-9][0-9]*$/.test(lines[1] ?? '')) {
+      return 'retired PowerShell without its refusal first (REJECT_RETIRED_DESTRUCTIVE_SCRIPT to stderr, then exit non-zero)';
+    }
+    return null;
+  }
   const stripped = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const refusal = stripped.indexOf(`refuseRetiredDestructiveScript('${file}')`);
   const firstUse = stripped.search(/new PrismaClient\(|\$executeRaw|\$queryRaw|\bspawn(?:Sync)?\(|\bexec(?:File)?Sync\(|\.query\(|\bmain\(\)|\bverify\(\)|\brunBenchmark\(\)/);
@@ -243,7 +242,10 @@ function retiredRefusesFirst(file: string, text: string): string | null {
  * U30F7 (owner decision 2026-10-03): retired entry points that are NOTHING but their refusal, pinned by content
  * (sha256 of the text, line endings normalised): a line added to them -- a new CASCADE site, a DROP -- fails.
  */
-const RETIRED_ENTRYPOINT_ONLY: Readonly<Record<string, string>> = {};
+const RETIRED_ENTRYPOINT_ONLY: Readonly<Record<string, string>> = {
+  'scripts/db/cleanup-db.ts': 'e3065955fb9834d009f649a8aa1442b2e86cf120259ba0b9bb3f788983c27948',
+  'scripts/import/sanitize-postgis-failed-imports.ps1': 'eb341213dc994e7ee0ff3fdb6baaccdfae8fd0de018a327012168fa89eb5c4b0',
+};
 
 /** Every problem of one file, given its scan. */
 function evaluateFile(file: string, text: string, scan: FileScan, ctx: EvaluationContext): Problem[] {
@@ -253,6 +255,9 @@ function evaluateFile(file: string, text: string, scan: FileScan, ctx: Evaluatio
   if (ctx.retired.has(file)) {
     const why = retiredRefusesFirst(file, text);
     if (why) add(why);
+    // U30F7: an entry point retired as nothing but its refusal stays exactly that (a new line in it is a new site)
+    const only = RETIRED_ENTRYPOINT_ONLY[file];
+    if (only !== undefined && normalisedSha(text) !== only) add(`a retired entry point that is pinned as nothing but its refusal changed (sha256 ${normalisedSha(text)}, U30F7): nothing may be added to it`);
     return problems;
   }
   const historical = ctx.historical.get(file);
@@ -693,7 +698,8 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
   it('no script refuses itself without being on the retired list', () => {
     const listed = new Set(RETIRED_DESTRUCTIVE_SCRIPTS.map((r) => r.script));
     for (const [file, text] of REPO.texts) {
-      const m = text.match(/refuseRetiredDestructiveScript\('([^']+)'\)/);
+      // (U30F7: the PowerShell form writes REJECT_RETIRED_DESTRUCTIVE_SCRIPT: <its path> to stderr)
+      const m = text.match(/refuseRetiredDestructiveScript\('([^']+)'\)/) ?? (file.endsWith('.ps1') ? text.match(/REJECT_RETIRED_DESTRUCTIVE_SCRIPT: ([A-Za-z0-9_./-]+)/) : null);
       if (m && !GATE_FILES.has(file)) {
         expect(m[1], file).toBe(file);
         expect(listed.has(file), file).toBe(true);
@@ -775,13 +781,14 @@ const V30F_APPENDS: readonly (readonly [string, string, string])[] = [
     "def v30f_rogue():\n    assert_ungoverned_write_allowed(GATE_CALLER, 'TRUNCATE', 'public.v30f_tmp')\n    run_sql('TRUNCATE TABLE env.sgu_well')",
   ],
   ['control: gated Python file: new def truncating without any gate call', 'scripts/data-pipeline/import_all_datasets.py', "def v30f_rogue2():\n    run_sql('TRUNCATE TABLE env.sgu_well')"],
-  ['gated PowerShell file: ogr2ogr -overwrite line', 'scripts/import/sanitize-postgis-failed-imports.ps1', '& ogr2ogr -f PostgreSQL "PG:dbname=x" a.gpkg -nln env.sgu_well -overwrite'],
+  // U30F7: the gated PowerShell file of these cases was sanitize-postgis-failed-imports.ps1, now a retired entry point
+  ['gated PowerShell file: ogr2ogr -overwrite line', 'scripts/import-gis-arkiv.ps1', '& ogr2ogr -f PostgreSQL "PG:dbname=x" a.gpkg -nln env.sgu_well -overwrite'],
   [
     'gated PowerShell file: gate call swallowed by try/catch, then DROP',
-    'scripts/import/sanitize-postgis-failed-imports.ps1',
+    'scripts/import-gis-arkiv.ps1',
     "try { Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation 'env.sgu_well' } catch { }\nInvoke-DbSql \"DROP TABLE IF EXISTS env.sgu_well CASCADE;\" 'x'",
   ],
-  ['control: gated PowerShell file: DROP without a gate call', 'scripts/import/sanitize-postgis-failed-imports.ps1', "Invoke-DbSql \"DROP TABLE IF EXISTS env.sgu_well CASCADE;\" 'x'"],
+  ['control: gated PowerShell file: DROP without a gate call', 'scripts/import-gis-arkiv.ps1', "Invoke-DbSql \"DROP TABLE IF EXISTS env.sgu_well CASCADE;\" 'x'"],
 ];
 
 describe("canaries: the verifier's 31 v30f cases are all caught", () => {
@@ -1380,13 +1387,12 @@ describe('canaries: U30F5 -- D-2 inline code, D-5 substituted SQL, D-6 process a
     expect(problemsOfTree({ 'scripts/vrogue/u8e.sh': `#!/bin/sh\n${fwd}run_step wipe bash scripts/vrogue/u8e.txt\n`, 'scripts/vrogue/u8e.txt': 'psql "$DB" -c "TRUNCATE env.sgu_well"\n' }).length).toBeGreaterThan(0);
   });
 
-  it("a PowerShell relation gate still counts -- shown on an appended drop without CASCADE (sanitize's own drops are open D-7 sites, UNRESOLVABLE with or without it)", () => {
-    const file = 'scripts/import/sanitize-postgis-failed-imports.ps1';
-    const original = realText(file);
+  it('a PowerShell relation gate still counts -- shown on a drop without CASCADE in a new file (U30F7: its former base, sanitize-postgis-failed-imports.ps1, is retired)', () => {
+    const file = 'scripts/vrogue/u7h-relation-gate.ps1';
     const gate = "    Assert-UngovernedWriteAllowed -Caller $gateCaller -Operation 'DROP' -Relation $u\n";
-    const appended = `${original}\nforeach ($u in $args) {\n${gate}    Invoke-DbSql "DROP TABLE IF EXISTS $u;" 'u30f5'\n}\n`;
-    expect(problemsOf(file, appended)).toEqual([]);
-    expect(problemsOf(file, appended.replace(gate, '')).length).toBeGreaterThan(0);
+    const text = `. (Join-Path $PSScriptRoot '..\\lib\\ProtectedRelationGate.ps1')\n$gateCaller = '${file}'\nforeach ($u in $args) {\n${gate}    Invoke-DbSql "DROP TABLE IF EXISTS $u;" 'u30f5'\n}\n`;
+    expect(problemsOf(file, text)).toEqual([]);
+    expect(problemsOf(file, text.replace(gate, '')).length).toBeGreaterThan(0);
   });
 });
 

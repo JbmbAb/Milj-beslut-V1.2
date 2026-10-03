@@ -546,6 +546,37 @@ export const RETIRED_DESTRUCTIVE_SCRIPTS: readonly RetiredDestructiveScript[] = 
     replacement: "spatial-bootstrap --init-new-database on a new database, then import-librarian-manifest for every version",
     retired_by: "U30F2 H1",
   },
+  {
+    script: "scripts/db/cleanup-db.ts",
+    protected_relations: [
+      'public."extracted_requirements"',
+      'public."attachment_occurrences"',
+      'public."attachments"',
+      'public."email_messages"',
+      'public."ingest_runs"',
+      'public."CaseCandidate"',
+      'public."MetadataReviewQueue"',
+      'public."DocumentMetadataEvidence"',
+    ],
+    justification:
+      "Pensionerad (U30F7, ägarbeslut 2026-10-03): släppte 9 index och, med DROP TABLE IF EXISTS ... CASCADE, 8 tabeller som Prisma äger " +
+      "(produktdata; inte i protected-relations.v1.json), ogrindat och utan torrkörning -- CASCADE tar med FK-villkor och beroende vyer. " +
+      "Retired: it dropped 9 indexes and, with CASCADE, 8 Prisma-owned product tables, ungated and with no dry run. No CI, package or " +
+      "document path runs it.",
+    replacement: "Prisma migrations own these tables (prisma migrate); there is no supported manual drop",
+    retired_by: "U30F7 (owner decision 2026-10-03)",
+  },
+  {
+    script: "scripts/import/sanitize-postgis-failed-imports.ps1",
+    protected_relations: ["env.sgu_well (through its N-1 base env.sgu_well_actual)", "env.*", "lm.*", "transport.*", "stage.*"],
+    justification:
+      "Pensionerad (U30F7, ägarbeslut 2026-10-03): engångsstädning efter en avbruten GIS-import -- DROP SCHEMA transport/stage CASCADE och " +
+      "DROP TABLE ... CASCADE på env/lm-tabeller som n_live_tup (kan vara inaktuellt) säger är tomma; en N-1-bas som ser tom ut passerar " +
+      "grinden och CASCADE tar då den skyddade compat-vyn. Retired: schema and table drops with CASCADE chosen on a possibly stale row " +
+      "count -- an N-1 base that looks empty passes the gate and CASCADE drops the protected compat view.",
+    replacement: "no supported replacement: reclaiming the space of an aborted import is an owner-decided, reviewed operation (cleanup-staging stays forbidden)",
+    retired_by: "U30F7 (owner decision 2026-10-03)",
+  },
 ]);
 
 export function validateRetiredDestructiveScripts(list: readonly RetiredDestructiveScript[]): void {

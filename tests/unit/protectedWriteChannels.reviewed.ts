@@ -745,15 +745,6 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     ],
   },
   {
-    file: "scripts/import/sanitize-postgis-failed-imports.ps1",
-    policy: "DYNAMIC_REVIEWED",
-    justification:
-      "Invoke-DbSql is a psql -c forwarder (docker exec ... -c $sql); every call passes an in-file literal right after Assert-UngovernedWriteAllowed for its target (U30F F1).",
-    sites: [
-      "UNRESOLVABLE PROCESS powershell | docker exec miljobeslut-postgres psql -U miljobeslut -d miljobeslut -v ON_ERROR_STOP=1 -c $sql",
-    ],
-  },
-  {
     file: "scripts/import/sync-sgu-tier1-to-drive.ps1",
     policy: "DYNAMIC_REVIEWED",
     justification:
