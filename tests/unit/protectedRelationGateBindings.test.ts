@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import * as gate from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
 import { classifyRelation } from '../../packages/spatial-provider-postgis/src/ProtectedRelations';
+import { parseProtectedRelationClassificationSpec } from '../../packages/spatial-provider-postgis/src/ProtectedRelationSpec';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PY_GATE = path.join(repoRoot, 'scripts', 'data-pipeline', 'protected_relation_gate.py');
@@ -298,4 +299,74 @@ describe('protected relation gate bindings (U30F F1, U30F2 M1/M2)', () => {
       expect(k === 'PROTECTED' ? 'PROTECTED' : k === 'UNRESOLVABLE' ? 'UNRESOLVABLE' : 'ALLOWED', c.id).toBe(c.expect.verdict);
     }
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U30F9: the classification specification fails closed in every binding when the default-deny vocabulary is missing
+// (remote shells, unread code runners, the non-literal exemptions, ogrinfo read-only flags, prisma database subcommands).
+// A missing table would otherwise read as "nothing to refuse" -- in TypeScript, Python and PowerShell alike.
+// ---------------------------------------------------------------------------------------------
+const SPEC_FILE = path.join(repoRoot, 'packages', 'spatial-provider-postgis', 'src', 'protected-relation-classification.v1.json');
+type SpecCommands = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+const SPEC_HOLES: readonly (readonly [string, (c: SpecCommands) => void])[] = [
+  ['commands.remote_shells missing', (c) => { delete c.remote_shells; }],
+  ['commands.remote_shells empty', (c) => { c.remote_shells = {}; }],
+  ['commands.remote_shells.ssh.value_flags missing', (c) => { c.remote_shells = { ssh: {} }; }],
+  ['commands.unread_code_runners missing', (c) => { delete c.unread_code_runners; }],
+  ['commands.unread_code_runners empty', (c) => { c.unread_code_runners = []; }],
+  ['commands.non_literal_exempt_tools_unless_piped_to missing', (c) => { delete c.non_literal_exempt_tools_unless_piped_to; }],
+  ['commands.non_literal_exempt_tools_unless_piped_to with an empty target', (c) => { c.non_literal_exempt_tools_unless_piped_to = { PG_DUMP: '' }; }],
+  ['commands.ogrinfo.read_only_flags missing', (c) => { delete c.ogrinfo.read_only_flags; }],
+  ['commands.prisma.database_subcommands missing', (c) => { delete c.prisma.database_subcommands; }],
+];
+function holedSpec(mutate: (c: SpecCommands) => void): { commands: SpecCommands } {
+  const doc = JSON.parse(fs.readFileSync(SPEC_FILE, 'utf8')) as { commands: SpecCommands };
+  mutate(doc.commands);
+  return doc;
+}
+let specDir: string | null = null;
+function holedSpecFile(name: string, mutate: (c: SpecCommands) => void): string {
+  specDir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'wu30f9-spec-'));
+  const file = path.join(specDir, `${name.replace(/[^a-z0-9]+/gi, '-')}.json`);
+  fs.writeFileSync(file, JSON.stringify(holedSpec(mutate)), 'utf8');
+  return file;
+}
+afterAll(() => {
+  if (specDir) fs.rmSync(specDir, { recursive: true, force: true });
+});
+
+describe('U30F9 -- the classification specification fails closed without its default-deny vocabulary (TypeScript, Python, PowerShell)', () => {
+  it('the shipped specification parses in TypeScript', () => {
+    expect(() => parseProtectedRelationClassificationSpec(JSON.parse(fs.readFileSync(SPEC_FILE, 'utf8')))).not.toThrow();
+  });
+
+  it.each(SPEC_HOLES)('TypeScript: %s -> PROTECTED_RELATION_CLASSIFICATION_INVALID', (_name, mutate) => {
+    expect(() => parseProtectedRelationClassificationSpec(holedSpec(mutate))).toThrow(/PROTECTED_RELATION_CLASSIFICATION_INVALID/);
+  });
+
+  it.skipIf(!hasPython)('Python: every hole -> PROTECTED_RELATION_CLASSIFICATION_INVALID (load_spec refuses the file)', () => {
+    for (const [name, mutate] of SPEC_HOLES) {
+      const file = holedSpecFile(name, mutate);
+      const r = spawnSync(
+        'python',
+        ['-B', '-c', `import sys; sys.path.insert(0, ${JSON.stringify(path.dirname(PY_GATE))}); import protected_relation_gate as g; g.load_spec(${JSON.stringify(file)})`],
+        { encoding: 'utf8' },
+      );
+      expect(r.status, name).not.toBe(0);
+      expect(r.stderr, name).toContain('PROTECTED_RELATION_CLASSIFICATION_INVALID');
+    }
+  }, 120_000);
+
+  it.skipIf(!hasPwsh)('PowerShell: every hole -> PROTECTED_RELATION_CLASSIFICATION_INVALID (Get-ProtectedClassificationSpec refuses the file)', () => {
+    const files = SPEC_HOLES.map(([name, mutate]) => holedSpecFile(name, mutate));
+    const script =
+      `. '${PS_GATE.replace(/'/g, "''")}'; $r = @(); ` +
+      `foreach ($f in @(${files.map((f) => `'${f.replace(/'/g, "''")}'`).join(', ')})) { ` +
+      `$script:ProtectedClassificationFile = $f; $script:PrgSpec = $null; ` +
+      `$r += try { [void](Get-ProtectedClassificationSpec); 'PARSED' } catch { $_.Exception.Message } }; ` +
+      `$r | ConvertTo-Json -Compress`;
+    const out = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })) as string[];
+    expect(out.length).toBe(SPEC_HOLES.length);
+    SPEC_HOLES.forEach(([name], i) => expect(out[i], name).toContain('PROTECTED_RELATION_CLASSIFICATION_INVALID'));
+  }, 120_000);
 });

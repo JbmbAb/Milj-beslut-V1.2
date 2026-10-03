@@ -2619,3 +2619,31 @@ describe('canaries: generated new violations are all caught, generated controls 
     expect(falseAlarms).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// U30F9 EQ-1 (owner decision, round 16): the lookup-only override's dynamic clause (classifyCommandTextGate) and the
+// classifier's G6-7 rule ("the program is a value the text does not hold") are not declared interchangeable by
+// assumption. This pins the EXACT verdict class the scanner reports for a program that is a value whose substitution
+// only looks psql up. Mutation evidence in the U30F9 addendum: (A) the override's dynamic clause weakened, (B) the
+// classifier's G6-7 rule removed, (C) both -- each result recorded against these test ids.
+// ---------------------------------------------------------------------------------------------
+describe('U30F9 EQ-1: a program that is a value, whose substitution only looks psql up, is UNRESOLVABLE (COMMAND) -- exact class pinned', () => {
+  const INPUTS: readonly (readonly [string, string])[] = [
+    ['eq1-which-static-read', '"$(which psql)" -c "SELECT 1"'],
+    ['eq1-command-v-positional', '"$(command -v psql)" -c "$1"'],
+  ];
+  // The exact class: UNRESOLVABLE from the gate's verdict -- COMMAND (G6-7: the program is a value) and PSQL_STDIN (the
+  // looked-up word `psql` inside the substitution is analysed as a bare psql reading stdin, the G8-11 over-closure class).
+  // A weakened override returns ALLOWED for the text and the site falls to the scanner's DYNAMIC program rule instead:
+  // another verdict class, so this test fails -- the clause is NOT interchangeable with G6-7.
+  it.each(INPUTS)('%s: exactly one site, verdict UNRESOLVABLE, detail "COMMAND, PSQL_STDIN" (G6-7: the program is a value), and the change is a problem', (id, line) => {
+    const file = `scripts/u9/${id}.sh`;
+    const sites = scanFile(file, sh9(line)).sites;
+    expect(sites.map((s) => `${s.verdict}|${s.kind}|${s.detail}`), id).toEqual(['UNRESOLVABLE|PROCESS|COMMAND, PSQL_STDIN']);
+    expect(problemsOfChange({ [file]: sh9(line) }).length, id).toBeGreaterThan(0);
+  });
+
+  it('control: a lookup alone (which psql && echo found) yields no site', () => {
+    expect(scanFile('scripts/u9/eq1-control.sh', sh9('which psql && echo found')).sites).toEqual([]);
+  });
+});
