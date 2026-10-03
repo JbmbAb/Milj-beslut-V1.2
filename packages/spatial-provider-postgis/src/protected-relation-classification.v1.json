@@ -106,6 +106,9 @@
     },
     "shell_wrappers_rest_of_line": ["cmd"],
     "argument_substituting_runners": ["xargs", "parallel", "find"],
+    "code_runners": { "node": ["-e", "--eval", "-p", "--print"], "nodejs": ["-e", "--eval", "-p", "--print"], "bun": ["-e", "--eval", "-p", "--print"], "deno": ["eval"], "python": ["-c"], "python3": ["-c"], "py": ["-c"], "pypy": ["-c"], "pypy3": ["-c"], "ruby": ["-e"], "perl": ["-e"], "php": ["-r"] },
+    "eval_words": ["eval", "invoke-expression", "iex"],
+    "program_prefix_words": ["exec", "command", "builtin", "sudo", "nohup", "time", "env"],
     "psql": {
       "command_flags": ["-c", "--command"],
       "file_flags": ["-f", "--file"],

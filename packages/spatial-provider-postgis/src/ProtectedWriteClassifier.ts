@@ -1377,13 +1377,18 @@ export function splitCommandLine(command: string): CommandSegment[][] {
   let stdinFile: string | null = null;
   let tok = "";
   let started = false;
-  let pendingHeredoc: string | null = null;
+  // U30F8 (G6-1): an unquoted delimiter expands the body ($1, $VAR, ${x}, $(...), `...`); 'EOF', "EOF" and \EOF do not
+  let pendingHeredoc: { delim: string; expand: boolean } | null = null;
+  let expectHereString = false;
   let expectStdinFile = false;
   let skipNext = false;
   const endToken = () => {
     if (started) {
       if (skipNext) skipNext = false;
-      else if (expectStdinFile) {
+      else if (expectHereString) {
+        stdin = tok; // U30F8 (G6-1): cmd <<< word -- the word is stdin
+        expectHereString = false;
+      } else if (expectStdinFile) {
         stdinFile = tok;
         expectStdinFile = false;
       } else argv.push(tok);
@@ -1424,6 +1429,48 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     // U30F6 (F5-1): a positional or special parameter ($1..$9, $@, $*, $#, $?, $$, $!, $0, $-) is a value too
     if (/^[0-9@*#?$!-]/.test(s.slice(i + 1, i + 2))) return [dyn(s[i + 1]!), i + 2];
     return null;
+  };
+  /** U30F8 (G6-1): the body of an unquoted here-document as the shell expands it -- every expansion is a value. */
+  const expandBody = (body: string): string => {
+    let out = "";
+    let j = 0;
+    while (j < body.length) {
+      const ch = body[j]!;
+      if (ch === "\\" && (body[j + 1] === "$" || body[j + 1] === "`" || body[j + 1] === "\\")) {
+        out += body[j + 1];
+        j += 2;
+        continue;
+      }
+      if (ch === "$") {
+        const v = readVariable(body, j);
+        if (v) {
+          out += v[0];
+          j = v[1];
+          continue;
+        }
+      }
+      if (ch === "`") {
+        const end = body.indexOf("`", j + 1);
+        out += dyn("");
+        j = end < 0 ? body.length : end + 1;
+        continue;
+      }
+      out += ch;
+      j += 1;
+    }
+    return out;
+  };
+  /** U30F8 (G6-1): <(...) / >(...) -- process substitution, a file the text does not hold; returns the index after it. */
+  const skipParens = (str: string, open: number): number => {
+    let depth = 0;
+    for (let j = open; j < str.length; j += 1) {
+      if (str[j] === "(") depth += 1;
+      else if (str[j] === ")") {
+        depth -= 1;
+        if (depth === 0) return j + 1;
+      }
+    }
+    return str.length;
   };
 
   const s = command;
@@ -1484,7 +1531,7 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     }
     if (c === "\n" || c === "\r") {
       if (pendingHeredoc !== null) {
-        const delim = pendingHeredoc;
+        const { delim, expand } = pendingHeredoc;
         pendingHeredoc = null;
         const lines = s.slice(i + 1).split("\n");
         const body: string[] = [];
@@ -1498,7 +1545,7 @@ export function splitCommandLine(command: string): CommandSegment[][] {
           }
           body.push(line.replace(/\r$/, ""));
         }
-        stdin = body.join("\n");
+        stdin = expand ? expandBody(body.join("\n")) : body.join("\n");
         endPipeline();
         i = found ? consumed : s.length;
         continue;
@@ -1543,10 +1590,21 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     }
     if (c === "<") {
       endToken();
+      if (s[i + 1] === "(") {
+        tok += dyn("");
+        started = true;
+        i = skipParens(s, i + 1);
+        continue;
+      }
       if (s[i + 1] === "<") {
-        const m = /^<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(s.slice(i));
+        if (s[i + 2] === "<") {
+          expectHereString = true;
+          i += 3;
+          continue;
+        }
+        const m = /^<<-?\s*(\\?)(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(s.slice(i));
         if (m) {
-          pendingHeredoc = m[2]!;
+          pendingHeredoc = { delim: m[3]!, expand: m[1] === "" && m[2] === "" };
           i += m[0].length;
           continue;
         }
@@ -1555,6 +1613,13 @@ export function splitCommandLine(command: string): CommandSegment[][] {
       }
       expectStdinFile = true;
       i += 1;
+      continue;
+    }
+    if (c === ">" && s[i + 1] === "(") {
+      endToken();
+      tok += dyn("");
+      started = true;
+      i = skipParens(s, i + 1);
       continue;
     }
     if (c === ">") {
@@ -1845,6 +1910,7 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
   const substituted = (k: number, what: string) => {
     if (runnerAt >= 0 && runnerAt < k) out.unresolved.push({ operation: "COMMAND", reason: `${what} run by ${programName(argv[runnerAt]!)} takes arguments from its input` });
   };
+  const commands = classificationSpec().commands;
   for (let k = 0; k < argv.length; k += 1) {
     const wrapper = shellWrapper(argv[k]!);
     if (wrapper) {
@@ -1859,6 +1925,12 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
         merge(out, analyzeCommandAt(command, options, depth + 1));
         return out;
       }
+      // U30F8 (G6-1): a shell fed a here-document / here-string runs it as its script when it names none
+      if (ctx.stdin !== null) {
+        if (!argv.slice(k + 1).some((a) => !a.startsWith("-"))) merge(out, analyzeCommandAt(ctx.stdin, options, depth + 1));
+        else if (containsDynamic(ctx.stdin)) out.unresolved.push({ operation: "COMMAND", reason: "a script reads a here-document with values the text does not hold" });
+        return out;
+      }
       continue;
     }
     const tool = toolOf(argv[k]!);
@@ -1866,6 +1938,23 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
       substituted(k, tool.toLowerCase());
       merge(out, analyzeTool(tool, argv.slice(k + 1), ctx, options, depth));
       return out;
+    }
+    // U30F8 (G6-1/G6-7): code from a flag value (node -e, python -c) or from an expanded here-document / here-string
+    const codeFlags = ownEntry(commands.code_runners, programName(argv[k]!));
+    if (codeFlags) {
+      for (let n = k + 1; n < argv.length; n += 1) {
+        const lower = asciiLower(argv[n]!);
+        const flag = codeFlags.find((f) => lower === f || lower.startsWith(`${f}=`));
+        if (flag === undefined) continue;
+        const code = lower === flag ? argv[n + 1] : argv[n]!.slice(flag.length + 1);
+        if (code !== undefined && containsDynamic(code)) out.unresolved.push({ operation: "COMMAND", reason: `${programName(argv[k]!)} evaluates code the text does not hold` });
+        break;
+      }
+      if (ctx.stdin !== null && containsDynamic(ctx.stdin)) out.unresolved.push({ operation: "COMMAND", reason: `${programName(argv[k]!)} reads a here-document with values the text does not hold` });
+      continue;
+    }
+    if (commands.eval_words.includes(programName(argv[k]!)) && argv.slice(k + 1).some((a) => containsDynamic(a))) {
+      out.unresolved.push({ operation: "COMMAND", reason: `${programName(argv[k]!)} evaluates code the text does not hold` });
     }
   }
   // A dynamic or unknown binary whose arguments are those of a GDAL write.
@@ -1895,6 +1984,11 @@ function analyzeCommandAt(command: string, options: ClassifierOptions, depth: nu
       return null;
     });
     pipeline.forEach((seg, n) => {
+      // U30F8 (G6-7): in a command line the shell expands the program: one that is a value ("$@", exec "$@", $CMD) runs
+      // what the text does not hold (an argument vector handed to the gate at run time holds real values)
+      const prefix = classificationSpec().commands.program_prefix_words;
+      const p = seg.argv.findIndex((a) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(a) && !prefix.includes(asciiLower(a)));
+      if (p >= 0 && dynamicHint(seg.argv[p]!) !== null && !toolOf(seg.argv[p]!)) out.unresolved.push({ operation: "COMMAND", reason: "the program is a value the text does not hold" });
       merge(
         out,
         analyzeArgvAt(seg.argv, { stdin: seg.stdin, stdinFile: seg.stdinFile, pipedFromTool: n > 0 ? tools[n - 1]! : null, pipesToTool: tools[n + 1] ?? null }, options, depth),

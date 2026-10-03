@@ -33,6 +33,11 @@ export interface ReviewedChannels {
   readonly justification: string;
   /** `<VERDICT> <KIND> <channel> | <excerpt>` -- exactly the scanner's sites of the file (a multiset). */
   readonly sites: readonly string[];
+  /**
+   * U30F8 (G6-2): DYNAMIC_REVIEWED only -- sha256 of what the scan reads of the file (package.json: its `scripts`; any
+   * other file: its whole text, line endings normalised). Any change fails until the entry is reviewed again.
+   */
+  readonly contentSha256?: string;
 }
 
 /**
@@ -257,8 +262,19 @@ export const HISTORICAL_SQL: readonly { readonly file: string; readonly sha256: 
 /** Every channel site that is neither gated nor statically ALLOWED, per file, with its review. */
 export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
+    file: ".github/workflows/devgov-v0-rebase-reverify.yml",
+    policy: "DYNAMIC_REVIEWED",
+    contentSha256: "fe6e5fbaf82133476c64a3df6bb1126b73d025280add48ea0096e4dfc1433f11",
+    justification:
+      "U30F8 (G6-1): the reverify-phases step runs a node script from a here-document (<<'NODE', quoted: no expansion), now scanned as JavaScript. It import()s the PROTECTED controller checkout's scripts/dev-helpers/automated-rebase-reverify.mjs (the same repository file, scanned and itself DYNAMIC_REVIEWED with a content pin) by a path built at run time, and runs only git (execFileSync/spawnSync 'git' with argument arrays) and gh api (a GitHub REST read): no database client, no DB tool. The workflow is Dev-Gov's; this entry pins its content so any change is reviewed again.",
+    sites: [
+      "UNRESOLVABLE PROCESS yaml | node - \"$GITHUB_OUTPUT\" <<'NODE' const { execFileSync, spawnSync } = require('node:child_process'); const fs = require('node:fs'); const path = require('node:path'); const { pathToFileURL } = require…",
+    ],
+  },
+  {
     file: "benchmarks/alpha_evolve_bibbi_harvest/evaluator.py",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "b3b41e7db71d6f0b252bea568b26c6e4327f6c4fa2b687ad941eddfbb1453a7c",
     justification:
       "U30F3 M-2 (exec now fails closed): the AlphaEvolve benchmark evaluator exec()s a candidate program (generated code) into a namespace and calls its evaluate(); a developer experiment harness, on no product, CI or release path. What a candidate could do against a database is not constrained here -- the database-level protection is the layer for that.",
     sites: [
@@ -268,6 +284,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "deploy/onprem/image-smoke/smoke.mjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "bc3ca26ba120750f0fa2387479282df6eba3232c4bb8c9292423f85712b2d597",
     justification:
       "On-prem image smoke: runs node --import tsx on a server entry point of the image under test (entryAbs = path.join(APP, entry), entry from the smoke matrix); a smoke check of the built image, not a database tool.",
     sites: [
@@ -277,6 +294,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "deploy/onprem/smoke-image.sh",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "89791c77e8064ef8f1f46c5b11f713012723fd02e35ca9b2348f53abc1ff1884",
     justification:
       "On-prem image smoke: docker run --network none \"$image\" sh -c \"$run <case>\" -- the image is the one just built and the command an in-file function name; without a network the container reaches no database.",
     sites: [
@@ -287,6 +305,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "package.json",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "40a5c2758ad33482fbd0678a3e3bb2126f243f39a86948e4d70ddc822eb07067",
     justification:
       "db:test:reset runs prisma migrate reset against .env.test (the disposable test database, TEST-DB-GUARD); prisma:migrate is the developer migration workflow (prisma migrate dev). Neither is a release path (deploy runs prisma migrate deploy, whose files are the historical list).",
     sites: [
@@ -297,6 +316,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "packages/mps-control-plane/src/multi-agent/ProcessAgentWorker.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "0773126da2f781b77aeff26e5b3637813edaa913c72fff64676e7d0fdababc03",
     justification:
       "Multi-agent control plane: spawns the agent process of a worker profile (profile.command / profile.args, operator configuration); a generic launcher with no database tool of its own.",
     sites: [
@@ -306,6 +326,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "packages/mps-pattern-proof/src/docker/executors.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "68abcc2984f9e5acb94900e6532aee6843cfc48aa1f09456d1d930a6ba1ce803",
     justification:
       "Pattern-proof (PPE) Docker executors: run the command and arguments of a pattern-proof plan (docker build / run of a candidate image); the generic executor of the PPE lane.",
     sites: [
@@ -316,6 +337,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "prompt_optimizer/manifest.py",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "b3e5bbbe8a718df4a67cc031b27aee810e222339141f2a1e6d4866270cd16c8e",
     justification:
       "U30F3 M-2 (__import__ now fails closed): _optional_pkg_version(module_name) imports httpx, tenacity and diskcache (the only in-file callers) to read their __version__ for a run manifest; no database or process client.",
     sites: [
@@ -325,6 +347,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/alphaevolve/experiments/legal_search_params/src/evaluate.py",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "2d18f00c0e3eb209f2fa969a1168b7fe3e9a7cf2a77360c0cffdfc8032ad4b8d",
     justification:
       "U30F3 M-2 (exec now fails closed): the AlphaEvolve legal-search experiment exec()s a candidate program (generated code) with an injected evaluation set and calls its evaluate(); a developer experiment harness, on no product, CI or release path. What a candidate could do against a database is not constrained here -- the database-level protection is the layer for that.",
     sites: [
@@ -334,6 +357,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/alphaevolve/setup.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "49bc59b05380966163fbcf51ec3a9783e7bedeea81987ffab07a0ca41364a2c0",
     justification:
       "AlphaEvolve CLI setup: runs the resolved alphaevolve executable ($aeCmd) with fixed subcommands (version, skills install); no database tool.",
     sites: [
@@ -344,6 +368,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/build-requirements-verification-priority-workbook.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "742b9f2eac4f71f0546a2543700e2d173963c66c9d2e7454addca40648ddb1ca",
     justification:
       "Opens the generated Excel workbook with its default application (Start-Process on the output document path); no database tool.",
     sites: [
@@ -353,6 +378,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/build-requirements-verification-workbook-fast.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "9a81f2566b1d99abcce9e265cd1eeed72f47aebb0401ba533d432648ef041889",
     justification:
       "Opens the generated Excel workbook with its default application (Start-Process on the output document path); no database tool.",
     sites: [
@@ -362,6 +388,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/build-requirements-verification-workbook-lite.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "376c745de51db6c624cb3be67f5857b2ed61ce4a7fe95dec01c3755db1a5b0c1",
     justification:
       "Opens the generated Excel workbook with its default application (Start-Process on the output document path); no database tool.",
     sites: [
@@ -371,6 +398,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/build-requirements-verification-workbook.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "96456b63c170966ee9751b04fb58d2feaf6ba0bf93020dc38899d2d7cd52c55c",
     justification:
       "Opens the generated Excel workbook with its default application (Start-Process on the output document path); no database tool.",
     sites: [
@@ -380,6 +408,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/data-pipeline/import_all_datasets.py",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "e5eb12093df8af9e6c18cdb1ef3fd4731db63c0b303e2a0a2581669d7cde6e5c",
     justification:
       "Legacy dataset importer, gated per target: _run_psql(sql) and run_sql(sql) are SQL forwarders (its callers pass in-file literals, which the literal surface classifies where they are written; the TRUNCATE goes through gated_sql); the two ogr2ogr runs build their argv in _build_ogr_args for the f\"{schema}.{table}\" that assert_ungoverned_write_allowed checked at the top of the import.",
     sites: [
@@ -392,6 +421,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/data-pipeline/import_nv_vardetrakter.py",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "c3201d011ef8f7344f85177d9ee772a949b071b88141b42366f3cfa61d02d851",
     justification:
       "run_psql(query) is a psql -c forwarder; its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -401,6 +431,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/data-pipeline/nmd_optimized_import.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "62aae58080a50c4f418663d5c91385df6de7b55b3c12fe4e8a7929c011763644",
     justification:
       "Invoke-Psql is a psql -c forwarder (& $psqlPath @dbArgs -c $Sql); its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -410,6 +441,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/apply-raster-migration.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "927dca125a68ed16ebbe887bcfe3fe6f7fd3d6101b6c57f3e6ddf663a6cb0deb",
     justification:
       "Applies prisma/migrations/20260628_raster_outdb_infrastructure.sql statement by statement (split on \";\"); that file is scanned itself as SQL and holds no protected write.",
     sites: [
@@ -419,6 +451,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/archive-manifest-audit.mjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "ff7087c203ccbeec7fce402c18d8abd67397cb5ecc9a97ebe8b509b814c0ee90",
     justification:
       "Archive audit: docker run rclone/rclone with the rclone subcommand and paths passed in by its callers (...args); a file-sync tool against the archive drive, no database.",
     sites: [
@@ -428,6 +461,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/import-nmd-outofdb.sh",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "4173c9a4fbfc513d1e4859bc7fe276d267521997121ea47e98046b73f5ec68d5",
     justification:
       "raster2pgsql | psql into $TARGET_TABLE (default env.nmd_2023, not protected; overridable by NMD_TARGET_TABLE). A shell script cannot call the gate: an override to a protected name is not refused (owner decision: retire or move into a gated script).",
     sites: [
@@ -447,6 +481,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/ogrinfo-local.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "3436d71d7c6b73cc745b6fe6aeb126c2848c0e3a200a39e0a5622876c223bab3",
     justification:
       "Local ogrinfo wrapper: resolves an installed ogrinfo.exe and forwards the arguments the operator gives (@ArgsList). ogrinfo -sql can write and the wrapper cannot see what it runs (owner decision: gate with Assert-CommandWriteAllowed).",
     sites: [
@@ -456,6 +491,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/partition-realtime-tables.sql",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "1c7c0a6b9b907250630251fd191c0e2b5db6beb738e431fe3c139122a9c25a58",
     justification:
       "Time-series partitioning of the public application tables GpsPosition, AuditTrail, SearchQueryLog and PropertyAccessLog; its DO blocks EXECUTE format(...) for monthly partitions of those public tables only.",
     sites: [
@@ -465,10 +501,12 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/db/promote-raster-cog.mjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "8e5b3a1d8c7d7f30bb6ca6b935dec9f2a572a9b766683bfe83f40b0ec2ae8d3a",
     justification:
       "gdal_translate (GDAL_TRANSLATE, resolved at run time) converts a raster file to COG on disk; file in, file out, no database datasource.",
     sites: [
-      "DYNAMIC PROCESS execSync | execSync(gdalCmd, { stdio: 'inherit' })",
+      // U30F8 (G6-7): the same site -- a command line whose program is a value is now UNRESOLVABLE in the gate (was DYNAMIC)
+      "UNRESOLVABLE PROCESS execSync | execSync(gdalCmd, { stdio: 'inherit' })",
     ],
   },
   {
@@ -530,6 +568,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/dev-helpers/automated-rebase-reverify.mjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "3cd412993e2b1c547856edd39e7f6e01b418cc2346e1f1c6d9f7499bd01a4ddd",
     justification:
       "Dev-Gov automated rebase re-verify: run(cmd, args) executes the git / gh / npm commands its own code paths choose.",
     sites: [
@@ -540,6 +579,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/devgov/devgov.mjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "232125c4356105b5a3de2c037868f13078db559ff779d69024a66a9a4f726856",
     justification:
       "Dev-Gov runner: executes the proof commands a unit definition declares (commandSpec.command / args) under the Dev-Gov controller.",
     sites: [
@@ -549,6 +589,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/hm1/run-proof-lane.mjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "91d927218a75e2319557e0d731bfae97dde64cdcebb85ba2485a99c9cb5b85b6",
     justification:
       "Runs vitest (node <vitest entrypoint> run --config vitest.config.ts --project <lane>) for a registered proof lane; the tests run under the TEST-DB-GUARD.",
     sites: [
@@ -558,6 +599,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import-office-docs.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "381c55fc1d514726489bf1936af7b3787bd4da8b3056d462b535bdfc21d83708",
     justification:
       "Runs a PowerShell COM command (cleanCommand, built in-file) to read Office documents; no database tool. U30F6 (F5-1): the same site now reads UNRESOLVABLE (a shell running a command that is a value), not DYNAMIC -- reclassified, not added.",
     sites: [
@@ -567,6 +609,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/diagnose-system.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "a069f4a812cba81796053f39375b91f7674c45df426ce662eef1be8f18e80266",
     justification:
       "runCmd(cmd) helper for diagnostic probes (tool versions, disk, docker ps); its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -576,6 +619,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/geo.spec.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "b096b1c0ecc93416a3c24276fc75bc20681c3009512047f25586ff360d020023",
     justification:
       "U30F3 M-2: a vitest spec that no configured runner includes (scripts/import is in no include glob), so it is scanned. It vi.mock()s server/db/prisma; `prisma.$queryRaw` is used as a mock handle (mockResolvedValue), never called against a database.",
     sites: [
@@ -604,6 +648,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/import-raster-outdb.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "adc47d55221be2a9f020561f0cbefd994b11e37c6afa3de6d2d5bc14fe7bd779",
     justification:
       "Out-of-db raster import: raster2pgsql (docker exec) into tableRef from the in-file raster job list, piped into psql (stdin = the generated raster2pgsql SQL). Owner decision: gate the raster2pgsql argv (assertCommandWriteAllowed) once the raster targets are in the protected definition.",
     sites: [
@@ -637,6 +682,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/prepare-ebh-gpkg.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "58207ccf1e79b5ae22b7f3ac3e3e3578361bc8c0315cc1ae8035bb7737cd8cde",
     justification:
       "runPowerShell(command) helper for Expand-Archive and file operations; its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -646,6 +692,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/prepare-mcf-stability-national.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "46437641d8a1b18445acf7b99a974702a550b7e79b80a38473c48efe272067a4",
     justification:
       "runPowerShell(command) helper for Expand-Archive and file operations; its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -655,6 +702,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/prepare-mcf-stability-pilot.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "0d11f02cd54dc9c132b606b982346e2f78d9ee4af7e911749929e4bec674d74a",
     justification:
       "runPowerShell(command) helper for Expand-Archive and file operations; its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -664,6 +712,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-geodata-gap-pipeline.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "8f47da429e8e207a4f13cbd3e969f529b04aeec7aeb340232bececfa069fd512",
     justification:
       "Orchestrator: runs python -u <script> for the steps listed in-file (script is the step of that list); every step is a repository script that is scanned itself. U30F6 (F5-4): runTsx(label, script, extra) = node <cwd>/node_modules/tsx/dist/cli.mjs <script> -- the tsx CLI is package code (B3) and <script> is a parameter: every in-file call passes a static repository script (import-librarian-manifest, run-lm-stac-librarian-pipeline, run-mcf-stability-librarian-pipeline, harvest-viss-zip-to-master, harvest-smhi-svar-to-master, harvest-ebh-to-master, prepare-ebh-gpkg, harvest-msb-oversvamning-to-master, prepare-msb-oversvamning-gpkg, harvest-mcf-oversvamning-pdfs-to-master; all scripts/import/*.ts, each run by tsx as TypeScript and scanned itself).",
     sites: [
@@ -674,6 +723,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-import-focus.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "e3b10f7162d9ffd8439cdd23e53b39aaaeaa15e80b5a8f83f5d6cdfa68211379",
     justification:
       "Operator import pipeline: Run-Step runs the in-file step command strings with Invoke-Expression; every step is a repository script that is scanned itself (its import-n2k-gml step is retired and now fails by design).",
     sites: [
@@ -683,6 +733,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-import-session.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "59fe1d2bf9fe297d5f5137efce43bf4ef30428d29bb22eff7740d3253f6e490f",
     justification:
       "Operator import session: Run-Step runs the in-file step command strings with Invoke-Expression; every step is a repository script that is scanned itself (its import-n2k-gml step is retired and now fails by design).",
     sites: [
@@ -692,6 +743,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-lm-stac-librarian-pipeline.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "6ed816541f6514221961da4b058802738d272802c30afe7fed379d016103b08d",
     justification:
       "U30F6 (F5-4): orchestrator run(label, args) = node <cwd>/node_modules/tsx/dist/cli.mjs ...args -- the tsx CLI is package code (B3); its three in-file calls pass static repository scripts first (scripts/import/merge-stac-national.ts, scripts/import/import-librarian-manifest.ts twice), each run by tsx as TypeScript and scanned itself.",
     sites: [
@@ -701,6 +753,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-mcf-stability-librarian-pipeline.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "a20bda43bfa4cef40e35dfa2f03ed4ee4f76c8f869af590108c059b034a24100",
     justification:
       "U30F6 (F5-4): orchestrator run(label, args) = node <cwd>/node_modules/tsx/dist/cli.mjs ...args -- the tsx CLI is package code (B3); its three in-file calls pass static repository scripts first (scripts/import/prepare-mcf-stability-national.ts, scripts/import/import-librarian-manifest.ts twice), each run by tsx as TypeScript and scanned itself.",
     sites: [
@@ -710,6 +763,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-national-reharvest.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "3674d9b5efaabada57974233c73bebeb73d954c1af0a035b27556b5321a424e6",
     justification:
       "Orchestrator: runs python -u <script> for the steps listed in-file (script is the step of that list); every step is a repository script that is scanned itself. U30F6 (F5-4): runTsx(label, script, extra) = node <cwd>/node_modules/tsx/dist/cli.mjs <script> -- the tsx CLI is package code (B3) and <script> is a parameter: every in-file call passes a static repository script (harvest-sgu-to-master, harvest-polite-pipeline, harvest-naturvardsverket-geodata, harvest-msb-to-master, harvest-viss-zip-to-master, harvest-smhi-svar-to-master, harvest-ebh-to-master, harvest-msb-oversvamning-to-master, harvest-mcf-oversvamning-pdfs-to-master, run-mcf-stability-librarian-pipeline, run-lm-stac-librarian-pipeline, harvest-sks-geodata, harvest-sks-markfuktighet; all scripts/import/*.ts, each run by tsx as TypeScript and scanned itself).",
     sites: [
@@ -720,6 +774,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-sgu-librarian-pipeline.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "e18d4abbb321ab6d62041a02569385b9c21505072f2edf2c71217f2d9bb5cd65",
     justification:
       "Orchestrator: run(label, args) = npx tsx <args> for the steps listed in-file; every step is a repository script that is scanned itself.",
     sites: [
@@ -729,6 +784,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-sgu-quad-import.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "264e4771ee14c06adff26e3fc2950644b1fe15588a60d9ae0f1c0d931b72eb48",
     justification:
       "Orchestrator: run(label, args) = npx tsx <args> for the steps listed in-file; every step is a repository script that is scanned itself.",
     sites: [
@@ -738,6 +794,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/run-sks-import.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "02297042d12095650c90fc1b40d0c46a3047dc82b9b9cd351a34a9b3228173f1",
     justification:
       "Orchestrator: run(label, args) = npx tsx <args> for the steps listed in-file; every step is a repository script that is scanned itself.",
     sites: [
@@ -747,6 +804,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/import/sync-sgu-tier1-to-drive.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "76fe695dae11a08d3eb9a6c932c55aa7b82bde3adb4eca023e7337031bb307a8",
     justification:
       "Archive sync: docker run rclone/rclone with rclone arguments built in-file and passed as a splat (@args); a file-sync tool against the archive drive, no database.",
     sites: [
@@ -756,6 +814,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/ops/check-postgis-prerequisites.cjs",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "c8d4809f836e54df0e5632c3f0817db0aeefbfe7c7529ec7961b1c1158a5cfcf",
     justification:
       "sh(cmd) helper for read-only prerequisite probes (docker exec ... psql -Atc \"SELECT ...\"); its callers pass in-file literals, which the literal surface classifies where they are written.",
     sites: [
@@ -765,6 +824,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/ops/restore-prod-db.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "346b1f50d9a22a3aa283e950a532536bd14bf0c1a79b9c80c73157666af09e7a",
     justification:
       "Disaster-recovery restore of the local prod container from a pg_dump backup (owner-run, requires -Confirm): it replaces the whole database by design and is on no release path. Owner decision: keep as the DR tool or retire.",
     sites: [
@@ -774,6 +834,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/ops/retain-spatial-dataset-versions.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "03d5f8bfd2a669788764ba5e8d6fa9431862db629ade895a7e51cf4c1a8ea6b4",
     justification:
       "createReadOnlySqlPort: the retention CLI's query-only port (execute is refused); the statements it forwards are SpatialDatasetRetention's (gate implementation).",
     sites: [
@@ -783,6 +844,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/ops/verify-prod.ps1",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "cd1c316e567b65ec81a9beaaf1db3b80fc3408babec01d83db49da5aebe1750c",
     justification:
       "Test-Step runs the in-file script blocks of the prod verification (& $Block).",
     sites: [
@@ -792,6 +854,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "scripts/staging-setup.sh",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "7280dee9cd6fa00b44fe4aa96644f4182a6d034d13b2ca49f1ee4482e90da908",
     justification:
       "export $(cat .env.staging | xargs): loads the staging environment variables; the expansion is assignments, not a program.",
     sites: [
@@ -801,6 +864,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "server/services/nmdService.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "0f974d094697d41dc86c7a1692fb2f3abb902429b1ff8986ea2a0c249b71c208",
     justification:
       "Runs gdallocationinfo (tool path resolved at run time) to read one NMD raster value at a point; read-only, no database.",
     sites: [
@@ -810,6 +874,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "server/services/sguJordartRasterService.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "cd6bb56c48a4e704863fbe0905a333717d39950aefc8eb3dc00c6e9cd45723a0",
     justification:
       "Runs gdallocationinfo (tool path resolved at run time) to read one SGU soil raster value at a point; read-only, no database.",
     sites: [
@@ -819,6 +884,7 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "src/infrastructure/geo/static-map-generator.ts",
     policy: "DYNAMIC_REVIEWED",
+    contentSha256: "dc7d5bb05af6b14e9bc9f39a03f8e4db8a6302d676990dc7fe0673a3b9e18c8a",
     justification:
       "U30F3 H-1 (the fold cap now fails closed): two SVG markup template literals (a layer <g> element and the <svg> document) whose interpolations (layer styles, width, height) have more combinations than the scan enumerates (FOLD_CAP_EXCEEDED). They are markup, not SQL or a command; the file's database channels are $queryRaw SELECT tagged templates (bind parameters, judged statically ALLOWED) and it has no process channel.",
     sites: [
@@ -968,7 +1034,7 @@ export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs:
   { by: "docs/ops/postgis_fastighet_pipeline.md", runs: "scripts/import_lm_marktacke.py", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 import_lm_marktacke.py)." },
   { by: "scripts/data-pipeline/IMPORT_GUIDE.md", runs: "root_ops/extract_deferred_data.py", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 extract_deferred_data.py)." },
   // ---- HOST_PATH (9): host tools, downloads, other checkouts and gitignored local files ----
-  { by: "scripts/import-komplettering.ps1", runs: "c:/Dev/miljobeslut-platform-recovery/scripts/import-raw-pdfs.ts", category: "HOST_PATH", justification: "another checkout on the operator's host; this repository's scripts/import-raw-pdfs.ts is scanned at its own path." },
+  { by: "scripts/import-komplettering.ps1", runs: "c:/Dev/miljobeslut-platform-recovery/scripts/import-raw-pdfs.ts", category: "HOST_PATH", justification: "U30F8 (G6-8, corrected): it runs ANOTHER checkout's file on the operator's host, whose content this repository does not hold -- unknown host code (B3/B6), not the repository's own scripts/import-raw-pdfs.ts (which is scanned and writes no protected relation). Reachable only from an operator running this script by hand; pointing the line at the repository's own file is an owner/ops change, not made here." },
   { by: "scripts/import/run-full-raster-pipeline.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the aria2 download tool installed by winget on the operator's host (a downloader, no database client)." },
   { by: "scripts/import/run-historical-download-batched.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the winget-installed aria2 downloader on the operator's host." },
   { by: "scripts/import/run-historical-download.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the winget-installed aria2 downloader on the operator's host." },
@@ -977,6 +1043,7 @@ export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs:
   { by: "docs/google-ai/SETUP.md", runs: ".venv/Scripts/Activate.ps1", category: "HOST_PATH", justification: "after `cd alphaevolve-on-googlecloud`: that gitignored checkout's virtualenv activation script (generated by venv)." },
   { by: "docs/google-ai/SETUP.md", runs: ".venv-adk/Scripts/Activate.ps1", category: "HOST_PATH", justification: "the gitignored .venv-adk virtualenv's activation script (.gitignore: .venv-adk/), generated by venv." },
   { by: "docs/qa/STAGING_SETUP_CHECKLIST.md", runs: ".env.staging", category: "HOST_PATH", justification: "a gitignored local environment file (.env*): sourced on the operator's machine, never repository content." },
+  { by: ".vscode/tasks.json", runs: "coverage/index.html", category: "HOST_PATH", justification: "U30F8 (G6-3): `start coverage/index.html` opens the vitest coverage report (coverage/ is generated and gitignored, .gitignore: coverage) in the browser -- an HTML report, not code an interpreter runs." },
   // ---- CONTAINER_PATH (1) ----
   { by: "Dockerfile.gcp", runs: "/sbin/tini", category: "CONTAINER_PATH", justification: "ENTRYPOINT [\"/sbin/tini\", \"--\"]: tini from the base image's apk add (Dockerfile.gcp:13), no COPY to /sbin." },
   // ---- NOT_A_LAUNCH (8): runbook text read as a launch ----

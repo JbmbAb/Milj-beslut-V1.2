@@ -102,6 +102,14 @@ def load_spec(path=CLASSIFICATION_FILE):
     pgbench = doc['commands'].get('pgbench') or {}
     if not isinstance(pgbench.get('file_flags'), list) or not pgbench['file_flags']:
         raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.pgbench.file_flags')
+    # U30F8: the G6-1/G6-7 vocabularies are required -- a missing table would read as "nothing to refuse"
+    code_runners = doc['commands'].get('code_runners')
+    if not isinstance(code_runners, dict) or not code_runners or not all(isinstance(v, list) and v and all(isinstance(x, str) and x for x in v) for v in code_runners.values()):
+        raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.code_runners')
+    for key3 in ('eval_words', 'program_prefix_words'):
+        v3 = doc['commands'].get(key3)
+        if not isinstance(v3, list) or not v3 or not all(isinstance(x, str) and x for x in v3):
+            raise RuntimeError(f'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.{key3}')
     runners = doc['commands'].get('argument_substituting_runners')
     if not isinstance(runners, list) or not runners or not all(isinstance(x, str) and x for x in runners):
         raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners')
@@ -1464,12 +1472,15 @@ def split_command_line(command, spec=None):
 
     pipelines = []
     st = {'pipeline': [], 'argv': [], 'stdin': None, 'stdin_file': None, 'tok': '', 'started': False,
-          'heredoc': None, 'expect_stdin_file': False, 'skip_next': False}
+          'heredoc': None, 'here_string': False, 'expect_stdin_file': False, 'skip_next': False}
 
     def end_token():
         if st['started']:
             if st['skip_next']:
                 st['skip_next'] = False
+            elif st['here_string']:
+                st['stdin'] = st['tok']  # U30F8 (G6-1): cmd <<< word -- the word is stdin
+                st['here_string'] = False
             elif st['expect_stdin_file']:
                 st['stdin_file'] = st['tok']
                 st['expect_stdin_file'] = False
@@ -1513,6 +1524,43 @@ def split_command_line(command, spec=None):
         if re.match(r'[0-9@*#?$!-]', s[i + 1:i + 2]):
             return dyn(s[i + 1]), i + 2
         return None
+
+    def expand_body(body):
+        # U30F8 (G6-1): the body of an unquoted here-document as the shell expands it -- every expansion is a value
+        out = ''
+        j = 0
+        while j < len(body):
+            ch = body[j]
+            if ch == '\\' and _at(body, j + 1) in ('$', '`', '\\') and _at(body, j + 1) != '':
+                out += body[j + 1]
+                j += 2
+                continue
+            if ch == '$':
+                v = read_variable(body, j)
+                if v:
+                    out += v[0]
+                    j = v[1]
+                    continue
+            if ch == '`':
+                end = body.find('`', j + 1)
+                out += dyn('')
+                j = len(body) if end < 0 else end + 1
+                continue
+            out += ch
+            j += 1
+        return out
+
+    def skip_parens(text, open_at):
+        # U30F8 (G6-1): <(...) / >(...) -- process substitution; the index after it
+        depth = 0
+        for j in range(open_at, len(text)):
+            if text[j] == '(':
+                depth += 1
+            elif text[j] == ')':
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+        return len(text)
 
     s = command
     i = 0
@@ -1564,7 +1612,7 @@ def split_command_line(command, spec=None):
             continue
         if c in ('\n', '\r'):
             if st['heredoc'] is not None:
-                delim = st['heredoc']
+                delim, expand = st['heredoc']
                 st['heredoc'] = None
                 lines = s[i + 1:].split('\n')
                 body = []
@@ -1576,7 +1624,7 @@ def split_command_line(command, spec=None):
                         found = True
                         break
                     body.append(re.sub(r'\r\Z', '', line))
-                st['stdin'] = '\n'.join(body)
+                st['stdin'] = expand_body('\n'.join(body)) if expand else '\n'.join(body)
                 end_pipeline()
                 i = consumed if found else n
                 continue
@@ -1612,16 +1660,31 @@ def split_command_line(command, spec=None):
             continue
         if c == '<':
             end_token()
+            if _at(s, i + 1) == '(':
+                st['tok'] += dyn('')
+                st['started'] = True
+                i = skip_parens(s, i + 1)
+                continue
             if _at(s, i + 1) == '<':
-                m = re.match(r'<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1', s[i:])
+                if _at(s, i + 2) == '<':
+                    st['here_string'] = True
+                    i += 3
+                    continue
+                m = re.match(r'<<-?\s*(\\?)([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\2', s[i:])
                 if m:
-                    st['heredoc'] = m.group(2)
+                    st['heredoc'] = (m.group(3), m.group(1) == '' and m.group(2) == '')
                     i += len(m.group(0))
                     continue
                 i += 2
                 continue
             st['expect_stdin_file'] = True
             i += 1
+            continue
+        if c == '>' and _at(s, i + 1) == '(':
+            end_token()
+            st['tok'] += dyn('')
+            st['started'] = True
+            i = skip_parens(s, i + 1)
             continue
         if c == '>':
             if re.fullmatch(r'[0-9]+', st['tok']):
@@ -1913,6 +1976,8 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
             return [('COMMAND', f'{what} run by {_program_name(argv[runner_at], spec)} takes arguments from its input')]
         return []
 
+    cmds = spec['commands']
+
     for k in range(len(argv)):
         wrapper = _shell_wrapper(argv[k], spec)
         if wrapper:
@@ -1925,18 +1990,44 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
                 if any(seg['argv'] and _dynamic_hint(spec, seg['argv'][0]) is not None for pipeline in split_command_line(command, spec) for seg in pipeline):
                     pre = pre + [('COMMAND', 'a shell runs a command the text does not hold')]
                 t, u = _analyze_command_at(command, read_sql_file, depth + 1, spec)
-                return t, pre + u
+                return targets + t, unresolved + pre + u
+            # U30F8 (G6-1): a shell fed a here-document / here-string runs it as its script when it names none
+            if ctx['stdin'] is not None:
+                if not any(not a.startswith('-') for a in argv[k + 1:]):
+                    t, u = _analyze_command_at(ctx['stdin'], read_sql_file, depth + 1, spec)
+                    return targets + t, unresolved + u
+                if _contains_dynamic(spec, ctx['stdin']):
+                    unresolved.append(('COMMAND', 'a script reads a here-document with values the text does not hold'))
+                return targets, unresolved
             continue
         tool = tool_of(argv[k], spec)
         if tool:
             pre = substituted(k, tool.lower())
             t, u = _analyze_tool(tool, argv[k + 1:], ctx, read_sql_file, depth, spec)
-            return t, pre + u
+            return targets + t, unresolved + pre + u
+        # U30F8 (G6-1/G6-7): code from a flag value (node -e, python -c) or from an expanded here-document / here-string
+        name = _program_name(argv[k], spec)
+        code_flags = cmds['code_runners'].get(name)
+        if code_flags:
+            for n in range(k + 1, len(argv)):
+                lower = _ascii_lower(argv[n])
+                flag = next((f for f in code_flags if lower == f or lower.startswith(f + '=')), None)
+                if flag is None:
+                    continue
+                code = (argv[n + 1] if n + 1 < len(argv) else None) if lower == flag else argv[n][len(flag) + 1:]
+                if code is not None and _contains_dynamic(spec, code):
+                    unresolved.append(('COMMAND', f'{name} evaluates code the text does not hold'))
+                break
+            if ctx['stdin'] is not None and _contains_dynamic(spec, ctx['stdin']):
+                unresolved.append(('COMMAND', f'{name} reads a here-document with values the text does not hold'))
+            continue
+        if name in cmds['eval_words'] and any(_contains_dynamic(spec, a) for a in argv[k + 1:]):
+            unresolved.append(('COMMAND', f'{name} evaluates code the text does not hold'))
     flag_set = set(_ascii_lower(a.strip()) for a in argv)
     o = spec['ogr2ogr']
     if any(f in flag_set for f in o['layer_name_flags']) or any(f in flag_set for f in o['sql_flags']) or any(_is_pg_datasource(a, spec) for a in argv):
         t, u, _ = analyze_ogr2ogr_args(argv[1:], spec)
-        return t, u
+        return targets + t, unresolved + u
     for a in argv:
         if re.search(r'\s', a) and any(name in _ascii_lower(a) for name in spec['commands']['tools'].keys()):
             t, u = _analyze_command_at(a, read_sql_file, depth + 1, spec)
@@ -1957,6 +2048,11 @@ def _analyze_command_at(command, read_sql_file, depth, spec):
                     break
             tools.append(found)
         for n, seg in enumerate(pipeline):
+            # U30F8 (G6-7): in a command line the shell expands the program: one that is a value runs what the text does not hold
+            prefix = spec['commands']['program_prefix_words']
+            p = next((m for m, a in enumerate(seg['argv']) if not re.match(r'[A-Za-z_][A-Za-z0-9_]*=', a) and _ascii_lower(a) not in prefix), -1)
+            if p >= 0 and _dynamic_hint(spec, seg['argv'][p]) is not None and not tool_of(seg['argv'][p], spec):
+                unresolved.append(('COMMAND', 'the program is a value the text does not hold'))
             ctx = {'stdin': seg['stdin'], 'stdin_file': seg['stdin_file'],
                    'piped_from': tools[n - 1] if n > 0 else None, 'pipes_to': tools[n + 1] if n + 1 < len(tools) else None}
             t, u = _analyze_argv_at(seg['argv'], ctx, read_sql_file, depth, spec)

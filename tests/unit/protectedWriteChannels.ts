@@ -49,6 +49,7 @@ import {
   splitCommandLine,
   tokenizeSql,
   toolOf,
+  type CommandSegment,
   type WriteAnalysis,
   type WriteVerdict,
 } from "../../packages/spatial-provider-postgis/src/ProtectedWriteClassifier";
@@ -337,7 +338,11 @@ const VOLUME_DESTROY: TextVerdict = { verdict: "UNRESOLVABLE", detail: "VOLUME_D
 
 function classifyCommandTextUncapped(text: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
   // U30F5 (D-1/D-2): what the command runs besides DB tools -- launched files (recorded) and inline code (scanned)
-  const extra = commandExtrasVerdict(splitCommandLine(text).flat().map((seg) => seg.argv), text, def, readSqlFile);
+  const segments = splitCommandLine(text).flat();
+  const runs = commandExtrasVerdict(segments.map((seg) => seg.argv), text, def, readSqlFile);
+  // U30F8 (G6-1): and the scripts interpreters read from stdin
+  const fromStdin = stdinExtrasVerdict(segments, text, def, readSqlFile);
+  const extra = runs && fromStdin ? worst(runs, fromStdin) : (runs ?? fromStdin);
   const gate = classifyCommandTextGate(text, def, readSqlFile);
   return extra ? (gate ? worst(gate, extra) : extra) : gate;
 }
@@ -470,6 +475,42 @@ function firstPositional(rest: readonly string[], valueFlags: ReadonlySet<string
   return -1;
 }
 
+/**
+ * U30F6/U30F8: a file run at `raw` as `lang` -- a launch (a static path, one anchored at the launcher's directory, or the
+ * static tail of a dynamic directory), or `dynamic` when the file name itself is not in the source.
+ */
+function pathLaunch(raw: string, lang: Language | null): { launch: { file: string; lang: Language | null; suffix?: boolean } | null; dynamic: boolean } {
+  const a = anchoredPath(raw);
+  if (!containsDynamic(a)) return { launch: namesFile(a) ? { file: asLaunchPath(a), lang } : null, dynamic: false };
+  const tail = staticTail(a);
+  return tail !== null ? { launch: { file: tail, lang, suffix: true }, dynamic: false } : { launch: null, dynamic: true };
+}
+
+/** U30F8: record a launch of the current file's scan (not from the literal surface); true when its path is dynamic. */
+function recordLaunch(raw: string, lang: Language | null, via: string): boolean {
+  const r = pathLaunch(raw, lang);
+  if (r.launch && LAUNCH_COLLECTOR && LITERAL_DEPTH === 0 && !LAUNCH_COLLECTOR.some((x) => x.file === r.launch!.file && x.lang === r.launch!.lang)) {
+    LAUNCH_COLLECTOR.push({ ...r.launch, via: norm(via) });
+  }
+  return r.dynamic;
+}
+
+/**
+ * U30F8 (G6-5): the options NODE_OPTIONS gives every node process started with it, read as node flags: a preload
+ * (-r/--require/--import/--loader) is a launch like on the command line; options the source does not hold are dynamic.
+ */
+export function nodeOptionsRuns(value: string, depth = 0): CommandRuns {
+  const out: CommandRuns = { launches: [], inline: [], dynamic: [] };
+  if (dynamicHint(value) !== null) {
+    out.dynamic.push("NODE_OPTIONS holds options the source does not hold");
+    return out;
+  }
+  const r = commandRuns(["node", ...splitCommandLine(value).flat().flatMap((seg) => seg.argv)], depth + 1);
+  out.launches.push(...r.launches);
+  out.dynamic.push(...r.dynamic.map((d) => `NODE_OPTIONS: ${d}`));
+  return out;
+}
+
 interface CommandRuns {
   readonly launches: { file: string; lang: Language | null; module?: boolean; suffix?: boolean; package?: boolean }[];
   readonly inline: { lang: "js" | "py" | "ps"; code: string }[];
@@ -488,6 +529,14 @@ interface CommandRuns {
 export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
   const out: CommandRuns = { launches: [], inline: [], dynamic: [] };
   if (depth > 4) return out;
+  // U30F8 (G6-5): NODE_OPTIONS in the environment of what runs here (before the program, env/cross-env, export, docker -e)
+  for (const a of argv) {
+    const m = /^NODE_OPTIONS=([\s\S]*)$/.exec(a);
+    if (!m) continue;
+    const r = nodeOptionsRuns(m[1]!, depth);
+    out.launches.push(...r.launches);
+    out.dynamic.push(...r.dynamic);
+  }
   const p = programIndex(argv);
   if (p < 0) return out;
   const program = argv[p]!;
@@ -509,17 +558,12 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
   };
   /** A file the command runs as `lang` (null: executed directly): a launch, or DYNAMIC when its path is not in the source. */
   const launch = (raw: string, lang: Language | null, what: string) => {
-    const a = anchoredPath(raw);
     // (U30F6 mutation round 1: a path into node_modules is NOT skipped -- a package's file run by path resolves to no
     // repository file, so it is an unresolved launch: reviewed or failed, like a package preload)
-    if (!containsDynamic(a)) {
-      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang });
-      return;
-    }
     // a dynamic directory with a static file: resolved against the repository's files (F5-4); a dynamic name: DYNAMIC
-    const tail = staticTail(a);
-    if (tail !== null) out.launches.push({ file: tail, lang, suffix: true });
-    else out.dynamic.push(`${what} at a path the source does not hold`);
+    const r = pathLaunch(raw, lang);
+    if (r.launch) out.launches.push(r.launch);
+    if (r.dynamic) out.dynamic.push(`${what} at a path the source does not hold`);
   };
   if (NODE_LIKE.has(base)) {
     for (let i = 0; i < rest.length; i += 1) {
@@ -635,6 +679,9 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
   }
   if (PKG_MANAGERS.has(base)) {
     const i = firstPositional(rest, PKG_VALUE_FLAGS);
+    // U30F8 (G6-6): npm/pnpm/yarn run of a script name the source does not hold (yarn <name> runs a script too)
+    const runAt = i >= 0 && /^(run|run-script)$/.test(rest[i]!) ? firstPositional(rest, PKG_VALUE_FLAGS, i + 1) : base === "yarn" ? i : -1;
+    if (runAt >= 0 && containsDynamic(rest[runAt]!)) out.dynamic.push(`${base} runs a script whose name the source does not hold`);
     if (i >= 0 && /^(exec|x|dlx)$/.test(rest[i]!)) {
       const j = firstPositional(rest, PKG_VALUE_FLAGS, i + 1);
       if (j >= 0) add(commandRuns(rest.slice(j), depth + 1));
@@ -691,7 +738,53 @@ function commandExtrasVerdict(argvs: readonly (readonly string[])[], via: string
   return v;
 }
 
-function inlineVerdict(code: string, lang: "js" | "py" | "ps", def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+/**
+ * U30F8 (G6-1): the interpreter a segment's stdin feeds (docker/podman exec unwrapped) and whether stdin is its script
+ * (it names none: `python3 -`, `node`, `bash -s`, `pwsh -Command -`) rather than data for a script it names.
+ */
+function stdinReader(argv: readonly string[], depth = 0): { lang: "js" | "py" | "ps" | "sh" | "cmd"; scriptless: boolean } | null {
+  const p = programIndex(argv);
+  if (p < 0 || depth > 3) return null;
+  const base = interpreterOf(argv[p]!) ?? programBase(argv[p]!);
+  const rest = argv.slice(p + 1);
+  if ((base === "docker" || base === "podman") && rest[0] === "exec") {
+    let i = 1;
+    while (i < rest.length && rest[i]!.startsWith("-")) i += /^-(u|e|w|-user|-env|-workdir)$/.test(rest[i]!) ? 2 : 1;
+    return stdinReader(rest.slice(i + 1), depth + 1);
+  }
+  const lang = NODE_LIKE.has(base) ? "js" : PYTHON_LIKE.test(base) ? "py" : SH_LIKE.has(base) ? "sh" : PS_LIKE.has(base) ? "ps" : base === "cmd" ? "cmd" : null;
+  if (lang === null) return null;
+  for (const a of rest) {
+    if (a === "-") return { lang, scriptless: true };
+    if (!a.startsWith("-")) return { lang, scriptless: false };
+  }
+  return { lang, scriptless: true };
+}
+
+/**
+ * U30F8 (G6-1): a here-document, here-string or `< file` that is an interpreter's script: its code is scanned as that
+ * language (like node -e / python -c); a body with values the source does not hold is UNRESOLVABLE; a stdin file is a
+ * launch of that file as that language.
+ */
+function stdinExtrasVerdict(segments: readonly CommandSegment[], via: string, def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
+  if (LITERAL_DEPTH > 0) return null;
+  let v: TextVerdict | null = null;
+  const add = (one: TextVerdict | null) => {
+    if (one) v = v ? worst(v, one) : one;
+  };
+  for (const seg of segments) {
+    const reader = stdinReader(seg.argv);
+    if (!reader || !reader.scriptless) continue;
+    if (seg.stdin !== null) {
+      if (containsDynamic(seg.stdin)) add({ verdict: "UNRESOLVABLE", detail: `a ${reader.lang} script on stdin with values the source does not hold` });
+      else add(inlineVerdict(seg.stdin, reader.lang, def, readSqlFile));
+    }
+    if (seg.stdinFile !== null && recordLaunch(seg.stdinFile, reader.lang, via)) add({ verdict: "UNRESOLVABLE", detail: `a ${reader.lang} script on stdin at a path the source does not hold` });
+  }
+  return v;
+}
+
+function inlineVerdict(code: string, lang: "js" | "py" | "ps" | "sh" | "cmd", def: ProtectedRelationsDefinition, readSqlFile: (p: string) => string | null): TextVerdict | null {
   if (INLINE_DEPTH >= 2) return { verdict: "UNRESOLVABLE", detail: `inline ${lang} code nested deeper than the scan reads` };
   INLINE_DEPTH += 1;
   try {
@@ -838,14 +931,15 @@ function programIndex(argv: readonly string[]): number {
  */
 function argvDynamic(argv: readonly string[], depth = 0): string | null {
   if (depth > 4) return "command nesting deeper than the scan reads";
+  // U30F6 (F5-4): a file it runs (a script, a sourced or preloaded file, the program itself) at a path the source does not
+  // hold -- U30F8 (G6-5): also NODE_OPTIONS of a line that runs no program here (export NODE_OPTIONS=...)
+  const launchedAt = commandRuns(argv, depth).dynamic[0];
+  if (launchedAt !== undefined) return launchedAt;
   const p = programIndex(argv);
   if (p < 0) return null;
   const program = argv[p]!;
   const kind = programKind(program);
   if (kind === "DYNAMIC") return "the program is chosen at run time";
-  // U30F6 (F5-4): a file it runs (a script, a sourced or preloaded file, the program itself) at a path the source does not hold
-  const launchedAt = commandRuns(argv, depth).dynamic[0];
-  if (launchedAt !== undefined) return launchedAt;
   const base = interpreterOf(program) ?? programBase(program);
   const rest = argv.slice(p + 1);
   const spread = rest.some((a) => (dynamicHint(a) ?? "").startsWith("..."));
@@ -927,7 +1021,8 @@ function classifyArgvWithStdin(argv: readonly string[], stdin: string, def: Prot
   return (
     withFoldCap([...argv, stdin], (parts) => {
       const command = `${parts.slice(0, -1).map(requote).join(" ")} <<'${marker}'\n${parts[parts.length - 1]}\n${marker}`;
-      return verdictOf(judgeWrites(analyzeCommandLine(command, { readSqlFile, ungated: true }), def));
+      // U30F8 (G6-1): with the scan's extras -- an interpreter's stdin script is scanned as its language
+      return classifyCommandText(command, def, readSqlFile) ?? ALLOWED;
     }) ?? ALLOWED
   );
 }
@@ -3715,6 +3810,13 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
     const elements = splitTop(statement, (t) => t.k === "p" && t.v === "|").filter((e) => e.length > 0);
     elements.forEach((el, index) => {
       let e = el;
+      // U30F8 (G6-5): $env:NODE_OPTIONS = '...' -- the options of every node started after it
+      if (e[0]?.k === "id" && /^\$env:node_options$/i.test(e[0]!.v) && e[1]?.k === "p" && e[1]!.v === "=" && e.length > 2) {
+        const options = foldExpr(e.slice(2), ctx, 0);
+        const texts = options.texts.length > 0 ? options.texts : [dyn("NODE_OPTIONS")];
+        for (const text of texts) scanCommandScript(`NODE_OPTIONS=${requote(text)}`, "sh", sink, def, readSqlFile, { lineOffset: e[0]!.line - 1, channel: "powershell", commandContext: true });
+        return;
+      }
       // an assignment prefix: [type]$x = / $x.y +=
       const eq = e.findIndex((x) => x.k === "p" && (x.v === "=" || x.v === "+="));
       if (eq > 0 && eq <= 8 && e.slice(0, eq).every((x) => (x.k === "id" && !x.v.startsWith("-")) || (x.k === "p" && (x.v === "[" || x.v === "]" || x.v === ".")))) e = e.slice(eq + 1);
@@ -3752,8 +3854,12 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
         sink.counts.channels += 1;
         const pf = foldExpr(programGroup, ctx, 0);
         const programs = pf.texts.length > 0 ? pf.texts : [dyn(hintOf(programGroup, src))];
-        if (first.v === "." && programs.every((p) => programKind(p) !== "DYNAMIC")) {
-          sink.counts.allowed += 1; // dot-sourcing a script by a static file name: the script is scanned itself
+        // U30F8 (G6-4): dot-sourcing runs the file as PowerShell in this scope -- a launch like any other (resolved
+        // beside the launcher, by a static tail, or DYNAMIC)
+        if (first.v === ".") {
+          const dynamicPath = programs.map((p) => recordLaunch(p, "ps", elSrc)).some((d) => d);
+          if (dynamicPath) sink.add({ line, kind: "PROCESS", channel: "powershell", excerpt, verdict: "DYNAMIC", detail: "dot-sources a script at a path the source does not hold" });
+          else sink.counts.allowed += 1;
           return;
         }
         judge(programs, groups.slice(1).flatMap(groupTexts), stdin, line, excerpt, first.pos);
@@ -3761,6 +3867,22 @@ function scanPs(src: string, sink: SiteSink, def: ProtectedRelationsDefinition, 
       }
       if (first.k !== "id" || first.v.startsWith("$") || first.v.startsWith("-")) return;
       const word = first.v.toLowerCase();
+      // U30F8 (G6-4): Import-Module of a path runs that module's code; a bare module name comes from PSModulePath (B3)
+      if (word === "import-module" || word === "ipmo") {
+        const groups = argGroups(e.slice(1));
+        const at = groups.findIndex((g) => !(g.length === 1 && g[0]!.k === "id" && g[0]!.v.startsWith("-") && g[0]!.v.toLowerCase() !== "-name"));
+        const named = groups.findIndex((g) => g.length === 1 && g[0]!.k === "id" && /^-name$/i.test(g[0]!.v));
+        const target = named >= 0 ? groups[named + 1] : groups[at];
+        if (target) {
+          sink.counts.channels += 1;
+          const texts = groupTexts(target);
+          const paths = texts.filter((x) => containsDynamic(x) || /[\\/]/.test(x) || /\.(psm1|ps1|psd1|dll)$/i.test(x));
+          const dynamicPath = paths.map((x) => recordLaunch(x, "ps", elSrc)).some((d) => d);
+          if (dynamicPath) sink.add({ line, kind: "PROCESS", channel: "powershell", excerpt, verdict: "DYNAMIC", detail: "imports a module at a path the source does not hold" });
+          else sink.counts.allowed += 1;
+        }
+        return;
+      }
       if (word === "invoke-expression" || word === "iex") {
         sink.counts.channels += 1;
         const groups = argGroups(e.slice(1)).filter((g) => !(g.length === 1 && g[0]!.k === "id" && g[0]!.v.toLowerCase() === "-command"));
@@ -3866,7 +3988,8 @@ function logicalLines(code: string, lang: "sh" | "ps" | "cmd"): LogicalLine[] {
         k += 1;
         text = `${text}\n${raw[k]!.replace(/\r$/, "")}`;
       }
-      const hd = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(text);
+      // (U30F8: also \EOF and "EOF"; a here-string <<< is no here-document)
+      const hd = /(?<!<)<<(?!<)-?\s*\\?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(text);
       if (hd) {
         while (k + 1 < raw.length) {
           k += 1;
@@ -4042,7 +4165,9 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
     // U30F5 (D-1/D-2): a line that runs a file (tsx x.ts, bash x.txt) or inline code (node -e, python -c) is a channel too
     const runs = commandContext && segments.some((seg) => {
       const r = commandRuns(seg.argv);
-      return r.launches.length + r.inline.length > 0;
+      // U30F8: a dynamic launch (NODE_OPTIONS of an export line) and a script on stdin make the line a channel too
+      const reader = seg.stdin !== null || seg.stdinFile !== null ? stdinReader(seg.argv) : null;
+      return r.launches.length + r.inline.length + r.dynamic.length > 0 || (reader !== null && reader.scriptless);
     });
     if (!touchesTool && !dynamicWhy && !evalLike && !runs) continue;
     sink.counts.channels += 1;
@@ -4131,6 +4256,14 @@ function scanDockerfile(src: string, sink: SiteSink, def: ProtectedRelationsDefi
     while (/\\$/.test(text) && k + 1 < raw.length) {
       k += 1;
       text = `${text.slice(0, -1)} ${raw[k]!.replace(/\r$/, "").replace(/^\s*#.*$/, "")}`;
+    }
+    // U30F8 (G6-5): ENV/ARG NODE_OPTIONS -- the options of every node the image runs
+    const env = /^\s*(?:ENV|ARG)\s+NODE_OPTIONS(?:\s*=\s*|\s+)(.*)$/is.exec(text);
+    if (env) {
+      const raw = env[1]!.trim();
+      const value = /^(["']).*\1$/s.test(raw) ? raw.slice(1, -1) : raw;
+      scanCommandScript(`NODE_OPTIONS=${requote(value)}`, "sh", sink, def, readSqlFile, { lineOffset: start, channel: "dockerfile" });
+      continue;
     }
     const m = /^\s*(RUN|CMD|ENTRYPOINT)\s+(.*)$/is.exec(text);
     if (!m) continue;
@@ -4325,6 +4458,12 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       continue;
     }
     const keyCol = indent + (dash ? m[2]!.length : 0);
+    // U30F8 (G6-5): NODE_OPTIONS in an environment (compose environment: mapping or list, CI env:) -- node flags
+    if (key === "NODE_OPTIONS" || (key === null && /^NODE_OPTIONS=/.test(unquote(value)))) {
+      const nodeOptions = key === "NODE_OPTIONS" ? unquote(value) : unquote(value).slice("NODE_OPTIONS=".length);
+      scanCommandScript(`NODE_OPTIONS=${requote(nodeOptions)}`, "sh", sink, def, readSqlFile, { ...opts, commandContext: true });
+      continue;
+    }
     if (commandContext && key !== null && key.toLowerCase() === "run" && runAs(unquote(value), k, keyCol, k)) continue;
     scanCommandScript(commandContext ? templateValues(unquote(value)) : unquote(value), "sh", sink, def, readSqlFile, opts);
   }
@@ -4356,27 +4495,44 @@ function scanJsonCommands(file: string, src: string, sink: SiteSink, def: Protec
     return at < 0 ? 1 : countNewlines(src.slice(0, at)) + 1;
   };
   const values: string[] = [];
+  /** U30F8 (G6-3): values that ARE commands in a JSON configuration (read with command context, like npm scripts). */
+  const commands: string[] = [];
   if (file.split("/").pop()!.toLowerCase() === "package.json") {
     const scripts = (doc as { scripts?: Record<string, unknown> } | null)?.scripts ?? {};
     for (const v of Object.values(scripts)) if (typeof v === "string") values.push(v);
   } else {
-    const walk = (x: unknown): void => {
-      if (typeof x === "string") values.push(x);
-      else if (Array.isArray(x)) {
-        if (x.every((e) => typeof e === "string") && x.length > 1) values.push(x.map((e) => (/\s/.test(e as string) ? `"${e}"` : e)).join(" "));
-        x.forEach(walk);
+    const quoteArg = (a: unknown) => (typeof a === "string" ? requote(a) : String(a));
+    const walk = (x: unknown, key: string, inCommand: boolean): void => {
+      const command = inCommand || JSON_COMMAND_KEYS.test(key);
+      if (typeof x === "string") {
+        if (key === "NODE_OPTIONS") commands.push(`NODE_OPTIONS=${requote(x)}`);
+        else (command ? commands : values).push(x);
+      } else if (Array.isArray(x)) {
+        if (x.every((e) => typeof e === "string") && x.length > 1) (command ? commands : values).push(x.map(quoteArg).join(" "));
+        x.forEach((e) => walk(e, key, false));
       } else if (x && typeof x === "object") {
         const o = x as Record<string, unknown>;
-        if (typeof o.command === "string" && Array.isArray(o.args)) values.push([o.command, ...o.args.map((a) => (typeof a === "string" && /\s/.test(a) ? `"${a}"` : String(a)))].join(" "));
-        Object.values(o).forEach(walk);
+        // .vscode/tasks.json: command + args
+        if (typeof o.command === "string" && Array.isArray(o.args)) commands.push([o.command, ...o.args].map(quoteArg).join(" "));
+        // .vscode/launch.json: a node configuration runs runtimeExecutable (node) runtimeArgs program args
+        if (typeof o.type === "string" && /^(pwa-)?node$/.test(o.type) && (typeof o.program === "string" || Array.isArray(o.runtimeArgs))) {
+          const argv = [typeof o.runtimeExecutable === "string" ? o.runtimeExecutable : "node", ...(Array.isArray(o.runtimeArgs) ? o.runtimeArgs : []), ...(typeof o.program === "string" ? [o.program] : []), ...(Array.isArray(o.args) ? o.args : [])];
+          commands.push(argv.map(quoteArg).join(" "));
+        }
+        // a devcontainer lifecycle command may be an object of named commands: each is a command
+        for (const [k, v] of Object.entries(o)) walk(v, k, command && typeof v === "string");
       }
     };
-    if (doc !== null) walk(doc);
+    if (doc !== null) walk(doc, "", false);
     else values.push(...src.split("\n"));
   }
   const npm = file.split("/").pop()!.toLowerCase() === "package.json";
   for (const v of values) scanCommandScript(v, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: npm ? "npm script" : "json", commandContext: npm });
+  for (const v of commands) scanCommandScript(v, "sh", sink, def, readSqlFile, { lineOffset: lineOf(v) - 1, channel: "json command", commandContext: true });
 }
+
+/** U30F8 (G6-3): JSON keys whose values are commands (devcontainer lifecycle commands, tasks/hooks `command`). */
+const JSON_COMMAND_KEYS = /^(initializeCommand|onCreateCommand|updateContentCommand|postCreateCommand|postStartCommand|postAttachCommand|command|commands)$/;
 
 function scanSqlFile(src: string, sink: SiteSink, def: ProtectedRelationsDefinition): void {
   sink.counts.channels += 1;

@@ -95,6 +95,15 @@ function Get-ProtectedClassificationSpec {
     $subst = @($doc.commands.argument_substituting_runners)
     if ($null -eq $doc.commands.argument_substituting_runners -or $subst.Count -eq 0 -or @($subst | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners' }
     if ($null -eq $doc.commands.pgbench -or @($doc.commands.pgbench.file_flags).Count -eq 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.pgbench.file_flags' }
+    # U30F8: the G6-1/G6-7 vocabularies are required -- a missing table would read as "nothing to refuse"
+    if ($null -eq $doc.commands.code_runners -or @($doc.commands.code_runners.PSObject.Properties).Count -eq 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.code_runners' }
+    foreach ($p in $doc.commands.code_runners.PSObject.Properties) { $v = @($p.Value); if ($v.Count -eq 0 -or @($v | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.code_runners' } }
+    foreach ($k in @('eval_words', 'program_prefix_words')) {
+        $v = @($doc.commands.$k)
+        if ($null -eq $doc.commands.$k -or $v.Count -eq 0 -or @($v | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw "PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.$k" }
+    }
+    $codeRunners = [System.Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
+    foreach ($p in $doc.commands.code_runners.PSObject.Properties) { $codeRunners[$p.Name] = [string[]]@($p.Value) }
     $tools = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     foreach ($p in $doc.commands.tools.PSObject.Properties) { $tools[$p.Name] = [string]$p.Value }
     $wrappers = [System.Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
@@ -135,6 +144,9 @@ function Get-ProtectedClassificationSpec {
         ForeignTableOption = [string]$remote.table
         SubstitutingRunners = [string[]]$subst
         PgbenchFileFlags = [string[]]@($doc.commands.pgbench.file_flags)
+        CodeRunners = $codeRunners
+        EvalWords = [string[]]@($doc.commands.eval_words)
+        ProgramPrefixWords = [string[]]@($doc.commands.program_prefix_words)
         OgrFormatFlags = [string[]]@($doc.ogr2ogr.format_flags)
         OgrDatabaseFormats = [string[]]@($doc.ogr2ogr.database_formats)
         OgrDumpFormats = [string[]]@($doc.ogr2ogr.sql_dump_formats)
@@ -1271,13 +1283,38 @@ function PrgCmdVariable([string]$s) {
     return $null
 }
 
+# U30F8 (G6-1): the body of an unquoted here-document as the shell expands it -- every expansion is a value
+function PrgExpandHeredocBody([string]$body) {
+    $out = [System.Text.StringBuilder]::new()
+    $j = 0
+    while ($j -lt $body.Length) {
+        $ch = [string]$body[$j]; $ch1 = PrgAt $body ($j + 1)
+        if ($ch -ceq '\' -and ('$', '`', '\' -ccontains $ch1)) { [void]$out.Append($ch1); $j += 2; continue }
+        if ($ch -ceq '$') { $v = PrgReadVariable $body $j; if ($null -ne $v) { [void]$out.Append($v[0]); $j = $v[1]; continue } }
+        if ($ch -ceq '`') { $end = PrgIndexOf $body '`' ($j + 1); [void]$out.Append((PrgDyn '')); $j = if ($end -lt 0) { $body.Length } else { $end + 1 }; continue }
+        [void]$out.Append($ch); $j += 1
+    }
+    return $out.ToString()
+}
+
+# U30F8 (G6-1): <(...) / >(...) -- process substitution; the index after it
+function PrgSkipParens([string]$s, [int]$open) {
+    $depth = 0
+    for ($j = $open; $j -lt $s.Length; $j++) {
+        if ([string]$s[$j] -ceq '(') { $depth += 1 }
+        elseif ([string]$s[$j] -ceq ')') { $depth -= 1; if ($depth -eq 0) { return $j + 1 } }
+    }
+    return $s.Length
+}
+
 function Split-ProtectedCommandLine([string]$Command) {
     $pipelines = [System.Collections.Generic.List[object]]::new()
     $st = @{ pipeline = [System.Collections.Generic.List[object]]::new(); argv = [System.Collections.Generic.List[string]]::new(); stdin = $null; stdinFile = $null
-        tok = [System.Text.StringBuilder]::new(); started = $false; heredoc = $null; expectStdinFile = $false; skipNext = $false }
+        tok = [System.Text.StringBuilder]::new(); started = $false; heredoc = $null; hereString = $false; expectStdinFile = $false; skipNext = $false }
     $endToken = {
         if ($st.started) {
             if ($st.skipNext) { $st.skipNext = $false }
+            elseif ($st.hereString) { $st.stdin = $st.tok.ToString(); $st.hereString = $false }  # U30F8 (G6-1): cmd <<< word -- the word is stdin
             elseif ($st.expectStdinFile) { $st.stdinFile = $st.tok.ToString(); $st.expectStdinFile = $false }
             else { $st.argv.Add($st.tok.ToString()) }
         }
@@ -1330,7 +1367,7 @@ function Split-ProtectedCommandLine([string]$Command) {
         if (('\', '`', '^' -ccontains $c) -and ($c1 -ceq "`n" -or ($c1 -ceq "`r" -and (PrgAt $s ($i + 2)) -ceq "`n"))) { $i += $(if ($c1 -ceq "`r") { 3 } else { 2 }); continue }
         if ($c -ceq "`n" -or $c -ceq "`r") {
             if ($null -ne $st.heredoc) {
-                $delim = $st.heredoc; $st.heredoc = $null
+                $delim = $st.heredoc[0]; $expand = $st.heredoc[1]; $st.heredoc = $null
                 $lines = (PrgSlice $s ($i + 1) $n).Split("`n")
                 $body = [System.Collections.Generic.List[string]]::new()
                 $consumed = $i + 1; $found = $false
@@ -1340,7 +1377,7 @@ function Split-ProtectedCommandLine([string]$Command) {
                     if ($clean.Trim() -ceq $delim) { $found = $true; break }
                     $body.Add($clean)
                 }
-                $st.stdin = $body -join "`n"
+                $st.stdin = if ($expand) { PrgExpandHeredocBody ($body -join "`n") } else { $body -join "`n" }
                 & $endPipeline
                 $i = if ($found) { $consumed } else { $n }; continue
             }
@@ -1356,13 +1393,16 @@ function Split-ProtectedCommandLine([string]$Command) {
         if ($c -ceq ';') { & $endPipeline; $i += 1; continue }
         if ($c -ceq '<') {
             & $endToken
+            if ($c1 -ceq '(') { [void]$st.tok.Append((PrgDyn '')); $st.started = $true; $i = PrgSkipParens $s ($i + 1); continue }
             if ($c1 -ceq '<') {
-                $m = [regex]::Match((PrgSlice $s $i $n), '^<<-?\s*([''"]?)([A-Za-z_][A-Za-z0-9_]*)\1')
-                if ($m.Success) { $st.heredoc = $m.Groups[2].Value; $i += $m.Value.Length; continue }
+                if ((PrgAt $s ($i + 2)) -ceq '<') { $st.hereString = $true; $i += 3; continue }
+                $m = [regex]::Match((PrgSlice $s $i $n), '^<<-?\s*(\\?)([''"]?)([A-Za-z_][A-Za-z0-9_]*)\2')
+                if ($m.Success) { $st.heredoc = @($m.Groups[3].Value, ($m.Groups[1].Value -ceq '' -and $m.Groups[2].Value -ceq '')); $i += $m.Value.Length; continue }
                 $i += 2; continue
             }
             $st.expectStdinFile = $true; $i += 1; continue
         }
+        if ($c -ceq '>' -and $c1 -ceq '(') { & $endToken; [void]$st.tok.Append((PrgDyn '')); $st.started = $true; $i = PrgSkipParens $s ($i + 1); continue }
         if ($c -ceq '>') {
             if ($st.tok.ToString() -cmatch '^[0-9]+\z') { [void]$st.tok.Clear(); $st.started = $false }
             & $endToken
@@ -1605,7 +1645,16 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
                 foreach ($pipeline in (Split-ProtectedCommandLine $command)) { foreach ($seg in $pipeline) { if ($seg.argv.Count -gt 0 -and $null -ne (PrgDynamicHint $seg.argv[0])) { $dynProgram = $true } } }
                 if ($dynProgram) { $sub.Unres('COMMAND', 'a shell runs a command the text does not hold') }
                 if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $sub.Unres('COMMAND', "a shell command run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
-                return $sub
+                $acc.Merge($sub)
+                return $acc
+            }
+            # U30F8 (G6-1): a shell fed a here-document / here-string runs it as its script when it names none
+            if ($null -ne $ctx.stdin) {
+                $script = $false
+                for ($n = $k + 1; $n -lt $argv.Count; $n++) { if (-not $argv[$n].StartsWith('-', [StringComparison]::Ordinal)) { $script = $true } }
+                if (-not $script) { $acc.Merge((PrgAnalyzeCommandAt $ctx.stdin $readSqlFile ($depth + 1))) }
+                elseif (PrgContainsDynamic $ctx.stdin) { $acc.Unres('COMMAND', 'a script reads a here-document with values the text does not hold') }
+                return $acc
             }
             continue
         }
@@ -1614,7 +1663,29 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             $rest = if ($k + 1 -lt $argv.Count) { [string[]]$argv[($k + 1)..($argv.Count - 1)] } else { [string[]]@() }
             $res = PrgAnalyzeTool $tool $rest $ctx $readSqlFile $depth
             if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $res.Unres('COMMAND', "$(PrgLower $tool) run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
-            return $res
+            $acc.Merge($res)
+            return $acc
+        }
+        # U30F8 (G6-1/G6-7): code from a flag value (node -e, python -c) or from an expanded here-document / here-string
+        $name = PrgProgramName $argv[$k]
+        if ($spec.CodeRunners.ContainsKey($name)) {
+            $codeFlags = $spec.CodeRunners[$name]
+            for ($n = $k + 1; $n -lt $argv.Count; $n++) {
+                $lower = PrgLower $argv[$n]
+                $flag = $null
+                foreach ($f in $codeFlags) { if ($null -eq $flag -and ($lower -ceq $f -or $lower.StartsWith("$f=", [StringComparison]::Ordinal))) { $flag = $f } }
+                if ($null -eq $flag) { continue }
+                $code = if ($lower -ceq $flag) { if ($n + 1 -lt $argv.Count) { $argv[$n + 1] } else { $null } } else { $argv[$n].Substring($flag.Length + 1) }
+                if ($null -ne $code -and (PrgContainsDynamic $code)) { $acc.Unres('COMMAND', "$name evaluates code the text does not hold") }
+                break
+            }
+            if ($null -ne $ctx.stdin -and (PrgContainsDynamic $ctx.stdin)) { $acc.Unres('COMMAND', "$name reads a here-document with values the text does not hold") }
+            continue
+        }
+        if ($spec.EvalWords -ccontains $name) {
+            $dynArg = $false
+            for ($n = $k + 1; $n -lt $argv.Count; $n++) { if (PrgContainsDynamic $argv[$n]) { $dynArg = $true } }
+            if ($dynArg) { $acc.Unres('COMMAND', "$name evaluates code the text does not hold") }
         }
     }
     $flagSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -1625,7 +1696,8 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
     foreach ($a in $argv) { if (PrgIsPgDatasource $a) { $ogrEvidence = $true } }
     if ($ogrEvidence) {
         $rest = if ($argv.Count -gt 1) { [string[]]$argv[1..($argv.Count - 1)] } else { [string[]]@() }
-        return (PrgAnalyzeOgr2ogr $rest)[0]
+        $acc.Merge((PrgAnalyzeOgr2ogr $rest)[0])
+        return $acc
     }
     foreach ($a in $argv) {
         if ($a -match '\s') {
@@ -1649,6 +1721,11 @@ function PrgAnalyzeCommandAt([string]$command, $readSqlFile, [int]$depth) {
         }
         for ($n = 0; $n -lt $pipeline.Count; $n++) {
             $seg = $pipeline[$n]
+            # U30F8 (G6-7): in a command line the shell expands the program: one that is a value runs what the text does not hold
+            $prefix = (Get-ProtectedClassificationSpec).ProgramPrefixWords
+            $p = -1
+            for ($m = 0; $m -lt $seg.argv.Count; $m++) { if (-not ($seg.argv[$m] -cmatch '^[A-Za-z_][A-Za-z0-9_]*=') -and -not ($prefix -ccontains (PrgLower $seg.argv[$m]))) { $p = $m; break } }
+            if ($p -ge 0 -and $null -ne (PrgDynamicHint $seg.argv[$p]) -and $null -eq (PrgToolOf $seg.argv[$p])) { $acc.Unres('COMMAND', 'the program is a value the text does not hold') }
             $ctx = [pscustomobject]@{ stdin = $seg.stdin; stdinFile = $seg.stdinFile; pipedFrom = $(if ($n -gt 0) { $tools[$n - 1] } else { $null }); pipesTo = $(if ($n + 1 -lt $tools.Count) { $tools[$n + 1] } else { $null }) }
             $acc.Merge((PrgAnalyzeArgvAt ([string[]]$seg.argv) $ctx $readSqlFile $depth))
         }

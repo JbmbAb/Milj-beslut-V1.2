@@ -44,7 +44,7 @@ import {
   RETIRED_DESTRUCTIVE_SCRIPTS,
   validateRetiredDestructiveScripts,
 } from '../../packages/spatial-provider-postgis/src/ProtectedRelationGate';
-import { commandRuns, languageOf, scanFile, walkRepository, type ChannelSite, type FileScan, type Language, type Launch } from './protectedWriteChannels';
+import { commandRuns, languageOf, nodeOptionsRuns, scanFile, walkRepository, type ChannelSite, type FileScan, type Language, type Launch } from './protectedWriteChannels';
 import * as channels from './protectedWriteChannels';
 import {
   FILE_TYPE_DECISIONS,
@@ -68,9 +68,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 61,
-  reviewedSites: 136,
-  reviewedSha256: 'b9d4aaf834b0b0fad49e1ea2de31875d952c2326f41a5d5a390de5f2269363eb',
+  reviewedEntries: 62,
+  reviewedSites: 137,
+  reviewedSha256: '6a8c5e779224e861e4386b0dcb09f370c18a978e9524754128121c39fb80d49c',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
@@ -88,8 +88,8 @@ const LOCKS = {
   // U30F5 (D-7): the open owner decisions (BLOCKERARE, failed by their own test)
   openDecisionsSha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
   // U30F6 (F5-3): the reviewed launches that resolve to no repository file (and their category arguments)
-  unresolvedLaunches: 58,
-  unresolvedLaunchesSha256: '10a28d91846a54a6b2b526fe9a36b097940b055630cab86556a99b1ab0ca4121',
+  unresolvedLaunches: 59,
+  unresolvedLaunchesSha256: 'b1d7a2b70a013183633d7bf7ce7869f49cdc439f43eaae431ad7a34e94aeb823',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -247,6 +247,23 @@ const RETIRED_ENTRYPOINT_ONLY: Readonly<Record<string, string>> = {
   'scripts/import/sanitize-postgis-failed-imports.ps1': 'eb341213dc994e7ee0ff3fdb6baaccdfae8fd0de018a327012168fa89eb5c4b0',
 };
 
+/**
+ * U30F8 (G6-2): what a reviewed DYNAMIC entry pins -- the text the scan reads of the file: a package.json's `scripts`
+ * (its only commands; a new dependency is no new call path), every other file whole (line endings normalised).
+ */
+function reviewedContentSha(file: string, text: string): string {
+  if (file.split('/').pop()!.toLowerCase() === 'package.json') {
+    let scripts: unknown = null;
+    try {
+      scripts = (JSON.parse(text) as { scripts?: unknown }).scripts ?? {};
+    } catch {
+      scripts = null;
+    }
+    if (scripts !== null) return createHash('sha256').update(JSON.stringify(scripts)).digest('hex');
+  }
+  return normalisedSha(text);
+}
+
 /** Every problem of one file, given its scan. */
 function evaluateFile(file: string, text: string, scan: FileScan, ctx: EvaluationContext): Problem[] {
   const problems: Problem[] = [];
@@ -266,6 +283,12 @@ function evaluateFile(file: string, text: string, scan: FileScan, ctx: Evaluatio
     return problems;
   }
   const entry = ctx.reviewed.get(file);
+  // U30F8 (G6-2): a reviewed DYNAMIC file is pinned by content -- a new call path in it (a helper call to a test source,
+  // a data file, process.argv) is never invisible: any change fails until the entry is reviewed again and re-pinned
+  if (entry?.policy === 'DYNAMIC_REVIEWED') {
+    const pin = reviewedContentSha(file, text);
+    if (entry.contentSha256 !== pin) add(`a reviewed DYNAMIC file changed (content sha256 ${pin}, pinned ${entry.contentSha256 ?? 'none'}): review its entry again and re-pin it (U30F8 G6-2)`);
+  }
   // U30F5 (D-7): the pinned open sites are reported apart (open: true), every other site as before
   const { open, rest } = splitOpen(file, scan.sites);
   for (const s of open) problems.push({ file, problem: `OPEN owner decision (U30F5 D-7): line ${s.line}: ${s.verdict} ${s.kind} via ${s.channel} (${s.detail}): ${s.excerpt}`, open: true });
@@ -534,8 +557,35 @@ function launchProblems(result: { launched: LaunchedScan[]; problems: Problem[];
 }
 
 const REPO_FILES = new Set(REPO.files);
+/**
+ * U30F8 (G6-5): NODE_OPTIONS in an environment file (.env, .env.*: dotenv -e, compose env_file) -- every node process
+ * started with it preloads what it names. Its preloads are launches of the file; options the source does not hold fail.
+ */
+function envFileRuns(files: readonly string[], read: (p: string) => string | null): { launchers: { by: string; launches: Launch[] }[]; problems: Problem[] } {
+  const launchers: { by: string; launches: Launch[] }[] = [];
+  const problems: Problem[] = [];
+  for (const f of files) {
+    if (!/^\.env/.test(f.split('/').pop()!) || EXCLUDED.some((re) => re.test(f))) continue;
+    const text = read(f);
+    if (text === null) continue;
+    const launches: Launch[] = [];
+    for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
+      const m = /^\s*(?:export\s+)?NODE_OPTIONS\s*=\s*(.*)$/.exec(raw);
+      if (!m) continue;
+      const v = m[1]!.trim();
+      const value = /^(["']).*\1$/.test(v) ? v.slice(1, -1) : v;
+      const runs = nodeOptionsRuns(value);
+      for (const l of runs.launches) launches.push({ ...l, via: raw.trim().slice(0, 160) });
+      for (const d of runs.dynamic) problems.push({ file: f, problem: `${d} -- ${raw.trim().slice(0, 160)}` });
+    }
+    if (launches.length) launchers.push({ by: f, launches });
+  }
+  return { launchers, problems };
+}
+
+const REPO_ENV_FILES = envFileRuns(REPO.files, readRepo(REPO_ROOT));
 const REPO_LAUNCHES = evaluateLaunches(
-  [...[...REPO.scans].map(([by, s]) => ({ by, launches: s.launches })), ...runbookLaunchers(REPO.files, readRepo(REPO_ROOT))],
+  [...[...REPO.scans].map(([by, s]) => ({ by, launches: s.launches })), ...runbookLaunchers(REPO.files, readRepo(REPO_ROOT)), ...REPO_ENV_FILES.launchers],
   readRepo(REPO_ROOT),
   REPO_FILES,
 );
@@ -587,6 +637,7 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
 
   it('every file a scanned command or a runbook line runs is scanned as what it runs as (U30F5 D-1)', () => {
     expect(launchProblems(REPO_LAUNCHES, CONTEXT).filter((p) => !p.open)).toEqual([]);
+    expect(REPO_ENV_FILES.problems).toEqual([]);
     // the walk saw launches at all (it cannot pass vacuously): package.json scripts run tsx/node scripts
     expect([...REPO.scans.values()].reduce((n, s) => n + s.launches.length, 0)).toBeGreaterThan(20);
   });
@@ -1274,8 +1325,9 @@ function problemsOfTree(files: Readonly<Record<string, string>>): Problem[] {
   }
   // U30F5 (D-1): what the new files launch (their commands and runbook lines), scanned as what it runs as
   const own = Object.keys(files);
-  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read)];
-  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx));
+  const env = envFileRuns(own, read);
+  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read), ...env.launchers];
+  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx), ...env.problems);
   return out.filter((p) => !p.open);
 }
 
@@ -1621,8 +1673,9 @@ function problemsOfChange(files: Readonly<Record<string, string>>): Problem[] {
     if (scan) out.push(...evaluateFile(f, texts.get(f)!, scan, ctx));
   }
   const own = Object.keys(files);
-  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read)];
-  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx));
+  const env = envFileRuns(own, read);
+  const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read), ...env.launchers];
+  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx), ...env.problems);
   return out.filter((p) => !p.open);
 }
 

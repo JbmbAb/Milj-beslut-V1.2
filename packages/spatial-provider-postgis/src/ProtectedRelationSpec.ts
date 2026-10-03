@@ -89,6 +89,12 @@ export interface ProtectedRelationClassificationSpec {
     readonly shell_wrappers_rest_of_line: readonly string[];
     /** U30F5 (D-5): programs that run a DB tool with arguments taken from their input (xargs, parallel, find -exec). */
     readonly argument_substituting_runners: readonly string[];
+    /** U30F8 (G6-1/G6-7): programs that run code given as a flag value (node -e, python -c) or on stdin. */
+    readonly code_runners: Readonly<Record<string, readonly string[]>>;
+    /** U30F8 (G6-7): programs whose arguments are code (eval, Invoke-Expression). */
+    readonly eval_words: readonly string[];
+    /** U30F8 (G6-7): words before the program that are not the program (exec "$@", sudo x). */
+    readonly program_prefix_words: readonly string[];
     readonly psql: { readonly command_flags: readonly string[]; readonly file_flags: readonly string[]; readonly value_flags: readonly string[] };
     readonly ogrinfo: { readonly sql_flags: readonly string[] };
     /** U30F6 (F5-5): pgbench runs the SQL of each -f/--file script (name@weight). */
@@ -162,6 +168,12 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   if (!commands || !commands.tools || typeof commands.tools !== "object") throw invalid("commands.tools");
   stringList(commands.argument_substituting_runners, "commands.argument_substituting_runners");
   stringList((commands.pgbench as Record<string, unknown> | undefined)?.file_flags, "commands.pgbench.file_flags");
+  // U30F8: the G6-1/G6-7 vocabularies are required -- a missing table would read as "nothing to refuse"
+  const codeRunners = commands.code_runners as Record<string, unknown> | undefined;
+  if (!codeRunners || typeof codeRunners !== "object" || Object.keys(codeRunners).length === 0) throw invalid("commands.code_runners");
+  for (const [k, v] of Object.entries(codeRunners)) stringList(v, `commands.code_runners.${k}`);
+  stringList(commands.eval_words, "commands.eval_words");
+  stringList(commands.program_prefix_words, "commands.program_prefix_words");
   stringList(doc.schema_operations, "schema_operations");
   return Object.freeze({ ...(doc as object), relation_naming: Object.freeze({ current, legacy: Object.freeze(legacy), max_identifier_bytes: 63 }) }) as ProtectedRelationClassificationSpec;
 }
