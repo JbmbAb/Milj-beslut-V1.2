@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   presentProvisioningRequestDetail,
+  presentProvisioningRequestRetryable,
   PROCESS_BUILT_REQUEST_VIEW,
   PROVISIONING_REQUEST_FAILURE_PRESENTATION,
 } from '../../server/modules/localization/provisioningRequestPresentation';
@@ -105,5 +106,55 @@ describe('W-CATCH3-R2: no own failureCode field and no process mark -> never the
     expect(presentProvisioningRequestDetail('geometry-supersession', { status: 'FAILED', failureCode: 'EXISTING_ARTIFACT_REFUSED', failureDetail: null })).toBe(
       'Bytet till den nya kontrollpunkten slutfördes inte: ett befintligt objekt som begäran bygger på underkändes vid verifieringen (skadat objekt eller felkonfigurerad verifieringsnyckel). Felet är bestående och löses inte av ett nytt försök.',
     );
+  });
+});
+
+/**
+ * W-U20CDF6 (UI1 limit 1; CATCH3 OD-C3-6: the geometry view carries `retryable` like bootstrap-status): the flag of a
+ * FAILED or SUPERSEDED request, explicit, from the class -- and agreeing with the text's retry sentence wherever the
+ * text makes one. null only for a request that did not fail.
+ */
+describe('W-U20CDF6: presentProvisioningRequestRetryable', () => {
+  it('null when nothing failed; an explicit boolean for every FAILED / SUPERSEDED request', () => {
+    for (const status of ['PENDING', 'LEASED', 'COMPLETED', null]) {
+      expect(presentProvisioningRequestRetryable({ status, failureCode: 'EXISTING_ARTIFACT_READ_ERROR' }), String(status)).toBeNull();
+    }
+    expect(presentProvisioningRequestRetryable(null)).toBeNull();
+    expect(presentProvisioningRequestRetryable(undefined)).toBeNull();
+    for (const status of ['FAILED', 'SUPERSEDED']) {
+      for (const failureCode of [...Object.keys(PROVISIONING_REQUEST_FAILURE_PRESENTATION), 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR', 'SOMETHING_OLDER', null, undefined]) {
+        expect(typeof presentProvisioningRequestRetryable({ status, failureCode }), `${status} ${String(failureCode)}`).toBe('boolean');
+      }
+    }
+  });
+
+  it('a stored code: the table flag; agreeing with the text -- "kan lyckas" iff true; an undetermined code promises nothing (false)', () => {
+    for (const [code, entry] of Object.entries(PROVISIONING_REQUEST_FAILURE_PRESENTATION)) {
+      const flag = presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: code, failureDetail: RAW_DETAIL });
+      expect(flag, code).toBe(entry.retryable === true);
+      const text = presentProvisioningRequestDetail('execution-identity', { status: 'FAILED', failureCode: code, failureDetail: RAW_DETAIL })!;
+      expect(/Ett nytt försök kan lyckas\./.test(text), code).toBe(flag);
+    }
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'GEOMETRY_UNAVAILABLE_OR_TAMPERED' })).toBe(false);
+    expect(presentProvisioningRequestRetryable({ status: 'SUPERSEDED', failureCode: 'PREDECESSOR_NO_LONGER_CURRENT' })).toBe(false);
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'SOMETHING_OLDER' })).toBe(false);
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED' })).toBe(false);
+    // An inherited code is no code (as for the text).
+    expect(presentProvisioningRequestRetryable(Object.create({ failureCode: 'EXISTING_ARTIFACT_READ_ERROR' }, { status: { value: 'FAILED' } }))).toBe(false);
+  });
+
+  it('LOCALIZATION_GEOMETRY_<class>: the currentness class own flag (CURRENTNESS_RESOLUTION_ERROR yes, a refusal no, an unknown class no)', () => {
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_RESOLUTION_ERROR' })).toBe(true);
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'LOCALIZATION_GEOMETRY_DERIVED_GEOMETRY_PERSISTENCE_FAILED' })).toBe(true);
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'LOCALIZATION_GEOMETRY_AMBIGUOUS_CURRENT_GEOMETRY' })).toBe(false);
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'LOCALIZATION_GEOMETRY_CURRENTNESS_STORAGE_INTEGRITY_FAULT' })).toBe(false);
+    expect(presentProvisioningRequestRetryable({ status: 'FAILED', failureCode: 'LOCALIZATION_GEOMETRY_NOT_A_CLASS' })).toBe(false);
+  });
+
+  it('a view this process built: its own fault class decides, and only an own `true` promises a retry', () => {
+    const built = (retryable: unknown) => ({ [PROCESS_BUILT_REQUEST_VIEW]: true as const, status: 'FAILED', failureDetail: 'x', retryable: retryable as boolean });
+    expect(presentProvisioningRequestRetryable(built(true))).toBe(true);
+    expect(presentProvisioningRequestRetryable(built(false))).toBe(false);
+    expect(presentProvisioningRequestRetryable(built(undefined))).toBe(false);
   });
 });

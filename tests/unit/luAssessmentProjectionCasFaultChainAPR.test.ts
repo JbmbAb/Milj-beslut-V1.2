@@ -708,7 +708,8 @@ describe('W-APR add-on 3: each REJECT_* of the selection is classified as what i
     const f = await buildFixture();
     await arrange(f);
     state.repo = coldRepository(f);
-    const absent = { ok: false, error: 'No current governed LU assessment is available for this project.' };
+    // W-U20CDF6 (UI1 limit 1): a proven absence carries retryable false, explicitly.
+    const absent = { ok: false, error: 'No current governed LU assessment is available for this project.', retryable: false };
 
     const chain = await readChain();
     for (const res of [chain.readBack, chain.pdf, chain.verify]) {

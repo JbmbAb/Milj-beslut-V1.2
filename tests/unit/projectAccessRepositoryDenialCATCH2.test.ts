@@ -38,7 +38,8 @@ describe('W-CATCH2 #14: the access check types its denial', () => {
       expect(error).toBeInstanceOf(ProjectAccessDeniedError);
       expect(error).toMatchObject({ message, code: PROJECT_ACCESS_DENIED });
       expect(isProjectAccessDenied(error)).toBe(true);
-      expect(projectAccessFailure(error)).toEqual({ ok: false, status: 403, error: 'Not authorized for this project.' });
+      // W-U20CDF6 (UI1 limit 1): a denial carries retryable false, explicitly.
+      expect(projectAccessFailure(error)).toEqual({ ok: false, status: 403, error: 'Not authorized for this project.', retryable: false });
     });
   }
 

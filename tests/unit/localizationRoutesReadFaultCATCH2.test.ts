@@ -138,7 +138,8 @@ describe('W-CATCH2 #14: the bootstrap routes answer 403 only for a real denial; 
         h.assertProjectAccess.mockRejectedValueOnce(denial(message));
         const res = await call();
         expect(res.status).toBe(403);
-        expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.' });
+        // W-U20CDF6 (UI1 limit 1): a denial carries retryable false, explicitly.
+        expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.', retryable: false });
       });
     }
     it(`${route}: the access facts cannot be read (database down) -> 503 PROJECT_ACCESS_UNRESOLVED, retryable, never 403`, async () => {

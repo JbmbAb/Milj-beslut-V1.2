@@ -163,6 +163,7 @@ import localizationRoutes from '../../server/routes/localization.routes';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 import { ProjectAccessDeniedError } from '../../server/repositories/projectAccessRepository';
 import { LuReadFaultError, readFaultOfClass } from '../../server/modules/localization/readFaultClassification';
+import { resolveLocalizationViewerRuntimeConfigForProject } from '../../server/modules/localization/createLocalizationViewerRuntime';
 
 /** In-memory CAS. `failFirstRead` makes the next N reads of one id fail with the given error. */
 class FaultyMemoryRepository {
@@ -463,7 +464,7 @@ describe('W-U20CDF5 B1: assertProjectAccess -- 403 only for the typed denial; a 
     faults.access = [denied];
     const res = await PATHS[path]();
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.' });
+    expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.', retryable: false });
   });
 });
 
@@ -512,7 +513,7 @@ describe('W-U20CDF5 B4: authorizeAssessmentPresentation -- a read fault is never
     faults.access = [undefined, denied];
     const res = await PATHS.readBack();
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.' });
+    expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.', retryable: false });
   });
 
   it('mutation B4-PHASE: an unknown failure READING the binding index (no stable code) is a read of unknown persistence -> 503 READ_ERROR, never "not bound"', async () => {
@@ -529,7 +530,7 @@ describe('W-U20CDF5 B4: authorizeAssessmentPresentation -- a read fault is never
     faults.bindingResolve = async () => { throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE'); };
     const res = await PATHS.readBack();
     expect(res.status).toBe(424);
-    expect(res.body).toEqual({ ok: false, error: 'Governed LU assessment is not bound to this project.' });
+    expect(res.body).toEqual({ ok: false, error: 'Governed LU assessment is not bound to this project.', retryable: false });
   });
 });
 
@@ -575,7 +576,7 @@ describe('W-U20CDF5 B2: a presentation failure on the map is typed with a neutra
     faults.presentation = denied;
     const res = await PATHS.map();
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.' });
+    expect(res.body).toEqual({ ok: false, error: 'Not authorized for this project.', retryable: false });
   });
 });
 
@@ -732,7 +733,7 @@ describe('W-U20CDF5-add: the assessment read under the selected id must BE that 
     repository.misdirectRead(assessment.artifact_id, 2, 'id-that-was-never-stored');
     const res = await PATHS.readBack();
     expect(res.status).toBe(404);
-    expect(res.body).toEqual({ ok: false, error: 'No current governed LU assessment is available for this project.' });
+    expect(res.body).toEqual({ ok: false, error: 'No current governed LU assessment is available for this project.', retryable: false });
   });
 
   it('control (no over-closing): two valid current assessments for the same binding and point stay 409 ASSESSMENT_CURRENT_AMBIGUOUS', async () => {
@@ -1200,5 +1201,56 @@ describe('W-U20CDF5-R3 R2-3: a truncated root context or observation is a damage
     await root.repository.put({ artifact_id: root.observation.artifact_id, body: { ...stored, payload: { ...stored.payload, resolver_version: 'canonical-property-observation-v2' } } });
     const read = await root.details();
     expect(read.propertyRoot).toMatchObject({ status: 'NOT_RECORDED' });
+  });
+});
+
+/**
+ * W-U20CDF6 item 4 (UI1 limit 1): the orchestrator's OWN failure answers carry `retryable` explicitly -- the ones that
+ * used to leave it out (and so lost the UI's "Försök igen", or never said "no"): the map's "not configured" (a proven
+ * absence), the bound point that could not be read (READ_ERROR, retryable) or is missing (lasting), the explicit-id
+ * mismatch, a tampered pinned artifact. The route keeps each answer's own flag (luRetryableEveryAnswerU20CDF6).
+ */
+describe('W-U20CDF6 item 4: the orchestrator states retryable on its own failure answers', () => {
+  it('map: no completed viewer capability for the project -> 404 "not configured", retryable false (a proven absence)', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    vi.mocked(resolveLocalizationViewerRuntimeConfigForProject).mockResolvedValueOnce(null);
+    const res = await PATHS.map();
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ ok: false, error: 'Governed viewer capability is not configured for this project.', retryable: false });
+  });
+
+  it('read-back: the bound point could not be read (EIO) -> 503 ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED, READ_ERROR, retryable true; missing -> 424, retryable false', async () => {
+    const { repository } = await provisionEdited({ version: 'V3', negatives: ALL, findings: [] }, (p) => {
+      p.localization_geometry_ref = LOCATION_REF;
+    });
+    repository.failFirstRead(LOCATION_REF.artifact_id, eio);
+    const transient = await PATHS.readBack();
+    expect(transient.status).toBe(503);
+    expect(transient.body).toMatchObject({ code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass: 'LOCALIZATION_GEOMETRY_READ_ERROR', retryable: true });
+    const missing = await PATHS.readBack();
+    expect(missing.status).toBe(424);
+    expect(missing.body).toMatchObject({ code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED', failureClass: 'LOCALIZATION_GEOMETRY_MISSING', retryable: false });
+  });
+
+  it('verify / PDF bound to another assessment id -> 409 ASSESSMENT_ID_MISMATCH, retryable false', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const verify = await request(app).post(`/api/localization/${PROJECT_ID}/verify-assessment`).set('Authorization', `Bearer ${token}`).send({ assessmentArtifactId: 'assessment-not-the-current-one' });
+    expect(verify.status).toBe(409);
+    expect(verify.body).toMatchObject({ code: 'ASSESSMENT_ID_MISMATCH', retryable: false });
+    const pdf = await get(`/api/localization/${PROJECT_ID}/export-assessment-pdf?assessmentArtifactId=assessment-not-the-current-one`);
+    expect(pdf.status).toBe(409);
+    expect(pdf.body).toMatchObject({ code: 'ASSESSMENT_ID_MISMATCH', retryable: false });
+    expect(spies.reExecute).not.toHaveBeenCalled();
+  });
+
+  it('a pinned evidence that fails its own identity -> 424 GOVERNED_EVIDENCE_INTEGRITY_FAILED on the read-back, verify and the map, retryable false', async () => {
+    const { repository } = await provisionRecord({ version: 'V3', negatives: ALL, findings: [] });
+    const water = NEGATIVES[0]!;
+    await repository.put({ artifact_id: water.artifact_id, body: { ...water, payload: { ...water.payload, srid: 4326 } } });
+    for (const path of ['readBack', 'verify', 'map'] as const) {
+      const res = await PATHS[path]();
+      expect(res.status, path).toBe(424);
+      expect(res.body, path).toMatchObject({ code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED', failureClass: 'EVIDENCE_TAMPERED', retryable: false });
+    }
   });
 });

@@ -320,6 +320,8 @@ describe('W-CATCH2 #8: genuine absence stays 404, with a NEUTRAL text', () => {
         ok: false,
         status: 404,
         error: 'No canonical project context available: the project has no registered project-context binding yet.',
+        // W-U20CDF6 (UI1 limit 1): a proven absence carries retryable false, explicitly.
+        retryable: false,
       });
       expect(puts).toEqual([]);
       expect(state.provisioningRequests).toEqual([]);
@@ -396,7 +398,8 @@ describe('W-CATCH2 #14 (same surface): the geometry routes answer 403 only for t
   for (const [verb, call] of [['GET', load], ['POST', save], ['RETRY', retry]] as const) {
     it(`${verb}: a typed denial -> 403 (unchanged)`, async () => {
       state.accessError = denial();
-      expect(await call()).toEqual({ ok: false, status: 403, error: 'Not authorized for this project.' });
+      // W-U20CDF6 (UI1 limit 1): a denial carries retryable false, explicitly.
+      expect(await call()).toEqual({ ok: false, status: 403, error: 'Not authorized for this project.', retryable: false });
     });
     it(`${verb}: the access facts cannot be read -> 503 PROJECT_ACCESS_UNRESOLVED (retryable), never 403; nothing read or written`, async () => {
       state.accessError = dbDown();
@@ -429,6 +432,10 @@ describe('W-CATCH2 (BOOT verifier finding 8, same surface): a request that could
     expect(result.data.provisioningStatus).toBe('FAILED');
     expect(result.data.provisioningFailureDetail).toBe('Förberedelsen av analysen för kontrollpunkten kunde inte begäras (tekniskt fel). Ett nytt försök kan lyckas.');
     expect(result.data.provisioningFailureDetail).not.toMatch(/prisma|10\.0\.0\.5|database server/);
+    // W-U20CDF6 (UI1 limit 1; CATCH3 OD-C3-6): the view carries the flag explicitly, from the fault's class (a database
+    // that could not answer: READ_ERROR, retryable) -- the same as the text's retry sentence; no supersession failed.
+    expect(result.data.provisioningRetryable).toBe(true);
+    expect(result.data.supersessionRetryable).toBeNull();
   });
 
   it('POST: the supersession of the previous point cannot be enqueued -> supersessionStatus FAILED with a neutral text (before: null, read as "no transition needed")', async () => {
