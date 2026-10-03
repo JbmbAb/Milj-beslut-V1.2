@@ -11,6 +11,7 @@
  * nothing. The stored text is never read here.
  */
 import { retrySentenceSv } from './storageFaultClassification';
+import { currentnessFailureClassRetryable } from './localizationGeometryCurrentness';
 
 export type ProvisioningRequestKind = 'execution-identity' | 'geometry-supersession';
 
@@ -95,6 +96,8 @@ export type ProvisioningRequestLike = {
   readonly failureCode?: string | null;
   readonly failureDetail?: string | null;
   readonly [PROCESS_BUILT_REQUEST_VIEW]?: true;
+  /** W-U20CDF6: a process-built view knows the class of its own fault (classifyReadFault) -- its retryable. */
+  readonly retryable?: boolean;
 };
 
 /**
@@ -116,4 +119,29 @@ export function presentProvisioningRequestDetail(kind: ProvisioningRequestKind, 
     return `${lead}: ${CURRENTNESS_CAUSE_SV}`;
   }
   return `${lead} (okänd felkod). Felet beskrivs inte närmare här.`;
+}
+
+/**
+ * W-U20CDF6 (UI1 limit 1; CATCH3 OD-C3-6: the geometry view carries `retryable` like bootstrap-status) -- whether a
+ * new attempt (geometry-identity-retry, or saving the point again) can help a FAILED or SUPERSEDED request: null for
+ * any other status (no failure); otherwise ALWAYS an explicit boolean, derived from the class and never from text --
+ *  - a view this process built: its own fault's class (classifyReadFault, carried as `retryable`);
+ *  - a stored code with a determined class: the table's flag (PROVISIONING_REQUEST_FAILURE_PRESENTATION);
+ *  - LOCALIZATION_GEOMETRY_<class>: the currentness class's own flag (localizationGeometryCurrentness.ts);
+ *  - a code stored for faults of DIFFERENT classes (table null: the class is not stored and the stored text is never
+ *    read), an unknown code or none: false -- nothing is promised that the record cannot show.
+ * No new column (owner decision 2026-10-03 night 5): derived at presentation from the stored code.
+ */
+export function presentProvisioningRequestRetryable(request: ProvisioningRequestLike | null | undefined): boolean | null {
+  if (!request) return null;
+  if (request.status !== 'FAILED' && request.status !== 'SUPERSEDED') return null;
+  if (request[PROCESS_BUILT_REQUEST_VIEW] === true) return request.retryable === true;
+  const code = Object.prototype.hasOwnProperty.call(request, 'failureCode') ? request.failureCode : undefined;
+  if (typeof code === 'string' && Object.prototype.hasOwnProperty.call(PROVISIONING_REQUEST_FAILURE_PRESENTATION, code)) {
+    return PROVISIONING_REQUEST_FAILURE_PRESENTATION[code]!.retryable === true;
+  }
+  if (typeof code === 'string' && code.startsWith(CURRENTNESS_REASON_PREFIX) && code.length > CURRENTNESS_REASON_PREFIX.length) {
+    return currentnessFailureClassRetryable(code.slice(CURRENTNESS_REASON_PREFIX.length)) === true;
+  }
+  return false;
 }

@@ -59,7 +59,7 @@ import {
   ensureLocalizationGeometrySupersessionRequested,
   type LocalizationGeometrySupersessionRequestRecord,
 } from './localizationGeometrySupersessionQueue';
-import { PROCESS_BUILT_REQUEST_VIEW, presentProvisioningRequestDetail } from './provisioningRequestPresentation';
+import { PROCESS_BUILT_REQUEST_VIEW, presentProvisioningRequestDetail, presentProvisioningRequestRetryable } from './provisioningRequestPresentation';
 
 const DERIVED_LABEL = 'Fastighetens centrumpunkt (automatiskt härledd)';
 const USER_DEFINED_LABEL = 'Användardefinierad lokalisering';
@@ -90,10 +90,23 @@ export interface LocalizationGeometryView {
    */
   readonly supersessionStatus: LocalizationGeometrySupersessionStatus;
   readonly supersessionFailureDetail?: string | null;
+  /**
+   * W-U20CDF6 (UI1 limit 1; CATCH3 OD-C3-6: like bootstrap-status) -- whether a new attempt can help the FAILED (or
+   * SUPERSEDED) request: an explicit boolean whenever the request failed, null otherwise. Derived from the class at
+   * presentation (provisioningRequestPresentation.ts presentProvisioningRequestRetryable), never from text.
+   */
+  readonly provisioningRetryable: boolean | null;
+  readonly supersessionRetryable: boolean | null;
 }
 
 /** What the view reads of a request: its record, or (W-CATCH2) a request that could not be enqueued. */
-type RequestStatusView<S> = { readonly status: S; readonly failureDetail?: string | null; readonly [PROCESS_BUILT_REQUEST_VIEW]?: true };
+type RequestStatusView<S> = {
+  readonly status: S;
+  readonly failureDetail?: string | null;
+  readonly [PROCESS_BUILT_REQUEST_VIEW]?: true;
+  /** W-U20CDF6: the class of the view's own fault decides whether a new attempt can help. */
+  readonly retryable?: boolean;
+};
 
 /**
  * W-CATCH2 (BOOT verifier finding 8, OD-R2): a provisioning or supersession request that could not be
@@ -118,6 +131,7 @@ function unenqueuedRequest(error: unknown, what: 'provisioning' | 'supersession'
     [PROCESS_BUILT_REQUEST_VIEW]: true,
     status: 'FAILED',
     failureDetail: `${lead} (${fault.retryable ? 'tekniskt fel' : 'bestående fel'}).${unchanged} ${retrySentenceSv(fault.retryable)}`,
+    retryable: fault.retryable,
   };
 }
 
@@ -136,6 +150,9 @@ function toView(
     provisioningFailureDetail: presentProvisioningRequestDetail('execution-identity', provisioning),
     supersessionStatus: supersession?.status ?? null,
     supersessionFailureDetail: presentProvisioningRequestDetail('geometry-supersession', supersession),
+    // W-U20CDF6 (OD-C3-6): explicit whenever the request failed; null otherwise.
+    provisioningRetryable: presentProvisioningRequestRetryable(provisioning),
+    supersessionRetryable: presentProvisioningRequestRetryable(supersession),
   };
 }
 
@@ -267,7 +284,8 @@ export const PROJECT_CONTEXT_UNRESOLVED = 'PROJECT_CONTEXT_UNRESOLVED' as const;
  * before any of that).
  */
 function canonicalProjectContextFailure(error: unknown): LocalizationGeometryServiceResult<never> {
-  if (isProvenBindingAbsence(error)) return { ok: false, status: 404, error: NO_CANONICAL_PROJECT_CONTEXT_MESSAGE };
+  // W-U20CDF6: a proven absence is no transient fault -- retryable false, explicitly.
+  if (isProvenBindingAbsence(error)) return { ok: false, status: 404, error: NO_CANONICAL_PROJECT_CONTEXT_MESSAGE, retryable: false };
   const fault = classifyReadFault(error);
   return {
     ok: false,
@@ -293,7 +311,7 @@ export async function getCurrentLocalizationGeometryForProject(args: {
   readonly spatialRuntime?: LocalizationSpatialRuntime;
 }): Promise<LocalizationGeometryServiceResult<LocalizationGeometryView>> {
   const projectId = args.projectId.trim();
-  if (!projectId) return { ok: false, status: 400, error: 'projectId required' };
+  if (!projectId) return { ok: false, status: 400, error: 'projectId required', retryable: false };
 
   try {
     await assertProjectAccess(args.authUser, projectId, args.authUser.organisationId);
@@ -378,17 +396,17 @@ export async function saveUserLocalizationGeometry(args: {
   readonly spatialRuntime?: LocalizationSpatialRuntime;
 }): Promise<LocalizationGeometryServiceResult<LocalizationGeometryView>> {
   const projectId = args.projectId.trim();
-  if (!projectId) return { ok: false, status: 400, error: 'projectId required' };
+  if (!projectId) return { ok: false, status: 400, error: 'projectId required', retryable: false };
 
   const geometryType = typeof args.input.geometry_type === 'string' ? args.input.geometry_type.toUpperCase() : '';
   if (!SUPPORTED_GEOMETRY_TYPES.has(geometryType)) {
-    return { ok: false, status: 400, error: `REJECT_LOCALIZATION_GEOMETRY_UNSUPPORTED_TYPE: '${geometryType}' is not supported in V1 (POINT only)` };
+    return { ok: false, status: 400, error: `REJECT_LOCALIZATION_GEOMETRY_UNSUPPORTED_TYPE: '${geometryType}' is not supported in V1 (POINT only)`, retryable: false };
   }
   if (args.input.srid !== SUPPORTED_SRID) {
-    return { ok: false, status: 400, error: `REJECT_LOCALIZATION_GEOMETRY_UNSUPPORTED_SRID: expected ${SUPPORTED_SRID} (WGS84), got ${JSON.stringify(args.input.srid)}` };
+    return { ok: false, status: 400, error: `REJECT_LOCALIZATION_GEOMETRY_UNSUPPORTED_SRID: expected ${SUPPORTED_SRID} (WGS84), got ${JSON.stringify(args.input.srid)}`, retryable: false };
   }
   if (!isFiniteLngLat(args.input.coordinates)) {
-    return { ok: false, status: 400, error: 'REJECT_LOCALIZATION_GEOMETRY: coordinates must be a finite [lng, lat] pair within valid WGS84 ranges' };
+    return { ok: false, status: 400, error: 'REJECT_LOCALIZATION_GEOMETRY: coordinates must be a finite [lng, lat] pair within valid WGS84 ranges', retryable: false };
   }
   const [lng, lat] = args.input.coordinates;
 
@@ -507,7 +525,7 @@ export async function retryLocalizationIdentityProvisioning(args: {
   readonly projectId: string;
 }): Promise<LocalizationGeometryServiceResult<LocalizationGeometryView>> {
   const projectId = args.projectId.trim();
-  if (!projectId) return { ok: false, status: 400, error: 'projectId required' };
+  if (!projectId) return { ok: false, status: 400, error: 'projectId required', retryable: false };
 
   try {
     await assertProjectAccess(args.authUser, projectId, args.authUser.organisationId);
@@ -521,7 +539,7 @@ export async function retryLocalizationIdentityProvisioning(args: {
   try {
     const resolution = await resolveLocalizationGeometryCurrentness({ projectId, artifactRepository: repo });
     if (resolution.status === 'NOT_FOUND') {
-      return { ok: false, status: 404, error: `No current localization geometry to retry: ${LOCALIZATION_GEOMETRY_NOT_FOUND_NO_PROJECTION_MESSAGE}` };
+      return { ok: false, status: 404, error: `No current localization geometry to retry: ${LOCALIZATION_GEOMETRY_NOT_FOUND_NO_PROJECTION_MESSAGE}`, retryable: false };
     }
     current = resolution.current;
   } catch (error) {

@@ -34,10 +34,81 @@ import {
 } from '../modules/localization/public';
 import { logger } from '../logger';
 import { isPersistentStorageFault, retrySentenceSv } from '../modules/localization/storageFaultClassification';
-import { LuReadFaultError, projectAccessFailure, readFaultHttpStatus, readFaultSentenceSv } from '../modules/localization/readFaultClassification';
+import {
+  classifyReadFault,
+  isReadFaultClass,
+  LuReadFaultError,
+  projectAccessFailure,
+  readFaultHttpStatus,
+  readFaultOfClass,
+  readFaultSentenceSv,
+} from '../modules/localization/readFaultClassification';
 import { presentBootstrapRequestStatus } from '../modules/localization/bootstrapFailurePresentation';
 
 const router = express.Router();
+
+/**
+ * W-U20CDF6 (UI1 limit 1; the UI shows "Försök igen" ONLY on the server's `retryable: true`, and an answer without the
+ * flag loses the button) -- EVERY failure answer on the LU routes carries `retryable` explicitly, derived from its
+ * class with the shared classification (readFaultClassification.ts; no second classification):
+ *  - an answer that states it keeps it (the typed fail-closed answers, the explicit plain ones below);
+ *  - a failureClass of the shared read-fault classes: that class's own flag (READ_ERROR true, every other false);
+ *  - otherwise by what the answer is: 429 (the rate limit's window) is transient -> true; any other 4xx -- a bad
+ *    request, missing or failed authentication, a denial, an absence, a refusal, an integrity break -> false;
+ *  - a sanitized 5xx (the app's error handler, after `next(error)`): the class of the error a route caught
+ *    (classifyReadFault, read phase: an unknown error while reading is READ_ERROR -> true, a lasting storage fault,
+ *    an artifact that must exist but is missing or a refusal -> false); and false on a POST that creates or moves
+ *    something (localization-projects, bootstrap-retry, geometry, geometry-identity-retry): a repeat after an unknown
+ *    failure could act twice, so nothing is promised there.
+ * The middleware below applies this to every JSON answer of /api/localization/* -- also the ones written by the
+ * middleware in the route chain (requireAuth 401, rateLimitByUser 429) and by the app's error handler. It is scoped
+ * to this router's paths; CSRF (mounted in createApp before this router) is outside it.
+ */
+const LU_ERROR_KEY = 'luCaughtError';
+const NON_REPEATABLE_POST = /^\/api\/localization\/(?:localization-projects|[^/]+\/(?:bootstrap-retry|geometry|geometry-identity-retry))$/;
+
+export function luFailureRetryable(input: {
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly body: Readonly<Record<string, unknown>>;
+  readonly caughtError?: unknown;
+}): boolean {
+  if (typeof input.body.retryable === 'boolean') return input.body.retryable;
+  if (isReadFaultClass(input.body.failureClass)) return readFaultOfClass(input.body.failureClass).retryable;
+  if (input.status === 429) return readFaultOfClass('READ_ERROR').retryable;
+  if (input.status < 500) return false;
+  if (input.method.toLowerCase() === 'post' && NON_REPEATABLE_POST.test(input.path)) return false;
+  return classifyReadFault(input.caughtError, 'read').retryable;
+}
+
+function luAnswersCarryRetryable(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const json = res.json.bind(res);
+  res.json = ((body: unknown) => {
+    if (res.statusCode >= 400 && body && typeof body === 'object' && !Array.isArray(body) && typeof (body as { retryable?: unknown }).retryable !== 'boolean') {
+      const record = body as Record<string, unknown>;
+      return json({
+        ...record,
+        retryable: luFailureRetryable({
+          method: req.method,
+          path: req.originalUrl.split('?')[0] ?? req.path,
+          status: res.statusCode,
+          body: record,
+          caughtError: res.locals[LU_ERROR_KEY],
+        }),
+      });
+    }
+    return json(body);
+  }) as typeof res.json;
+  next();
+}
+
+/** W-U20CDF6: the error a route hands on to the app's error handler -- its class decides the sanitized answer's retryable. */
+function keepCaughtError(res: express.Response, error: unknown): void {
+  res.locals[LU_ERROR_KEY] = error;
+}
+
+router.use('/api/localization', luAnswersCarryRetryable);
 
 /**
  * DEMO M1a / D9(a): every `{ ok: false }` service result goes out through here, so a fail-closed
@@ -46,7 +117,7 @@ const router = express.Router();
  * OD-R3: a result that states whether it is `retryable` keeps that flag too (a configuration error is
  * technical but not retryable).
  */
-function failureBody(result: { readonly error: string }): Record<string, unknown> {
+function failureBody(result: { readonly error: string; readonly status?: number }): Record<string, unknown> {
   const structured = result as { code?: string; failureClass?: string; reasonCode?: string; retryable?: unknown; record_integrity?: unknown };
   // U20CDF4 (owner decision 2026-10-03 (4) point 1): the 424 for a record integrity error keeps the
   // stored findings in view -- only as the whitelisted, non-authoritative diagnostic, rebuilt field by
@@ -57,7 +128,9 @@ function failureBody(result: { readonly error: string }): Record<string, unknown
     ok: false,
     error: result.error,
     ...(structured.code ? { code: structured.code, failureClass: structured.failureClass, reasonCode: structured.reasonCode } : {}),
-    ...(structured.code && typeof structured.retryable === 'boolean' ? { retryable: structured.retryable } : {}),
+    // W-U20CDF6 (UI1 limit 1): the answer's own flag, coded or not; an answer without one gets the derived flag from
+    // luAnswersCarryRetryable (every failure answer of this router carries it).
+    ...(typeof structured.retryable === 'boolean' ? { retryable: structured.retryable } : {}),
     ...(recordIntegrity ? { record_integrity: recordIntegrity } : {}),
   };
 }
@@ -78,6 +151,8 @@ function invalidAssessmentId(res: express.Response): void {
     ok: false,
     error: 'assessmentArtifactId must be a single artifact id.',
     code: 'INVALID_ASSESSMENT_ARTIFACT_ID',
+    // W-U20CDF6: a bad request answers the same when repeated.
+    retryable: false,
   });
 }
 
@@ -129,6 +204,7 @@ function refuseVerifyWithBootstrapFlagOutsideTest(_req: express.Request, res: ex
     assertVerifyBootstrapFlagGate();
   } catch (error) {
     if (handleOrchestratorError(error, res)) return;
+    keepCaughtError(res, error);
     next(error);
     return;
   }
@@ -145,6 +221,8 @@ function handleOrchestratorError(error: unknown, res: express.Response): boolean
       ok: false,
       error: error.message,
       code: error.code,
+      // W-U20CDF6 (UI1 limit 1): the class's flag (data sources unavailable for now: READ_ERROR, retryable).
+      retryable: error.retryable,
     });
     return true;
   }
@@ -219,6 +297,7 @@ router.post(
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -249,6 +328,7 @@ router.post(
       res.status(200).json({ ok: true, pdfData, meta: result.meta });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -271,14 +351,15 @@ router.get(
     try {
       const projectId = String(req.params.projectId || '').trim();
       if (!projectId) {
-        res.status(400).json({ ok: false, error: 'projectId required' });
+        res.status(400).json({ ok: false, error: 'projectId required', retryable: false });
         return;
       }
       const payload = await fetchLocalizationAuditTrail(projectId);
       res.status(200).json(payload);
     } catch (error) {
       // CATCH-REVIEWED: SANITIZED_500: the audit trail answers a sanitized 500 (no raw text) -- never "missing", never another record.
-      res.status(500).json(toSafeErrorResponse(error));
+      // W-U20CDF6: retryable from the class of what failed (a read of the audit trail).
+      res.status(500).json({ ...toSafeErrorResponse(error), retryable: classifyReadFault(error, 'read').retryable });
     }
   },
 );
@@ -298,7 +379,7 @@ router.get(
     try {
       const propertyDesignation = String(req.query.propertyDesignation || '').trim();
       if (!propertyDesignation) {
-        res.status(400).json({ ok: false, error: 'propertyDesignation required' });
+        res.status(400).json({ ok: false, error: 'propertyDesignation required', retryable: false });
         return;
       }
       const projects = await listProjectsForProperty({
@@ -307,6 +388,7 @@ router.get(
       });
       res.status(200).json({ ok: true, projects });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -333,7 +415,7 @@ router.post(
       const propertyDesignation = String(req.body?.propertyDesignation || '').trim();
       const name = String(req.body?.name || '').trim();
       if (!propertyDesignation || !name) {
-        res.status(400).json({ ok: false, error: 'propertyDesignation and name are required' });
+        res.status(400).json({ ok: false, error: 'propertyDesignation and name are required', retryable: false });
         return;
       }
       const project = await createLocalizationProject({
@@ -354,6 +436,7 @@ router.post(
         bootstrapStatus: bootstrapRequest.status,
       });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -374,7 +457,7 @@ router.get(
     try {
       const projectId = String(req.params.projectId || '').trim();
       if (!projectId) {
-        res.status(400).json({ ok: false, error: 'projectId required' });
+        res.status(400).json({ ok: false, error: 'projectId required', retryable: false });
         return;
       }
       try {
@@ -388,7 +471,8 @@ router.get(
       }
       const status = await getBootstrapRequestStatusForProject(projectId);
       if (!status) {
-        res.status(404).json({ ok: false, error: 'No bootstrap request exists for this project.' });
+        // W-U20CDF6: a proven absence -- retryable false, explicitly.
+        res.status(404).json({ ok: false, error: 'No bootstrap request exists for this project.', retryable: false });
         return;
       }
       // PRODUCT-LU-VIEWER-CAPABILITY-PROVISIONING-01 Phase B: the canonical automatic trigger for
@@ -412,6 +496,7 @@ router.get(
       // never its stored failureDetail, which on older rows can hold raw storage paths or SQL.
       res.status(200).json({ ok: true, status: presentBootstrapRequestStatus(status) });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -434,7 +519,7 @@ router.post(
     try {
       const projectId = String(req.params.projectId || '').trim();
       if (!projectId) {
-        res.status(400).json({ ok: false, error: 'projectId required' });
+        res.status(400).json({ ok: false, error: 'projectId required', retryable: false });
         return;
       }
       try {
@@ -447,7 +532,7 @@ router.post(
       }
       const project = await prisma.project.findUnique({ where: { id: projectId }, select: { propertyDesignation: true } });
       if (!project) {
-        res.status(404).json({ ok: false, error: 'Project not found.' });
+        res.status(404).json({ ok: false, error: 'Project not found.', retryable: false });
         return;
       }
       const bootstrapRequest = await enqueueProjectContextBootstrapRequest({
@@ -457,6 +542,7 @@ router.post(
       });
       res.status(201).json({ ok: true, bootstrapRequestId: bootstrapRequest.id, bootstrapStatus: bootstrapRequest.status });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -492,6 +578,7 @@ router.get(
         return;
       }
       if (handleOrchestratorError(error, res)) return;
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -541,6 +628,7 @@ router.get(
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -584,6 +672,7 @@ router.get(
       res.send(result.buffer);
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -638,6 +727,7 @@ router.post(
       });
     } catch (error) {
       if (handleOrchestratorError(error, res)) return;
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -667,6 +757,7 @@ router.get(
       }
       res.status(200).json({ ok: true, geometry: result.data });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -702,6 +793,7 @@ router.post(
       }
       res.status(201).json({ ok: true, geometry: result.data });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },
@@ -731,6 +823,7 @@ router.post(
       }
       res.status(201).json({ ok: true, geometry: result.data });
     } catch (error) {
+      keepCaughtError(res, error);
       next(error);
     }
   },

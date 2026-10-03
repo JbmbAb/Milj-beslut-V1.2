@@ -77,9 +77,18 @@ import {
 import { governedVerdictFromFindings } from '../../../src/application/generate-localization-report.usecase';
 import type { ProjectAssessmentProjectionIndex } from '../../repositories/projectAssessmentProjectionRepository';
 
+/**
+ * W-U20CDF6 (UI1 limit 1): every failure answer of the LU surface carries `retryable` explicitly (true or false),
+ * derived from its class with the shared classification (readFaultClassification.ts) -- here the plain answers: an
+ * absence, a refusal, an integrity break or a bad request are lasting (false).
+ */
+export type PlainLuFailure = { ok: false; status: number; error: string; retryable: boolean };
+
 export class LocalizationDataUnavailableError extends Error {
   readonly status = 503;
   readonly code = 'LOCALIZATION_DATA_UNAVAILABLE';
+  /** W-U20CDF6: the data sources were unavailable for now -- a read of unknown persistence (READ_ERROR): retryable. */
+  readonly retryable = readFaultOfClass('READ_ERROR').retryable;
 
   constructor(message: string) {
     super(message);
@@ -146,6 +155,8 @@ export interface AssessmentGeometryFailure {
     | 'LOCALIZATION_GEOMETRY_NOT_BOUND'
     | 'LOCALIZATION_GEOMETRY_READ_ERROR';
   readonly reasonCode: string;
+  /** W-U20CDF6: a read of unknown persistence (503) may pass on retry; a missing, tampered or foreign point (424) not. */
+  readonly retryable: boolean;
 }
 
 type BoundGeometry = Pick<
@@ -177,6 +188,7 @@ async function resolveBoundLocalizationGeometry(
     code: 'ASSESSMENT_LOCALIZATION_GEOMETRY_UNVERIFIED',
     failureClass,
     reasonCode: failureClass,
+    retryable: status === 503 ? readFaultOfClass('READ_ERROR').retryable : false,
   });
   let geometry: LocalizationGeometryArtifact;
   try {
@@ -317,7 +329,7 @@ export async function runLocalizationReport(input: {
   includeLegacyObservations?: boolean;
 }): Promise<
   | { ok: true; report: LocalizationReport; meta: { strictMode: boolean; warningCount: number } }
-  | { ok: false; status: number; error: string }
+  | PlainLuFailure
 > {
   const projectId = String(input.projectId || '').trim();
   const sites = parseSiteAlternatives(input.siteAlternatives);
@@ -326,6 +338,7 @@ export async function runLocalizationReport(input: {
       ok: false,
       status: 400,
       error: 'projectId and a non-empty siteAlternatives array are required.',
+      retryable: false,
     };
   }
 
@@ -355,11 +368,11 @@ export async function exportLocalizationPdf(input: {
   authUser: AuthUser;
   projectId: string;
   siteAlternatives: unknown;
-}): Promise<{ ok: true; buffer: Buffer; filename: string } | { ok: false; status: number; error: string }> {
+}): Promise<{ ok: true; buffer: Buffer; filename: string } | PlainLuFailure> {
   const projectId = String(input.projectId || '').trim();
   const sites = parseSiteAlternatives(input.siteAlternatives);
   if (!projectId || !sites) {
-    return { ok: false, status: 400, error: 'projectId and a non-empty siteAlternatives array are required.' };
+    return { ok: false, status: 400, error: 'projectId and a non-empty siteAlternatives array are required.', retryable: false };
   }
 
   await assertProjectAccess(input.authUser, projectId, input.authUser.organisationId);
@@ -411,7 +424,7 @@ export async function resolveLuViewerPresentation(input: {
   readonly config?: LocalizationViewerRuntimeConfig;
 }): Promise<
   | { ok: true; geojson: unknown; assessmentArtifactId: string; capabilityArtifactId: string }
-  | { ok: false; status: number; error: string }
+  | PlainLuFailure
   | GovernedRecordIntegrityFailure
   | GovernedEvidenceIntegrityFailure
   | PinnedEvidenceUnreadableRefusal
@@ -419,7 +432,7 @@ export async function resolveLuViewerPresentation(input: {
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
-    return { ok: false, status: 400, error: 'projectId required' };
+    return { ok: false, status: 400, error: 'projectId required', retryable: false };
   }
 
   try {
@@ -475,10 +488,12 @@ export async function resolveLuViewerPresentation(input: {
   // "wrong project configured".
   const config = input.config ?? (await resolveLocalizationViewerRuntimeConfigForProject(projectId, artifactRepository));
   if (!config) {
-    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
+    // W-U20CDF6: a proven absence (no completed capability for this project) -- retryable false, explicitly.
+    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.', retryable: false };
   }
   if (config.expectedProjectId !== projectId) {
-    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.' };
+    // W-U20CDF6: a proven absence (no completed capability for this project) -- retryable false, explicitly.
+    return { ok: false, status: 404, error: 'Governed viewer capability is not configured for this project.', retryable: false };
   }
 
   let presentation: Awaited<ReturnType<typeof resolveGovernedLocalizationPresentation>>;
@@ -522,7 +537,7 @@ export async function resolveLuViewerPresentation(input: {
   if (!isReadUnderItsOwnId(assessment, assessmentArtifactId)) return currentAssessmentCandidateIntegrityFault();
   const recomputed = sha256ContentHash(localizationAssessmentCanonicalBody(assessment));
   if (assessment.artifact_id !== `assessment-${recomputed.value}`) {
-    return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.' };
+    return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.', retryable: false };
   }
   const recordRefusal = await currentRecordIntegrityRefusal(assessment, artifactRepository, 'map');
   if (recordRefusal) return recordRefusal;
@@ -581,6 +596,8 @@ export interface AssessmentIdMismatchFailure {
   readonly code: 'ASSESSMENT_ID_MISMATCH';
   readonly failureClass: 'ASSESSMENT_NOT_CURRENT';
   readonly reasonCode: 'REQUESTED_ASSESSMENT_IS_NOT_THE_CURRENT_ASSESSMENT';
+  /** W-U20CDF6: the same request answers the same until the assessment is read again -- not retryable. */
+  readonly retryable: false;
 }
 
 /** U20-D: content read for the evidence/root details failed its own identity -> fail closed. */
@@ -591,6 +608,8 @@ export interface GovernedEvidenceIntegrityFailure {
   readonly code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED';
   readonly failureClass: 'EVIDENCE_TAMPERED' | 'EVIDENCE_CORRUPTED' | 'ROOT_PROVENANCE_TAMPERED';
   readonly reasonCode: string;
+  /** W-U20CDF6: an integrity verdict on content that was read -- lasting, never retryable. */
+  readonly retryable: false;
 }
 
 /**
@@ -617,6 +636,7 @@ function governedEvidenceIntegrityFailure(
     code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
     failureClass: integrity.failureClass,
     reasonCode: integrity.failureClass,
+    retryable: false,
   };
 }
 
@@ -840,7 +860,7 @@ type CurrentAssessmentInput = {
 };
 
 type CurrentAssessmentFailure =
-  | { ok: false; status: number; error: string }
+  | PlainLuFailure
   | LocalizationGeometryCurrentnessFailureResponse
   | AssessmentIdMismatchFailure
   | AssessmentReadFailure
@@ -984,7 +1004,7 @@ function selectionRefusal(
  * NOT_FOUND / NOT_CURRENT); a technical or integrity fault is 503, any other REJECT_* is a refusal
  * (409/424) -- see AssessmentReadFailure and AssessmentSelectionRefusal.
  */
-function assessmentResolutionFailure(error: unknown): { ok: false; status: number; error: string } | AssessmentReadFailure | AssessmentSelectionRefusal {
+function assessmentResolutionFailure(error: unknown): PlainLuFailure | AssessmentReadFailure | AssessmentSelectionRefusal {
   if (isCurrentBindingUnresolvable(error)) {
     if (error.reason === 'REFUSED') {
       return selectionRefusal(
@@ -1030,7 +1050,7 @@ function assessmentResolutionFailure(error: unknown): { ok: false; status: numbe
   const refusal = error instanceof Error ? /^(REJECT_[A-Z0-9_]+)/.exec(error.message)?.[1] : undefined;
   if (refusal !== undefined) {
     if (ASSESSMENT_ABSENCE_REFUSALS.has(refusal)) {
-      return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
+      return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR, retryable: false };
     }
     if (refusal === 'REJECT_ASSESSMENT_PROJECTION_AMBIGUOUS_CURRENT') {
       return selectionRefusal(
@@ -1090,9 +1110,9 @@ function isReadUnderItsOwnId(assessment: unknown, requestedId: string): boolean 
 }
 
 /** A failed read of the resolved assessment itself: only the repository's "not found" is absence. */
-function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: string): { ok: false; status: number; error: string } | AssessmentReadFailure {
+function assessmentArtifactReadFailure(error: unknown, assessmentArtifactId: string): PlainLuFailure | AssessmentReadFailure {
   if (error instanceof Error && error.message === `Artifact not found: ${assessmentArtifactId}`) {
-    return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR };
+    return { ok: false, status: 404, error: NO_CURRENT_ASSESSMENT_ERROR, retryable: false };
   }
   if (isPersistentStorageFault(error)) {
     return assessmentReadFailure(
@@ -1136,8 +1156,8 @@ function bindingFailurePhase(error: unknown): ReadPhase {
 }
 
 /** 424 "not bound" only for a binding refusal; any other class is the typed ASSESSMENT_BINDING_UNRESOLVED. */
-function assessmentBindingFailure(fault: ReadFault): { ok: false; status: 424; error: string } | AssessmentBindingUnresolved {
-  if (fault.faultClass === 'REFUSED') return { ok: false, status: 424, error: ASSESSMENT_NOT_BOUND_ERROR };
+function assessmentBindingFailure(fault: ReadFault): PlainLuFailure | AssessmentBindingUnresolved {
+  if (fault.faultClass === 'REFUSED') return { ok: false, status: 424, error: ASSESSMENT_NOT_BOUND_ERROR, retryable: false };
   return {
     ok: false,
     status: readFaultHttpStatus(fault),
@@ -1166,7 +1186,7 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
 > {
   const projectId = String(input.projectId || '').trim();
   if (!projectId) {
-    return { ok: false, status: 400, error: 'projectId required' };
+    return { ok: false, status: 400, error: 'projectId required', retryable: false };
   }
 
   try {
@@ -1218,6 +1238,7 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
       code: 'ASSESSMENT_ID_MISMATCH',
       failureClass: 'ASSESSMENT_NOT_CURRENT',
       reasonCode: 'REQUESTED_ASSESSMENT_IS_NOT_THE_CURRENT_ASSESSMENT',
+      retryable: false,
     };
   }
 
@@ -1241,7 +1262,7 @@ async function resolveCurrentLuAssessmentCore(input: CurrentAssessmentInput): Pr
     recomputedAssessmentHash.value === assessment.content_hash.value &&
     assessment.artifact_id === `assessment-${recomputedAssessmentHash.value}`;
   if (!untampered) {
-    return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.' };
+    return { ok: false, status: 424, error: 'Governed LU assessment failed tamper verification.', retryable: false };
   }
 
   try {
@@ -1416,7 +1437,7 @@ export async function resolveCurrentLuAssessmentSummary(input: CurrentAssessment
  */
 export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput): Promise<
   | { ok: true; buffer: Buffer; filename: string; assessmentArtifactId: string }
-  | { ok: false; status: number; error: string }
+  | PlainLuFailure
 > {
   const summary = await resolveCurrentLuAssessmentSummary(input);
   if (summary.ok === false) {
@@ -1725,7 +1746,7 @@ export async function verifyCurrentLuAssessment(input: CurrentAssessmentInput): 
        * V1/legacy-unbound form, never the green sentence).
        */
     } & LuVerifyAnswerFields)
-  | { ok: false; status: number; error: string }
+  | PlainLuFailure
   | GovernedRecordIntegrityFailure
   | GovernedEvidenceIntegrityFailure
   | PinnedEvidenceUnreadableRefusal

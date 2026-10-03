@@ -135,6 +135,13 @@ export function readFaultOfClass(faultClass: ReadFaultClass): ReadFault {
   return fault(faultClass);
 }
 
+const READ_FAULT_CLASSES: readonly string[] = ['READ_ERROR', 'STORAGE_INTEGRITY_FAULT', 'MISSING_FROM_CAS', 'BINDING_INDEX_INCONSISTENT', 'REFUSED'];
+
+/** W-U20CDF6: one of the shared classes above (an answer's `failureClass` may carry another family's class). */
+export function isReadFaultClass(value: unknown): value is ReadFaultClass {
+  return typeof value === 'string' && READ_FAULT_CLASSES.includes(value);
+}
+
 /**
  * The class of a failed read (or of the failed verification of an object that was read). Order:
  * an already-typed LuReadFaultError keeps its class; then index inconsistency, "never stored" for
@@ -201,7 +208,8 @@ export const NOT_AUTHORIZED_FOR_PROJECT = 'Not authorized for this project.' as 
 export const PROJECT_ACCESS_UNRESOLVED = 'PROJECT_ACCESS_UNRESOLVED' as const;
 
 export type ProjectAccessFailure =
-  | { readonly ok: false; readonly status: 403; readonly error: typeof NOT_AUTHORIZED_FOR_PROJECT }
+  // W-U20CDF6 (UI1 limit 1): a denial is decided, never transient -- retryable false, explicitly.
+  | { readonly ok: false; readonly status: 403; readonly error: typeof NOT_AUTHORIZED_FOR_PROJECT; readonly retryable: false }
   | {
       readonly ok: false;
       readonly status: 409 | 503;
@@ -219,7 +227,7 @@ export type ProjectAccessFailure =
  * text, never "not authorized". The fault stays server-side.
  */
 export function projectAccessFailure(error: unknown): ProjectAccessFailure {
-  if (isProjectAccessDenied(error)) return { ok: false, status: 403, error: NOT_AUTHORIZED_FOR_PROJECT };
+  if (isProjectAccessDenied(error)) return { ok: false, status: 403, error: NOT_AUTHORIZED_FOR_PROJECT, retryable: false };
   const fault = classifyReadFault(error);
   return {
     ok: false,

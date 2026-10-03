@@ -154,6 +154,17 @@ const FAILURE_POLICY: Readonly<Record<LocalizationGeometryCurrentnessFailureClas
   },
 };
 
+/**
+ * W-U20CDF6 (UI1 limit 1; OD-C3-6): the class's own `retryable` for a stored code LOCALIZATION_GEOMETRY_<class> (a
+ * supersession row the queue marked with a currentness class) -- the policy above, never re-derived; null for a
+ * class this version does not know.
+ */
+export function currentnessFailureClassRetryable(failureClass: string): boolean | null {
+  return Object.prototype.hasOwnProperty.call(FAILURE_POLICY, failureClass)
+    ? FAILURE_POLICY[failureClass as LocalizationGeometryCurrentnessFailureClass].retryable
+    : null;
+}
+
 export class LocalizationGeometryCurrentnessError extends Error {
   readonly code = 'LOCALIZATION_GEOMETRY_CURRENTNESS_FAILED' as const;
   readonly failureClass: LocalizationGeometryCurrentnessFailureClass;
