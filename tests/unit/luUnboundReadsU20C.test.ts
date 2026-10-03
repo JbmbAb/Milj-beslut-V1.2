@@ -150,6 +150,8 @@ import { logger } from '../../server/logger';
 import { hermeticPrismaTouches } from '../helpers/hermeticPrismaGuard';
 
 const LAYERS = ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'] as const;
+/** W-U20CDF6 (R2-5): the stub records name their property, as the producer copies the draft's property_ref into every record. */
+const STUB_PROPERTY_REF = { artifact_id: 'property-context-1', artifact_type: 'LU_PROPERTY_CONTEXT' } as const;
 const SPATIAL_REFS = LAYERS.map((layer) => ({ artifact_id: `evidence-${layer}-u20c`, artifact_type: 'SPATIAL_EVIDENCE' }));
 
 function spatialEvidence(layer: string) {
@@ -187,7 +189,7 @@ beforeEach(() => {
   kernelMock.mockResolvedValue({
     admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
     findings: [], finding_ids: [],
-    assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: SPATIAL_REFS, findings: [] } },
+    assessment: { artifact_id: 'assessment-u20c', payload: { property_ref: STUB_PROPERTY_REF, evidence_refs: SPATIAL_REFS, findings: [] } },
   });
 });
 
@@ -507,7 +509,7 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
     kernelMock.mockResolvedValue({
       admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
       findings: NOT_CHECKED_FINDINGS, finding_ids: NOT_CHECKED_FINDINGS.map((f) => f.finding_id),
-      assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
+      assessment: { artifact_id: 'assessment-u20c', payload: { property_ref: STUB_PROPERTY_REF, evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
     });
   });
 
@@ -564,12 +566,12 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
       input.assessment_draft.site_id === 'ALT-1'
         ? {
             admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1', findings: [], finding_ids: [],
-            assessment: { artifact_id: 'assessment-alt-1', payload: { evidence_refs: SPATIAL_REFS, findings: [] } },
+            assessment: { artifact_id: 'assessment-alt-1', payload: { property_ref: STUB_PROPERTY_REF, evidence_refs: SPATIAL_REFS, findings: [] } },
           }
         : {
             admitted: true, reason_codes: [], attempt_id: 'a2', outcome_id: 'o2', manifest_id: 'm2',
             findings: NOT_CHECKED_FINDINGS, finding_ids: NOT_CHECKED_FINDINGS.map((f) => f.finding_id),
-            assessment: { artifact_id: 'assessment-alt-2', payload: { evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
+            assessment: { artifact_id: 'assessment-alt-2', payload: { property_ref: STUB_PROPERTY_REF, evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
           },
     );
     const res = await request(app)
@@ -601,7 +603,7 @@ describe('U20CDF (U20CD verification F2): no check completed -> no risk level in
       return {
         admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
         findings: NOT_CHECKED_FINDINGS, finding_ids: NOT_CHECKED_FINDINGS.map((f) => f.finding_id),
-        assessment: { artifact_id: 'assessment-u20c', payload: { evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
+        assessment: { artifact_id: 'assessment-u20c', payload: { property_ref: STUB_PROPERTY_REF, evidence_refs: [], findings: NOT_CHECKED_FINDINGS } },
       };
     });
     const res = await request(app)

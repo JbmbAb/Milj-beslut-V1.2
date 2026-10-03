@@ -114,7 +114,8 @@ beforeEach(() => {
   kernelMock.mockResolvedValue({
     admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
     findings: [WATER_HIT, PROTECTED_NOT_CHECKED], finding_ids: ['f-water', 'finding-notchecked-protected_area'],
-    assessment: { artifact_id: 'assessment-1' },
+    // W-U20CDF6 (R2-5): the stub record names its property, as the producer always writes it.
+    assessment: { artifact_id: 'assessment-1', payload: { property_ref: { artifact_id: 'property-context-1', artifact_type: 'LU_PROPERTY_CONTEXT' } } },
   });
 });
 

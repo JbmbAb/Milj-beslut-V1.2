@@ -185,7 +185,8 @@ const ASSESSED = (artifactId: string, findings: unknown[] = []) => ({
   manifest_id: "m1",
   findings,
   finding_ids: [] as string[],
-  assessment: { artifact_id: artifactId },
+  // W-U20CDF6 (R2-5): the persisted record names its property, as the producer always writes it.
+  assessment: { artifact_id: artifactId, payload: { property_ref: { artifact_id: "property-context-1", artifact_type: "LU_PROPERTY_CONTEXT" } } },
 });
 
 const DENIED = {
@@ -330,7 +331,7 @@ describe("🔴 P3-LU-CANONICAL-CHAIN-01 — LU_VERDICT_AUTHORITY_V1", () => {
       manifest_id: "m1",
       findings: [],
       finding_ids: [],
-      assessment: { artifact_id: "assessment-artifact-1" },
+      assessment: { artifact_id: "assessment-artifact-1", payload: { property_ref: { artifact_id: "property-context-1", artifact_type: "LU_PROPERTY_CONTEXT" } } },
     });
 
     const report = await runReport();

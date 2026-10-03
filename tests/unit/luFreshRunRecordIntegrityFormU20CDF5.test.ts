@@ -184,12 +184,26 @@ async function post(path: string, sites: readonly { id: string; name: string; la
   return request(app).post(path).set('Authorization', `Bearer ${token}`).send({ projectId: 'proj-u20cdf5-l1', siteAlternatives: sites });
 }
 
+/**
+ * The draft's property_ref -- the run's canonical property context (resolveCanonicalProjectContext above), which the
+ * real producer (createGovernedLocalizationAssessment) copies into every record. W-U20CDF6: the stub record carries it
+ * too, as the producer writes it (before, the stub omitted it, which no producer does).
+ */
+const PROPERTY_CONTEXT_REF = { artifact_id: 'property-context-1', artifact_type: 'LU_PROPERTY_CONTEXT' } as const;
+
 /** The admitted kernel answer for a record with these findings over these stored evidences. */
-function admitted(artifactId: string, findings: readonly unknown[], evidence: readonly { artifact_id: string; artifact_type: string }[]) {
+function admitted(
+  artifactId: string,
+  findings: readonly unknown[],
+  evidence: readonly { artifact_id: string; artifact_type: string }[],
+  editPayload: (payload: Record<string, unknown>) => void = () => undefined,
+) {
+  const payload: Record<string, unknown> = { property_ref: PROPERTY_CONTEXT_REF, evidence_refs: evidence.map(refOf), findings };
+  editPayload(payload);
   return {
     admitted: true, reason_codes: [], attempt_id: `attempt-${artifactId}`, outcome_id: `outcome-${artifactId}`, manifest_id: `manifest-${artifactId}`,
     findings, finding_ids: findings.map((f) => (f as { finding_id?: string } | null)?.finding_id ?? 'x'),
-    assessment: { artifact_id: artifactId, payload: { evidence_refs: evidence.map(refOf), findings } },
+    assessment: { artifact_id: artifactId, payload },
   };
 }
 
@@ -300,5 +314,68 @@ describe('W-U20CDF5 L1 (owner decision point 2): a FRESH integrity site is never
     expect(motor.governed_layer_checks).toHaveLength(6);
     expect(motor).toHaveProperty('evidence_details');
     expect(motor).not.toHaveProperty('record_integrity');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// W-U20CDF6 (owner decision R2-5, 2026-10-03): a record without a well-formed property_ref is a RECORD_INTEGRITY_ERROR
+// on every path -- also the fresh run that wrote it: its own status, no verdict, never ranked, listed by id and status
+// ---------------------------------------------------------------------------------------------------------
+
+const PROPERTY_REF_EDITS: ReadonlyArray<readonly [string, (payload: Record<string, unknown>) => void]> = [
+  ['removed', (p) => { delete p.property_ref; }],
+  ['an empty id', (p) => { p.property_ref = { artifact_id: '', artifact_type: 'LU_PROPERTY_CONTEXT' }; }],
+  ['without a type', (p) => { p.property_ref = { artifact_id: 'property-context-1' }; }],
+  ['a string', (p) => { p.property_ref = 'property-context-1'; }],
+];
+
+describe('W-U20CDF6 R2-5: a FRESH record without a well-formed property_ref is a RECORD_INTEGRITY_ERROR -- never ASSESSED, never ranked', () => {
+  for (const [variant, edit] of PROPERTY_REF_EDITS) {
+    it(`property_ref ${variant}: RECORD_INTEGRITY_ERROR (MALFORMED_RECORD_ENTRY), no verdict, not ranked; only the whitelisted record_integrity`, async () => {
+      const valid = { ...ebhHigh, explanation: 'x' };
+      kernelMock.mockResolvedValue(admitted('assessment-noprop-u20cdf6', [valid], WITH_EBH_HIT, edit));
+      queryMock.mockResolvedValue({ evidence: WITH_EBH_HIT, unavailable_layers: [] });
+      const res = await post('/api/localization/generate-report');
+      expect(res.status).toBe(200);
+      const analysis = res.body.siteAnalyses[0];
+      expect(analysis.executionMotor).toMatchObject({
+        assessment_status: 'RECORD_INTEGRITY_ERROR', governed_coverage_state: 'RECORD_INTEGRITY_ERROR',
+        governed_coverage_basis: ['MALFORMED_RECORD_ENTRY'], findings: [], finding_ids: [],
+      });
+      expect(analysis.executionMotor.record_integrity).toMatchObject({ authoritative: false, verified: false, basis_codes: ['MALFORMED_RECORD_ENTRY'] });
+      expect(analysis.complianceAnalysis).not.toHaveProperty('overallRisk');
+      expect(analysis.complianceAnalysis).not.toHaveProperty('permitProbability');
+      // The statement is the integrity statement and still names the stored finding.
+      expect(analysis.complianceAnalysis.summary).toMatch(/^Integritetsfel: /);
+      expect(analysis.complianceAnalysis.summary).toContain('risknivå hög – Potentiellt förorenade områden (EBH)');
+      expect(res.body.summary).toMatchObject({ assessed_site_ids: [], not_ranked_site_ids: ['ALT-A'], unassessed_site_ids: [] });
+      expect(res.body.summary.bestAlternativeId ?? null).toBeNull();
+    });
+  }
+
+  it('ranking with two sites: the site without property_ref is not ranked and never best; the valid site is ranked', async () => {
+    // Both records are otherwise the same consistent all-negative record (each would be ASSESSED and ranked).
+    const negatives = LAYERS.map((layer) => spatialEvidence(layer));
+    kernelMock.mockImplementation(async (input: { assessment_draft: { site_id: string } }) =>
+      input.assessment_draft.site_id === 'ALT-A'
+        ? admitted('assessment-noprop-a-u20cdf6', [], negatives, (p) => { delete p.property_ref; })
+        : admitted('assessment-valid-b-u20cdf6', [], negatives),
+    );
+    const res = await post('/api/localization/generate-report', [SITE_A, SITE_B]);
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({ assessed_site_ids: ['ALT-B'], not_ranked_site_ids: ['ALT-A'] });
+    const statusOf = (id: string) => res.body.siteAnalyses.find((s: { site: { id: string } }) => s.site.id === id).executionMotor.assessment_status;
+    expect(statusOf('ALT-A')).toBe('RECORD_INTEGRITY_ERROR');
+    expect(statusOf('ALT-B')).toBe('ASSESSED');
+    expect(JSON.stringify(res.body.summary)).not.toMatch(/"bestAlternativeId":"ALT-A"/);
+  });
+
+  it('control (no over-closing): the same record WITH its property_ref is ASSESSED and ranked', async () => {
+    const valid = { ...ebhHigh, explanation: 'x' };
+    kernelMock.mockResolvedValue(admitted('assessment-withprop-u20cdf6', [valid], WITH_EBH_HIT));
+    queryMock.mockResolvedValue({ evidence: WITH_EBH_HIT, unavailable_layers: [] });
+    const res = await post('/api/localization/generate-report');
+    expect(res.body.siteAnalyses[0].executionMotor.assessment_status).toBe('ASSESSED');
+    expect(res.body.summary).toMatchObject({ assessed_site_ids: ['ALT-A'], not_ranked_site_ids: [] });
   });
 });

@@ -151,6 +151,7 @@ import {
   type AssessmentFinding,
 } from '@miljobeslut/mps-lu';
 import { resolveGovernedAssessmentDetails } from '../../server/modules/localization/governedEvidenceDetails';
+import { assessGovernedCoverage } from '../../server/modules/localization/governedCoverageStatement';
 import { SecurityRuntime } from '../../packages/mps-runtime/src/security/SecurityRuntime';
 import { installOwnerIssuedProjectContextBinding } from '../../server/modules/localization/installProjectContextBinding';
 import { attestProjectContextBindingArtifact } from '../../server/modules/localization/projectContextBindingAuthority';
@@ -842,7 +843,7 @@ describe('W-U20CDF5-R2 L4: a damaged context object or a record without its cont
     expect(spies.buildPdf).not.toHaveBeenCalled();
   });
 
-  it('a V1 record without property_ref -> 409 ASSESSMENT_PDF_CONTEXT_UNRESOLVED (REFUSED, MALFORMED_RECORD_ENTRY); never "finns inte i arkivet (bevisat saknad)"', async () => {
+  it('a V1 record without property_ref -> W-U20CDF6 (owner decision R2-5): the 424 RECORD_INTEGRITY_ERROR of every path (MALFORMED_RECORD_ENTRY), no PDF; never "finns inte i arkivet (bevisat saknad)"', async () => {
     const { assessment, repository } = await provisionRecord({ version: 'V1', negatives: ALL, findings: [] });
     await putContexts(repository);
     // The same record without its property_ref, re-identified (a V1 record carries no contract to refuse it earlier).
@@ -854,14 +855,130 @@ describe('W-U20CDF5-R2 L4: a damaged context object or a record without its cont
     await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: without as never, contextBindingRef: { artifact_id: bindingRef!.artifact_id, artifact_type: bindingRef!.artifact_type }, releaseRef: RELEASE_REF, index: projectionIndex });
     state.projectionIndex = projectionIndex;
     const res = await PATHS.pdf();
-    expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ code: 'ASSESSMENT_PDF_CONTEXT_UNRESOLVED', failureClass: 'REFUSED', reasonCode: 'MALFORMED_RECORD_ENTRY', retryable: false });
-    expect(res.body.error).toBe(
-      'Bedömningens fastighetskontext underkändes vid verifieringen (bedömningen saknar en giltig referens till den). ' +
-        'Felet är bestående och löses inte av ett nytt försök. Kontakta systemets administratör. ' +
-        'Ingen PDF skapades: uppgiften redovisas aldrig som saknad när den inte gick att läsa.',
-    );
+    // W-U20CDF6 (R2-5): it was 409 ASSESSMENT_PDF_CONTEXT_UNRESOLVED (REFUSED) here and a 200 on the other paths;
+    // now the same record integrity error as the read-back, verify and the map -- still lasting, still no PDF.
+    expectIntegrity424(res, 'MALFORMED_RECORD_ENTRY');
+    expect(res.body.record_integrity.basis_codes).toEqual(['MALFORMED_RECORD_ENTRY']);
+    expect(res.body.error).not.toMatch(/finns inte i arkivet|bevisat saknad/);
     expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * W-U20CDF6 (owner decision R2-5, 2026-10-03): a stored record whose `property_ref` is missing or not a well-formed
+ * artifact reference breaks its own contract. `property_ref` is REQUIRED in LocalizationAssessmentPayload since the
+ * type's first version (61063241, 2026-08-04: V1 = no assessment_contract_version), and every producer has written it
+ * (the first, 9c200a78, 2026-08-08, as {artifact_id, artifact_type}; GovernedAssessmentPersistence since b2f7ea9b from
+ * the draft's required property_ref) -- so it is no metadata an older format never promised, and the record is a
+ * RECORD_INTEGRITY_ERROR: the same 424 on every path (read-back, verify -- never replayed --, the map, the PDF -- no
+ * PDF built). A genuinely historical V1 record (property_ref intact, coverage metadata it never promised missing) stays
+ * HISTORICAL_COVERAGE_UNKNOWN: never over-closed.
+ */
+const PROPERTY_REF_VARIANTS: ReadonlyArray<readonly [string, (payload: Record<string, unknown>) => void]> = [
+  ['removed', (p) => { delete p.property_ref; }],
+  ['an empty id', (p) => { p.property_ref = { artifact_id: '', artifact_type: PROPERTY_REF.artifact_type }; }],
+  ['without a type', (p) => { p.property_ref = { artifact_id: PROPERTY_REF.artifact_id }; }],
+  ['a string', (p) => { p.property_ref = PROPERTY_REF.artifact_id; }],
+  ['null', (p) => { p.property_ref = null; }],
+];
+
+/** Stores the record (contexts present) with its payload edited, re-identified, as the project's only current assessment. */
+async function provisionEdited(input: Parameters<typeof provisionRecord>[0], edit: (payload: Record<string, unknown>) => void) {
+  const { assessment, repository } = await provisionRecord(input);
+  await putContexts(repository);
+  const payload = { ...(assessment as { payload: Record<string, unknown> }).payload };
+  edit(payload);
+  const edited = readdress({ ...(assessment as unknown as Stored), payload });
+  await repository.put({ artifact_id: edited.artifact_id, body: edited });
+  const [bindingRef] = await (state.bindingIndex as MemoryBindingIndex).listBindingRefs(PROJECT_ID);
+  const projectionIndex = new MemoryProjectionIndex();
+  await registerAssessmentProjection({ projectId: PROJECT_ID, assessment: edited as never, contextBindingRef: { artifact_id: bindingRef!.artifact_id, artifact_type: bindingRef!.artifact_type }, releaseRef: RELEASE_REF, index: projectionIndex });
+  state.projectionIndex = projectionIndex;
+  return { assessment: edited, repository };
+}
+
+describe('W-U20CDF6 R2-5: a record without a well-formed property_ref is a RECORD_INTEGRITY_ERROR -- the same 424 on every path', () => {
+  for (const [variant, edit] of PROPERTY_REF_VARIANTS) {
+    it(`V1, property_ref ${variant}: read-back, verify, map and PDF all answer 424 ASSESSMENT_RECORD_INTEGRITY_ERROR (MALFORMED_RECORD_ENTRY); no replay, no PDF`, async () => {
+      await provisionEdited({ version: 'V1', negatives: ALL, findings: [] }, edit);
+      for (const path of ['readBack', 'verify', 'map', 'pdf'] as const) {
+        const res = await PATHS[path]();
+        expectIntegrity424(res, 'MALFORMED_RECORD_ENTRY');
+        expect(res.body.record_integrity.basis_codes, path).toEqual(['MALFORMED_RECORD_ENTRY']);
+        // Never the read-back's former "Bedömningen saknar fastighetsreferens" root, never "bevisat saknad".
+        expect(JSON.stringify(res.body), path).not.toMatch(/saknar fastighetsreferens|bevisat saknad|finns inte i arkivet/);
+      }
+      expect(spies.reExecute).not.toHaveBeenCalled();
+      expect(spies.buildPdf).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const version of ['V2', 'V3', 'V4'] as const) {
+    it(`${version} without property_ref: the same 424 on the read-back and verify (every contract version promised it)`, async () => {
+      await provisionEdited({ version, negatives: ALL, findings: [] }, (p) => { delete p.property_ref; });
+      expectIntegrity424(await PATHS.readBack(), 'MALFORMED_RECORD_ENTRY');
+      expectIntegrity424(await PATHS.verify(), 'MALFORMED_RECORD_ENTRY');
+      expect(spies.reExecute).not.toHaveBeenCalled();
+    });
+  }
+
+  it('the stored findings stay in view only as the non-authoritative diagnostic; a known risk is still named', async () => {
+    const water = layerEvidence('water', true);
+    await provisionEdited(
+      { version: 'V1', negatives: ['ebh', 'protected_area', 'natura2000', 'water_protection_area'], hits: ['water'], findings: [
+        { finding_id: 'finding-water-hit', rule_id: RULE.water!, rule_version: '2.0', risk_level: 'MEDIUM', explanation: 'x', evidence_refs: [ref(water)] },
+      ] },
+      (p) => { delete p.property_ref; },
+    );
+    const res = await PATHS.readBack();
+    expectIntegrity424(res, 'MALFORMED_RECORD_ENTRY');
+    expect(res.body.record_integrity.stored_findings_unverified).toMatchObject({ total: 1, highest_level: 'MEDIUM' });
+    expect(res.body.error).toContain('risknivå måttlig – Brunnar');
+    expect(res.body).not.toHaveProperty('findings');
+  });
+
+  it('a record that names a localization point but no property: the record integrity error, not a geometry answer and not a 500', async () => {
+    await provisionEdited({ version: 'V3', negatives: ALL, findings: [] }, (p) => {
+      delete p.property_ref;
+      p.localization_geometry_ref = LOCATION_REF;
+    });
+    expectIntegrity424(await PATHS.readBack(), 'MALFORMED_RECORD_ENTRY');
+    expectIntegrity424(await PATHS.pdf(), 'MALFORMED_RECORD_ENTRY');
+    expect(spies.buildPdf).not.toHaveBeenCalled();
+  });
+
+  it('control (no over-closing): the same V1 record WITH its property_ref -> 200 on every path, verify replays once, the PDF is built', async () => {
+    await provisionEdited({ version: 'V1', negatives: ALL, findings: [] }, () => undefined);
+    for (const path of ['readBack', 'verify', 'map', 'pdf'] as const) {
+      expect((await PATHS[path]()).status, path).toBe(200);
+    }
+    expect(spies.reExecute).toHaveBeenCalledTimes(1);
+    expect(spies.buildPdf).toHaveBeenCalledTimes(1);
+  });
+
+  it('control (no over-closing): a genuinely historical V1 record -- property_ref intact, a layer it never recorded -- stays HISTORICAL_COVERAGE_UNKNOWN (200), never a 424', async () => {
+    await provisionEdited({ version: 'V1', negatives: ['water', 'ebh', 'protected_area'], findings: [] }, () => undefined);
+    const res = await PATHS.readBack();
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(res.body.overallStatement).toMatchObject({ coverage_state: 'HISTORICAL_COVERAGE_UNKNOWN' });
+    expect(res.body.overallStatement.coverage_basis.some((entry: string) => entry.startsWith('MALFORMED_RECORD_ENTRY'))).toBe(false);
+  });
+
+  it('pure: the coverage of a record names MALFORMED_RECORD_ENTRY:property_ref first when the record says its property_ref is not well formed -- and nothing changes for a caller that holds no record (flag absent) or a well-formed one', async () => {
+    const { assessment, repository } = await provisionRecord({ version: 'V1', negatives: ALL, findings: [] });
+    const details = await resolveGovernedAssessmentDetails({ assessment: assessment as never, artifactRepository: repository as never });
+    const checks = details.governedLayerChecks;
+    const broken = assessGovernedCoverage(checks, { findings: [], propertyRefWellFormed: false } as never);
+    expect(broken).toMatchObject({ coverage_state: 'RECORD_INTEGRITY_ERROR', coverage: null });
+    expect(broken.coverage_basis[0]).toBe('MALFORMED_RECORD_ENTRY:property_ref');
+    for (const context of [{ findings: [] }, { findings: [], propertyRefWellFormed: true }]) {
+      expect(assessGovernedCoverage(checks, context as never)).toMatchObject({ coverage_state: 'DETERMINED', coverage_basis: [] });
+    }
+    // The fresh run: also when the run wrote no checks at all.
+    expect(assessGovernedCoverage([], { findings: [], freshRun: true, propertyRefWellFormed: false } as never)).toMatchObject({
+      coverage_state: 'RECORD_INTEGRITY_ERROR',
+      coverage_basis: ['MALFORMED_RECORD_ENTRY:property_ref', 'CHECKS_UNAVAILABLE'],
+    });
   });
 });
 

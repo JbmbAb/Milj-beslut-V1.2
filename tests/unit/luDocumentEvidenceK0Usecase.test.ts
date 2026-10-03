@@ -172,10 +172,11 @@ beforeEach(() => {
     evidence: ['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area'].map((layer) => spatialEvidence(layer, false)),
     unavailable_layers: [],
   });
-  kernelMock.mockImplementation(async (input: { assessment_draft: { evidence_refs: unknown[] } }) => ({
+  // W-U20CDF6 (R2-5): the stub record carries the draft's property_ref, as the producer copies it into every record.
+  kernelMock.mockImplementation(async (input: { assessment_draft: { evidence_refs: unknown[]; property_ref: unknown } }) => ({
     admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
     findings: [], finding_ids: [],
-    assessment: { artifact_id: 'assessment-k0', payload: { evidence_refs: input.assessment_draft.evidence_refs } },
+    assessment: { artifact_id: 'assessment-k0', payload: { property_ref: input.assessment_draft.property_ref, evidence_refs: input.assessment_draft.evidence_refs } },
   }));
 });
 
@@ -265,12 +266,14 @@ describe('K0b: document check in the fresh generate-report response', () => {
   it('is derived from the persisted assessment\'s PINNED refs, not from the request draft', async () => {
     // The request selected no documents (draft refs are spatial only) but the persisted artifact pins
     // DOCUMENT_EVIDENCE + VERIFIED_DOCUMENT_FACT: the check follows the artifact.
-    kernelMock.mockImplementationOnce(async (input: { assessment_draft: { evidence_refs: unknown[] } }) => ({
+    kernelMock.mockImplementationOnce(async (input: { assessment_draft: { evidence_refs: unknown[]; property_ref: unknown } }) => ({
       admitted: true, reason_codes: [], attempt_id: 'a1', outcome_id: 'o1', manifest_id: 'm1',
       findings: [], finding_ids: [],
       assessment: {
         artifact_id: 'assessment-k0-pinned',
         payload: {
+          // W-U20CDF6 (R2-5): the record names its property, as the producer always writes it.
+          property_ref: input.assessment_draft.property_ref,
           evidence_refs: [
             ...input.assessment_draft.evidence_refs,
             { artifact_id: 'doc-evidence-b', artifact_type: 'DOCUMENT_EVIDENCE' },

@@ -182,7 +182,8 @@ function admitted(artifactId: string, findings: readonly unknown[], evidence: re
   return {
     admitted: true, reason_codes: [], attempt_id: `attempt-${artifactId}`, outcome_id: `outcome-${artifactId}`, manifest_id: `manifest-${artifactId}`,
     findings, finding_ids: findings.map((f) => (f as { finding_id?: string } | null)?.finding_id ?? 'x'),
-    assessment: { artifact_id: artifactId, payload: { evidence_refs: evidence.map(refOf), findings } },
+    // W-U20CDF6 (R2-5): the stub record names its property, as the producer always writes it.
+    assessment: { artifact_id: artifactId, payload: { property_ref: { artifact_id: 'property-context-1', artifact_type: 'LU_PROPERTY_CONTEXT' }, evidence_refs: evidence.map(refOf), findings } },
   };
 }
 
