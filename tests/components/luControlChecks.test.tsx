@@ -236,7 +236,8 @@ describe('W-M2d item 1: presentLuControlChecks shows the server\'s checks', () =
   });
 
   it('the document check is the server\'s row; "limited" only because the server lists it as such', () => {
-    const { readBack, c } = present({ documents: 'pinned' });
+    // OD-K0-3 (W-U20CDF6): a document HIT is LU-DOC-BESLUT-001's own finding over the pinned documents.
+    const { readBack, c } = present({ documents: 'pinned', documentRule: 'fired' });
     expect(readBack.overallStatement.coverage?.limited_coverage_layers).toContain('document');
     expect(c.document!.state).toBe('HIT');
     expect(c.document!.stateLabel).toBe('Kontrollerat – träff · begränsad täckning');

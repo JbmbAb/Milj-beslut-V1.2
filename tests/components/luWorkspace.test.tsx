@@ -1464,6 +1464,8 @@ describe('LuWorkspace DEMO M2b', () => {
     const readBack = governedReadBack({
       id: 'assessment-x',
       documents: 'pinned',
+      // OD-K0-3 (W-U20CDF6): a document HIT is LU-DOC-BESLUT-001's own finding over the pinned documents.
+      documentRule: 'fired',
       layers: Object.fromEntries(LAYERS.map((layer) => [layer, { kind: 'hit' }])),
     });
     mockM2b({ currentAssessment: () => readBack, evidence: () => FIVE_HIT });
