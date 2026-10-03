@@ -1078,8 +1078,6 @@ export async function resolveGovernedAssessmentDetails(input: {
   let anyReadError = false;
   let spatialEvidenceUnreadable = false;
   let integrityFailure: GovernedAssessmentDetails['integrity'] = { ok: true };
-  // W-U20CDF5-R2 (U20CDF5 verification M1-rest): pinned artifacts that were read but failed their own identity.
-  const identityFailedArtifactIds: string[] = [];
 
   for (const ref of refs) {
     const read = await readArtifact(input.artifactRepository, ref);
@@ -1120,12 +1118,12 @@ export async function resolveGovernedAssessmentDetails(input: {
     if (detail.integrity === 'TAMPERED' && integrityFailure.ok) {
       integrityFailure = { ok: false, failureClass: 'EVIDENCE_TAMPERED', artifactId: ref.artifact_id };
     }
-    if (detail.integrity === 'TAMPERED') {
-      // W-U20CDF5-R2 (M1-rest): content that failed its own identity says nothing about its layer. For the checks
-      // it is unreadable (a technical error), never "no evidence" -- so the record checks verify classifies before
-      // it leaves a tampered record to H15 never read a silent layer, or any other content, out of it.
-      identityFailedArtifactIds.push(ref.artifact_id);
-      if (ref.artifact_type === 'SPATIAL_EVIDENCE') spatialEvidenceUnreadable = true;
+    if (detail.integrity === 'TAMPERED' && ref.artifact_type === 'SPATIAL_EVIDENCE') {
+      // W-U20CDF5-R2 (U20CDF5 verification M1-rest): spatial content that failed its own identity says nothing about
+      // its layer. For the checks a layer without readable evidence is then unreadable (a technical error), never
+      // "no evidence" -- so the record checks verify classifies before it leaves a tampered record to H15 never read
+      // a silent layer out of it. (The read-back, the PDF and the map fail closed on `integrity` before any check.)
+      spatialEvidenceUnreadable = true;
     }
     evidenceDetails.push(detail);
   }
@@ -1135,10 +1133,6 @@ export async function resolveGovernedAssessmentDetails(input: {
     integrityFailure = { ok: false, failureClass: 'ROOT_PROVENANCE_TAMPERED', artifactId: propertyRoot.property_context_artifact_id ?? '' };
   }
 
-  // W-U20CDF5-R2 (M1-rest): what the checks cannot rest on -- not read, or read and failed its own identity. (The
-  // read-back, the PDF and the map fail closed on `integrity` before they present a check; only verify reads the
-  // checks of such a record, to classify what is visible without that content.)
-  const checkUnreadableIds = [...unreadableArtifactIds, ...identityFailedArtifactIds];
   return {
     evidenceDetails,
     governedLayerChecks: presentedGovernedLayerChecks({
@@ -1146,9 +1140,9 @@ export async function resolveGovernedAssessmentDetails(input: {
       findings,
       pinnedEvidenceRefs: rawRefs,
       spatialEvidenceUnreadable,
-      unreadableArtifactIds: checkUnreadableIds,
+      unreadableArtifactIds,
     }),
-    documentCheck: computeGovernedDocumentCheck(rawRefs, { unreadableArtifactIds: checkUnreadableIds }),
+    documentCheck: computeGovernedDocumentCheck(rawRefs, { unreadableArtifactIds }),
     pinnedEvidence: {
       pinned_total: refs.length,
       unreadable_artifact_ids: [...unreadableArtifactIds].sort(),
