@@ -1,6 +1,7 @@
-# Basimagen är pinnad på sitt multi-arch-index (node:22-alpine, Alpine 3.24,
-# publicerad 2026-09-23). Två byggen av samma commit får då samma bas.
-# Byt medvetet: docker buildx imagetools inspect node:22-alpine
+# Basimage-lagren är pinnade på node:22-alpines multi-arch-index (Alpine 3.24,
+# publicerad 2026-09-23). apk-steget nedan är inte versionspinnat, så base-steget
+# är ändå rörligt mellan två byggen av samma commit.
+# Byt digest medvetet: docker buildx imagetools inspect node:22-alpine
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
 
 # Uppdatera och installera curl och openssl för Prisma, plus chromium för ERD-generatorn
@@ -43,11 +44,14 @@ RUN npm prune --omit=dev --legacy-peer-deps --ignore-scripts
 
 # Steg 2: Produktionsbas (gemensam för alla slutliga images)
 FROM base AS production-base
-# Fem @miljobeslut-specifierare (mps-application, mps-capability,
-# mps-knowledge-corpus, mps-knowledge-index, mps-legal-corpus) finns inte som
-# node_modules-länkar och löses bara via tsconfig-paths. tsx letar annars upp
-# tsconfig.json från arbetskatalogen; den fasta sökvägen gör upplösningen
-# oberoende av working_dir.
+# tsconfig.json följer med för tsconfig-paths: fem @miljobeslut-specifierare
+# (mps-application, mps-capability, mps-knowledge-corpus, mps-knowledge-index,
+# mps-legal-corpus) finns inte som node_modules-länkar. Ingen av de fem processerna
+# (web och de fyra LU-arbetarna) når dem; två (mps-knowledge-corpus,
+# mps-legal-corpus) nås bara av ops-skript (scripts/db/legal-corpus-*.ts,
+# scripts/knowledge/run-corpus-expansion.ts) via server/modules/legal/*. tsx letar
+# annars upp tsconfig.json uppåt från arbetskatalogen och hittar /app/tsconfig.json
+# från varje cwd under /app; variabeln pekar bara ut filen uttryckligen.
 ENV NODE_ENV=production \
     TSX_TSCONFIG_PATH=/app/tsconfig.json
 
