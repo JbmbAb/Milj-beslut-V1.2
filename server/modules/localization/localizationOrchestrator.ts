@@ -592,15 +592,27 @@ export interface GovernedEvidenceIntegrityFailure {
   readonly reasonCode: string;
 }
 
+/**
+ * W-U20CDF5-R3 (U20CDF5-R2 verification R2-6): the last sentence says what THIS path does not do -- the read-back
+ * (and the PDF, which answers with it) does not show the assessment; verify, where the assessment is on screen, did
+ * not run the reproducibility check; the map does not show it.
+ */
+const INTEGRITY_CONSEQUENCE_SV: Readonly<Record<'read' | 'verify' | 'map', string>> = {
+  read: 'Bedömningen visas inte.',
+  verify: 'Reproducerbarhetskontrollen genomfördes därför inte och inget utfall anges.',
+  map: 'Kartan visar därför inte bedömningen.',
+};
+
 function governedEvidenceIntegrityFailure(
   integrity: Extract<GovernedAssessmentDetails['integrity'], { ok: false }>,
+  path: 'read' | 'verify' | 'map' = 'read',
 ): GovernedEvidenceIntegrityFailure {
   return {
     ok: false,
     status: 424,
     error:
       `Bedömningens underlag klarade inte integritetskontrollen (${integrity.failureClass}: ` +
-      `${integrity.artifactId}). Bedömningen visas inte.`,
+      `${integrity.artifactId}). ${INTEGRITY_CONSEQUENCE_SV[path]}`,
     code: 'GOVERNED_EVIDENCE_INTEGRITY_FAILED',
     failureClass: integrity.failureClass,
     reasonCode: integrity.failureClass,
@@ -728,22 +740,49 @@ export interface PinnedEvidenceUnreadableRefusal {
   readonly retryable: boolean;
 }
 
+/** What an incomplete integrity pre-check means for verify / the map. */
+function uncheckedIntegrityConsequenceSv(path: 'verify' | 'map'): string {
+  return path === 'verify'
+    ? 'Bedömningens integritet kunde därför inte kontrolleras: reproducerbarhetskontrollen genomfördes inte och inget utfall anges.'
+    : 'Bedömningens integritet kunde därför inte kontrolleras, och kartan visar inte bedömningen.';
+}
+
 function pinnedEvidenceUnreadableRefusal(statement: GovernedOverallStatement, path: 'verify' | 'map'): PinnedEvidenceUnreadableRefusal {
   const technical = statement.pinned_evidence?.technical_error_class ?? null;
   // governedEvidenceDetails' own reviewed classification of the failed reads, in the shared classes: a pinned
   // artifact the CAS does not hold is MISSING_FROM_CAS (lasting); anything else a READ_ERROR (retryable).
   const fault = readFaultOfClass(technical === 'EVIDENCE_NOT_FOUND' ? 'MISSING_FROM_CAS' : 'READ_ERROR');
-  const consequence =
-    path === 'verify'
-      ? 'Bedömningens integritet kunde därför inte kontrolleras: reproducerbarhetskontrollen genomfördes inte och inget utfall anges.'
-      : 'Bedömningens integritet kunde därför inte kontrolleras, och kartan visar inte bedömningen.';
   return {
     ok: false,
     status: readFaultHttpStatus(fault),
-    error: `${readFaultSentenceSv(fault, 'Den pinnade evidensen som bedömningen är bunden till')} ${consequence}`,
+    error: `${readFaultSentenceSv(fault, 'Den pinnade evidensen som bedömningen är bunden till')} ${uncheckedIntegrityConsequenceSv(path)}`,
     code: ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE,
     failureClass: fault.faultClass,
     reasonCode: technical ?? 'PINNED_EVIDENCE_UNREADABLE',
+    retryable: fault.retryable,
+  };
+}
+
+/**
+ * W-U20CDF5-R3 (U20CDF5-R2 verification R2-1, "M1-rot"): the property root is part of the integrity pre-check -- a
+ * tampered root is the 424 on every path. A root link that could not be READ (governedEvidenceDetails' ROOT_READ_ERROR:
+ * a read of unknown persistence) leaves the pre-check incomplete: it may hide a lasting root break, so verify does not
+ * replay and the map does not present. ROOT_ARTIFACT_NOT_FOUND -- the exact "never stored" signal -- cannot hide a
+ * break and is not refused here (a genuine record without a stored root behaves as before).
+ */
+function isPropertyRootReadError(root: PropertyRootDetails): boolean {
+  return root.status === 'TECHNICAL_ERROR' && root.technical_error_class === 'ROOT_READ_ERROR';
+}
+
+function propertyRootUnreadableRefusal(path: 'verify' | 'map'): PinnedEvidenceUnreadableRefusal {
+  const fault = readFaultOfClass('READ_ERROR');
+  return {
+    ok: false,
+    status: readFaultHttpStatus(fault),
+    error: `${readFaultSentenceSv(fault, 'Fastighetsroten som bedömningen är bunden till')} ${uncheckedIntegrityConsequenceSv(path)}`,
+    code: ASSESSMENT_PINNED_EVIDENCE_UNREADABLE_CODE,
+    failureClass: fault.faultClass,
+    reasonCode: 'ROOT_READ_ERROR',
     retryable: fault.retryable,
   };
 }
@@ -767,7 +806,7 @@ async function currentRecordIntegrityRefusal(
   path: 'verify' | 'map',
 ): Promise<GovernedRecordIntegrityFailure | GovernedEvidenceIntegrityFailure | PinnedEvidenceUnreadableRefusal | null> {
   const details = await resolveGovernedAssessmentDetails({ assessment, artifactRepository });
-  if (details.integrity.ok === false) return governedEvidenceIntegrityFailure(details.integrity);
+  if (details.integrity.ok === false) return governedEvidenceIntegrityFailure(details.integrity, path);
   const statement = governedOverallStatement(
     governedVerdictFromFindings(assessment.payload.findings).overallRisk,
     details.governedLayerChecks,
@@ -777,6 +816,8 @@ async function currentRecordIntegrityRefusal(
     return recordIntegrityFailure(assessment.artifact_id, statement, assessment.payload.findings);
   }
   if (statement.coverage_state === 'PINNED_EVIDENCE_UNREADABLE') return pinnedEvidenceUnreadableRefusal(statement, path);
+  // W-U20CDF5-R3 (R2-1): last -- a break visible without the root and a lasting pinned-evidence loss name more.
+  if (isPropertyRootReadError(details.propertyRoot)) return propertyRootUnreadableRefusal(path);
   return null;
 }
 
@@ -1374,6 +1415,18 @@ export async function exportCurrentLuAssessmentPdf(input: CurrentAssessmentInput
   }
 
   const artifactRepository = input.artifactRepository ?? (await MimersIntegration.create()).artifactRepository;
+
+  // W-U20CDF5-R3 (U20CDF5-R2 verification R2-1): the root is the only check of the property context's CONTENT (a
+  // product context is rebuilt there) and of the binding behind it. A root that could not be read may hide a lasting
+  // root break -- and readPdfContext below binds only the context's id and type -- so no document is built: the same
+  // typed, retryable answer as a context read that failed. (The read-back keeps its 200 with the root marked as a
+  // technical error: it shows nothing from the unread root, and its level and count rest only on verified content.)
+  if (isPropertyRootReadError(summary.propertyRoot)) {
+    return {
+      ...pdfContextFailure(new LuReadFaultError('assessment-property-root', readFaultOfClass('READ_ERROR'), null), 'Bedömningens fastighetsrot'),
+      reasonCode: 'ROOT_READ_ERROR',
+    };
+  }
 
   // W-U20CDF5 (B5; OD-R2 class, CATCH2-REPORT section 11 item 5): the property and project context give the PDF
   // its names. A context whose read FAILED is never printed as a gap: no PDF is built, a typed fault in the shared
