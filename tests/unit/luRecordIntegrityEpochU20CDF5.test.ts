@@ -283,6 +283,8 @@ async function provisionRecord(input: {
   readonly hits?: readonly string[];
   readonly findings: readonly unknown[] | 'ABSENT';
   readonly rawFindings?: unknown;
+  /** W-U20CDF5-R2: a last edit of the stored payload (the record is re-identified after it). */
+  readonly editPayload?: (payload: Record<string, unknown>) => void;
 }) {
   const repository = new FaultyMemoryRepository();
   const bindingIndex = new MemoryBindingIndex();
@@ -320,6 +322,7 @@ async function provisionRecord(input: {
     payload.assessment_contract_version = 'localization-assessment-v4';
     payload.authority_evidence_ref = { artifact_id: 'authority-evidence-u20cdf5', artifact_type: 'authority_evidence' };
   }
+  input.editPayload?.(payload);
   const assessment = readdress({ ...(created as unknown as Stored), payload });
   await repository.put({ artifact_id: assessment.artifact_id, body: assessment });
   await registerAssessmentProjection({
@@ -485,5 +488,22 @@ describe('W-U20CDF5-R2 L1 (verifier probe C): a V3/V4 record without a findings 
     expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_CONTRACT_REFUSED', failureClass: 'ASSESSMENT_CONTRACT_INVALID', retryable: false });
     expect(res.body.reasonCode).toMatch(/^REJECT_LOCALIZATION_ASSESSMENT/);
     expect(JSON.stringify(res.body)).not.toMatch(/TypeError|Cannot read|undefined/);
+  });
+});
+
+describe('W-U20CDF5-R2 L1 (control): a validator refusal WITH its own REJECT token keeps that token -- only a refusal without one is named generically', () => {
+  it('a V3 record carrying a V4-only field: read-back -> 424 ASSESSMENT_CONTRACT_REFUSED with reasonCode REJECT_LOCALIZATION_ASSESSMENT_V3, not the generic token', async () => {
+    await provisionRecord({
+      version: 'V3', negatives: ALL, findings: [],
+      editPayload: (payload) => { payload.authority_evidence_ref = { artifact_id: 'authority-evidence-u20cdf5', artifact_type: 'authority_evidence' }; },
+    });
+    const res = await PATHS.readBack();
+    expect(res.status).toBe(424);
+    expect(res.body).toMatchObject({ ok: false, code: 'ASSESSMENT_CONTRACT_REFUSED', failureClass: 'ASSESSMENT_CONTRACT_INVALID', reasonCode: 'REJECT_LOCALIZATION_ASSESSMENT_V3', retryable: false });
+  });
+
+  it('the V3 record without findings names the generic token (the validator threw a TypeError, no token of its own)', async () => {
+    await provisionRecord({ version: 'V3', negatives: ALL, findings: 'ABSENT' });
+    expect((await PATHS.readBack()).body).toMatchObject({ reasonCode: 'REJECT_LOCALIZATION_ASSESSMENT' });
   });
 });
