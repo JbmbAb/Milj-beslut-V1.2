@@ -304,6 +304,9 @@ describe('callCore', () => {
 
 describe("W-TEXT2 (5; UI1-R2 finding L2): the server's raw error text is capped and checked by form before it becomes Error.message", () => {
   const failing = async (body: unknown, status = 500) => {
+    // Several calls in one test: the CSRF token is cached after the first, so reset it or the token response is
+    // consumed as the API answer (a 200, no throw).
+    resetCsrfTokenCache();
     vi.stubGlobal('window', { localStorage: mockLocalStorage(null) });
     vi.stubGlobal(
       'fetch',

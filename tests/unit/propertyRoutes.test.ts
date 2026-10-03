@@ -182,10 +182,12 @@ describe('property.routes', () => {
     // The route's own normaliser (server/security/propertyLookupNormalize.ts): no body at all -- Express 5 leaves
     // req.body undefined when nothing was parsed. (A JSON body that is no object never reaches the route: the strict
     // body parser answers that 400 itself, before any handler.)
+    const callsBefore = mocks.lookupPropertyByDesignationFromPostgis.mock.calls.length;
     const noBody = await request(app).post('/api/property/lookup').set('Authorization', authHeader());
     expect(noBody.status).toBe(400);
     expect(noBody.body).toMatchObject({ ok: false, retryable: false });
-    expect(mocks.lookupPropertyByDesignationFromPostgis).not.toHaveBeenCalled();
+    // The normaliser refused before the lookup: no further call to the service.
+    expect(mocks.lookupPropertyByDesignationFromPostgis.mock.calls.length).toBe(callsBefore);
   });
 
   describe('W-TEXT2 (3): propertyLookupFailure (pure) -- the branches the HTTP cases above do not reach', () => {
