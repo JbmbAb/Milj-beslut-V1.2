@@ -665,9 +665,10 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     file: "scripts/import/run-geodata-gap-pipeline.ts",
     policy: "DYNAMIC_REVIEWED",
     justification:
-      "Orchestrator: runs python -u <script> for the steps listed in-file (script is the step of that list); every step is a repository script that is scanned itself.",
+      "Orchestrator: runs python -u <script> for the steps listed in-file (script is the step of that list); every step is a repository script that is scanned itself. U30F6 (F5-4): runTsx(label, script, extra) = node <cwd>/node_modules/tsx/dist/cli.mjs <script> -- the tsx CLI is package code (B3) and <script> is a parameter: every in-file call passes a static repository script (import-librarian-manifest, run-lm-stac-librarian-pipeline, run-mcf-stability-librarian-pipeline, harvest-viss-zip-to-master, harvest-smhi-svar-to-master, harvest-ebh-to-master, prepare-ebh-gpkg, harvest-msb-oversvamning-to-master, prepare-msb-oversvamning-gpkg, harvest-mcf-oversvamning-pdfs-to-master; all scripts/import/*.ts, each run by tsx as TypeScript and scanned itself).",
     sites: [
       "DYNAMIC PROCESS spawnSync | spawnSync('python', ['-u', script, arg], { stdio: 'inherit', cwd: process.cwd(), env: process.env, })",
+      "DYNAMIC PROCESS spawnSync | spawnSync(process.execPath, [TSX_CLI, script, ...extra], { stdio: 'inherit', cwd: process.cwd(), env: process.env, })",
     ],
   },
   {
@@ -689,12 +690,31 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     ],
   },
   {
+    file: "scripts/import/run-lm-stac-librarian-pipeline.ts",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F6 (F5-4): orchestrator run(label, args) = node <cwd>/node_modules/tsx/dist/cli.mjs ...args -- the tsx CLI is package code (B3); its three in-file calls pass static repository scripts first (scripts/import/merge-stac-national.ts, scripts/import/import-librarian-manifest.ts twice), each run by tsx as TypeScript and scanned itself.",
+    sites: [
+      "DYNAMIC PROCESS spawnSync | spawnSync(process.execPath, [TSX_CLI, ...args], { stdio: 'inherit', cwd: process.cwd(), env: process.env, shell: false, })",
+    ],
+  },
+  {
+    file: "scripts/import/run-mcf-stability-librarian-pipeline.ts",
+    policy: "DYNAMIC_REVIEWED",
+    justification:
+      "U30F6 (F5-4): orchestrator run(label, args) = node <cwd>/node_modules/tsx/dist/cli.mjs ...args -- the tsx CLI is package code (B3); its three in-file calls pass static repository scripts first (scripts/import/prepare-mcf-stability-national.ts, scripts/import/import-librarian-manifest.ts twice), each run by tsx as TypeScript and scanned itself.",
+    sites: [
+      "DYNAMIC PROCESS spawnSync | spawnSync(process.execPath, [TSX_CLI, ...args], { stdio: 'inherit', cwd: process.cwd(), env: process.env, })",
+    ],
+  },
+  {
     file: "scripts/import/run-national-reharvest.ts",
     policy: "DYNAMIC_REVIEWED",
     justification:
-      "Orchestrator: runs python -u <script> for the steps listed in-file (script is the step of that list); every step is a repository script that is scanned itself.",
+      "Orchestrator: runs python -u <script> for the steps listed in-file (script is the step of that list); every step is a repository script that is scanned itself. U30F6 (F5-4): runTsx(label, script, extra) = node <cwd>/node_modules/tsx/dist/cli.mjs <script> -- the tsx CLI is package code (B3) and <script> is a parameter: every in-file call passes a static repository script (harvest-sgu-to-master, harvest-polite-pipeline, harvest-naturvardsverket-geodata, harvest-msb-to-master, harvest-viss-zip-to-master, harvest-smhi-svar-to-master, harvest-ebh-to-master, harvest-msb-oversvamning-to-master, harvest-mcf-oversvamning-pdfs-to-master, run-mcf-stability-librarian-pipeline, run-lm-stac-librarian-pipeline, harvest-sks-geodata, harvest-sks-markfuktighet; all scripts/import/*.ts, each run by tsx as TypeScript and scanned itself).",
     sites: [
       "DYNAMIC PROCESS spawnSync | spawnSync('python', ['-u', script, arg], { stdio: 'inherit', cwd: process.cwd(), env: process.env, })",
+      "DYNAMIC PROCESS spawnSync | spawnSync(process.execPath, [TSX_CLI, script, ...extra], { stdio: 'inherit', cwd: process.cwd(), env: process.env, })",
     ],
   },
   {
@@ -882,4 +902,99 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "PROTECTED SQL_CALL client.query | client.query(` CREATE OR REPLACE FUNCTION core.normalize_designation(input_text text) RETURNS text AS $$ BEGIN -- Convert to uppercase, unaccent, and replace non-alphanumeric with spaces RETURN trim(…",
     ],
   },
+];
+
+// =============================================================================================
+// U30F6 (F5-3): launches that resolve to no repository file -- each reviewed, never dropped silently
+// =============================================================================================
+
+export type UnresolvedLaunchCategory = "INSTALLED_MODULE" | "CONTROLLER_CHECKOUT" | "MISSING_FILE" | "HOST_PATH" | "CONTAINER_PATH" | "NOT_A_LAUNCH";
+
+/** Why a launch of each category runs no repository file the scan has not read (the reachability argument). */
+export const UNRESOLVED_LAUNCH_CATEGORIES: Readonly<Record<UnresolvedLaunchCategory, string>> = {
+  INSTALLED_MODULE:
+    "python -m of a module no repository file provides (pytest, unittest, a module of a separate checkout), or a package a node runtime preloads (--import/-r <specifier>, never a repository path): the code that runs is an installed package's or another checkout's, not this repository's (unknown package code is BLOCKERARE B3, so each such entry names the package and why it is the expected one). A repository module of that name would resolve a python -m launch (a.b -> a/b.py or a/b/__main__.py) and be scanned, and the entry would go stale.",
+  CONTROLLER_CHECKOUT:
+    "Dev-Gov workflows run the PROTECTED CONTROLLER's checkout (actions/checkout path: controller) of this same repository: controller/<p> is the repository file <p> at the controller revision, which exists here and is scanned at <p> as its own language (.mjs run by node). Nothing else lives under controller/.",
+  MISSING_FILE:
+    "A repository path that no tracked file has (git ls-files: 0 matches, also under another directory): the line runs nothing of the repository -- it fails with file-not-found. Adding the file resolves the launch, which then scans it as run, and makes this entry stale (the test fails until the entry is removed).",
+  HOST_PATH:
+    "A path outside the repository -- an absolute host, temp or other-checkout path, a gitignored local file (.env*, .venv) or a tool installed on the host (aria2c, the Cloud SDK, a downloaded installer): what runs there is host content, not repository content (host tools and downloads are BLOCKERARE B3/B6). The repository's own file of the same name, where one exists, is scanned at its own path.",
+  CONTAINER_PATH:
+    "A path inside a container image that a package of the base image provides (no COPY of a repository file to it in the Dockerfile): the image's code, not repository content.",
+  NOT_A_LAUNCH:
+    "Runbook text the line reader takes for a launch but that runs nothing: a psql meta command (\\copy), an IAM role name on a continuation line, a directory listing.",
+};
+
+/**
+ * `by` is the launcher (a scanned file or a runbook), `runs` what it runs as written (a path, `python -m <module>`, or
+ * `<dynamic directory>/<static tail>`). A launch that resolves to no repository file and is not listed here fails the
+ * inventory; an entry no launch answers any more (the file was added, the line removed) is stale and fails too.
+ */
+export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs: string; readonly category: UnresolvedLaunchCategory; readonly justification: string }[] = [
+  // ---- CONTROLLER_CHECKOUT (7): the protected controller checkout of scripts/devgov/*.mjs ----
+  { by: ".github/workflows/devgov-invariant-packs.yml", runs: "controller/scripts/devgov/invariant-packs.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/invariant-packs.mjs at the controller revision; scanned at scripts/devgov/invariant-packs.mjs (js)." },
+  { by: ".github/workflows/devgov-v0-gate.yml", runs: "controller/scripts/devgov/invariant-packs.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/invariant-packs.mjs at the controller revision (checkout path: controller); scanned at its own path (js)." },
+  { by: ".github/workflows/devgov-v0-gate.yml", runs: "controller/scripts/devgov/devgov.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/devgov.mjs at the controller revision; scanned at its own path (js)." },
+  { by: ".github/workflows/devgov-v0-orchestrate.yml", runs: "controller/scripts/devgov/invariant-packs.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/invariant-packs.mjs at the controller revision; scanned at its own path (js)." },
+  { by: ".github/workflows/devgov-v0-orchestrate.yml", runs: "controller/scripts/devgov/devgov.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/devgov.mjs at the controller revision; scanned at its own path (js)." },
+  { by: ".github/workflows/devgov-v0-rebase-reverify.yml", runs: "controller/scripts/devgov/invariant-packs.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/invariant-packs.mjs at the controller revision; scanned at its own path (js)." },
+  { by: ".github/workflows/devgov-v0-rebase-reverify.yml", runs: "controller/scripts/devgov/devgov.mjs", category: "CONTROLLER_CHECKOUT", justification: "scripts/devgov/devgov.mjs at the controller revision; scanned at its own path (js)." },
+  // ---- INSTALLED_MODULE (11): installed test runners and a separate checkout's modules ----
+  { by: ".github/workflows/release-prompt-optimizer.yml", runs: "python -m pytest", category: "INSTALLED_MODULE", justification: "pytest (pip-installed from prompt_optimizer/requirements-dev.txt in the step before, working-directory: prompt_optimizer) runs its tests/, Python files the scan reads at their own paths." },
+  { by: ".github/workflows/vertex_prompt_optimize.yml", runs: "python -m pytest", category: "INSTALLED_MODULE", justification: "pytest (pip-installed) runs prompt_optimizer's tests/, Python files scanned at their own paths." },
+  { by: "scripts/ci_update_and_smoke_test.sh", runs: "python -m pytest", category: "INSTALLED_MODULE", justification: "pytest from the gitignored alphaevolve-on-googlecloud/.venv, on that separate checkout's tests (.gitignore: alphaevolve-on-googlecloud/)." },
+  { by: "docs/alphaevolve/EXPERIMENTS.md", runs: "python -m examples.circle_packing.src.run_evolution", category: "INSTALLED_MODULE", justification: "a module of the separate, gitignored alphaevolve-on-googlecloud checkout (the runbook's working directory), not of this repository." },
+  { by: "docs/alphaevolve/EXPERIMENTS.md", runs: "python -m examples.list_deduplication.src.run_evolution", category: "INSTALLED_MODULE", justification: "a module of the separate, gitignored alphaevolve-on-googlecloud checkout, not of this repository." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "python -m pytest", category: "INSTALLED_MODULE", justification: "pytest from the alphaevolve-on-googlecloud .venv on that checkout's tests." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "python -m examples.circle_packing.src.run_evolution", category: "INSTALLED_MODULE", justification: "a module of the separate, gitignored alphaevolve-on-googlecloud checkout." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "python -m examples.list_deduplication.src.run_evolution", category: "INSTALLED_MODULE", justification: "a module of the separate, gitignored alphaevolve-on-googlecloud checkout." },
+  { by: "docs/architecture/QGIS-PLUGIN-FOUNDATION-01.md", runs: "python -m unittest", category: "INSTALLED_MODULE", justification: "the standard library's unittest discovering integrations/qgis/mimer_read_model/tests, Python files scanned at their own paths." },
+  { by: "integrations/qgis/mimer_read_model/README.md", runs: "python -m unittest", category: "INSTALLED_MODULE", justification: "the standard library's unittest on integrations/qgis/mimer_read_model/tests (scanned at their own paths)." },
+  { by: "prompt_optimizer/README.md", runs: "python -m unittest", category: "INSTALLED_MODULE", justification: "the standard library's unittest on prompt_optimizer/tests (scanned at their own paths)." },
+  // ---- INSTALLED_MODULE, package preloads (8): node --import tsx ----
+  { by: "package.json", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; the scripts start/dev:server/worker:* load server/index.ts and server/workers/*.ts, repository files scanned themselves." },
+  { by: "Dockerfile.fly", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else (npm install --no-save tsx@4 in the image); CMD loads server/index.ts, scanned itself." },
+  { by: "deploy/onprem/image-smoke/smoke.mjs", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; the image smoke loads its link-only-register.mjs (resolved, scanned) and the five entrypoints link-only (S3)." },
+  { by: "packages/mps-data-governance/tests/P2Auth01SyntheticLegalCorpus.red.historical.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; the script it would load is the missing legal-corpus-harvest.ts (MISSING_FILE below)." },
+  { by: "scripts/backfill/verify-outlook-integrity.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads scripts/backfill/run-outlook-ingest-pipeline.ts (resolved by its static tail, scanned itself)." },
+  { by: "server/modules/localization/luExecutionIdentityV3Provisioning.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads ./luExecutionIdentityV3VerifyCli.ts (resolved beside the launcher, scanned itself)." },
+  { by: "server/modules/localization/luProjectContextBootstrap.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads ./luProjectContextBootstrapVerifyCli.ts (resolved beside the launcher, scanned itself)." },
+  { by: "server/modules/localization/luViewerCapabilityProvisioning.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads ./luViewerCapabilityVerifyCli.ts (resolved beside the launcher, scanned itself)." },
+  // ---- MISSING_FILE (14): stale script lines and runbook lines -- no tracked file of that name anywhere ----
+  { by: "package.json", runs: "scripts/run-staging-smoke.mjs", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (git ls-files: 0 run-staging-smoke.mjs)." },
+  { by: "package.json", runs: "scripts/export-figma.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 export-figma.ts)." },
+  { by: "package.json", runs: "scripts/import/idempotent-ingest.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 idempotent-ingest.ts)." },
+  { by: "package.json", runs: "scripts/import/extract-requirements-idempotent.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 extract-requirements-idempotent.ts)." },
+  { by: "package.json", runs: "scripts/import/import-lantmateriet-property-units.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 import-lantmateriet-property-units.ts)." },
+  { by: "package.json", runs: "scripts/graph/build-knowledge-graph.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 build-knowledge-graph.ts)." },
+  { by: "package.json", runs: "scripts/search-health.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 search-health.ts)." },
+  { by: "packages/mps-data-governance/tests/P2Auth01SyntheticLegalCorpus.red.historical.ts", runs: "<dynamic directory>/scripts/import/legal-corpus-harvest.ts", category: "MISSING_FILE", justification: "resolve(__dirname, '../../../scripts/import/legal-corpus-harvest.ts'): no tracked legal-corpus-harvest.ts anywhere (a historical RED file)." },
+  { by: "DOCKER.md", runs: "run_migration.js", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 run_migration.js)." },
+  { by: "SETUP.md", runs: "scripts/setup-git-config.ps1", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 setup-git-config.ps1)." },
+  { by: "SETUP.md", runs: "scripts/setup-git-config.sh", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 setup-git-config.sh)." },
+  { by: "docs/ops/dataportal-harvester-v2.md", runs: "scripts/ingest/dataportal-harvester-v2.ts", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 dataportal-harvester-v2.ts)." },
+  { by: "docs/ops/postgis_fastighet_pipeline.md", runs: "scripts/import_lm_marktacke.py", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 import_lm_marktacke.py)." },
+  { by: "scripts/data-pipeline/IMPORT_GUIDE.md", runs: "root_ops/extract_deferred_data.py", category: "MISSING_FILE", justification: "runbook line to a file that is not in the repository (0 extract_deferred_data.py)." },
+  // ---- HOST_PATH (9): host tools, downloads, other checkouts and gitignored local files ----
+  { by: "scripts/import-komplettering.ps1", runs: "c:/Dev/miljobeslut-platform-recovery/scripts/import-raw-pdfs.ts", category: "HOST_PATH", justification: "another checkout on the operator's host; this repository's scripts/import-raw-pdfs.ts is scanned at its own path." },
+  { by: "scripts/import/run-full-raster-pipeline.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the aria2 download tool installed by winget on the operator's host (a downloader, no database client)." },
+  { by: "scripts/import/run-historical-download-batched.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the winget-installed aria2 downloader on the operator's host." },
+  { by: "scripts/import/run-historical-download.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the winget-installed aria2 downloader on the operator's host." },
+  { by: "setup_adc.sh", runs: "/tmp/gcloud_install.sh", category: "HOST_PATH", justification: "the Google Cloud SDK installer the script downloads with curl (third-party code, B3)." },
+  { by: "setup_adc.sh", runs: "<dynamic directory>/bin/gcloud", category: "HOST_PATH", justification: "GCLOUD_BIN=\"$SDK_PATH/bin/gcloud\": the installed Cloud SDK binary (auth, config, services enable), no repository file." },
+  { by: "docs/google-ai/SETUP.md", runs: ".venv/Scripts/Activate.ps1", category: "HOST_PATH", justification: "after `cd alphaevolve-on-googlecloud`: that gitignored checkout's virtualenv activation script (generated by venv)." },
+  { by: "docs/google-ai/SETUP.md", runs: ".venv-adk/Scripts/Activate.ps1", category: "HOST_PATH", justification: "the gitignored .venv-adk virtualenv's activation script (.gitignore: .venv-adk/), generated by venv." },
+  { by: "docs/qa/STAGING_SETUP_CHECKLIST.md", runs: ".env.staging", category: "HOST_PATH", justification: "a gitignored local environment file (.env*): sourced on the operator's machine, never repository content." },
+  // ---- CONTAINER_PATH (1) ----
+  { by: "Dockerfile.gcp", runs: "/sbin/tini", category: "CONTAINER_PATH", justification: "ENTRYPOINT [\"/sbin/tini\", \"--\"]: tini from the base image's apk add (Dockerfile.gcp:13), no COPY to /sbin." },
+  // ---- NOT_A_LAUNCH (8): runbook text read as a launch ----
+  { by: ".claude/skills/postgis-filtyper.md", runs: "/copy", category: "NOT_A_LAUNCH", justification: "the psql meta command \\copy (lines 42 and 69: psql input in the skill's SQL examples), not a program path." },
+  { by: "docs/deploy/DEPLOY_GCP.md", runs: "roles/aiplatform.user", category: "NOT_A_LAUNCH", justification: "an IAM role name in `for role in roles/... ; do` (DEPLOY_GCP.md:121-127), a loop word list, not a program." },
+  { by: "docs/deploy/DEPLOY_GCP.md", runs: "roles/cloudsql.client", category: "NOT_A_LAUNCH", justification: "an IAM role name on a continuation line, not a program." },
+  { by: "docs/deploy/DEPLOY_GCP.md", runs: "roles/secretmanager.secretAccessor", category: "NOT_A_LAUNCH", justification: "an IAM role name on a continuation line, not a program." },
+  { by: "docs/deploy/DEPLOY_GCP.md", runs: "roles/storage.objectUser", category: "NOT_A_LAUNCH", justification: "an IAM role name on a continuation line, not a program." },
+  { by: "docs/deploy/DEPLOY_GCP.md", runs: "roles/logging.logWriter", category: "NOT_A_LAUNCH", justification: "an IAM role name on a continuation line, not a program." },
+  { by: "docs/deploy/DEPLOY_GCP.md", runs: "roles/monitoring.metricWriter", category: "NOT_A_LAUNCH", justification: "an IAM role name on a continuation line (`...; do`), not a program." },
+  { by: "docs/analysis/legal-rag/DIAGNOSTIK_RAG_JURIDIK_STATUS.md", runs: "H:/Delade", category: "NOT_A_LAUNCH", justification: "a directory listing (H:\\Delade enheter\\...\\Sources\\) in a code block, not a command." },
 ];

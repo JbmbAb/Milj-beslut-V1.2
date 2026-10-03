@@ -95,6 +95,15 @@ export interface Launch {
   readonly lang: Language | null;
   /** The command that runs it. */
   readonly via: string;
+  /** U30F6 (F5-3): `python -m <file>` -- a module name (dots as slashes): `<file>.py` or `<file>/__main__.py`. */
+  readonly module?: boolean;
+  /**
+   * U30F6 (F5-4): `file` is the static tail of a path whose directory is dynamic ("$DIR/x/y.sh" -> "x/y.sh"): every
+   * repository file ending in it may be the one run, and each is scanned as run; none -> an unresolved launch.
+   */
+  readonly suffix?: boolean;
+  /** U30F6 (F5-2/F5-3): `file` is a package a runtime preloads (node -r/--import <specifier>): never a repository file. */
+  readonly package?: boolean;
 }
 
 export type Language = "js" | "py" | "ps" | "sh" | "cmd" | "sql" | "yaml" | "toml" | "docker" | "json";
@@ -369,7 +378,11 @@ const PKG_EXEC = new Set(["npx", "bunx", "pnpx"]);
 const PKG_MANAGERS = new Set(["npm", "pnpm", "yarn"]);
 const SUB_RUNNERS = new Set(["uv", "pipx", "poetry", "pdm", "hatch", "rye"]);
 const ENV_RUNNERS = new Set(["dotenv", "cross-env", "env", "env-cmd"]);
-const NODE_VALUE_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions", "--env-file", "--input-type", "--title", "--tsconfig"]);
+const NODE_VALUE_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "--preload", "-C", "--conditions", "--env-file", "--input-type", "--title", "--tsconfig"]);
+/** U30F6 (F5-2): flags whose value is a module run before the script (node/tsx/ts-node -r, --import, --loader; bun --preload). */
+const NODE_PRELOAD_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "--preload"]);
+/** Runtimes where -r means something else (deno: --reload; vite-node: --root). */
+const NODE_PRELOAD_EXCEPT = new Set(["deno", "vite-node"]);
 const NODE_INLINE_FLAGS = new Set(["-e", "--eval", "-p", "--print"]);
 const PY_VALUE_FLAGS = new Set(["-W", "-X", "--check-hash-based-pycs"]);
 const PKG_VALUE_FLAGS = new Set(["-p", "--package", "-c", "--call", "--prefix", "-w", "--workspace", "--filter", "-C", "--dir", "--cwd", "--with", "--python", "--project"]);
@@ -382,6 +395,66 @@ function namesFile(a: string): boolean {
 
 function asLaunchPath(a: string): string {
   return a.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+/**
+ * U30F6 (F5-4): the static path after a path's last dynamic part when that part is whole directories
+ * ("$DIR/x/y.sh" -> "x/y.sh", "$ROOT/../a/b.ps1" -> "a/b.ps1"); null when the file name itself is not in the source.
+ */
+function staticTail(a: string): string | null {
+  const close = classificationSpec().dynamic_placeholder_close;
+  const tail = a.slice(a.lastIndexOf(close) + close.length).replace(/\\/g, "/");
+  if (!/^\/[^/]/.test(tail)) return null;
+  const norm = path.posix.normalize(tail.slice(1)).replace(/^(\.\.\/)+/, "");
+  return norm === "" || norm === "." || norm === ".." || norm.endsWith("/") ? null : norm;
+}
+
+/** A path into node_modules is a package's code (B3), not a repository file. */
+const PACKAGE_PATH = /(^|[\\/])node_modules[\\/]/;
+/** `node <...>/node_modules/tsx/dist/cli.mjs x` is `tsx x`; `node <...>/node_modules/.bin/<name> x` is `<name> x`. */
+const PACKAGE_CLI = /(?:^|[\\/])node_modules[\\/](?:tsx[\\/]dist[\\/]cli\.m?js|\.bin[\\/]([A-Za-z0-9_.-]+))$/;
+
+let launcherDirRe: RegExp | null = null;
+/**
+ * U30F6 (F5-4): a launch path under the launcher's own directory as PowerShell writes it (`$PSScriptRoot\x`, and
+ * `Join-Path $PSScriptRoot 'x'`, which folds to the same) reads as `./x`: it resolves from the launcher's directory.
+ * (The shell and cmd forms -- `$(dirname "$0")`, `%~dp0` -- are read so by anchorLauncherDir before the line is split.)
+ */
+function anchoredPath(a: string): string {
+  if (!containsDynamic(a)) return a;
+  if (!launcherDirRe) {
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const spec = classificationSpec();
+    launcherDirRe = new RegExp(`^${esc(spec.dynamic_placeholder_open)}:PSScriptRoot${esc(spec.dynamic_placeholder_close)}(?:[\\\\/]|$)`, "i");
+  }
+  return a.replace(launcherDirRe, "./");
+}
+
+/**
+ * U30F6 (F5-4): the launcher's directory written the usual shell ways -- `$(dirname "$0")`, `$(dirname
+ * "${BASH_SOURCE[0]}")`, `$(cd "$(dirname "$0")" && pwd)`, `$(realpath "...")`, `${0%/*}` -- and cmd `%~dp0`, read as
+ * `.`: a path built on it resolves from the launcher's directory. Every other dynamic part of a launch path stays
+ * dynamic (judged DYNAMIC where it is run).
+ */
+export function anchorLauncherDir(text: string, lang: "sh" | "cmd"): string {
+  if (lang === "cmd") return text.replace(/%~dp0\\?/gi, "./");
+  if (!/\$\(|`|\$\{(?:0|BASH_SOURCE)/.test(text)) return text;
+  const self = String.raw`(?:"\$0"|\$0|"\$\{0\}"|\$\{0\}|"\$\{BASH_SOURCE(?:\[0\])?\}"|\$\{BASH_SOURCE(?:\[0\])?\}|"\$BASH_SOURCE"|\$BASH_SOURCE)`;
+  const dirname = new RegExp(String.raw`\$\(\s*dirname\s+(?:--\s+)?${self}\s*\)|\x60\s*dirname\s+(?:--\s+)?${self}\s*\x60`, "g");
+  const staticArg = String.raw`(?:"([^"$\x60\\]*)"|([^\s"'$\x60;&|()<>]+))`;
+  const cdPwd = new RegExp(String.raw`\$\(\s*cd\s+(?:--\s+)?${staticArg}\s*(?:(?:&>|>|2>)\s*\/dev\/null\s*)?&&\s*pwd(?:\s+-P)?\s*\)`, "g");
+  const realpath = new RegExp(String.raw`\$\(\s*(?:realpath|readlink\s+-f)\s+${staticArg}\s*\)`, "g");
+  let out = text;
+  for (let guard = 0; guard < 4; guard += 1) {
+    const before = out;
+    out = out
+      .replace(dirname, ".")
+      .replace(/\$\{(?:0|BASH_SOURCE(?:\[0\])?)%\/\*\}/g, ".")
+      .replace(cdPwd, (_m, q: string | undefined, b: string | undefined) => q ?? b ?? ".")
+      .replace(realpath, (_m, q: string | undefined, b: string | undefined) => q ?? b ?? ".");
+    if (out === before) break;
+  }
+  return out;
 }
 
 /** The first positional argument of `rest` from `from` on (flags and their values skipped), or -1. */
@@ -400,27 +473,35 @@ function firstPositional(rest: readonly string[], valueFlags: ReadonlySet<string
 }
 
 interface CommandRuns {
-  readonly launches: { file: string; lang: Language | null }[];
+  readonly launches: { file: string; lang: Language | null; module?: boolean; suffix?: boolean; package?: boolean }[];
   readonly inline: { lang: "js" | "py" | "ps"; code: string }[];
+  /** U30F6 (F5-4): why a file it runs (a script, a sourced or preloaded file, the program itself) is at a path the source does not hold. */
+  readonly dynamic: string[];
 }
 
 /**
  * U30F5 (D-1/D-2): the files one argument vector runs (an interpreter's script, a sourced file, a file executed
  * directly) and the code it evaluates inline (node -e / --eval / --print, deno eval, python -c, pwsh -Command), through
  * package runners (npx, npm exec, uv run, ...), environment wrappers and shell wrappers (bash -c, cmd /c: their command).
+ * U30F6: a module a node-like runtime preloads (-r/--require/--import/--loader/--experimental-loader/--preload of a
+ * file path) is run too (F5-2); a launch path the source does not hold -- after the launcher's own directory is read
+ * ($PSScriptRoot here; $(dirname "$0"), %~dp0 in anchorLauncherDir) -- is reported in `dynamic` (F5-4).
  */
 export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
-  const out: CommandRuns = { launches: [], inline: [] };
+  const out: CommandRuns = { launches: [], inline: [], dynamic: [] };
   if (depth > 4) return out;
   const p = programIndex(argv);
   if (p < 0) return out;
   const program = argv[p]!;
-  if (containsDynamic(program)) return out; // judged DYNAMIC as a program chosen at run time
-  const base = programBase(program);
+  // a program whose own name is chosen at run time is judged DYNAMIC by argvDynamic; a static name in a dynamic
+  // directory ("$VENV/bin/python") is still that program
+  if (programKind(program) === "DYNAMIC") return out;
+  const base = interpreterOf(program) ?? programBase(program);
   const rest = argv.slice(p + 1);
   const add = (r: CommandRuns) => {
     out.launches.push(...r.launches);
     out.inline.push(...r.inline);
+    out.dynamic.push(...r.dynamic);
   };
   const line = (command: string) => {
     for (const pipeline of splitCommandLine(command)) for (const seg of pipeline) add(commandRuns(seg.argv, depth + 1));
@@ -428,16 +509,42 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
   const code = (lang: "js" | "py" | "ps", value: string | undefined) => {
     if (value !== undefined && !containsDynamic(value)) out.inline.push({ lang, code: value });
   };
+  /** A file the command runs as `lang` (null: executed directly): a launch, or DYNAMIC when its path is not in the source. */
+  const launch = (raw: string, lang: Language | null, what: string) => {
+    const a = anchoredPath(raw);
+    if (PACKAGE_PATH.test(a)) return; // a package's code (B3)
+    if (!containsDynamic(a)) {
+      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang });
+      return;
+    }
+    // a dynamic directory with a static file: resolved against the repository's files (F5-4); a dynamic name: DYNAMIC
+    const tail = staticTail(a);
+    if (tail !== null) out.launches.push({ file: tail, lang, suffix: true });
+    else out.dynamic.push(`${what} at a path the source does not hold`);
+  };
   if (NODE_LIKE.has(base)) {
     for (let i = 0; i < rest.length; i += 1) {
       const a = rest[i]!;
       if (a === "--") continue;
+      if (a === "-") return out; // the script is stdin (a here-document the scan reads as text)
       const flag = a.split("=")[0]!;
       if (NODE_INLINE_FLAGS.has(flag)) {
         code("js", a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[i + 1]);
         return out;
       }
       if (a.startsWith("-")) {
+        // U30F6 (F5-2): a preloaded module given as a file path runs before the script; a bare specifier
+        // (ts-node/register, dotenv/config, tsx) is a package's code (B3)
+        if (NODE_PRELOAD_FLAGS.has(flag) && !NODE_PRELOAD_EXCEPT.has(base)) {
+          const value = a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[i + 1];
+          if (value !== undefined) {
+            const v = anchoredPath(value).replace(/^file:\/\/\/?(?=[A-Za-z]:|\/)/i, "");
+            // a file path (or a path the source does not hold) is a launch; a bare specifier is a package's module --
+            // unknown package code is no safe entry either: an unresolved launch, reviewed or failed (F5-3)
+            if (/^(\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(v) || containsDynamic(v)) launch(v, "js", `${base} preloads a module`);
+            else if (v !== "") out.launches.push({ file: v, lang: "js", package: true });
+          }
+        }
         if (NODE_VALUE_FLAGS.has(flag) && !a.includes("=")) i += 1;
         continue;
       }
@@ -446,7 +553,12 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
         code("js", rest[i + 1]);
         return out;
       }
-      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang: "js" });
+      const cli = PACKAGE_CLI.exec(a);
+      if (cli) {
+        add(commandRuns([cli[1] ?? "tsx", ...rest.slice(i + 1)], depth + 1));
+        return out;
+      }
+      launch(a, "js", `${base} runs a script`);
       return out;
     }
     return out;
@@ -458,19 +570,18 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
         code("py", rest[i + 1]);
         return out;
       }
+      if (a === "-") return out; // the script is stdin
       if (a === "-m") {
         const mod = rest[i + 1];
-        if (mod !== undefined && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(mod)) {
-          const m = mod.replace(/\./g, "/");
-          out.launches.push({ file: `${m}.py`, lang: "py" }, { file: `${m}/__main__.py`, lang: "py" });
-        }
+        if (mod !== undefined && containsDynamic(mod)) out.dynamic.push(`${base} -m runs a module the source does not hold`);
+        else if (mod !== undefined && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(mod)) out.launches.push({ file: mod.replace(/\./g, "/"), lang: "py", module: true });
         return out;
       }
       if (a.startsWith("-")) {
         if (PY_VALUE_FLAGS.has(a)) i += 1;
         continue;
       }
-      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang: "py" });
+      launch(a, "py", `${base} runs a script`);
       return out;
     }
     return out;
@@ -482,11 +593,12 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
         if (rest[i + 1] !== undefined) line(rest[i + 1]!);
         return out;
       }
+      if ((a === "-s" || a === "-") && SH_LIKE.has(base)) return out; // the script is stdin
       if (a.startsWith("-") || a.startsWith("+")) {
         if (a === "-o" || a === "+o") i += 1;
         continue;
       }
-      if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang: "sh" });
+      launch(a, "sh", SH_LIKE.has(base) ? `${base} runs a script` : `${base} reads a file`);
       return out;
     }
     return out;
@@ -495,7 +607,7 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
     for (let i = 0; i < rest.length; i += 1) {
       const a = rest[i]!.toLowerCase();
       if (a === "-file" || a === "-f") {
-        if (rest[i + 1] !== undefined && namesFile(rest[i + 1]!)) out.launches.push({ file: asLaunchPath(rest[i + 1]!), lang: "ps" });
+        if (rest[i + 1] !== undefined) launch(rest[i + 1]!, "ps", `${base} -File runs a script`);
         return out;
       }
       if (a === "-command" || a === "-c") {
@@ -506,7 +618,7 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
         if (PS_VALUE_FLAGS.test(a)) i += 1;
         continue;
       }
-      if (namesFile(rest[i]!)) out.launches.push({ file: asLaunchPath(rest[i]!), lang: "ps" });
+      launch(rest[i]!, "ps", `${base} runs a script`);
       return out;
     }
     return out;
@@ -533,7 +645,7 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
     const i = firstPositional(rest, PKG_VALUE_FLAGS);
     if (i >= 0 && rest[i] === "run") {
       const j = firstPositional(rest, PKG_VALUE_FLAGS, i + 1);
-      if (j >= 0 && /\.py$/i.test(rest[j]!) && namesFile(rest[j]!)) out.launches.push({ file: asLaunchPath(rest[j]!), lang: "py" });
+      if (j >= 0 && /\.py$/i.test(rest[j]!)) launch(rest[j]!, "py", `${base} run runs a script`);
       else if (j >= 0) add(commandRuns(rest.slice(j), depth + 1));
     }
     return out;
@@ -544,8 +656,10 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
     if (i >= 0 && i < rest.length) add(commandRuns(rest.slice(i), depth + 1));
     return out;
   }
-  // a program that is itself a repository file, executed directly (by its shebang)
-  if (/[\\/]/.test(program) && namesFile(program) && !toolOf(program)) out.launches.push({ file: asLaunchPath(program), lang: null });
+  // a program that is itself a repository file, executed directly (by its shebang) -- U30F6 (F5-4): in a directory
+  // the source does not hold, DYNAMIC (a DB/GIS tool there is judged as that tool)
+  const direct = anchoredPath(program);
+  if (/[\\/]/.test(direct) && !toolOf(direct)) launch(direct, null, `${base} is executed`);
   return out;
 }
 
@@ -729,6 +843,9 @@ function argvDynamic(argv: readonly string[], depth = 0): string | null {
   const program = argv[p]!;
   const kind = programKind(program);
   if (kind === "DYNAMIC") return "the program is chosen at run time";
+  // U30F6 (F5-4): a file it runs (a script, a sourced or preloaded file, the program itself) at a path the source does not hold
+  const launchedAt = commandRuns(argv, depth).dynamic[0];
+  if (launchedAt !== undefined) return launchedAt;
   const base = interpreterOf(program) ?? programBase(program);
   const rest = argv.slice(p + 1);
   const spread = rest.some((a) => (dynamicHint(a) ?? "").startsWith("..."));
@@ -3887,7 +4004,8 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
   let code = lang === "sh" ? stripShComments(src) : src.replace(/^\s*@?(rem\b|::).*$/gim, "");
   if (lang === "cmd") code = code.replace(/^\s*@/gm, "");
   const lines = logicalLines(code, lang);
-  const variables = scriptVariables(lines.map((l) => l.text), lang);
+  // U30F6 (F5-4): the launcher's own directory ($(dirname "$0"), %~dp0) is read as `.` -- also in the variables built on it
+  const variables = scriptVariables(lines.map((l) => anchorLauncherDir(l.text, lang)), lang);
   const forwarders = lang === "sh" ? shellForwarders(lines) : { functions: new Map<string, number>(), lines: new Set<number>() };
   for (const { text: rawText, line } of lines) {
     // U30F6 (F5-1): the "$@" line of an in-file forwarder runs exactly what its callers pass -- read at each call
@@ -3896,7 +4014,7 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
       sink.counts.allowed += 1;
       continue;
     }
-    let text = substituteVariables(rawText, variables, lang);
+    let text = substituteVariables(anchorLauncherDir(rawText, lang), variables, lang);
     const called = splitCommandLine(text).flat();
     if (forwarders.functions.size > 0 && called.length === 1) {
       const pi = programIndex(called[0]!.argv);
@@ -4035,9 +4153,41 @@ function scanDockerfile(src: string, sink: SiteSink, def: ProtectedRelationsDefi
 }
 
 /** YAML keys whose values are commands (CI steps, compose, cloudbuild, fly, k8s). */
-const YAML_COMMAND_KEYS = /^(run|command|commands|entrypoint|cmd|release_command|exec|test|pre|post)$/i;
+const YAML_COMMAND_KEYS = /^(run|command|commands|cmds|entrypoint|cmd|release_command|exec|test|pre|post)$/i;
 /** Keys whose list items are ARGUMENTS (cloudbuild args:): classified, but never a program position. */
 const YAML_ARGUMENT_KEYS = /^(args|arguments)$/i;
+
+/**
+ * U30F6 (F5-6): a template placeholder in a command ({{.SQL}}, {{ .CMD }}: Taskfile, Helm and other Go templates) is
+ * a value the source does not hold. GitHub's ${{ ... }} is a `$` expansion the splitter reads already.
+ */
+function templateValues(text: string): string {
+  return text.includes("{{") ? text.replace(/(?<!\$)\{\{[\s\S]*?\}\}/g, () => dyn("template")) : text;
+}
+
+/**
+ * U30F6 (F5-7): a YAML folded block scalar (`>`, `>-`, `>+`) as YAML reads it: the line break between two lines at the
+ * block's indentation is a space; an empty line is a line break; a more-indented line keeps its line breaks.
+ */
+export function foldYamlBlock(lines: readonly string[]): string {
+  let out = "";
+  let prev: "none" | "normal" | "more" = "none";
+  let empty = 0;
+  for (const l of lines) {
+    if (l.trim() === "") {
+      empty += 1;
+      continue;
+    }
+    const kind = /^[ \t]/.test(l) ? "more" : "normal";
+    if (prev === "none") out += "\n".repeat(empty);
+    else if (prev === "normal" && kind === "normal") out += empty > 0 ? "\n".repeat(empty) : " ";
+    else out += "\n".repeat(empty + 1);
+    out += l;
+    prev = kind;
+    empty = 0;
+  }
+  return out;
+}
 
 /**
  * YAML: a value under a command key (run:, command:, entrypoint:, args:, script:, test: ...) is a command;
@@ -4159,14 +4309,16 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
         body.push(r);
       }
       const minIndent = Math.min(...body.filter((b) => b.trim()).map((b) => b.search(/\S/)));
-      const text = body.map((b) => b.slice(Number.isFinite(minIndent) ? minIndent : 0)).join("\n");
+      const stripped = body.map((b) => b.slice(Number.isFinite(minIndent) ? minIndent : 0));
+      // U30F6 (F5-7): a folded block (>) is one command where YAML folds it, not one per source line
+      const text = value.startsWith(">") ? foldYamlBlock(stripped) : stripped.join("\n");
       const keyCol = indent + (dash ? m[2]!.length : 0);
-      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(text, k, keyCol, k + 1))) scanCommandScript(text, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
+      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(text, k, keyCol, k + 1))) scanCommandScript(commandContext ? templateValues(text) : text, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
       k = n - 1;
       continue;
     }
     if (value.startsWith("[") && value.endsWith("]")) {
-      const items = value.slice(1, -1).split(",").map(unquote);
+      const items = value.slice(1, -1).split(",").map(unquote).map((x) => (commandContext ? templateValues(x) : x));
       const v = classifyArgv(items, def, readSqlFile);
       if (v.verdict !== "ALLOWED") sink.add({ line: k + 1, kind: "PROCESS", channel: "yaml", excerpt: norm(l), verdict: v.verdict, detail: v.detail });
       for (const item of items) scanCommandScript(item, "sh", sink, def, readSqlFile, { ...opts, commandContext: false });
@@ -4174,7 +4326,7 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
     }
     const keyCol = indent + (dash ? m[2]!.length : 0);
     if (commandContext && key !== null && key.toLowerCase() === "run" && runAs(unquote(value), k, keyCol, k)) continue;
-    scanCommandScript(unquote(value), "sh", sink, def, readSqlFile, opts);
+    scanCommandScript(commandContext ? templateValues(unquote(value)) : unquote(value), "sh", sink, def, readSqlFile, opts);
   }
 }
 

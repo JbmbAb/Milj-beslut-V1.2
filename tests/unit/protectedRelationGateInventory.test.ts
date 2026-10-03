@@ -54,6 +54,8 @@ import {
   REVIEWED_CHANNELS,
   REVIEW_MARKER_DOORS,
   TEST_SOURCES,
+  UNRESOLVED_LAUNCH_CATEGORIES,
+  UNRESOLVED_LAUNCHES,
   UNSCANNED_EXECUTABLES,
   UNSCANNED_EXECUTABLE_TYPES,
   type ReviewedChannels,
@@ -66,9 +68,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 60,
-  reviewedSites: 133,
-  reviewedSha256: '6725419636cc0352248be98afb37b5eb64a3f10af16dc0b0ea0f24c1c2c6bb11',
+  reviewedEntries: 62,
+  reviewedSites: 137,
+  reviewedSha256: '8e04b133a66c3889b7466ffc9429f0fdb88fe7f73dfbccaafb092f8a12c46953',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
@@ -85,6 +87,9 @@ const LOCKS = {
   fileTypeDecisionsSha256: '490bbe38db7f2569773f3de5140e8135271c9bce57a5bbfd4e1578ed2819aa40',
   // U30F5 (D-7): the open owner decisions (BLOCKERARE, failed by their own test)
   openDecisionsSha256: '8b758f120f081e399f40afb73a84749980fa4d0a3edf8a5d413d5ea7958ad343',
+  // U30F6 (F5-3): the reviewed launches that resolve to no repository file (and their category arguments)
+  unresolvedLaunches: 58,
+  unresolvedLaunchesSha256: '10a28d91846a54a6b2b526fe9a36b097940b055630cab86556a99b1ab0ca4121',
 } as const;
 
 function sha256Of(value: unknown): string {
@@ -371,11 +376,35 @@ const CONTEXT = contextFor(REPO);
 // U30F5 (D-1): a file run by a scanned command or a runbook line is an executable entry, whatever its extension or name
 // ---------------------------------------------------------------------------------------------
 
-/** A launch's file in the repository: relative to the launcher's directory, else to the repository root. */
-function resolveLaunch(by: string, file: string, exists: (f: string) => boolean): string[] {
-  const candidates = [path.posix.normalize(path.posix.join(path.posix.dirname(by), file)), path.posix.normalize(file)];
-  return [...new Set(candidates)].filter((c) => !c.startsWith('..') && exists(c));
+/**
+ * A launch's file in the repository: relative to the launcher's directory, else to the repository root. A module
+ * (`python -m a.b`) is `a/b.py` or `a/b/__main__.py`. U30F6 (F5-4): the static tail of a path in a dynamic directory
+ * is every repository file ending in it -- each may be the one run, so each is scanned as run.
+ */
+function resolveLaunch(by: string, l: Pick<Launch, 'file' | 'module' | 'suffix' | 'package'>, files: ReadonlySet<string>): string[] {
+  if (l.package) return []; // a package's module (node -r/--import <specifier>) is never a repository file
+  if (l.suffix) return [...files].filter((f) => f === l.file || f.endsWith(`/${l.file}`)).sort();
+  const names = l.module ? [`${l.file}.py`, `${l.file}/__main__.py`] : [l.file];
+  const candidates = names.flatMap((n) => [path.posix.normalize(path.posix.join(path.posix.dirname(by), n)), path.posix.normalize(n)]);
+  const found = [...new Set(candidates)].filter((c) => !c.startsWith('..') && !c.startsWith('/') && files.has(c));
+  // a path above a working directory the source does not name (`..\scripts\x.ps1` in a runbook): its static tail, as F5-4
+  const above = /^(\.\.\/)+(.+)$/.exec(path.posix.normalize(l.file));
+  if (found.length === 0 && above && !l.module) return resolveLaunch(by, { file: above[2]!, suffix: true }, files);
+  return found;
 }
+
+/** U30F6 (F5-3): a launch that resolves to no repository file, as the reviewed list names it. */
+interface UnresolvedLaunch {
+  readonly by: string;
+  readonly runs: string;
+  readonly via: string;
+}
+
+function unresolvedKey(u: { by: string; runs: string }): string {
+  return `${u.by} -> ${u.runs}`;
+}
+
+const UNRESOLVED_REVIEWED = new Set(UNRESOLVED_LAUNCHES.map(unresolvedKey));
 
 /**
  * The command lines of a Markdown runbook's fenced blocks: a shell-tagged block (bash, sh, console, powershell, cmd ...)
@@ -439,15 +468,22 @@ interface LaunchedScan {
 function evaluateLaunches(
   launchers: readonly { by: string; launches: readonly Launch[] }[],
   read: (p: string) => string | null,
-  exists: (f: string) => boolean,
-): { launched: LaunchedScan[]; problems: Problem[] } {
+  files: ReadonlySet<string>,
+): { launched: LaunchedScan[]; problems: Problem[]; unresolved: UnresolvedLaunch[] } {
   const queue: { by: string; l: Launch }[] = launchers.flatMap((e) => e.launches.map((l) => ({ by: e.by, l })));
   const seen = new Set<string>();
   const launched: LaunchedScan[] = [];
   const problems: Problem[] = [];
+  const unresolved = new Map<string, UnresolvedLaunch>();
   while (queue.length) {
     const { by, l } = queue.shift()!;
-    for (const f of resolveLaunch(by, l.file, exists)) {
+    const found = resolveLaunch(by, l, files);
+    // U30F6 (F5-3): a launch no repository file answers is never dropped silently -- it is reviewed or it fails
+    if (found.length === 0) {
+      const u: UnresolvedLaunch = { by, runs: l.package ? `preload ${l.file}` : l.module ? `python -m ${l.file.replace(/\//g, '.')}` : l.suffix ? `<dynamic directory>/${l.file}` : l.file, via: l.via };
+      if (!unresolved.has(unresolvedKey(u))) unresolved.set(unresolvedKey(u), u);
+    }
+    for (const f of found) {
       const where = `run by ${by} (${l.via})`;
       if (EXCLUDED.some((re) => re.test(f))) {
         problems.push({ file: by, problem: `runs ${f}, a path the scan excludes -- ${where}` });
@@ -470,12 +506,18 @@ function evaluateLaunches(
       for (const next of scan.launches) queue.push({ by: f, l: next });
     }
   }
-  return { launched, problems };
+  return { launched, problems, unresolved: [...unresolved.values()] };
 }
 
-/** The problems of the launched scans (each scanned as what it runs as) and of the launches themselves. */
-function launchProblems(result: { launched: LaunchedScan[]; problems: Problem[] }, ctx: EvaluationContext): Problem[] {
+/**
+ * The problems of the launched scans (each scanned as what it runs as), of the launches themselves, and (U30F6 F5-3)
+ * of every launch that resolves to no repository file and is not a reviewed entry of UNRESOLVED_LAUNCHES.
+ */
+function launchProblems(result: { launched: LaunchedScan[]; problems: Problem[]; unresolved: UnresolvedLaunch[] }, ctx: EvaluationContext): Problem[] {
   const out: Problem[] = [...result.problems];
+  for (const u of result.unresolved) {
+    if (!UNRESOLVED_REVIEWED.has(unresolvedKey(u))) out.push({ file: u.by, problem: `runs ${u.runs}, which resolves to no repository file and is not a reviewed unresolved launch (U30F6 F5-3) -- ${u.via}` });
+  }
   for (const l of result.launched) out.push(...evaluateFile(l.file, l.text, l.scan, ctx).map((p) => ({ ...p, problem: `${p.problem} -- ${l.by}` })));
   return out;
 }
@@ -484,7 +526,7 @@ const REPO_FILES = new Set(REPO.files);
 const REPO_LAUNCHES = evaluateLaunches(
   [...[...REPO.scans].map(([by, s]) => ({ by, launches: s.launches })), ...runbookLaunchers(REPO.files, readRepo(REPO_ROOT))],
   readRepo(REPO_ROOT),
-  (f) => REPO_FILES.has(f),
+  REPO_FILES,
 );
 
 /** The problems one (possibly new or changed) file would raise, scanned in memory against the real repository. */
@@ -536,6 +578,19 @@ describe('protected-write channel inventory: the repository (U30F2 H1, default d
     expect(launchProblems(REPO_LAUNCHES, CONTEXT).filter((p) => !p.open)).toEqual([]);
     // the walk saw launches at all (it cannot pass vacuously): package.json scripts run tsx/node scripts
     expect([...REPO.scans.values()].reduce((n, s) => n + s.launches.length, 0)).toBeGreaterThan(20);
+  });
+
+  it('every launch resolves to a repository file or is a reviewed unresolved launch; the list is pinned, justified and not stale (U30F6 F5-3)', () => {
+    expect(UNRESOLVED_LAUNCHES.length).toBe(LOCKS.unresolvedLaunches);
+    expect(sha256Of({ categories: UNRESOLVED_LAUNCH_CATEGORIES, launches: UNRESOLVED_LAUNCHES })).toBe(LOCKS.unresolvedLaunchesSha256);
+    expect(new Set(UNRESOLVED_LAUNCHES.map(unresolvedKey)).size, 'duplicate entries').toBe(UNRESOLVED_LAUNCHES.length);
+    for (const text of Object.values(UNRESOLVED_LAUNCH_CATEGORIES)) expect(text.length).toBeGreaterThan(80);
+    for (const e of UNRESOLVED_LAUNCHES) expect(e.justification.length, unresolvedKey(e)).toBeGreaterThan(30);
+    const actual = new Set(REPO_LAUNCHES.unresolved.map(unresolvedKey));
+    expect(UNRESOLVED_LAUNCHES.filter((e) => !actual.has(unresolvedKey(e))).map(unresolvedKey), 'stale: no launch answers these entries any more').toEqual([]);
+    expect(REPO_LAUNCHES.unresolved.filter((u) => !UNRESOLVED_REVIEWED.has(unresolvedKey(u))).map(unresolvedKey), 'unresolved launches that are not reviewed').toEqual([]);
+    // it cannot pass vacuously: the repository has launches that resolve and launches that do not
+    expect(REPO_LAUNCHES.unresolved.length).toBeGreaterThan(20);
   });
 
   it('the pinned open owner decisions are not stale: each site is still in its file, each file still scanned (U30F5 D-7)', () => {
@@ -1207,7 +1262,7 @@ function problemsOfTree(files: Readonly<Record<string, string>>): Problem[] {
   // U30F5 (D-1): what the new files launch (their commands and runbook lines), scanned as what it runs as
   const own = Object.keys(files);
   const launchers = [...own.filter((f) => scans.has(f)).map((by) => ({ by, launches: scans.get(by)!.launches })), ...runbookLaunchers(own, read)];
-  out.push(...launchProblems(evaluateLaunches(launchers, read, (f) => REPO_FILES.has(f) || Object.prototype.hasOwnProperty.call(files, f)), ctx));
+  out.push(...launchProblems(evaluateLaunches(launchers, read, new Set([...REPO_FILES, ...Object.keys(files)])), ctx));
   return out.filter((p) => !p.open);
 }
 
@@ -1417,12 +1472,14 @@ describe('canaries: U30F6 -- F5-2 preloaded modules, F5-3 unresolved launches, F
     ['F5-4 npm: node -r with a dynamic preload', { 'tools/u9j/package.json': npm6({ x: 'node -r "$HOOK" scripts/w6rogue/ok-j.mjs' }), 'scripts/w6rogue/ok-j.mjs': 'console.log(1);\n' }],
     ['F5-4 sh: SCRIPT_DIR from dirname "$0" then bash "$SCRIPT_DIR/x.txt" (resolved, scanned as sh)', { 'scripts/w6rogue/f4d.sh': '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nbash "$SCRIPT_DIR/f4d-purge.txt"\n', 'scripts/w6rogue/f4d-purge.txt': EVIL6_SH }],
     ['F5-4 cmd: call "%~dp0x.txt" (resolved: a data file executed directly)', { 'scripts/w6rogue/f4e.cmd': '@echo off\r\ncall "%~dp0f4e-purge.txt"\r\n', 'scripts/w6rogue/f4e-purge.txt': EVIL6_SH }],
+    // owner decision 2026-10-03: an unknown executable entry is no safe entry -- a package preload is reviewed or fails
+    ['F5-2/F5-3 npm: node -r of a package (dotenv/config) that no reviewed entry names, before a harmless script', { 'tools/u9k/package.json': npm6({ x: 'node -r dotenv/config scripts/w6rogue/ok-k.mjs' }), 'scripts/w6rogue/ok-k.mjs': 'console.log(1);\n' }],
+    ['F5-2/F5-3 npm: node --import tsx from a new launcher (the reviewed tsx preloads are per launcher)', { 'tools/u9s/package.json': npm6({ x: 'node --import tsx scripts/w6rogue/ok-s.ts' }), 'scripts/w6rogue/ok-s.ts': 'console.log(1);\n' }],
   ] as const)('%s -> caught', (_label, files) => {
     expect(problemsOfTree(files).length).toBeGreaterThan(0);
   });
 
   it.each([
-    ['F5-2 npm: node -r of a package (dotenv/config) runs a harmless script', { 'tools/u9k/package.json': npm6({ x: 'node -r dotenv/config scripts/w6rogue/ok-k.mjs' }), 'scripts/w6rogue/ok-k.mjs': 'console.log(1);\n' }],
     ['F5-2 npm: node --import ./hook.mjs that writes nothing', { 'tools/u9l/package.json': npm6({ x: 'node --import ./scripts/w6rogue/hook-l.mjs scripts/w6rogue/ok-l.mjs' }), 'scripts/w6rogue/hook-l.mjs': 'console.log(0);\n', 'scripts/w6rogue/ok-l.mjs': 'console.log(1);\n' }],
     ['F5-4 sh: bash "$(dirname "$0")/ok.sh" that runs no DB tool', { 'scripts/w6rogue/f4f.sh': '#!/bin/sh\nbash "$(dirname "$0")/f4f-ok.sh"\n', 'scripts/w6rogue/f4f-ok.sh': 'echo ok\n' }],
     ['F5-4 ps1: & pwsh -File (Join-Path $PSScriptRoot ok.ps1) that runs no DB tool', { 'scripts/w6rogue/f4g.ps1': "& pwsh -File (Join-Path $PSScriptRoot 'f4g-ok.ps1')\n", 'scripts/w6rogue/f4g-ok.ps1': "Write-Host 'ok'\n" }],
