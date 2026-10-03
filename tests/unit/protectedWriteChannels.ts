@@ -409,8 +409,6 @@ function staticTail(a: string): string | null {
   return norm === "" || norm === "." || norm === ".." || norm.endsWith("/") ? null : norm;
 }
 
-/** A path into node_modules is a package's code (B3), not a repository file. */
-const PACKAGE_PATH = /(^|[\\/])node_modules[\\/]/;
 /** `node <...>/node_modules/tsx/dist/cli.mjs x` is `tsx x`; `node <...>/node_modules/.bin/<name> x` is `<name> x`. */
 const PACKAGE_CLI = /(?:^|[\\/])node_modules[\\/](?:tsx[\\/]dist[\\/]cli\.m?js|\.bin[\\/]([A-Za-z0-9_.-]+))$/;
 
@@ -512,7 +510,8 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
   /** A file the command runs as `lang` (null: executed directly): a launch, or DYNAMIC when its path is not in the source. */
   const launch = (raw: string, lang: Language | null, what: string) => {
     const a = anchoredPath(raw);
-    if (PACKAGE_PATH.test(a)) return; // a package's code (B3)
+    // (U30F6 mutation round 1: a path into node_modules is NOT skipped -- a package's file run by path resolves to no
+    // repository file, so it is an unresolved launch: reviewed or failed, like a package preload)
     if (!containsDynamic(a)) {
       if (namesFile(a)) out.launches.push({ file: asLaunchPath(a), lang });
       return;
@@ -545,7 +544,8 @@ export function commandRuns(argv: readonly string[], depth = 0): CommandRuns {
             else if (v !== "") out.launches.push({ file: v, lang: "js", package: true });
           }
         }
-        if (NODE_VALUE_FLAGS.has(flag) && !a.includes("=")) i += 1;
+        // (deno -r is --reload: it takes no value, the script follows it)
+        if (NODE_VALUE_FLAGS.has(flag) && !a.includes("=") && !(base === "deno" && flag === "-r")) i += 1;
         continue;
       }
       if ((base === "tsx" && a === "watch") || ((base === "bun" || base === "deno") && a === "run")) continue;

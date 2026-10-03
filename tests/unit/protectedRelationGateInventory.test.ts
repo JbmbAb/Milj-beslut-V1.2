@@ -1508,6 +1508,32 @@ describe('canaries: U30F6 -- F5-6 template placeholders, F5-7 folded YAML blocks
   });
 });
 
+describe('canaries: U30F6 mutation round 1 -- what the first canaries left unexercised', () => {
+  it.each([
+    ['F5-4 CI: python -m "$MOD" (a module the source does not hold)', { '.github/workflows/u9y.yml': ci('      - run: python -m "$MOD" --all\n') }],
+    ['F5-7 CI run: > -- a more-indented line keeps its line break (psql is its own command)', { '.github/workflows/u9z.yml': ci('      - run: >\n          echo start\n            psql "$DB" -c "$SQL"\n') }],
+    ['F5-3 npm: node runs a package file by path (node_modules/...): unknown package code, not reviewed', { 'tools/u9t/package.json': npm6({ x: 'node node_modules/pg-wipe/bin/cli.js --all' }) }],
+    ['F5-2/F5-3 npm: a package preload is the package even when a harmless file of that name sits beside the launcher', { 'tools/u9u/package.json': npm6({ x: 'node --import wipe-pkg scripts/w6rogue/ok-u.mjs' }), 'tools/u9u/wipe-pkg': 'console.log(0);\n', 'scripts/w6rogue/ok-u.mjs': 'console.log(1);\n' }],
+    ['deno run -r <file>: -r is --reload (no value), the file is the script', { 'tools/u9v/package.json': npm6({ x: 'deno run -r scripts/w6rogue/deno-v.txt' }), 'scripts/w6rogue/deno-v.txt': EVIL6_TS }],
+  ] as const)('%s -> caught', (_label, files) => {
+    expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    // the launcher's directory is read precisely: a same-named data file elsewhere is not the one run
+    ['F5-4 sh: bash "$(dirname "$0")/same.txt" runs the launcher\'s own same.txt, not another directory\'s', { 'scripts/w6rogue/pa/run-a.sh': '#!/bin/sh\nbash "$(dirname "$0")/same.txt"\n', 'scripts/w6rogue/pa/same.txt': 'echo ok\n', 'scripts/w6rogue/pb/same.txt': EVIL6_SH }],
+    ['F5-4 sh: SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)" then bash "$SCRIPT_DIR/same-c.txt" (the variable is the launcher\'s directory)', { 'scripts/w6rogue/pc/run-c.sh': '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nbash "$SCRIPT_DIR/same-c.txt"\n', 'scripts/w6rogue/pc/same-c.txt': 'echo ok\n', 'scripts/w6rogue/pd/same-c.txt': EVIL6_SH }],
+    ['F5-4 ps1: & pwsh -File (Join-Path $PSScriptRoot same-e.txt) runs the launcher\'s own file', { 'scripts/w6rogue/pe/run-e.ps1': "& pwsh -File (Join-Path $PSScriptRoot 'same-e.txt')\n", 'scripts/w6rogue/pe/same-e.txt': "Write-Host 'ok'\n", 'scripts/w6rogue/pf/same-e.txt': `psql -c "${EVIL6_SQL}"\n` }],
+    ['F5-4 cmd: call "%~dp0same-g.bat" resolves beside the launcher (not DYNAMIC)', { 'scripts/w6rogue/pg/run-g.cmd': '@echo off\r\ncall "%~dp0same-g.bat"\r\n', 'scripts/w6rogue/pg/same-g.bat': '@echo off\r\necho ok\r\n' }],
+    ['sh: bash -s reads its script from stdin; the path after it is an argument, not a script', { 'scripts/w6rogue/s-run.sh': "#!/bin/sh\necho 'echo hi' | bash -s scripts/w6rogue/s-notes.txt\n", 'scripts/w6rogue/s-notes.txt': EVIL6_SH }],
+    ['F5-3 CI: python -m of a repository package runs its __main__.py (resolved, scanned as Python)', { '.github/workflows/u9w.yml': ci('      - run: python -m scripts.w6rogue.pkgok\n'), 'scripts/w6rogue/pkgok/__main__.py': "print('ok')\n" }],
+    ['F5-2 vite-node -r <root>: -r is --root there, not a preload', { 'tools/u9x/package.json': npm6({ x: 'vite-node -r scripts/w6rogue scripts/w6rogue/ok-x.ts' }), 'scripts/w6rogue/ok-x.ts': 'console.log(1);\n' }],
+    ['F5-2 deno run -r <file>: no preload, the file is the script (harmless here)', { 'tools/u9q2/package.json': npm6({ x: 'deno run -r scripts/w6rogue/ok-q.ts' }), 'scripts/w6rogue/ok-q.ts': 'console.log(1);\n' }],
+  ] as const)('control: %s passes', (_label, files) => {
+    expect(problemsOfTree(files)).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // Generated violations: languages x channels x relations x obfuscations x paths
 // ---------------------------------------------------------------------------------------------
