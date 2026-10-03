@@ -2647,3 +2647,46 @@ describe('U30F9 EQ-1: a program that is a value, whose substitution only looks p
     expect(scanFile('scripts/u9/eq1-control.sh', sh9('which psql && echo found')).sites).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// U30G814 (G8-14, owner decision Round 23): an environment assignment that chooses the connection
+// (commands.connection_env_variables) with a value the text does not hold, before a DB-capable tool -- an env prefix
+// (VAR="$x" tool; env / sudo / docker -e / cross-env VAR="$x" tool) or an earlier assignment statement of the same command
+// text (export VAR="$x"; tool) -- makes the tool NON_LITERAL in the gate (corpus u30g814-*). The scanner hands each host's
+// command text to the gate, so every host that hands it the WHOLE text reports the site. Not covered here, registered as
+// owner questions in U30G814-REPORT: a PowerShell file (its scanner reads a `$env:` statement apart from the command), an
+// assignment on an earlier line, a CI `env:` block, a process `env` option.
+// ---------------------------------------------------------------------------------------------
+describe('U30G814 G8-14: a connection env assignment the text does not hold, before a DB-capable tool, is caught in every host that hands the gate the whole text', () => {
+  /** hosts9 without its PowerShell host (`& VAR="$x" tool` is no PowerShell; the PowerShell forms are the corpus's). */
+  const hosts = (tag: string, line: string): Form9[] => hosts9(tag, line).filter((f) => !f.id.endsWith('[PowerShell &]'));
+  const violations: Form9[] = [
+    ...hosts('g814-prefix', 'PGDATABASE="$DB" psql -c "SELECT 1"'),
+    ...hosts('g814-env-prefix', 'env PGHOST="$H" psql -c "TRUNCATE stage.u9"'),
+    ...hosts('g814-export', 'export PGHOST="$H"; psql -c "SELECT 1"'),
+    ...hosts('g814-prisma', 'DATABASE_URL="$URL" npx prisma migrate deploy'),
+    ...hosts('g814-subst', 'DATABASE_URL="$(cat url.txt)" npx prisma db seed'),
+    ...hosts('g814-service', 'PGSERVICE="$SVC" pg_restore -t stage.u9 dump.backup'),
+    { id: 'g814 js spawnSync(env, [`PGHOST=${h}`, psql ...])', files: { 'scripts/u9/g814-js1.mjs': "import { spawnSync } from 'node:child_process';\nconst h = process.env.H;\nspawnSync('env', [`PGHOST=${h}`, 'psql', '-c', 'SELECT 1']);\n" }, violation: true },
+    { id: "g814 py subprocess.run(['env', f'PGDATABASE={db}', 'psql', ...])", files: { 'scripts/u9/g814-py1.py': "import os, subprocess\ndb = os.environ['DB']\nsubprocess.run(['env', f'PGDATABASE={db}', 'psql', '-c', 'SELECT 1'])\n" }, violation: true },
+    { id: 'g814 cmd set PGDATABASE=%DB% && psql', files: { 'scripts/u9/g814-cmd1.cmd': '@echo off\r\nset PGDATABASE=%DB% && psql -c "SELECT 1"\r\n' }, violation: true },
+  ];
+  const controls: Form9[] = [
+    ...hosts('g814-ctl-literal', 'PGHOST=localhost psql -c "SELECT 1"'),
+    ...hosts('g814-ctl-pgpassword', 'PGPASSWORD="$PW" psql -h localhost -c "SELECT 1"'),
+    ...hosts('g814-ctl-pgpassword-export', 'export PGPASSWORD="$PW"; psql -h localhost -c "SELECT 1"'),
+    ...hosts('g814-ctl-echo', 'PGDATABASE="$DB" echo hi'),
+    ...hosts('g814-ctl-pg-dump', 'PGHOST="$H" pg_dump mimer > out.sql'),
+  ].map((f) => ({ ...f, violation: false }));
+
+  it(`holds at least 40 violating forms (${violations.length}) and ${controls.length} controls, every id unique`, () => {
+    expect(violations.length).toBeGreaterThanOrEqual(40);
+    expect(new Set([...violations, ...controls].map((c) => c.id)).size).toBe(violations.length + controls.length);
+  });
+  it.each(violations.map((c) => [c.id, c] as const))('%s -> caught', (_id, c) => {
+    expect(problemsOfChange(c.files).length, `MISSED: ${c.id}`).toBeGreaterThan(0);
+  });
+  it.each(controls.map((c) => [c.id, c] as const))('control: %s passes', (_id, c) => {
+    expect(problemsOfChange(c.files)).toEqual([]);
+  });
+});

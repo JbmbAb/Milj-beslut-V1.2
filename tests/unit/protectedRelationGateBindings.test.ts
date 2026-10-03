@@ -318,6 +318,10 @@ const SPEC_HOLES: readonly (readonly [string, (c: SpecCommands) => void])[] = [
   ['commands.non_literal_exempt_tools_unless_piped_to with an empty target', (c) => { c.non_literal_exempt_tools_unless_piped_to = { PG_DUMP: '' }; }],
   ['commands.ogrinfo.read_only_flags missing', (c) => { delete c.ogrinfo.read_only_flags; }],
   ['commands.prisma.database_subcommands missing', (c) => { delete c.prisma.database_subcommands; }],
+  // U30G814 (G8-14): the connection vocabulary -- missing, it would read as "no assignment ever chooses the connection"
+  ['commands.connection_env_variables missing', (c) => { delete c.connection_env_variables; }],
+  ['commands.connection_env_variables empty', (c) => { c.connection_env_variables = []; }],
+  ['commands.env_assignment_words missing', (c) => { delete c.env_assignment_words; }],
 ];
 function holedSpec(mutate: (c: SpecCommands) => void): { commands: SpecCommands } {
   const doc = JSON.parse(fs.readFileSync(SPEC_FILE, 'utf8')) as { commands: SpecCommands };
