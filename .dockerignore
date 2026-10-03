@@ -55,3 +55,9 @@ Dockerfile*
 docker-compose*.yml
 cloudbuild.yaml
 deploy
+
+# W-U42: release-identity.json skrivs av byggsteget självt
+# (scripts/release/write-build-identity.mjs) ur de filer det levererar. En
+# kvarliggande fil i ett arbetsträd får aldrig komma in i kontexten och
+# ersätta mätningen.
+release-identity.json
