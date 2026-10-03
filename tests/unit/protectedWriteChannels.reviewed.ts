@@ -559,9 +559,9 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
     file: "scripts/import-office-docs.ts",
     policy: "DYNAMIC_REVIEWED",
     justification:
-      "Runs a PowerShell COM command (cleanCommand, built in-file) to read Office documents; no database tool.",
+      "Runs a PowerShell COM command (cleanCommand, built in-file) to read Office documents; no database tool. U30F6 (F5-1): the same site now reads UNRESOLVABLE (a shell running a command that is a value), not DYNAMIC -- reclassified, not added.",
     sites: [
-      "DYNAMIC PROCESS execSync | execSync(`powershell -NoProfile -Command \"${cleanCommand}\"`, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })",
+      "UNRESOLVABLE PROCESS execSync | execSync(`powershell -NoProfile -Command \"${cleanCommand}\"`, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })",
     ],
   },
   {

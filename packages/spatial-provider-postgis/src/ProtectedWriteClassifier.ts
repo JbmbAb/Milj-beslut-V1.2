@@ -1421,6 +1421,8 @@ export function splitCommandLine(command: string): CommandSegment[][] {
     }
     const m = /^[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?/.exec(s.slice(i + 1));
     if (m) return [dyn(m[0].replace(/^env:/i, "")), i + 1 + m[0].length];
+    // U30F6 (F5-1): a positional or special parameter ($1..$9, $@, $*, $#, $?, $$, $!, $0, $-) is a value too
+    if (/^[0-9@*#?$!-]/.test(s.slice(i + 1, i + 2))) return [dyn(s[i + 1]!), i + 2];
     return null;
   };
 
@@ -1791,6 +1793,13 @@ function analyzeTool(tool: string, rest: readonly string[], ctx: SegmentContext,
       }
       return out;
     // U30F3 M-2: destructive database CLI entry points
+    // U30F6 (F5-5): pgbench runs the SQL of each -f/--file script (name@weight); its builtin scripts write only pgbench_* tables
+    case "PGBENCH": {
+      const files = flagValues(rest, spec.pgbench.file_flags).values;
+      for (const a of rest) if (asciiLower(a).startsWith("--file=")) files.push(a.slice("--file=".length));
+      for (const f of files) readFileOrUnresolved(out, f.replace(/@[0-9]+$/, ""), options, depth);
+      return out;
+    }
     case "DROPDB":
       out.unresolved.push({ operation: "DROP_DATABASE", reason: "dropdb drops a whole database, every protected relation in it" });
       return out;
@@ -1843,6 +1852,10 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
       if (at >= 0 && at + 1 < argv.length) {
         substituted(k, "a shell command");
         const command = wrapper.restOfLine ? argv.slice(at + 1).map(requote).join(" ") : argv[at + 1]!;
+        // U30F6 (F5-1): a shell running a command whose program is a value (bash -c "$1", cmd /c %1) runs what the text does not hold
+        if (splitCommandLine(command).some((pipeline) => pipeline.some((seg) => seg.argv[0] !== undefined && dynamicHint(seg.argv[0]) !== null))) {
+          out.unresolved.push({ operation: "COMMAND", reason: "a shell runs a command the text does not hold" });
+        }
         merge(out, analyzeCommandAt(command, options, depth + 1));
         return out;
       }

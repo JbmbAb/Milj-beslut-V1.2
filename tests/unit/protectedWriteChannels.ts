@@ -3831,6 +3831,35 @@ function stripShComments(src: string): string {
   return out;
 }
 
+/**
+ * U30F6 (F5-1): shell functions whose body runs `"$@"` (a forwarder: `f() { local x="$1"; shift; "$@"; }`), with the
+ * number of arguments they shift off first, and the line numbers of those `"$@"` lines.
+ */
+function shellForwarders(lines: readonly LogicalLine[]): { functions: Map<string, number>; lines: Set<number> } {
+  const functions = new Map<string, number>();
+  const forwardLines = new Set<number>();
+  let current: { name: string; shift: number } | null = null;
+  for (const { text, line } of lines) {
+    const def = /^\s*(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{\s*$/.exec(text) ?? /^\s*function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*$/.exec(text);
+    if (def) {
+      current = { name: def[1]!, shift: 0 };
+      continue;
+    }
+    if (!current) continue;
+    if (/^\s*\}\s*;?\s*$/.test(text)) {
+      current = null;
+      continue;
+    }
+    const shift = /^\s*shift(?:\s+([0-9]+))?\s*;?\s*$/.exec(text);
+    if (shift) current.shift += shift[1] ? Number(shift[1]) : 1;
+    else if (/^\s*(?:exec\s+)?"?\$(?:@|\{@\})"?\s*;?\s*$/.test(text)) {
+      functions.set(current.name, current.shift);
+      forwardLines.add(line);
+    }
+  }
+  return { functions, lines: forwardLines };
+}
+
 /** Quoted strings of a shell/cmd line (for the literal surface), variables as placeholders. */
 function shellStrings(text: string): string[] {
   const out: string[] = [];
@@ -3859,8 +3888,21 @@ function scanCommandScript(src: string, lang: "sh" | "cmd", sink: SiteSink, def:
   if (lang === "cmd") code = code.replace(/^\s*@/gm, "");
   const lines = logicalLines(code, lang);
   const variables = scriptVariables(lines.map((l) => l.text), lang);
+  const forwarders = lang === "sh" ? shellForwarders(lines) : { functions: new Map<string, number>(), lines: new Set<number>() };
   for (const { text: rawText, line } of lines) {
-    const text = substituteVariables(rawText, variables, lang);
+    // U30F6 (F5-1): the "$@" line of an in-file forwarder runs exactly what its callers pass -- read at each call
+    if (forwarders.lines.has(line)) {
+      sink.counts.channels += 1;
+      sink.counts.allowed += 1;
+      continue;
+    }
+    let text = substituteVariables(rawText, variables, lang);
+    const called = splitCommandLine(text).flat();
+    if (forwarders.functions.size > 0 && called.length === 1) {
+      const pi = programIndex(called[0]!.argv);
+      const shift = pi >= 0 ? forwarders.functions.get(called[0]!.argv[pi]!) : undefined;
+      if (shift !== undefined) text = called[0]!.argv.slice(pi + 1 + shift).map(requote).join(" ");
+    }
     const excerpt = norm(rawText);
     // literal surface
     for (const s of shellStrings(text)) {

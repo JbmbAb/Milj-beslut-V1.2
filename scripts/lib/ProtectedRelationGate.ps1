@@ -94,6 +94,7 @@ function Get-ProtectedClassificationSpec {
     if ($null -eq $remote -or $remote.schema -isnot [string] -or $remote.table -isnot [string]) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: sql.foreign_table_remote_options' }
     $subst = @($doc.commands.argument_substituting_runners)
     if ($null -eq $doc.commands.argument_substituting_runners -or $subst.Count -eq 0 -or @($subst | Where-Object { $_ -isnot [string] -or $_.Length -eq 0 }).Count -gt 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners' }
+    if ($null -eq $doc.commands.pgbench -or @($doc.commands.pgbench.file_flags).Count -eq 0) { throw 'PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.pgbench.file_flags' }
     $tools = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     foreach ($p in $doc.commands.tools.PSObject.Properties) { $tools[$p.Name] = [string]$p.Value }
     $wrappers = [System.Collections.Generic.Dictionary[string, string[]]]::new([StringComparer]::Ordinal)
@@ -133,6 +134,7 @@ function Get-ProtectedClassificationSpec {
         ForeignSchemaOption = [string]$remote.schema
         ForeignTableOption = [string]$remote.table
         SubstitutingRunners = [string[]]$subst
+        PgbenchFileFlags = [string[]]@($doc.commands.pgbench.file_flags)
         OgrFormatFlags = [string[]]@($doc.ogr2ogr.format_flags)
         OgrDatabaseFormats = [string[]]@($doc.ogr2ogr.database_formats)
         OgrDumpFormats = [string[]]@($doc.ogr2ogr.sql_dump_formats)
@@ -1251,6 +1253,9 @@ function PrgReadVariable([string]$s, [int]$i) {
     }
     $m = [regex]::Match((PrgSlice $s ($i + 1) $s.Length), '^[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?')
     if ($m.Success) { return , @((PrgDyn ([regex]::Replace($m.Value, '^(?i:env):', ''))), ($i + 1 + $m.Value.Length)) }
+    # U30F6 (F5-1): a positional or special parameter ($1..$9, $@, $*, $#, $?, $$, $!, $0, $-) is a value too
+    $c1 = PrgAt $s ($i + 1)
+    if ($c1 -cmatch '^[0-9@*#?$!-]\z') { return , @((PrgDyn $c1), ($i + 2)) }
     return $null
 }
 
@@ -1539,6 +1544,14 @@ function PrgAnalyzeTool([string]$tool, [string[]]$rest, $ctx, $readSqlFile, [int
             return $acc
         }
         # U30F3 M-2: destructive database CLI entry points
+        'PGBENCH' {
+            # U30F6 (F5-5): pgbench runs the SQL of each -f/--file script (name@weight)
+            $files = [System.Collections.Generic.List[string]]::new()
+            foreach ($v in (PrgFlagValues $rest $spec.PgbenchFileFlags)) { $files.Add($v) }
+            foreach ($a in $rest) { if ((PrgLower $a).StartsWith('--file=', [StringComparison]::Ordinal)) { $files.Add($a.Substring(7)) } }
+            foreach ($f in $files) { PrgReadFileOrUnresolved $acc ([regex]::Replace($f, '@[0-9]+\z', '')) $readSqlFile $depth }
+            return $acc
+        }
         'DROPDB' {
             $acc.Unres('DROP_DATABASE', 'dropdb drops a whole database, every protected relation in it')
             return $acc
@@ -1587,6 +1600,10 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             if ($at -ge 0 -and $at + 1 -lt $argv.Count) {
                 $command = if ($wrapper.RestOfLine) { (@($argv[($at + 1)..($argv.Count - 1)] | ForEach-Object { PrgRequote $_ })) -join ' ' } else { $argv[$at + 1] }
                 $sub = PrgAnalyzeCommandAt $command $readSqlFile ($depth + 1)
+                # U30F6 (F5-1): a shell running a command whose program is a value runs what the text does not hold
+                $dynProgram = $false
+                foreach ($pipeline in (Split-ProtectedCommandLine $command)) { foreach ($seg in $pipeline) { if ($seg.argv.Count -gt 0 -and $null -ne (PrgDynamicHint $seg.argv[0])) { $dynProgram = $true } } }
+                if ($dynProgram) { $sub.Unres('COMMAND', 'a shell runs a command the text does not hold') }
                 if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $sub.Unres('COMMAND', "a shell command run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
                 return $sub
             }

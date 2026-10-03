@@ -68,7 +68,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const LOCKS = {
   reviewedEntries: 60,
   reviewedSites: 133,
-  reviewedSha256: '3db8b7e492e7cf2632859d5e77a9343a51e27b3a87b72c6a0fc37c8708e1b218',
+  reviewedSha256: '6725419636cc0352248be98afb37b5eb64a3f10af16dc0b0ea0f24c1c2c6bb11',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
@@ -1304,6 +1304,19 @@ describe('canaries: U30F5 -- D-2 inline code, D-5 substituted SQL, D-6 process a
     ['D-1 an npm script runs a file in a path the scan excludes', { 'tools/u7f/package.json': npm({ go: 'node public/cesium/u7f.js' }), 'public/cesium/u7f.js': "require('child_process').execSync(process.env.CMD);\n" }],
   ] as const)('%s -> caught', (_label, files) => {
     expect(problemsOfTree(files).length).toBeGreaterThan(0);
+  });
+
+  // U30F6 (F5-1): "$@" is a value; a shell function that only forwards its arguments is read at each in-file call
+  it('F5-1 a script that runs "$@" outside a forwarder (the program is a value) -> caught', () => {
+    expect(problemsOf('scripts/vrogue/u8a.sh', '#!/bin/sh\n"$@"\n').length).toBeGreaterThan(0);
+    expect(problemsOf('scripts/vrogue/u8b.sh', '#!/bin/sh\npsql "$DB" -c "$1"\n').length).toBeGreaterThan(0);
+  });
+
+  it('F5-1 a forwarder function: its "$@" line is no channel, and each call is read as the command it forwards (after its shifts)', () => {
+    const fwd = 'run_step() {\n  local label="$1"\n  shift\n  echo "$label"\n  "$@"\n}\n';
+    expect(problemsOf('scripts/vrogue/u8c.sh', `#!/bin/sh\n${fwd}run_step hello echo ok\n`)).toEqual([]);
+    expect(problemsOf('scripts/vrogue/u8d.sh', `#!/bin/sh\n${fwd}run_step wipe "$CMD"\n`).length).toBeGreaterThan(0);
+    expect(problemsOfTree({ 'scripts/vrogue/u8e.sh': `#!/bin/sh\n${fwd}run_step wipe bash scripts/vrogue/u8e.txt\n`, 'scripts/vrogue/u8e.txt': 'psql "$DB" -c "TRUNCATE env.sgu_well"\n' }).length).toBeGreaterThan(0);
   });
 
   it("a PowerShell relation gate still counts -- shown on an appended drop without CASCADE (sanitize's own drops are open D-7 sites, UNRESOLVABLE with or without it)", () => {

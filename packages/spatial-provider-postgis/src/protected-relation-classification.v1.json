@@ -92,7 +92,9 @@
       "dropdb": "DROPDB",
       "pgloader": "LOADER",
       "osm2pgsql": "LOADER",
-      "qgis_process": "LOADER"
+      "qgis_process": "LOADER",
+      "pgbench": "PGBENCH",
+      "usql": "PSQL"
     },
     "shell_wrappers": {
       "bash": ["-c"],
@@ -110,6 +112,7 @@
       "value_flags": ["-v", "--set", "--variable", "-d", "--dbname", "-h", "--host", "-p", "--port", "-U", "--username", "-o", "--output", "-P", "--pset", "-L", "--log-file", "-F", "--field-separator", "-R", "--record-separator", "-T", "--table-attr"]
     },
     "ogrinfo": { "sql_flags": ["-sql"] },
+    "pgbench": { "file_flags": ["-f", "--file"] },
     "pg_restore": {
       "table_flags": ["-t", "--table"],
       "schema_flags": ["-n", "--schema"],

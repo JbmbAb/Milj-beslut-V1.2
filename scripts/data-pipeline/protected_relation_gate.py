@@ -99,6 +99,9 @@ def load_spec(path=CLASSIFICATION_FILE):
     remote = doc['sql'].get('foreign_table_remote_options')
     if not isinstance(remote, dict) or not isinstance(remote.get('schema'), str) or not isinstance(remote.get('table'), str):
         raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: sql.foreign_table_remote_options')
+    pgbench = doc['commands'].get('pgbench') or {}
+    if not isinstance(pgbench.get('file_flags'), list) or not pgbench['file_flags']:
+        raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.pgbench.file_flags')
     runners = doc['commands'].get('argument_substituting_runners')
     if not isinstance(runners, list) or not runners or not all(isinstance(x, str) and x for x in runners):
         raise RuntimeError('PROTECTED_RELATION_CLASSIFICATION_INVALID: commands.argument_substituting_runners')
@@ -1506,6 +1509,9 @@ def split_command_line(command, spec=None):
         m = re.match(r'[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?', s[i + 1:])
         if m:
             return dyn(re.sub(r'^env:', '', m.group(0), flags=re.IGNORECASE)), i + 1 + len(m.group(0))
+        # U30F6 (F5-1): a positional or special parameter ($1..$9, $@, $*, $#, $?, $$, $!, $0, $-) is a value too
+        if re.match(r'[0-9@*#?$!-]', s[i + 1:i + 2]):
+            return dyn(s[i + 1]), i + 2
         return None
 
     s = command
@@ -1856,6 +1862,13 @@ def _analyze_tool(tool, rest, ctx, read_sql_file, depth, spec):
             unresolved.append(('COMMAND', 'a GDAL tool with a PostgreSQL datasource writes relations the arguments do not name'))
         return targets, unresolved
     # U30F3 M-2: destructive database CLI entry points
+    if tool == 'PGBENCH':
+        # U30F6 (F5-5): pgbench runs the SQL of each -f/--file script (name@weight)
+        files = list(_flag_values(rest, c['pgbench']['file_flags'])[0])
+        files += [a[len('--file='):] for a in rest if _ascii_lower(a).startswith('--file=')]
+        for f in files:
+            _read_file_or_unresolved(targets, unresolved, re.sub(r'@[0-9]+$', '', f), read_sql_file, depth, spec)
+        return targets, unresolved
     if tool == 'DROPDB':
         unresolved.append(('DROP_DATABASE', 'dropdb drops a whole database, every protected relation in it'))
         return targets, unresolved
@@ -1908,6 +1921,9 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
             if at >= 0 and at + 1 < len(argv):
                 pre = substituted(k, 'a shell command')
                 command = ' '.join(_requote(a) for a in argv[at + 1:]) if rest_of_line else argv[at + 1]
+                # U30F6 (F5-1): a shell running a command whose program is a value runs what the text does not hold
+                if any(seg['argv'] and _dynamic_hint(spec, seg['argv'][0]) is not None for pipeline in split_command_line(command, spec) for seg in pipeline):
+                    pre = pre + [('COMMAND', 'a shell runs a command the text does not hold')]
                 t, u = _analyze_command_at(command, read_sql_file, depth + 1, spec)
                 return t, pre + u
             continue

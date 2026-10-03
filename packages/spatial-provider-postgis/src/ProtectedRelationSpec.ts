@@ -91,6 +91,8 @@ export interface ProtectedRelationClassificationSpec {
     readonly argument_substituting_runners: readonly string[];
     readonly psql: { readonly command_flags: readonly string[]; readonly file_flags: readonly string[]; readonly value_flags: readonly string[] };
     readonly ogrinfo: { readonly sql_flags: readonly string[] };
+    /** U30F6 (F5-5): pgbench runs the SQL of each -f/--file script (name@weight). */
+    readonly pgbench: { readonly file_flags: readonly string[] };
     readonly pg_restore: {
       readonly table_flags: readonly string[];
       readonly schema_flags: readonly string[];
@@ -159,6 +161,7 @@ export function parseProtectedRelationClassificationSpec(raw: unknown): Protecte
   const commands = doc.commands as Record<string, unknown> | undefined;
   if (!commands || !commands.tools || typeof commands.tools !== "object") throw invalid("commands.tools");
   stringList(commands.argument_substituting_runners, "commands.argument_substituting_runners");
+  stringList((commands.pgbench as Record<string, unknown> | undefined)?.file_flags, "commands.pgbench.file_flags");
   stringList(doc.schema_operations, "schema_operations");
   return Object.freeze({ ...(doc as object), relation_naming: Object.freeze({ current, legacy: Object.freeze(legacy), max_identifier_bytes: 63 }) }) as ProtectedRelationClassificationSpec;
 }
