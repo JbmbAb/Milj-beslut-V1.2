@@ -140,7 +140,13 @@ export function listDeliveredFiles(root, relRoots) {
   const out = [];
   for (const rel of relRoots) {
     const abs = absolute(root, rel);
-    const stat = fs.lstatSync(abs);
+    let stat;
+    try {
+      stat = fs.lstatSync(abs);
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
+      throw error;
+    }
     visit(ctx, abs, rel, stat, out);
   }
   out.sort(compareBytes);

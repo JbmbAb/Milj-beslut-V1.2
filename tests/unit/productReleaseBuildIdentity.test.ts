@@ -360,6 +360,14 @@ function c7cfd936SourceDigest(root: string): string {
 }
 
 describe('W-U42C: the identity covers the delivered executable surface, the measuring code and the dependencies', () => {
+  it('ignores a genuinely absent configured top-level root without omitting files from present roots', () => {
+    const root = tmp('missing-delivered-root');
+    writeTree(root, { 'server/included.ts': 'measured\n' });
+
+    expect(listDeliveredFiles(root, ['__absent__'])).toEqual([]);
+    expect(listDeliveredFiles(root, ['server', '__absent__'])).toEqual(['server/included.ts']);
+  });
+
   it('fails closed when lstat cannot measure an enumerated delivered entry', () => {
     const root = tmp('lstat-failure');
     writeTree(root, { 'server/unreadable.ts': 'must be measured\n', 'src/included.ts': 'measured\n' });
