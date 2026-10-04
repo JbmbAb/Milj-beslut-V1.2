@@ -1777,7 +1777,10 @@ function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undef
 /** The DB/GIS tool an argument names, by file name or by a dynamic value's variable name. */
 export function toolOf(arg: string): string | null {
   const spec = classificationSpec().commands;
-  const hint = dynamicHint(arg);
+  // U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
+  // `@(psql` (sh/cmd subshell or group, PowerShell script block / array subexpression) and closers `psql)` / `psql}`
+  const unwrapped = arg.replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "");
+  const hint = dynamicHint(unwrapped);
   const names = Object.keys(spec.tools).sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
   if (hint !== null) {
     const h = asciiLower(hint);
@@ -1787,7 +1790,7 @@ export function toolOf(arg: string): string | null {
     }
     return null;
   }
-  const base = toolBaseName(arg);
+  const base = toolBaseName(unwrapped);
   const direct = ownEntry(spec.tools, base);
   if (direct) return direct;
   for (const suffix of spec.tool_suffixes) {

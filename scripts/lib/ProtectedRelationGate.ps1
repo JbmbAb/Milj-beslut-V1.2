@@ -1504,7 +1504,10 @@ function PrgToolBaseName([string]$a) {
 
 function PrgToolOf([string]$a) {
     $spec = Get-ProtectedClassificationSpec
-    $hint = PrgDynamicHint $a
+    # U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
+    # `@(psql` (sh/cmd subshell or group, PowerShell script block / array subexpression) and closers `psql)` / `psql}`
+    $unwrapped = [regex]::Replace([regex]::Replace($a, '^(?:@?[({])+', ''), '[)}]+\z', '')
+    $hint = PrgDynamicHint $unwrapped
     $names = @($spec.Tools.Keys) | Sort-Object -Property @{ Expression = { $_.Length }; Descending = $true }, @{ Expression = { $_ }; Descending = $false } -CaseSensitive
     if ($null -ne $hint) {
         $h = PrgLower $hint
@@ -1514,7 +1517,7 @@ function PrgToolOf([string]$a) {
         }
         return $null
     }
-    $base = PrgToolBaseName $a
+    $base = PrgToolBaseName $unwrapped
     if ($spec.Tools.ContainsKey($base)) { return $spec.Tools[$base] }
     foreach ($suffix in $spec.ToolSuffixes) {
         if ($base.EndsWith($suffix, [StringComparison]::Ordinal)) {

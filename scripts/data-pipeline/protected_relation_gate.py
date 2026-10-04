@@ -1829,7 +1829,10 @@ def _tool_base_name(arg):
 def tool_of(arg, spec=None):
     spec = spec or load_spec()
     c = spec['commands']
-    hint = _dynamic_hint(spec, arg)
+    # U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
+    # `@(psql` (sh/cmd subshell or group, PowerShell script block / array subexpression) and closers `psql)` / `psql}`
+    unwrapped = re.sub(r'[)}]+\Z', '', re.sub(r'^(?:@?[({])+', '', arg))
+    hint = _dynamic_hint(spec, unwrapped)
     names = sorted(c['tools'].keys(), key=lambda x: (-len(x), x))
     if hint is not None:
         h = _ascii_lower(hint)
@@ -1838,7 +1841,7 @@ def tool_of(arg, spec=None):
             if c['tools'][name] not in ('GDAL', 'PRISMA') and bare in h:
                 return c['tools'][name]
         return None
-    base = _tool_base_name(arg)
+    base = _tool_base_name(unwrapped)
     if base in c['tools']:
         return c['tools'][base]
     for suffix in c['tool_suffixes']:
