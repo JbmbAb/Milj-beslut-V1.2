@@ -93,9 +93,10 @@ COPY --from=builder /app/*.ts ./
 RUN mkdir /app/storage && chown appuser:appgroup /app/storage
 
 # Releaseidentiteten (product-release-v3) MÄTS här, efter sista COPY, över
-# exakt den /app imagen levererar (server/, src/, packages/, prisma/, dist/ och
-# de tre V1/V2-filerna, med package-lock.json ur kontexten) och skrivs till
-# release-identity.json, som själv inte ingår i digesten. Samma algoritm som
+# exakt den /app imagen levererar -- hela roten utom .git, storage/ och
+# release-identity.json själv: node_modules som bytes, symlänkar med sitt mål,
+# mätkoden i scripts/release/ och de tre V1/V2-filerna med package-lock.json ur
+# kontexten (W-U42C) -- och skrivs till release-identity.json. Samma algoritm som
 # varje process använder vid start (scripts/release/buildIdentityDigest.mjs);
 # en avvikelse vid start är REJECT_PRODUCT_RELEASE_BUILD_MISMATCH. Inte i
 # builder: dess träd har components/ och den låsfil npm prune skrev om, och
