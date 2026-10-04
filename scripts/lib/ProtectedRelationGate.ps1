@@ -1794,15 +1794,13 @@ function PrgSetsDynamicConnection([string[]]$argv) {
         while ($i -lt $argv.Count -and $argv[$i].StartsWith('-', [StringComparison]::Ordinal)) { $i++ }
     }
     $found = $false
-    $assigned = $false
     while ($i -lt $argv.Count) {
         $a = PrgEnvAssignmentAt $argv $i
         if ($null -eq $a) { return $false }
-        $assigned = $true
         if (PrgDynamicConnection $a) { $found = $true }
         $i = $a.Next
     }
-    return ($assigned -and $found)
+    return $found
 }
 
 function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {

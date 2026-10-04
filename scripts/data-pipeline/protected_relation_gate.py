@@ -2139,16 +2139,14 @@ def _sets_dynamic_connection(argv, spec):
         while i < len(argv) and argv[i].startswith('-'):
             i += 1
     found = False
-    assigned = False
     while i < len(argv):
         a = _env_assignment_at(argv, i, spec)
         if a is None:
             return False
-        assigned = True
         if _dynamic_connection(a, spec):
             found = True
         i = a[2]
-    return assigned and found
+    return found
 
 
 def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):

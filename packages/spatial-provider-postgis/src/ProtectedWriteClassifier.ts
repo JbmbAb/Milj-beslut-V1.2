@@ -1882,15 +1882,13 @@ function setsDynamicConnection(argv: readonly string[]): boolean {
     while (argv[i] !== undefined && argv[i]!.startsWith("-")) i += 1;
   }
   let found = false;
-  let assigned = false;
   while (i < argv.length) {
     const a = envAssignmentAt(argv, i);
     if (a === null) return false;
-    assigned = true;
     if (dynamicConnection(a)) found = true;
     i = a.next;
   }
-  return assigned && found;
+  return found;
 }
 
 const GENERATORS = new Set(["SHP2PGSQL", "PG_DUMP", "PG_RESTORE", "OGR2OGR"]);
