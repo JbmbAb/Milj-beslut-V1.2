@@ -314,12 +314,12 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
     file: "deploy/onprem/image-smoke/smoke.mjs",
     policy: "DYNAMIC_REVIEWED",
-    contentSha256: "bc3ca26ba120750f0fa2387479282df6eba3232c4bb8c9292423f85712b2d597",
+    contentSha256: "cb5d0a239483160823ae73de141e1dae0fac2d5387c5410a7718faa974d88585",
     reachability: "Reached from deploy/onprem/smoke-image.sh (the on-prem image smoke) and npm test:e2e:staging; it runs the built image's entry points, not a DB tool.",
-    reviewedOn: "2026-10-03",
-    reviewedBy: "U30F8 W-U30F3 (Claude Opus 5.5): content pin (G6-2) -- the entry's review is the unit its justification names; the reachability field was added by U30F9 W-U30F9 (Claude Fable 5.1) from the justification and a repository grep (reachability-grep.json), without re-reading the file",
+    reviewedOn: "2026-10-04",
+    reviewedBy: "W-U42C (Claude Opus 5.5): U30 re-review after the N1 change (owner decision ÄF-U42C-1) -- file re-read; the one process site (linkOnly's spawnSync) is unchanged, N1 now calls it with TSX_TSCONFIG_PATH set to tsconfig copies the smoke writes in its own /tmp directory instead of next to /app/tsconfig.json; reachability unchanged. Earlier: U30F8 W-U30F3 (Claude Opus 5.5) content pin (G6-2); reachability field U30F9 W-U30F9 (Claude Fable 5.1)",
     justification:
-      "On-prem image smoke: runs node --import tsx on a server entry point of the image under test (entryAbs = path.join(APP, entry), entry from the smoke matrix); a smoke check of the built image, not a database tool.",
+      "On-prem image smoke: runs node --import tsx on a server entry point of the image under test (entryAbs = path.join(APP, entry), entry from the smoke matrix) or on an aggregate import file in the smoke's /tmp directory, N1 with TSX_TSCONFIG_PATH set to a tsconfig copy there; a smoke check of the built image, not a database tool.",
     sites: [
       "DYNAMIC PROCESS spawnSync | spawnSync(process.execPath, ['--import', 'tsx', '--import', REGISTER, entryAbs], { cwd: APP, env: { ...process.env, ...extraEnv, LINK_ONLY_ENTRY: entryAbs }, encoding: 'utf8', timeout: 600000, maxBuf…",
     ],

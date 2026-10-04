@@ -332,27 +332,33 @@ console.log(`tsconfig-paths-only packages in the runtime graphs: ${[...byPackage
 for (const [name, { specs, importers }] of [...byPackage].sort()) {
   const files = [...importers].sort();
   const agg = writeAggregate(`n1-${name}`, files);
-  const mutated = JSON.parse(JSON.stringify(tsconfig));
+  // Kopiorna skrivs i TMP, inte bredvid /app/tsconfig.json: den levererade /app
+  // är inte skrivbar för appuser (W-U42C IN-5, ägarbeslut ÄF-U42C-1). paths löses
+  // relativt den tsconfig-fil som anger dem, så varje paths-värde görs absolut mot
+  // originalets katalog. En flyttad kopia som löser fel faller med samma "Cannot
+  // find" som det avsedda röda, så kopian MED alla paths måste länka (kontroll).
+  const anchored = JSON.parse(JSON.stringify(tsconfig));
+  for (const k of Object.keys(anchored.compilerOptions.paths)) {
+    anchored.compilerOptions.paths[k] = anchored.compilerOptions.paths[k].map((v) => path.resolve(path.dirname(TSCONFIG), v));
+  }
+  const mutated = JSON.parse(JSON.stringify(anchored));
   for (const k of Object.keys(mutated.compilerOptions.paths)) {
     if (k === `@miljobeslut/${name}` || k === `@miljobeslut/${name}/*`) delete mutated.compilerOptions.paths[k];
   }
-  // paths löses relativt tsconfig-filens katalog, så kopian ska ligga bredvid
-  // originalet: då är den borttagna raden den enda skillnaden.
-  const mutatedPath = path.join(path.dirname(TSCONFIG), `.tsconfig.smoke-without-${name}.json`);
+  const copyPath = path.join(TMP, `tsconfig.smoke-copy-${name}.json`);
+  const mutatedPath = path.join(TMP, `tsconfig.smoke-without-${name}.json`);
+  fs.writeFileSync(copyPath, JSON.stringify(anchored, null, 2));
   fs.writeFileSync(mutatedPath, JSON.stringify(mutated, null, 2));
-  let red;
-  try {
-    red = linkOnly(agg, { TSX_TSCONFIG_PATH: mutatedPath });
-  } finally {
-    fs.unlinkSync(mutatedPath);
-  }
+  const copy = linkOnly(agg, { TSX_TSCONFIG_PATH: copyPath });
+  const red = linkOnly(agg, { TSX_TSCONFIG_PATH: mutatedPath });
   const green = linkOnly(agg);
   const redSignature = !red.linked && red.stderr.includes(`@miljobeslut/${name}`) && /ERR_MODULE_NOT_FOUND|Cannot find/.test(red.stderr);
-  const verdict = redSignature && green.linked ? 'PASS' : 'INCONCLUSIVE';
+  const verdict = redSignature && copy.linked && green.linked ? 'PASS' : 'INCONCLUSIVE';
   record(`N1-tsconfig-paths:${name}`, verdict, {
-    summary: `importers=${files.length} specs=${[...specs].join(',')} without-paths: ${red.linked ? 'LINKED (unexpected)' : firstErrorLine(red.stderr)} | with-paths: ${green.linked ? 'linked' : firstErrorLine(green.stderr)}`,
+    summary: `importers=${files.length} specs=${[...specs].join(',')} without-paths: ${red.linked ? 'LINKED (unexpected)' : firstErrorLine(red.stderr)} | copy-with-paths: ${copy.linked ? 'linked' : firstErrorLine(copy.stderr)} | with-paths: ${green.linked ? 'linked' : firstErrorLine(green.stderr)}`,
     importers: files.map(rel),
     red: { linked: red.linked, status: red.status, stderr: tail(red.stderr, 1500) },
+    copy: { linked: copy.linked, status: copy.status, stderr: copy.linked ? '' : tail(copy.stderr, 1500) },
     green: { linked: green.linked, status: green.status },
   });
 }
