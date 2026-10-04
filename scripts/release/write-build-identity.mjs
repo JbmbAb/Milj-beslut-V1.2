@@ -7,15 +7,16 @@
  *   node scripts/release/write-build-identity.mjs [--root <dir>] --print composition
  *
  * What it does (U40-U50B-SPEC §1.6 "Mätning, inte deklaration"):
- *  - measures, with the ONE algorithm (./buildIdentityDigest.mjs), the delivered source digest, the three V1/V2 file
- *    hashes, the build-time VITE_* variables and -- when Dockerfile, .dockerignore and deploy/onprem are present --
+ *  - measures, with the ONE algorithm (./buildIdentityDigest.mjs), the delivered source digest (the whole root but
+ *    the listed exclusions, node_modules and symbolic links included), the three V1/V2 file hashes, the build-time VITE_* variables and -- when Dockerfile, .dockerignore and deploy/onprem are present --
  *    the composition manifest;
  *  - takes the source commit and tree from git when the root is a checkout, and then ONLY from a clean one: a dirty
  *    checkout (modified, added, deleted or untracked paths) gets NO identity (REJECT_BUILD_IDENTITY_DIRTY_CHECKOUT);
  *    a declared --source-commit/--source-tree must then equal HEAD (REJECT_BUILD_IDENTITY_SOURCE_MISMATCH);
- *  - without a checkout (the image build from `git archive <SHA>`, which carries no .git and dockerignores the
- *    composition files) the commit, tree and composition hash MUST be declared by the caller
- *    (deploy/onprem/build-image.sh does; a plain `docker build` without them fails: nothing is guessed);
+ *  - without a checkout (the image build: production-base measures the delivered /app, which holds no .git and none of
+ *    the composition files -- the context streamed from `git archive <SHA>` carries them, but production-base does not
+ *    copy them) the commit, tree and composition hash MUST be declared by the caller (deploy/onprem/build-image.sh
+ *    does; a plain `docker build` without them fails: nothing is guessed);
  *  - a measured composition is never overridden by a different declared value (REJECT_BUILD_IDENTITY_COMPOSITION_MISMATCH);
  *  - the root defaults to the repository this script lives in, never to the current working directory (U40-A2 R8).
  *
@@ -27,10 +28,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DIGEST_EXCLUDED_DIR_NAMES,
+  DELIVERED_ROOT_EXCLUSIONS,
   RELEASE_IDENTITY_CONTRACT_VERSION,
   RELEASE_IDENTITY_FILE_NAME,
-  SOURCE_DIGEST_ROOTS,
   measureBuildArgs,
   measureCompositionManifest,
   measureLegacyIdentityHashes,
@@ -147,9 +147,14 @@ if (measuredComposition) {
   composition = { sha256: declaredComposition, source: 'declared', file_count: null };
 }
 
-// 3. Measurements over the delivered tree.
-const sourceDigest = measureSourceDigest(root);
-if (sourceDigest.roots_present.length === 0) fail('REJECT_BUILD_IDENTITY_NO_SOURCE_ROOTS', `none of ${SOURCE_DIGEST_ROOTS.join(', ')} exists under ${root}`);
+// 3. Measurements over the delivered tree: the whole root but the excluded top-level names; an entry that cannot be
+// measured (a link out of the root, a FIFO/socket/device) gets NO identity instead of one measured around it.
+let sourceDigest;
+try {
+  sourceDigest = measureSourceDigest(root);
+} catch (error) {
+  fail('REJECT_BUILD_IDENTITY_UNMEASURABLE', error instanceof Error ? error.message : String(error));
+}
 const buildArgs = measureBuildArgs(process.env);
 let legacy;
 try {
@@ -171,10 +176,10 @@ const identity = {
   measurement: {
     source: { kind: source.kind },
     source_digest: {
-      roots: [...SOURCE_DIGEST_ROOTS],
-      roots_present: sourceDigest.roots_present,
-      excluded_dir_names: [...DIGEST_EXCLUDED_DIR_NAMES],
+      scope: 'delivered-root',
+      excluded: Object.keys(DELIVERED_ROOT_EXCLUSIONS),
       file_count: sourceDigest.file_count,
+      symlink_count: sourceDigest.symlink_count,
     },
     composition_manifest: { source: composition.source, file_count: composition.file_count },
     build_args: { names: buildArgs.names },
