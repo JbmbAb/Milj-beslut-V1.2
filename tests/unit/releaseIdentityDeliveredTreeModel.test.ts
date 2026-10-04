@@ -11,6 +11,7 @@ import {
   instructionShellText,
   parseDockerfile,
   splitDockerfileWords,
+  type ParsedDockerfile,
   type ParsedInstruction,
   type ParsedStage,
 } from '../../packages/mps-pattern-proof/src/docker/dockerfile-parse';
@@ -25,6 +26,7 @@ import {
   readReleaseIdentityFile,
   type ReleaseIdentityFile,
 } from '../../server/modules/release/productReleaseBuildIdentity';
+import { DELIVERED_ROOT_EXCLUSIONS } from '../../scripts/release/buildIdentityDigest.mjs';
 
 /**
  * W-U42B (owner decision Round 21, alternative (a)) -- the build recipe EXECUTED AS A MODEL, without Docker:
@@ -43,6 +45,10 @@ import {
  * R-U402-14 (the defect this pins): the builder measured its own tree -- components/ and the lock file `npm prune`
  * rewrote -- while production-base delivers the context's lock file and no components/; every product process refused
  * to start on an UNTOUCHED image with REJECT_PRODUCT_RELEASE_BUILD_MISMATCH.
+ *
+ * W-U42C (owner decision Round 22, ÄF-U42B-2): every path the recipe delivers to /app is measured or explicitly
+ * excluded -- decided file by file with the real start-up check over the modelled /app (R4), also for an injected
+ * future COPY; a delivery outside /app or into an excluded path is reported, never silently unmeasured.
  *
  * Context model: build-image.sh pipes the archive to `docker build -`, which BuildKit loads as a remote context
  * ("load remote build context" / "copy /context /" in the U40-2 build log) WITHOUT applying .dockerignore -- the
@@ -96,7 +102,7 @@ function runNode(script: string, args: readonly string[], cwd: string, env: Reco
 const CONTEXT_LOCK = '{"name":"model","lockfileVersion":3,"packages":{"":{},"node_modules/dev-only":{"dev":true},"node_modules/dep":{}}}\n';
 const PRUNED_LOCK = '{"name":"model","lockfileVersion":3,"packages":{"":{},"node_modules/dep":{"peer":false}}}\n';
 
-function contextTree(): Tree {
+function contextTree(dockerfileText: string, extra: Readonly<Record<string, string>>): Tree {
   const text: Record<string, string> = {
     'package.json': '{"name":"model","version":"0.0.0","scripts":{"start":"node --import tsx server/index.ts"}}\n',
     'package-lock.json': CONTEXT_LOCK,
@@ -123,7 +129,8 @@ function contextTree(): Tree {
     'tests/unit/x.test.ts': 'test\n',
     '.dockerignore': readRepo('.dockerignore').toString('utf8').replace(/\r\n/g, '\n'),
     'deploy/onprem/build-image.sh': '#!/bin/sh\n',
-    Dockerfile: DOCKERFILE_TEXT,
+    Dockerfile: dockerfileText,
+    ...extra,
   };
   const tree: Tree = new Map(Object.entries(text).map(([k, v]) => [k, Buffer.from(v, 'utf8')]));
   // the REAL measurement code, as the commit carries it
@@ -150,6 +157,8 @@ class RecipeModelError extends Error {
 
 type StageState = { tree: Tree; env: Map<string, string> };
 type Build = {
+  /** the Dockerfile interpreted (the repository's own, or one with an injected instruction) */
+  readonly parsed: ParsedDockerfile;
   readonly context: Tree;
   readonly buildArgs: Readonly<Record<string, string>>;
   readonly stages: Map<string, StageState>;
@@ -307,7 +316,7 @@ function parseEnv(ins: ParsedInstruction): [string, string][] {
 }
 
 function buildStage(build: Build, ref: string): StageState {
-  const stage = findStage(PARSED, ref);
+  const stage = findStage(build.parsed, ref);
   if (!stage) throw new Error(`stage ${ref} is not in the Dockerfile`);
   const done = build.stages.get(stage.name);
   if (done) return done;
@@ -354,10 +363,11 @@ function buildStage(build: Build, ref: string): StageState {
   return state;
 }
 
-function newBuild(): Build {
-  const context = contextTree();
+function newBuild(dockerfileText: string = DOCKERFILE_TEXT, extraContext: Readonly<Record<string, string>> = {}): Build {
+  const context = contextTree(dockerfileText, extraContext);
   const buildArgs = { SOURCE_COMMIT_SHA: 'c'.repeat(40), SOURCE_TREE_SHA: 'd'.repeat(40), COMPOSITION_MANIFEST_SHA256: declaredComposition(context) };
-  return { context, buildArgs, stages: new Map(), identityRuns: [] };
+  const parsed = dockerfileText === DOCKERFILE_TEXT ? PARSED : parseDockerfile(dockerfileText);
+  return { parsed, context, buildArgs, stages: new Map(), identityRuns: [] };
 }
 
 /** The start-up check every product process runs (CAS resolution of the signed manifest left out): null = accepted. */
@@ -423,10 +433,11 @@ describe('the build recipe as a model: the identity the Dockerfile writes verifi
     expect([...delivered.keys()].filter((p) => p.startsWith('components/')), 'components/ is not delivered').toEqual([]);
     expect(delivered.get('package-lock.json')!.toString('utf8'), 'F1: the delivered lock file is the context\'s (the commit\'s)').toBe(CONTEXT_LOCK);
     expect(identity.build_identity.package_lock_sha256, 'the identity names the DELIVERED lock file').toBe(sha256(CONTEXT_LOCK));
-    const measurement = identity.measurement as { source_digest?: { roots_present?: string[]; file_count?: number } };
-    expect(measurement.source_digest?.roots_present, 'measured over the delivered roots').not.toContain('components');
-    const deliveredUnderRoots = [...delivered.keys()].filter((p) => /^(server|src|packages|prisma|components|dist)\//.test(p) && !p.split('/').includes('node_modules'));
-    expect(measurement.source_digest?.file_count).toBe(deliveredUnderRoots.length);
+    // ändrad semantik enligt ÄF-U42B-2 (W-U42C): counted over the whole delivered /app, not over six roots
+    const measurement = identity.measurement as { source_digest?: { scope?: string; file_count?: number; symlink_count?: number } };
+    expect(measurement.source_digest?.scope, 'measured over the whole delivered root').toBe('delivered-root');
+    expect(measurement.source_digest?.file_count, 'every delivered file but the identity itself').toBe(delivered.size - 1);
+    expect(measurement.source_digest?.symlink_count).toBe(0);
   });
 
   it('control: an identity measured over the builder tree does NOT verify against the delivered /app; one measured over the delivered /app does', () => {
@@ -453,5 +464,73 @@ describe('the build recipe as a model: the identity the Dockerfile writes verifi
     const refusal = startupRefusal(root, readReleaseIdentityFile(root)!);
     expect(refusal).toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
     expect(refusal).toContain('runtime_entrypoint_sha256');
+  });
+});
+
+// ---- W-U42C IN-1: coverage of everything production-base delivers ----
+
+/** The repository Dockerfile with `line` inserted in production-base just before the identity build args (= before the measurement). */
+function withInstructionBeforeMeasurement(line: string): string {
+  const marker = /^ARG SOURCE_COMMIT_SHA$/m;
+  expect(marker.test(DOCKERFILE_TEXT), 'production-base declares the identity build args').toBe(true);
+  return DOCKERFILE_TEXT.replace(marker, `${line}\nARG SOURCE_COMMIT_SHA`);
+}
+
+/**
+ * Every path the target delivers to /app whose one-byte change the start-up measurement does NOT see, plus every
+ * delivered path under an explicit exclusion (an exclusion is for runtime state, never for delivered files). Empty =
+ * covered. The real measurement and start-up check decide, file by file, over the materialized /app.
+ */
+function uncoveredDeliveries(build: Build, target: string): string[] {
+  const delivered = buildStage(build, target).tree;
+  const root = materialize(delivered, `coverage-${target}`);
+  const identity = readReleaseIdentityFile(root);
+  expect(identity, `${target} delivers ${RELEASE_IDENTITY_FILE_NAME}`).not.toBeNull();
+  expect(startupRefusal(root, identity!), `control: ${target}'s untouched /app verifies`).toBeNull();
+  const exclusions = Object.keys(DELIVERED_ROOT_EXCLUSIONS ?? {}).filter((name) => name !== RELEASE_IDENTITY_FILE_NAME);
+  const out: string[] = [];
+  for (const rel of [...delivered.keys()].sort()) {
+    if (rel === RELEASE_IDENTITY_FILE_NAME) continue;
+    const excludedBy = exclusions.find((name) => rel === name || rel.startsWith(`${name}/`));
+    if (excludedBy !== undefined) {
+      out.push(`${rel} (delivered into the excluded ${excludedBy})`);
+      continue;
+    }
+    const file = path.join(root, ...rel.split('/'));
+    const original = fs.readFileSync(file);
+    fs.writeFileSync(file, Buffer.concat([original, Buffer.from(' ')]));
+    if (startupRefusal(root, identity!) === null) out.push(rel);
+    fs.writeFileSync(file, original);
+  }
+  return out;
+}
+
+describe('W-U42C IN-1: every path production-base delivers to /app is measured or explicitly excluded', () => {
+  it.each(FINAL_TARGETS)('R4 %s: one changed byte in ANY delivered file is REJECT_PRODUCT_RELEASE_BUILD_MISMATCH (services/, scripts/, app/, config/, types/, stubs/, root *.ts, tsconfig.json, node_modules/ ...)', (target) => {
+    const build = newBuild();
+    const delivered = buildStage(build, target).tree;
+    // the model delivers what the briefing lists (the test cannot pass vacuously)
+    for (const p of ['services/propertyService.ts', 'scripts/release/buildIdentityDigest.mjs', 'app/page.ts', 'config/database.ts', 'types/index.d.ts', 'stubs/empty.ts', 'db.server.ts', 'tsconfig.json', 'node_modules/dep/index.js', 'node_modules/.prisma/client/index.js']) {
+      expect(delivered.has(p), `${target} delivers ${p}`).toBe(true);
+    }
+    expect(uncoveredDeliveries(build, target), `${target}: delivered but neither measured nor excluded`).toEqual([]);
+  });
+
+  it('R4: a NEW `COPY --from=builder /app/<new> ./<new>` is covered without touching the measurement (no list of roots to forget)', () => {
+    const build = newBuild(withInstructionBeforeMeasurement('COPY --from=builder /app/plugins ./plugins'), { 'plugins/loader.ts': 'export const plugin = 1;\n' });
+    expect(buildStage(build, 'web').tree.has('plugins/loader.ts'), 'the injected COPY delivers').toBe(true);
+    expect(uncoveredDeliveries(build, 'web')).toEqual([]);
+  });
+
+  it('R4: a COPY that delivers files into an excluded path (the writable storage/) is reported', () => {
+    const build = newBuild(withInstructionBeforeMeasurement('COPY --from=builder /app/scripts ./storage/scripts'));
+    const uncovered = uncoveredDeliveries(build, 'web');
+    expect(uncovered.length).toBeGreaterThan(0);
+    for (const entry of uncovered) expect(entry.startsWith('storage/scripts/'), entry).toBe(true);
+  });
+
+  it('R4: a COPY whose destination lies outside /app fails the model -- it is never silently unmeasured', () => {
+    const build = newBuild(withInstructionBeforeMeasurement('COPY --from=builder /app/scripts /opt/scripts'));
+    expect(() => buildStage(build, 'web')).toThrow(/outside \/app is not modelled/);
   });
 });

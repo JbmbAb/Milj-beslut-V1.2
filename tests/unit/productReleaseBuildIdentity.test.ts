@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, type TestContext } from 'vitest';
 import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import { assertBootstrapAdmitFlagOnlyInExplicitTestProcess } from '@miljobeslut/mps-lu';
@@ -21,9 +21,8 @@ import { attestProductRelease } from '../../server/modules/release/productReleas
 import {
   BUILD_ARGS_PREFIXES,
   COMPOSITION_MANIFEST_PATHS,
-  DIGEST_EXCLUDED_DIR_NAMES,
+  DELIVERED_ROOT_EXCLUSIONS,
   LEGACY_IDENTITY_FILES,
-  SOURCE_DIGEST_ROOTS,
   digestListing,
   listDeliveredFiles,
   measureBuildArgs,
@@ -60,6 +59,11 @@ import { getRunningProductRelease, resetRunningProductReleaseForTests } from '..
  *    REJECT_PRODUCT_RELEASE_BUILD_MISMATCH.
  *  - A dirty checkout gives no identity; an identity is never read from the current working directory (U40-A2 R8).
  *  - Outside an explicit development/test process a product process starts ONLY under a measured release identity.
+ *  - W-U42C (owner decisions Round 22 ÄF-U42B-2, Round 26 Ä4/Ä5): the digest covers the WHOLE delivered root minus an
+ *    explicit exclusion list -- services/, scripts/ (the measuring code itself), app/, config/, types/, stubs/, the
+ *    root *.ts, tsconfig.json and node_modules as bytes at any depth; symbolic links are registered with their target
+ *    text (never followed, never silently skipped) and a link out of the root is refused; an identity measured with
+ *    c7cfd936's narrower root list never verifies (forward-only). Changed expectations are marked "ändrad semantik".
  *
  * Hermetic: temporary directories under os.tmpdir(), temporary git repositories, in-memory artifact repository,
  * child `node` processes for the CLI. No CAS, no database, no network, no Docker.
@@ -151,9 +155,12 @@ function writeIdentityViaCli(root: string, commit = 'a'.repeat(40), tree = 'b'.r
 }
 
 describe('buildIdentityDigest.mjs: the one source-digest algorithm', () => {
-  it('pins the roots, the exclusions, the composition paths, the build-arg prefix and the legacy files', () => {
-    expect([...SOURCE_DIGEST_ROOTS]).toEqual(['server', 'src', 'packages', 'prisma', 'components', 'dist']);
-    expect([...DIGEST_EXCLUDED_DIR_NAMES]).toEqual(['node_modules']);
+  it('pins the delivered-root exclusions (each with its reason in the code), the composition paths, the build-arg prefix and the legacy files', () => {
+    // ändrad semantik enligt ÄF-U42B-2/Ä5: no list of roots and no node_modules exclusion any more -- the whole delivered
+    // root is measured except these top-level names, each with a written reason
+    expect(Object.keys(DELIVERED_ROOT_EXCLUSIONS)).toEqual(['.git', 'release-identity.json', 'storage']);
+    for (const [name, reason] of Object.entries(DELIVERED_ROOT_EXCLUSIONS)) expect(typeof reason === 'string' && reason.length > 40, `${name} has a written reason`).toBe(true);
+    expect(Object.isFrozen(DELIVERED_ROOT_EXCLUSIONS)).toBe(true);
     expect([...COMPOSITION_MANIFEST_PATHS]).toEqual(['Dockerfile', '.dockerignore', 'deploy/onprem']);
     expect([...BUILD_ARGS_PREFIXES]).toEqual(['VITE_']);
     expect(LEGACY_IDENTITY_FILES).toEqual({
@@ -172,7 +179,8 @@ describe('buildIdentityDigest.mjs: the one source-digest algorithm', () => {
       `server/a.ts\0${sha256('A')}\n` + `server/sub/Z.ts\0${sha256('Z')}\n` + `server/sub/a.ts\0${sha256('a2')}\n` + `src/b.ts\0${sha256('B')}\n`,
     );
     expect(digestListing(root, files)).toEqual({ digest: expected, file_count: 4 });
-    expect(measureSourceDigest(root)).toMatchObject({ source_digest_sha256: expected, file_count: 4, roots_present: ['server', 'src'] });
+    // ändrad semantik enligt ÄF-U42B-2: the source digest lists the whole root (here: only server/ and src/ exist)
+    expect(measureSourceDigest(root)).toEqual({ source_digest_sha256: expected, file_count: 4, symlink_count: 0 });
   });
 
   it('is deterministic and independent of creation order, and changes with any byte in any root', () => {
@@ -182,8 +190,9 @@ describe('buildIdentityDigest.mjs: the one source-digest algorithm', () => {
     writeTree(b, Object.fromEntries(Object.entries(DELIVERED).reverse()));
     const base = measureSourceDigest(a);
     expect(measureSourceDigest(b)).toEqual(base);
-    expect(base.roots_present).toEqual(['server', 'src', 'packages', 'prisma', 'components', 'dist']);
-    for (const rel of ['server/index.ts', 'src/main.tsx', 'packages/mps-lu/src/index.ts', 'prisma/schema.prisma', 'components/App.tsx', 'dist/assets/app.js']) {
+    // ändrad semantik enligt ÄF-U42B-2: every file of the delivered root counts, not only six roots
+    expect(base.file_count).toBe(Object.keys(DELIVERED).length);
+    for (const rel of Object.keys(DELIVERED)) {
       const c = tmp('det-c');
       writeTree(c, { ...DELIVERED, [rel]: `${DELIVERED[rel]}// changed\n` });
       expect(measureSourceDigest(c).source_digest_sha256, rel).not.toBe(base.source_digest_sha256);
@@ -197,20 +206,30 @@ describe('buildIdentityDigest.mjs: the one source-digest algorithm', () => {
     expect(measureSourceDigest(removed).source_digest_sha256, 'a removed file changes the digest').not.toBe(base.source_digest_sha256);
   });
 
-  it('ignores node_modules under any root, files outside the roots, and symbolic links', () => {
-    const root = tmp('ignore');
+  it('measures node_modules at any depth and every file outside the former six roots; only the excluded top-level names are left out', () => {
+    // ändrad semantik enligt ÄF-U42B-2/Ä5 (was: "ignores node_modules under any root, files outside the roots, and
+    // symbolic links"): installed dependencies are delivered executable bytes, so they are measured as bytes
+    for (const [rel, content] of Object.entries({
+      'packages/mps-lu/node_modules/dep/index.js': 'installed\n',
+      'server/node_modules/x.js': 'x\n',
+      'node_modules/dep/index.js': 'installed\n',
+      'public/cesium/Widgets/widgets.css': 'rewritten by postinstall\n',
+      'README.md': 'docs\n',
+      // a nested directory named like an exclusion is measured: exclusions are top-level names only
+      'server/storage/x.ts': 'code\n',
+      'packages/mps-lu/.git/HEAD': 'nested\n',
+    })) {
+      const root = tmp('measured');
+      writeTree(root, DELIVERED);
+      const base = measureSourceDigest(root);
+      writeTree(root, { [rel]: content });
+      expect(measureSourceDigest(root).source_digest_sha256, `${rel} is part of the delivered identity`).not.toBe(base.source_digest_sha256);
+    }
+    const root = tmp('excluded');
     writeTree(root, DELIVERED);
     const base = measureSourceDigest(root);
-    writeTree(root, { 'packages/mps-lu/node_modules/dep/index.js': 'installed\n', 'server/node_modules/x.js': 'x\n', 'public/cesium/Widgets/widgets.css': 'rewritten by postinstall\n', 'README.md': 'docs\n' });
-    expect(measureSourceDigest(root)).toEqual(base);
-    let linked = false;
-    try {
-      fs.symlinkSync(path.join(root, 'src', 'main.tsx'), path.join(root, 'server', 'link.ts'), 'file');
-      linked = true;
-    } catch {
-      // symlink creation needs a privilege on some Windows hosts; the exclusion is then covered on hosts that can link
-    }
-    if (linked) expect(measureSourceDigest(root), 'a symbolic link is never part of the delivered identity').toEqual(base);
+    writeTree(root, { '.git/HEAD': 'ref: refs/heads/x\n', '.git/index': 'index\n', 'storage/uploads/p1/a.pdf': 'runtime data\n', [RELEASE_IDENTITY_FILE_NAME]: '{}\n' });
+    expect(measureSourceDigest(root), 'the excluded top-level names (.git, release-identity.json, storage) never enter the digest').toEqual(base);
   });
 
   it('the composition manifest covers exactly Dockerfile, .dockerignore and deploy/onprem/**, and is null when they are not all delivered', () => {
@@ -255,6 +274,217 @@ describe('buildIdentityDigest.mjs: the one source-digest algorithm', () => {
   });
 });
 
+/** The delivered executable surface production-base copies besides the six former roots (Dockerfile:79-85 at c7cfd936). */
+const DELIVERED_U42C: Record<string, string> = {
+  ...DELIVERED,
+  'services/propertyService.ts': 'export const svc = 1;\n',
+  'scripts/ops/luPropertyCoordinateOrder.ts': 'export const order = "N,E";\n',
+  'scripts/release/buildIdentityDigest.mjs': 'export const measuring = "code";\n',
+  'app/page.ts': 'export const page = 1;\n',
+  'config/database.ts': 'export const cfg = 1;\n',
+  'types/index.d.ts': 'export type T = 1;\n',
+  'stubs/empty.ts': 'export {};\n',
+  'db.server.ts': 'export const db = 1;\n',
+  'constants.ts': 'export const C = 1;\n',
+  'tsconfig.json': '{"compilerOptions":{"paths":{"@miljobeslut/*":["packages/*/src"]}}}\n',
+  'node_modules/dep/index.js': 'module.exports = 1;\n',
+  'node_modules/.prisma/client/index.js': 'generated prisma client\n',
+  'node_modules/@prisma/client/index.js': 'require(".prisma/client")\n',
+  'packages/mps-lu/node_modules/inner/index.js': 'nested dependency\n',
+  'packages/mps-other/src/index.ts': 'other\n',
+  'packages/mps-other/package.json': '{"name":"@miljobeslut/mps-other"}\n',
+};
+
+/** What a refusal assertion prints when the start-up check (or the measurement) accepted the change instead. */
+const NOT_SEEN = '<accepted: the measurement did not see the change>';
+
+function refusalOf(fn: () => unknown): string | null {
+  try {
+    fn();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/**
+ * A link at `linkRel` to `relativeTarget` (relative to the link's directory): a relative symbolic link where the host
+ * allows it, else a directory junction (absolute target; Windows without the symlink privilege), else null.
+ */
+function makeLink(root: string, linkRel: string, relativeTarget: string): 'symlink' | 'junction' | null {
+  const link = path.join(root, ...linkRel.split('/'));
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  try {
+    fs.symlinkSync(relativeTarget, link, 'dir');
+    return 'symlink';
+  } catch {
+    // EPERM without the symlink privilege on Windows: try a junction
+  }
+  try {
+    fs.symlinkSync(path.resolve(path.dirname(link), ...relativeTarget.split('/')), link, 'junction');
+    return 'junction';
+  } catch {
+    return null;
+  }
+}
+
+function removeLink(root: string, linkRel: string): void {
+  const link = path.join(root, ...linkRel.split('/'));
+  try {
+    fs.unlinkSync(link);
+  } catch {
+    fs.rmdirSync(link); // a directory junction is removed with rmdir; its target is untouched
+  }
+}
+
+const NO_LINKS_ON_HOST = 'the host can create neither a symbolic link nor a junction; the case is shown in the Docker part (Linux, W-U42C (F))';
+
+/**
+ * c7cfd936's source digest, frozen here as the reference for the forward-only check (IN-6): six roots, node_modules
+ * skipped at any depth, symbolic links skipped. Never used by the product.
+ */
+function c7cfd936SourceDigest(root: string): string {
+  const roots = ['server', 'src', 'packages', 'prisma', 'components', 'dist'];
+  const out: string[] = [];
+  const walk = (abs: string, rel: string) => {
+    for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) {
+        if (e.name !== 'node_modules') walk(path.join(abs, e.name), `${rel}/${e.name}`);
+      } else if (e.isFile()) out.push(`${rel}/${e.name}`);
+    }
+  };
+  for (const r of roots) if (fs.existsSync(path.join(root, r)) && fs.lstatSync(path.join(root, r)).isDirectory()) walk(path.join(root, r), r);
+  out.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  return sha256(out.map((rel) => `${rel}\0${sha256(fs.readFileSync(path.join(root, ...rel.split('/'))))}\n`).join(''));
+}
+
+describe('W-U42C: the identity covers the delivered executable surface, the measuring code and the dependencies', () => {
+  it.each([
+    'services/propertyService.ts',
+    'scripts/ops/luPropertyCoordinateOrder.ts',
+    'scripts/release/buildIdentityDigest.mjs',
+    'app/page.ts',
+    'config/database.ts',
+    'types/index.d.ts',
+    'stubs/empty.ts',
+    'db.server.ts',
+    'constants.ts',
+    'tsconfig.json',
+  ])('R1: one changed byte in %s after the build -> REJECT_PRODUCT_RELEASE_BUILD_MISMATCH (source_digest_sha256)', async (rel) => {
+    const root = tmp('r1');
+    writeTree(root, DELIVERED_U42C);
+    const identity = writeIdentityViaCli(root);
+    const release = await signedV3(identity.build_identity);
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })), 'control: the untouched tree verifies').toBeNull();
+    fs.appendFileSync(path.join(root, ...rel.split('/')), ' ');
+    const refusal = refusalOf(() => assertProductReleaseBuildIdentity({ root, release }));
+    expect(refusal ?? NOT_SEEN, `${rel} must be covered`).toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+    expect(refusal ?? NOT_SEEN).toContain('source_digest_sha256');
+  });
+
+  it.each([
+    'node_modules/dep/index.js',
+    'node_modules/.prisma/client/index.js',
+    'node_modules/@prisma/client/index.js',
+    'packages/mps-lu/node_modules/inner/index.js',
+  ])('R2 (Ä5, bytes): one changed byte in the installed dependency %s -> REJECT_PRODUCT_RELEASE_BUILD_MISMATCH', async (rel) => {
+    const root = tmp('r2');
+    writeTree(root, DELIVERED_U42C);
+    const identity = writeIdentityViaCli(root);
+    const release = await signedV3(identity.build_identity);
+    fs.appendFileSync(path.join(root, ...rel.split('/')), '/* patched */\n');
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })) ?? NOT_SEEN).toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+    fs.writeFileSync(path.join(root, ...rel.split('/')), DELIVERED_U42C[rel]);
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })), 'restored bytes verify again').toBeNull();
+    writeTree(root, { 'node_modules/added-later/index.js': 'x\n' });
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })) ?? NOT_SEEN, 'an added dependency file is a deviation').toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+  });
+
+  it('R3 (IN-4): a link is registered with its target text, never followed; a changed target -> REJECT_PRODUCT_RELEASE_BUILD_MISMATCH', async (ctx: TestContext) => {
+    const root = tmp('r3');
+    writeTree(root, DELIVERED_U42C);
+    const linkRel = 'node_modules/@miljobeslut/mps-lu';
+    const kind = makeLink(root, linkRel, '../../packages/mps-lu');
+    if (!kind) ctx.skip(NO_LINKS_ON_HOST);
+    const listed = listDeliveredFiles(root, ['node_modules']);
+    expect(listed, 'the link itself is listed').toContain(linkRel);
+    expect(listed.filter((p) => p.startsWith(`${linkRel}/`)), 'the link is never followed').toEqual([]);
+    const target = fs.readlinkSync(path.join(root, ...linkRel.split('/')));
+    expect(digestListing(root, [linkRel]).digest, 'listing form of a link: "<path>\\0symlink:<target text>\\n"').toBe(sha256(`${linkRel}\0symlink:${target}\n`));
+    expect(measureSourceDigest(root)).toMatchObject({ file_count: Object.keys(DELIVERED_U42C).length, symlink_count: 1 });
+    const identity = writeIdentityViaCli(root);
+    expect(identity.measurement).toMatchObject({ source_digest: { symlink_count: 1 } });
+    const release = await signedV3(identity.build_identity);
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })), `control (${kind}): the untouched tree verifies`).toBeNull();
+    removeLink(root, linkRel);
+    expect(makeLink(root, linkRel, '../../packages/mps-other')).toBe(kind);
+    const refusal = refusalOf(() => assertProductReleaseBuildIdentity({ root, release }));
+    expect(refusal ?? NOT_SEEN, `a retargeted ${kind} must not pass`).toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+    expect(refusal ?? NOT_SEEN).toContain('source_digest_sha256');
+    removeLink(root, linkRel);
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })) ?? NOT_SEEN, 'a removed link is a deviation too').toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+  });
+
+  it('R3b (IN-4): a link that points out of the delivered root is refused -- by the build (no identity written) and at start', (ctx: TestContext) => {
+    const outside = tmp('r3b-outside');
+    writeTree(outside, { 'evil/index.js': 'outside the measurement\n' });
+    const root = tmp('r3b');
+    writeTree(root, DELIVERED_U42C);
+    const kind = makeLink(root, 'node_modules/escape', path.relative(path.join(root, 'node_modules'), path.join(outside, 'evil')).split(path.sep).join('/'));
+    if (!kind) ctx.skip(NO_LINKS_ON_HOST);
+    expect(refusalOf(() => measureSourceDigest(root)) ?? NOT_SEEN).toMatch(/REJECT_BUILD_IDENTITY_LINK_OUTSIDE_ROOT[\s\S]*node_modules\/escape/);
+    const r = runCli(['--root', root, '--source-commit', 'a'.repeat(40), '--source-tree', 'b'.repeat(40)]);
+    expect(r.status, `${kind}: the build refuses`).not.toBe(0);
+    expect(r.stderr).toMatch(/REJECT_BUILD_IDENTITY_LINK_OUTSIDE_ROOT/);
+    expect(fs.existsSync(path.join(root, RELEASE_IDENTITY_FILE_NAME)), 'no identity is written over an escaping link').toBe(false);
+    expect(refusalOf(() => measureDeliveredBuildIdentity(root)) ?? NOT_SEEN, 'a process re-measuring such a tree refuses to start').toMatch(/REJECT_BUILD_IDENTITY_LINK_OUTSIDE_ROOT/);
+  });
+
+  it('R5 (IN-6, forward-only): an identity measured with c7cfd936\'s six-root algorithm never verifies against the new measurement', async () => {
+    for (const [label, files] of [
+      ['the delivered tree', DELIVERED_U42C],
+      ['a minimal tree (only the three legacy files)', { 'server/index.ts': DELIVERED['server/index.ts'], 'package.json': DELIVERED['package.json'], 'package-lock.json': DELIVERED['package-lock.json'] }],
+    ] as const) {
+      const root = tmp('r5');
+      writeTree(root, files);
+      const declaredComposition = fs.existsSync(path.join(root, 'Dockerfile')) ? [] : ['--composition-manifest-sha256', 'c'.repeat(64)];
+      const r = runCli(['--root', root, '--source-commit', 'a'.repeat(40), '--source-tree', 'b'.repeat(40), ...declaredComposition]);
+      expect(r.status, r.stderr).toBe(0);
+      const current = readReleaseIdentityFile(root)!;
+      // what c7cfd936's CLI wrote for the same tree: every field equal except the narrower source digest
+      const old: ProductReleaseBuildIdentityV3 = { ...current.build_identity, source_digest_sha256: c7cfd936SourceDigest(root) };
+      expect(old.source_digest_sha256, `${label}: the two measurements differ`).not.toBe(current.build_identity.source_digest_sha256);
+      fs.writeFileSync(path.join(root, RELEASE_IDENTITY_FILE_NAME), JSON.stringify({ contract_version: 'product-release-v3', build_identity: old, measurement: {} }));
+      const refusal = refusalOf(() => assertProductReleaseBuildIdentity({ root, release: createProductReleaseManifestArtifactV3({ product_name: 'Miljöbeslut', build_identity: old, issuer_ref: issuerRef }) }));
+      expect(refusal ?? NOT_SEEN, `${label}: fail-closed`).toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+      expect(refusal ?? NOT_SEEN).toContain('source_digest_sha256 (measured over the delivered files');
+    }
+  });
+
+  it('checkout mode: .git is left out, the developer\'s git-ignored node_modules is measured, an untracked file still refuses', async () => {
+    const root = tmp('checkout');
+    writeTree(root, { ...DELIVERED, '.gitignore': `${RELEASE_IDENTITY_FILE_NAME}\nnode_modules/\nstorage/\n` });
+    initRepo(root);
+    writeTree(root, { 'node_modules/dep/index.js': 'installed by the developer\n', 'storage/uploads/a.pdf': 'runtime data\n' });
+    const ok = runCli(['--root', root]);
+    expect(ok.status, ok.stderr).toBe(0);
+    const identity = readReleaseIdentityFile(root)!;
+    const release = await signedV3(identity.build_identity);
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release }))).toBeNull();
+    fs.writeFileSync(path.join(root, '.git', 'description'), 'changed by a git tool\n');
+    writeTree(root, { 'storage/uploads/b.pdf': 'more runtime data\n' });
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })), 'git state and runtime data are not the delivered code').toBeNull();
+    fs.appendFileSync(path.join(root, 'node_modules', 'dep', 'index.js'), '// patched\n');
+    expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })) ?? NOT_SEEN, 'the developer\'s node_modules is delivered code').toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+    fs.rmSync(path.join(root, RELEASE_IDENTITY_FILE_NAME));
+    writeTree(root, { 'server/untracked.ts': 'not committed\n' });
+    const dirty = runCli(['--root', root]);
+    expect(dirty.status).not.toBe(0);
+    expect(dirty.stderr).toMatch(/REJECT_BUILD_IDENTITY_DIRTY_CHECKOUT/);
+  });
+});
+
 describe('write-build-identity.mjs: the build writes release-identity.json, never from a dirty checkout, never from cwd', () => {
   it('in a clean git checkout: commit and tree from git, everything else measured; the file is canonical and re-runs are byte-identical', () => {
     const root = tmp('clean');
@@ -278,7 +508,8 @@ describe('write-build-identity.mjs: the build writes release-identity.json, neve
       source: { kind: 'git-worktree' },
       composition_manifest: { source: 'measured', file_count: 4 },
       build_args: { names: ['VITE_DEMO_LOGIN'] },
-      source_digest: { roots: [...SOURCE_DIGEST_ROOTS], excluded_dir_names: ['node_modules'] },
+      // ändrad semantik enligt ÄF-U42B-2: the whole delivered root minus the exclusions (.git and the identity file here)
+      source_digest: { scope: 'delivered-root', excluded: ['.git', 'release-identity.json', 'storage'], file_count: Object.keys(DELIVERED).length + 1, symlink_count: 0 },
     });
     expect(bytes1.toString('utf8').endsWith('\n')).toBe(true);
     expect(bytes1.includes(Buffer.from('\r'))).toBe(false);
