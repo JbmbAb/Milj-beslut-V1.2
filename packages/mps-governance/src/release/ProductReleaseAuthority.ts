@@ -27,8 +27,8 @@ type ProductReleaseBuildIdentity = {
  * The V3 build identity. The three V1/V2 hashes are kept (now measured over the DELIVERED files at process start,
  * see server/modules/release/productReleaseBuildIdentity.ts), plus:
  *  - source_commit_sha / source_tree_sha: the git commit and tree the build was made from (40 hex);
- *  - source_digest_sha256: sha256 over the sorted (path, sha256) listing of server/, src/, packages/, prisma/,
- *    components/ and dist/ as delivered (scripts/release/buildIdentityDigest.mjs is the ONE algorithm);
+ *  - source_digest_sha256: sha256 over the sorted listing of the whole delivered root but .git, storage/ and the
+ *    identity file -- node_modules as bytes, links by target (scripts/release/buildIdentityDigest.mjs is the ONE algorithm);
  *  - composition_manifest_sha256: the same listing form over Dockerfile, .dockerignore and deploy/onprem/**;
  *  - build_args_sha256: sha256 over the canonical JSON of the build-time VITE_* variables (baked into dist/).
  * All values are canonical lower-case hex; a release with a malformed or missing value is never created.
