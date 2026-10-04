@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { findStage, parseDockerfile, type ParsedInstruction, type ParsedStage } from '../../packages/mps-pattern-proof/src/docker/dockerfile-parse';
 import { isDockerignored, parseDockerignore } from '../../packages/mps-pattern-proof/src/docker/executors';
+import { DELIVERED_ROOT_EXCLUSIONS } from '../../scripts/release/buildIdentityDigest.mjs';
 
 /**
  * W-U42 (U42a, point 2) -- the build writes the release identity (U40-U50B-SPEC §1.3 step 1, §1.6 "Mätning, inte
@@ -20,7 +21,10 @@ import { isDockerignored, parseDockerignore } from '../../packages/mps-pattern-p
  *    delivers further files after it; components/ is not delivered;
  *  - a stale release-identity.json of a working tree never enters a build context, and the file is never tracked;
  *  - build-image.sh passes the three build args and computes the composition hash with the ONE algorithm
- *    (`write-build-identity.mjs --print composition`) over the commit's own Dockerfile, .dockerignore and deploy/onprem.
+ *    (`write-build-identity.mjs --print composition`) over the commit's own Dockerfile, .dockerignore and deploy/onprem;
+ *  - W-U42C IN-5 (owner decision Ä1, TOCTOU): the delivered runtime is root-owned and not writable by appuser -- no
+ *    `--chown`, no `chown /app`, the identity RUN as root before `USER appuser`, and exactly one writable runtime
+ *    directory (storage/, created empty, excluded from the measurement, never delivered into).
  *
  * The recipe executed as a model (identity written where the Dockerfile writes it, verified against what it delivers)
  * is tests/unit/releaseIdentityDeliveredTreeModel.test.ts; the real build + start in a container is the Docker-bound
@@ -121,6 +125,68 @@ describe('Dockerfile: production-base measures the delivered /app and writes rel
           expect(/(^|\/)components(\/|$)/.test(norm), `${target}: Dockerfile:${copy.line} delivers ${src}`).toBe(false);
           expect(['.', './', '/', '/app', '/app/.', '*', '/app/*'].includes(norm === '' ? '/' : norm), `${target}: Dockerfile:${copy.line} copies a whole tree (${src})`).toBe(false);
         }
+      }
+    }
+  });
+});
+
+/** The one writable runtime directory (W-U42C IN-5) and the exact RUN that creates it. */
+const WRITABLE_DIR = 'storage';
+const WRITABLE_DIR_RUN = `mkdir /app/${WRITABLE_DIR} && chown appuser:appgroup /app/${WRITABLE_DIR}`;
+
+/** Where a COPY/ADD lands, relative to /app ('' = /app itself); null when outside /app. */
+function appDestination(i: ParsedInstruction): string | null {
+  const words = i.args.trim().split(/\s+/);
+  const dest = words[words.length - 1];
+  if (dest.startsWith('/')) {
+    if (dest === '/app' || dest === '/app/') return '';
+    return dest.startsWith('/app/') ? dest.slice('/app/'.length).replace(/\/+$/, '') : null;
+  }
+  return dest === '.' || dest === './' ? '' : dest.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+describe('W-U42C IN-5 (owner decision Ä1): the delivered runtime is root-owned and not writable by appuser (TOCTOU)', () => {
+  const runtime = findStage(PARSED, RUNTIME_STAGE)!;
+  const runtimeInstructions = (target: string) => lineage(target).flatMap((s) => s.instructions);
+
+  it.each(FINAL_TARGETS)('R6 %s: no COPY/ADD into the runtime image sets an owner (no --chown): every delivered path stays root:root', (target) => {
+    const chowned = runtimeInstructions(target).filter((i) => (i.keyword === 'COPY' || i.keyword === 'ADD') && 'chown' in i.flags);
+    expect(chowned.map((i) => `Dockerfile:${i.line} ${i.keyword} ${i.flagsText} ${i.args}`.replace(/\s+/g, ' ')), `${target}: delivered files owned by the process user can be changed after the start-up measurement`).toEqual([]);
+  });
+
+  it.each(FINAL_TARGETS)('R6 %s: the only RUN that changes an owner or a mode creates the one writable runtime directory; /app itself is never chowned', (target) => {
+    const ownership = runtimeInstructions(target).filter((i) => i.keyword === 'RUN' && /\b(chown|chmod|chgrp)\b/.test(i.args));
+    expect(ownership.map((i) => i.args.trim()), `${target}: ownership/mode changes in the runtime lineage`).toEqual([WRITABLE_DIR_RUN]);
+  });
+
+  it('R6: the identity is written as root BEFORE `USER appuser`; after it nothing copies, adds or runs, and no final target switches the user back', () => {
+    const [run] = identityRuns(runtime);
+    expect(run, 'production-base runs the identity script').toBeDefined();
+    const users = runtime.instructions.filter((i) => i.keyword === 'USER');
+    expect(users.map((u) => u.args.trim()), 'production-base switches to the process user exactly once').toEqual(['appuser']);
+    expect(run.line, 'the identity RUN runs as root, before USER appuser').toBeLessThan(users[0].line);
+    const afterUser = runtime.instructions.filter((i) => DELIVERING.has(i.keyword) && i.line > users[0].line);
+    expect(afterUser.map((i) => `Dockerfile:${i.line} ${i.keyword} ${i.args}`)).toEqual([]);
+    for (const target of FINAL_TARGETS) {
+      const finalUsers = lineage(target).filter((s) => s.name !== RUNTIME_STAGE && s.name !== 'base').flatMap((s) => s.instructions).filter((i) => i.keyword === 'USER');
+      expect(finalUsers.map((i) => `Dockerfile:${i.line} USER ${i.args}`), `${target} keeps USER appuser`).toEqual([]);
+    }
+  });
+
+  it('R6: the writable directory is created empty before the measurement, is the measurement\'s storage exclusion, and nothing is delivered into it, into another exclusion or outside /app', () => {
+    const [run] = identityRuns(runtime);
+    const create = runtime.instructions.filter((i) => i.keyword === 'RUN' && i.args.trim() === WRITABLE_DIR_RUN);
+    expect(create.map((i) => i.line), `production-base runs \`${WRITABLE_DIR_RUN}\` once`).toHaveLength(1);
+    expect(create[0].line, 'created before the measurement (nothing in production-base follows the identity RUN)').toBeLessThan(run.line);
+    expect(Object.keys(DELIVERED_ROOT_EXCLUSIONS ?? {}), 'the writable directory is excluded from the measurement').toContain(WRITABLE_DIR);
+    const excluded = new Set(Object.keys(DELIVERED_ROOT_EXCLUSIONS ?? {}));
+    for (const target of FINAL_TARGETS) {
+      const copies = lineage(target).filter((s) => s.name !== 'builder').flatMap((s) => s.instructions).filter((i) => i.keyword === 'COPY' || i.keyword === 'ADD');
+      for (const copy of copies) {
+        const dest = appDestination(copy);
+        expect(dest, `${target}: Dockerfile:${copy.line} delivers outside /app, where nothing is measured`).not.toBeNull();
+        const landing = dest === '' ? copySources(copy).map((src) => path.posix.basename(src)) : [dest!];
+        for (const p of landing) expect(excluded.has(p.split('/')[0]), `${target}: Dockerfile:${copy.line} delivers into the excluded ${p.split('/')[0]}`).toBe(false);
       }
     }
   });

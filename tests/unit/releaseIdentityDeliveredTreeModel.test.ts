@@ -155,7 +155,12 @@ class RecipeModelError extends Error {
   }
 }
 
-type StageState = { tree: Tree; env: Map<string, string> };
+/**
+ * `owners`: the user that owns a path under /app when it is not root ('' = the /app directory itself, a directory
+ * such as 'storage' for an empty directory a RUN created). Absent = root:root, which is what COPY/ADD without
+ * --chown and every RUN as root produce (W-U42C IN-5).
+ */
+type StageState = { tree: Tree; env: Map<string, string>; owners: Map<string, string> };
 type Build = {
   /** the Dockerfile interpreted (the repository's own, or one with an injected instruction) */
   readonly parsed: ParsedDockerfile;
@@ -221,17 +226,24 @@ function copy(build: Build, ins: ParsedInstruction, state: StageState): void {
   const src: Tree = from === undefined ? build.context : buildStage(build, from).tree;
   const dest = appRelative(ins, destRaw, false);
   const destIsDir = destRaw.endsWith('/') || destRaw === '.' || sources.length > 1 || sources.some(hasGlob);
+  // --chown=<user>[:<group>] makes the copied files that user's; without it they are root:root
+  const owner = ins.flags.chown === undefined ? null : ins.flags.chown.split(':')[0];
+  const put = (p: string, bytes: Buffer) => {
+    state.tree.set(p, bytes);
+    if (owner === null || owner === 'root' || owner === '0') state.owners.delete(p);
+    else state.owners.set(p, owner);
+  };
   for (const source of sources) {
     const matches = expand(src, appRelative(ins, source, from !== undefined));
     if (matches.length === 0) throw new RecipeModelError(ins, `source ${source} does not exist${from ? ` in stage ${from}` : ' in the context'} (the build fails)`);
     for (const m of matches) {
       if (m.kind === 'file') {
-        state.tree.set(destIsDir ? join(dest, path.posix.basename(m.rel)) : dest, src.get(m.rel)!);
+        put(destIsDir ? join(dest, path.posix.basename(m.rel)) : dest, src.get(m.rel)!);
         continue;
       }
       for (const [p, bytes] of src) {
         if (m.rel !== '' && !p.startsWith(`${m.rel}/`)) continue;
-        state.tree.set(join(dest, m.rel === '' ? p : p.slice(m.rel.length + 1)), bytes);
+        put(join(dest, m.rel === '' ? p : p.slice(m.rel.length + 1)), bytes);
       }
     }
   }
@@ -242,12 +254,14 @@ function substitute(text: string, env: Map<string, string>): string {
 }
 
 /** The closed table of modelled RUN effects; the identity RUN executes the real CLI instead (see runIdentity). */
-const RUN_EFFECTS: readonly { readonly match: RegExp; readonly apply: (tree: Tree) => void }[] = [
+const RUN_EFFECTS: readonly { readonly match: RegExp; readonly apply: (tree: Tree, owners: Map<string, string>) => void }[] = [
   // the base image's packages and user: nothing under /app
   { match: /^apk update && apk add --no-cache\b/, apply: () => {} },
   { match: /^addgroup -S appgroup && adduser -S appuser -G appgroup$/, apply: () => {} },
-  // owner of /app only (no -R): no bytes change
-  { match: /^chown appuser:appgroup \/app$/, apply: () => {} },
+  // owner of /app only (no -R): no bytes change, but appuser may then create, rename and remove entries in /app
+  { match: /^chown appuser:appgroup \/app$/, apply: (_t, owners) => void owners.set('', 'appuser') },
+  // W-U42C IN-5: the one writable runtime directory, created empty and owned by the process user
+  { match: /^mkdir \/app\/storage && chown appuser:appgroup \/app\/storage$/, apply: (_t, owners) => void owners.set('storage', 'appuser') },
   {
     match: /^npm ci\b/,
     apply: (t) => {
@@ -289,6 +303,7 @@ function runIdentity(build: Build, ins: ParsedInstruction, stage: ParsedStage, s
   const r = runNode(path.join(dir, ...IDENTITY_SCRIPT.split('/')), words.slice(2), dir, Object.fromEntries(state.env));
   if (r.status !== 0) throw new RecipeModelError(ins, `the identity script failed (the build fails): ${r.stderr.trim()}`);
   state.tree.set(RELEASE_IDENTITY_FILE_NAME, fs.readFileSync(path.join(dir, RELEASE_IDENTITY_FILE_NAME)));
+  state.owners.delete(RELEASE_IDENTITY_FILE_NAME); // a RUN runs as root unless a USER came before it (pinned in the recipe test)
   // the script writes exactly one file
   const written = listFiles(dir).filter((rel) => !before.has(rel));
   expect(written, 'the identity RUN writes release-identity.json and nothing else').toEqual([RELEASE_IDENTITY_FILE_NAME]);
@@ -322,7 +337,7 @@ function buildStage(build: Build, ref: string): StageState {
   if (done) return done;
   const parent = stage.from.parentStage ? buildStage(build, stage.from.parentStage) : null;
   // FROM a parent stage: its files and ENV; ARGs never cross a FROM
-  const state: StageState = { tree: new Map(parent?.tree ?? []), env: new Map(parent?.env ?? []) };
+  const state: StageState = { tree: new Map(parent?.tree ?? []), env: new Map(parent?.env ?? []), owners: new Map(parent?.owners ?? []) };
   for (const ins of stage.instructions.slice(1)) {
     switch (ins.keyword) {
       case 'WORKDIR':
@@ -352,7 +367,7 @@ function buildStage(build: Build, ref: string): StageState {
         const text = instructionShellText(ins).trim();
         const effect = RUN_EFFECTS.find((e) => e.match.test(text));
         if (!effect) throw new RecipeModelError(ins, 'RUN not in the model table (add its effect on /app deliberately)');
-        effect.apply(state.tree);
+        effect.apply(state.tree, state.owners);
         break;
       }
       default:
@@ -532,5 +547,18 @@ describe('W-U42C IN-1: every path production-base delivers to /app is measured o
   it('R4: a COPY whose destination lies outside /app fails the model -- it is never silently unmeasured', () => {
     const build = newBuild(withInstructionBeforeMeasurement('COPY --from=builder /app/scripts /opt/scripts'));
     expect(() => buildStage(build, 'web')).toThrow(/outside \/app is not modelled/);
+  });
+});
+
+// ---- W-U42C IN-5: who owns the delivered /app (TOCTOU) ----
+
+describe('W-U42C IN-5 (owner decision Ä1): in the modelled image every delivered path and /app itself are root-owned', () => {
+  it.each(FINAL_TARGETS)('R6 %s: nothing the process user owns but the empty writable storage/ -- not /app, not a delivered file, not release-identity.json', (target) => {
+    const build = newBuild();
+    const state = buildStage(build, target);
+    expect(state.tree.size, 'the model delivers files (the test cannot pass vacuously)').toBeGreaterThan(20);
+    const notRoot = [...state.owners].map(([p, owner]) => `${p === '' ? '/app' : p} ${owner}`).sort();
+    expect(notRoot, `${target}: paths not owned by root`).toEqual(['storage appuser']);
+    expect([...state.tree.keys()].filter((p) => p === 'storage' || p.startsWith('storage/')), 'storage/ holds no delivered file').toEqual([]);
   });
 });
