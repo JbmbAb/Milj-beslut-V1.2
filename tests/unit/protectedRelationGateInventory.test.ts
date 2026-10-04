@@ -2698,22 +2698,26 @@ describe('U30G814 G8-14: a connection env assignment the text does not hold, bef
 //  - S8-node-options-dynamic-off (nodeOptionsRuns without its rule for a NODE_OPTIONS value the source does not hold): the
 //    value is then read as node flags, i.e. as a dynamic node script -- but at the nesting limit of the scan (four bash -c
 //    levels) that second reading runs into the depth limit of commandRuns and finds nothing, while the rule itself still
-//    reports the value.
+//    reports the value. (The innermost line starts with `env`: a bash -c argument that itself begins with NODE_OPTIONS=
+//    is read as an assignment one level up, where the second reading still has depth to spare and catches it.)
 //  - S8-run-value-yarn-bare-off (commandRuns without `yarn <script>`): argvDynamic's runner rule sees `yarn "$TASK"` only
 //    where it follows the runner chain; behind `pnpm exec`, `uv run` or `dotenv -e .env --` it stops at the first word,
 //    and only commandRuns' yarn rule reports the script name the source does not hold.
 // ---------------------------------------------------------------------------------------------
 describe('U30G814 step 7: the two older U30F8 EQUIVALENT claims are closed by canaries (inputs the other rule misses)', () => {
-  /** NODE_OPTIONS="$OPTS" node --version, four bash -c levels deep (each level quoted for the one around it; node runs no file, so there is no launch to resolve). */
-  const NESTED4_NODE_OPTIONS = String.raw`bash -c "bash -c \"bash -c \\\"bash -c 'NODE_OPTIONS=\\\\\\\$OPTS node --version'\\\"\""`;
-  it('the nested NODE_OPTIONS line really is four bash -c levels around NODE_OPTIONS=<value> node --version', () => {
+  /** `bash -c "<text>"`, the text escaped for the double quotes (one nesting level). */
+  const bashC = (text: string): string => `bash -c "${text.replace(/[\\"$`]/g, (m) => `\\${m}`)}"`;
+  const nest4 = (text: string): string => bashC(bashC(bashC(bashC(text))));
+  /** env NODE_OPTIONS=$OPTS node --version, four bash -c levels deep (node runs no file, so there is no launch to resolve). */
+  const NESTED4_NODE_OPTIONS = nest4('env NODE_OPTIONS=$OPTS node --version');
+  it('the nested NODE_OPTIONS line really is four bash -c levels around env NODE_OPTIONS=<value> node --version', () => {
     let text = NESTED4_NODE_OPTIONS;
     for (let level = 0; level < 4; level += 1) {
       const argv = splitCommandLine(text).flat()[0]!.argv;
       expect(argv.slice(0, 2), `level ${level}`).toEqual(['bash', '-c']);
       text = argv[2]!;
     }
-    expect(splitCommandLine(text).flat()[0]!.argv).toEqual(['NODE_OPTIONS=⟦DYN:OPTS⟧', 'node', '--version']);
+    expect(splitCommandLine(text).flat()[0]!.argv).toEqual(['env', 'NODE_OPTIONS=⟦DYN:OPTS⟧', 'node', '--version']);
   });
   it.each([
     ['S8-node-options-dynamic-off: NODE_OPTIONS from a value, four bash -c levels deep [sh]', { 'scripts/u9/g814s7-node1.sh': sh9(NESTED4_NODE_OPTIONS) }],
@@ -2725,7 +2729,7 @@ describe('U30G814 step 7: the two older U30F8 EQUIVALENT claims are closed by ca
     expect(problemsOfChange(files).length, `MISSED: ${_id}`).toBeGreaterThan(0);
   });
   it.each([
-    ['NODE_OPTIONS with static options, four bash -c levels deep', { 'scripts/u9/g814s7-c1.sh': sh9(String.raw`bash -c "bash -c \"bash -c \\\"bash -c 'NODE_OPTIONS=--max-old-space-size=4096 node --version'\\\"\""`) }],
+    ['NODE_OPTIONS with static options, four bash -c levels deep', { 'scripts/u9/g814s7-c1.sh': sh9(nest4('env NODE_OPTIONS=--max-old-space-size=4096 node --version')) }],
     ['pnpm exec yarn build (a static script name)', { 'scripts/u9/g814s7-c2.sh': sh9('pnpm exec yarn build') }],
   ])('control: %s passes', (_id, files) => {
     expect(problemsOfChange(files)).toEqual([]);
