@@ -120,9 +120,12 @@ export function readReleaseIdentityFile(root: string): ReleaseIdentityFile | nul
 
 /** What a process can measure at start: the source digest and the three legacy hashes over its delivered root. */
 export function measureDeliveredBuildIdentity(root: string): MeasuredBuildIdentity {
-  const source = measureSourceDigest(root);
+  let source: ReturnType<typeof measureSourceDigest>;
   let legacy: ReturnType<typeof measureLegacyIdentityHashes>;
   try {
+    // W-U42C: an entry the measurement refuses (a link out of the root, a FIFO/socket/device) is a deviation of the
+    // delivered files like a missing V1/V2 file -- the same refusal, never a measurement around it
+    source = measureSourceDigest(root);
     legacy = measureLegacyIdentityHashes(root);
   } catch (error) {
     throw new ProductReleaseBuildMismatchError([error instanceof Error ? error.message : String(error)]);
