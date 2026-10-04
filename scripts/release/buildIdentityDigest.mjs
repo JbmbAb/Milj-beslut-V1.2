@@ -130,7 +130,7 @@ function visit(ctx, abs, rel, kind, out) {
 
 /**
  * Every regular file and every symbolic link under the given posix-relative roots (a root may be a file, a link or a
- * directory; an absent root lists nothing), as posix-relative paths sorted in byte order. Links are listed, not
+ * directory), as posix-relative paths sorted in byte order. Links are listed, not
  * followed; node_modules is listed like any other directory.
  * @param {string} root @param {readonly string[]} relRoots @returns {string[]}
  */
@@ -140,12 +140,7 @@ export function listDeliveredFiles(root, relRoots) {
   const out = [];
   for (const rel of relRoots) {
     const abs = absolute(root, rel);
-    let stat;
-    try {
-      stat = fs.lstatSync(abs);
-    } catch {
-      continue;
-    }
+    const stat = fs.lstatSync(abs);
     visit(ctx, abs, rel, stat, out);
   }
   out.sort(compareBytes);
@@ -189,8 +184,9 @@ function exists(abs) {
   try {
     fs.lstatSync(abs);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return false;
+    throw error;
   }
 }
 

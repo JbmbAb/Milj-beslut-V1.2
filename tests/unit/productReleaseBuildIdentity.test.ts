@@ -379,6 +379,25 @@ describe('W-U42C: the identity covers the delivered executable surface, the meas
     }
   });
 
+  it('does not turn a composition-path lstat failure into an absent manifest', () => {
+    const root = tmp('composition-lstat-failure');
+    writeTree(root, DELIVERED);
+    const unreadable = path.join(root, 'Dockerfile');
+    const lstat = fs.lstatSync.bind(fs);
+    const spy = vi.spyOn(fs, 'lstatSync').mockImplementation((...args) => {
+      if (args[0] === unreadable) {
+        throw Object.assign(new Error('injected composition lstat failure'), { code: 'EACCES' });
+      }
+      return lstat(...args);
+    });
+
+    try {
+      expect(() => measureCompositionManifest(root)).toThrow('injected composition lstat failure');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it.each([
     'services/propertyService.ts',
     'scripts/ops/luPropertyCoordinateOrder.ts',
