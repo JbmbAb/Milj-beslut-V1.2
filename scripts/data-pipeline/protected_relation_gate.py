@@ -2103,9 +2103,8 @@ def _env_assignment_at(argv, i, spec):
     end = t.find(c)
     if end < 0:
         return None
+    # (any name: a segment of assignments only is a statement whatever else it assigns -- round 2, fail-closed)
     name = t[len(o) + 1:end]
-    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
-        return None
     after = t[end + len(c):]
     if after.startswith('='):
         value = after[1:]

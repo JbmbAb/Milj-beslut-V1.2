@@ -1746,8 +1746,8 @@ function PrgEnvAssignmentAt([string[]]$argv, [int]$i) {
     if (-not $t.StartsWith("$($spec.Open):", [StringComparison]::Ordinal)) { return $null }
     $end = PrgIndexOf $t $spec.Close 0
     if ($end -lt 0) { return $null }
+    # (any name: a segment of assignments only is a statement whatever else it assigns -- round 2, fail-closed)
     $name = PrgSlice $t ($spec.Open.Length + 1) $end
-    if (-not ($name -cmatch '^[A-Za-z_][A-Za-z0-9_]*\z')) { return $null }
     $after = $t.Substring($end + $spec.Close.Length)
     if ($after.StartsWith('=', [StringComparison]::Ordinal)) {
         $value = $after.Substring(1)

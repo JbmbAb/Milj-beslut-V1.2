@@ -1845,8 +1845,8 @@ function envAssignmentAt(argv: readonly string[], i: number): { name: string; va
   if (!t.startsWith(`${spec.dynamic_placeholder_open}:`)) return null;
   const end = t.indexOf(spec.dynamic_placeholder_close);
   if (end < 0) return null;
+  // (any name: a segment of assignments only is a statement whatever else it assigns -- round 2, fail-closed)
   const name = t.slice(spec.dynamic_placeholder_open.length + 1, end);
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return null;
   const after = t.slice(end + spec.dynamic_placeholder_close.length);
   if (after.startsWith("=")) {
     const value = after.slice(1);
