@@ -59,30 +59,38 @@ ENV NODE_ENV=production \
 # till ../../packages/*, så packages/ måste följa med, och tsconfig.json bär
 # de tsconfig-paths som tsx löser @miljobeslut-importer med. server/ importerar
 # också services/, scripts/ och rotens *.ts (db.server.ts, constants.ts, types.ts).
-# --chown i stället för chown -R: en rekursiv chown kopierar hela node_modules
-# till ett nytt lager.
-RUN chown appuser:appgroup /app
+# Allt levereras root:root (ingen --chown) och /app chownas inte (W-U42C IN-5,
+# ägarbeslut Ä1): processanvändaren appuser kan läsa den levererade runtimen men
+# inte ändra, skapa, döpa om eller ta bort något i den efter startmätningen.
 # package-lock.json tas från byggkontexten (git archive <SHA>: commitens bytes),
 # inte från byggsteget: npm prune --omit=dev skriver om låsfilen (omit-beroenden
 # skrivs tillbaka med andra flaggor), och release-identiteten
 # (ProductReleaseAuthority v3: package.json, package-lock.json, server/index.ts
 # och source_digest) mäts över filerna i imagen vid varje processstart.
 # package.json och tsconfig.json rörs inte av bygget.
-COPY --chown=appuser:appgroup package-lock.json ./
-COPY --from=builder --chown=appuser:appgroup /app/package.json /app/tsconfig.json ./
-COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
-COPY --from=builder --chown=appuser:appgroup /app/packages ./packages
-COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
-COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
-COPY --from=builder --chown=appuser:appgroup /app/server ./server
-COPY --from=builder --chown=appuser:appgroup /app/src ./src
-COPY --from=builder --chown=appuser:appgroup /app/services ./services
-COPY --from=builder --chown=appuser:appgroup /app/scripts ./scripts
-COPY --from=builder --chown=appuser:appgroup /app/app ./app
-COPY --from=builder --chown=appuser:appgroup /app/config ./config
-COPY --from=builder --chown=appuser:appgroup /app/types ./types
-COPY --from=builder --chown=appuser:appgroup /app/stubs ./stubs
-COPY --from=builder --chown=appuser:appgroup /app/*.ts ./
+COPY package-lock.json ./
+COPY --from=builder /app/package.json /app/tsconfig.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/services ./services
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/app ./app
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/types ./types
+COPY --from=builder /app/stubs ./stubs
+COPY --from=builder /app/*.ts ./
+
+# Den enda skrivbara katalogen (W-U42C IN-5): webbprocessen skriver uppladdningar,
+# utkast, temp- och ingest-filer under storage/ i sin arbetskatalog
+# (documentUploadService, documentGenerator, sewage.routes, gis.routes,
+# importPathService). Den skapas tom och ägs av appuser; den är data, inte kod,
+# mäts därför inte (DELIVERED_ROOT_EXCLUSIONS i scripts/release/buildIdentityDigest.mjs)
+# och ingen COPY levererar dit.
+RUN mkdir /app/storage && chown appuser:appgroup /app/storage
 
 # Releaseidentiteten (product-release-v3) MÄTS här, efter sista COPY, över
 # exakt den /app imagen levererar (server/, src/, packages/, prisma/, dist/ och
