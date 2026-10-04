@@ -426,14 +426,27 @@ describe('W-U42C: the identity covers the delivered executable surface, the meas
     expect(refusalOf(() => assertProductReleaseBuildIdentity({ root, release })) ?? NOT_SEEN, 'a removed link is a deviation too').toContain(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
   });
 
-  it('R3b (IN-4): a link that points out of the delivered root is refused -- by the build (no identity written) and at start', (ctx: TestContext) => {
+  it('R3b (IN-4): a link that points out of the delivered root is refused -- by the build (no identity written) and at start', async (ctx: TestContext) => {
     const outside = tmp('r3b-outside');
     writeTree(outside, { 'evil/index.js': 'outside the measurement\n' });
     const root = tmp('r3b');
     writeTree(root, DELIVERED_U42C);
+    const identity = writeIdentityViaCli(root);
+    const release = await signedV3(identity.build_identity);
     const kind = makeLink(root, 'node_modules/escape', path.relative(path.join(root, 'node_modules'), path.join(outside, 'evil')).split(path.sep).join('/'));
     if (!kind) ctx.skip(NO_LINKS_ON_HOST);
     expect(refusalOf(() => measureSourceDigest(root)) ?? NOT_SEEN).toMatch(/REJECT_BUILD_IDENTITY_LINK_OUTSIDE_ROOT[\s\S]*node_modules\/escape/);
+    // added after the build: the start-up check refuses with the same code as any other deviation of the delivered files
+    let thrown: unknown = null;
+    try {
+      assertProductReleaseBuildIdentity({ root, release });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown, `${kind} added after the build`).toBeInstanceOf(ProductReleaseBuildMismatchError);
+    expect((thrown as ProductReleaseBuildMismatchError).code).toBe(REJECT_PRODUCT_RELEASE_BUILD_MISMATCH);
+    expect((thrown as Error).message).toMatch(/REJECT_BUILD_IDENTITY_LINK_OUTSIDE_ROOT/);
+    fs.rmSync(path.join(root, RELEASE_IDENTITY_FILE_NAME));
     const r = runCli(['--root', root, '--source-commit', 'a'.repeat(40), '--source-tree', 'b'.repeat(40)]);
     expect(r.status, `${kind}: the build refuses`).not.toBe(0);
     expect(r.stderr).toMatch(/REJECT_BUILD_IDENTITY_LINK_OUTSIDE_ROOT/);
