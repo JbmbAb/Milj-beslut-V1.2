@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeEach, describe, expect, it, type TestContext } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, type TestContext, vi } from 'vitest';
 import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import { assertBootstrapAdmitFlagOnlyInExplicitTestProcess } from '@miljobeslut/mps-lu';
@@ -360,6 +360,25 @@ function c7cfd936SourceDigest(root: string): string {
 }
 
 describe('W-U42C: the identity covers the delivered executable surface, the measuring code and the dependencies', () => {
+  it('fails closed when lstat cannot measure an enumerated delivered entry', () => {
+    const root = tmp('lstat-failure');
+    writeTree(root, { 'server/unreadable.ts': 'must be measured\n', 'src/included.ts': 'measured\n' });
+    const unreadable = path.join(root, 'server');
+    const lstat = fs.lstatSync.bind(fs);
+    const spy = vi.spyOn(fs, 'lstatSync').mockImplementation((...args) => {
+      if (args[0] === unreadable) {
+        throw Object.assign(new Error('injected lstat failure'), { code: 'EACCES' });
+      }
+      return lstat(...args);
+    });
+
+    try {
+      expect(() => measureSourceDigest(root)).toThrow('injected lstat failure');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it.each([
     'services/propertyService.ts',
     'scripts/ops/luPropertyCoordinateOrder.ts',
