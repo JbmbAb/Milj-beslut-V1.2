@@ -14,6 +14,7 @@ import {
   createLocalEmbeddingProviderFromEnv,
   type LocalEmbeddingRuntimeReport,
   type LocalEmbeddingTransport,
+  type LocalEmbeddingTransportConfig,
   type LocalEmbeddingWireRequest,
 } from "../../server/modules/legal/retrieval/LocalEmbeddingProvider";
 
@@ -279,7 +280,7 @@ describe("createLocalEmbeddingProviderFromEnv -- explicit configuration only, no
   });
 
   it("builds the provider without starting the runtime (the worker starts lazily on first use)", () => {
-    const createTransport = vi.fn(() => ({ embed: vi.fn() }));
+    const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
     const p = createLocalEmbeddingProviderFromEnv(FULL, { createTransport });
     expect(p.pipeline_version).toBe("local-st-bge-m3-dense-v1");
     expect(createTransport).toHaveBeenCalledTimes(1);
