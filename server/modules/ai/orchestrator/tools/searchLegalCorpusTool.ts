@@ -1,4 +1,3 @@
-import { FunctionDeclaration, Type } from '@google/genai';
 import crypto from 'node:crypto';
 import { embedText } from '../../../../services/searchService';
 import {
@@ -62,25 +61,6 @@ export function shouldSkipReranker(sortedRrfScores: number[], relativeGapSkip: n
   if (!(s1 > 0)) return false;
   return (s1 - s2) / s1 >= relativeGapSkip;
 }
-
-export const searchLegalCorpusDeclaration: FunctionDeclaration = {
-  name: 'searchLegalCorpus',
-  description: 'Söker efter relevanta miljödomar, prejudikat och kunskapsartiklar i Legal Corpus. Använd detta för att ta reda på svensk miljöjuridik, praxis och tillsynsmetodik.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      query: {
-        type: Type.STRING,
-        description: 'Söksträngen eller nyckelorden (t.ex. "strandskydd dispens", "förorenad mark ansvar").'
-      },
-      legalArea: {
-        type: Type.STRING,
-        description: 'Frivillig. Filtrera på specifikt rättsområde eller kategori om känt.'
-      }
-    },
-    required: ['query'],
-  },
-};
 
 type ChunkCandidate = {
   chunkId: string;

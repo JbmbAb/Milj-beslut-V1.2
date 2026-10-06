@@ -11,7 +11,6 @@
  */
 
 import { loadEnvFile } from '../../server/loadEnv';
-import { vertexConfigStatus } from '../../server/services/vertexAiService';
 
 type Status = 'CONFIGURED' | 'DEGRADED' | 'MISSING';
 
@@ -172,20 +171,11 @@ async function runChecks(): Promise<IntegrationCheck[]> {
     });
   }
 
-  // Vertex AI (enda AI-leverantör)
-  {
-    const status = vertexConfigStatus();
-    const authNote = status.hasExplicitServiceAccountFile
-      ? 'service account via env'
-      : 'Vertex is retired and is not part of local readiness';
-    checks.push({
-      name: 'vertex_ai',
-      status: status.configured ? 'CONFIGURED' : 'MISSING',
-      detail: status.configured
-        ? `projekt=${status.projectId} location=${status.location} (${authNote})`
-        : `saknar: ${status.missing.join(', ')}`,
-    });
-  }
+  checks.push({
+    name: 'vertex_ai',
+    status: 'MISSING',
+    detail: 'Vertex is retired and is not part of local readiness',
+  });
 
   return checks;
 }

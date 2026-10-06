@@ -251,9 +251,9 @@ describe('getExternalHealthReport', () => {
       responseCode: 401,
     });
     expect(checksByKey.get('vertex_ai')).toMatchObject({
-      status: 'healthy',
+      status: 'not_configured',
       mode: 'config',
-      configured: true,
+      configured: false,
     });
     expect(checksByKey.get('viss')).toMatchObject({
       status: 'healthy',

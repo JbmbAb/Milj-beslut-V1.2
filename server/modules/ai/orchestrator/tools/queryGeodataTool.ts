@@ -1,4 +1,3 @@
-import { FunctionDeclaration, Type } from '@google/genai';
 import { prisma } from '../../../../db/prisma';
 import { logger } from '../../../../logger';
 import { queryNmdRasterPoint } from '../../../gis/nmdRasterService';
@@ -202,29 +201,6 @@ async function queryLayer(
     return tx.$queryRawUnsafe<GeodataRow[]>(sql, longitude, latitude, radiusMeters);
   });
 }
-
-export const queryGeodataDeclaration: FunctionDeclaration = {
-  name: 'queryGeodata',
-  description: 'Används för att ta reda på vad som finns på en specifik plats (koordinater). Söker i PostGIS efter geotekniska förutsättningar, jordarter, skyddade områden och annat miljöpåverkande underlag i radien.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      latitude: {
-        type: Type.NUMBER,
-        description: 'Breddgrad (WGS84 Latitud, t.ex. 59.3293)'
-      },
-      longitude: {
-        type: Type.NUMBER,
-        description: 'Längdgrad (WGS84 Longitud, t.ex. 18.0686)'
-      },
-      radiusMeters: {
-        type: Type.NUMBER,
-        description: 'Sökradie i meter. Standard är 100. Max är 5000.'
-      }
-    },
-    required: ['latitude', 'longitude'],
-  },
-};
 
 export async function queryGeodataHandler(args: QueryGeodataArgs) {
   const { latitude, longitude } = args;

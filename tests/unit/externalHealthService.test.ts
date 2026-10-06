@@ -127,7 +127,8 @@ describe('externalHealthService unit tests', () => {
 
       const report = await getExternalHealthReport();
       const vertex = report.checks.find((c) => c.key === 'vertex_ai');
-      expect(vertex?.status).toBe('healthy');
+      expect(vertex?.status).toBe('not_configured');
+      expect(vertex?.configured).toBe(false);
     });
 
     it('reports not_configured when VERTEX_PROJECT_ID is missing', async () => {
@@ -316,7 +317,7 @@ describe('externalHealthService unit tests', () => {
 
       const report = await getExternalHealthReport();
 
-      expect(report.checks.find((c) => c.key === 'vertex_ai')?.status).toBe('healthy');
+      expect(report.checks.find((c) => c.key === 'vertex_ai')?.status).toBe('not_configured');
       expect(report.checks.find((c) => c.key === 'viss')?.status).toBe('not_configured');
       expect(report.checks.find((c) => c.key === 'lantmateriet_licensed')?.status).toBe('degraded');
       expect(report.checks.find((c) => c.key === 'lantmateriet_open_map')?.status).toBe('error');

@@ -5,8 +5,6 @@ import { getLantmaterietOpenMapStatus } from './lantmaterietService';
 import { fetchImmediateOpenSources } from './openDataSourceService';
 import { getSluProductStatus, pingSluProduct } from './sluService';
 import { getDispatchProviderRuntimeStatus } from './transportDispatchService';
-import { vertexConfigStatus } from './vertexAiService';
-
 type HealthStatus = ExternalHealthCheck['status'];
 type HealthMode = ExternalHealthCheck['mode'];
 
@@ -185,38 +183,17 @@ function mapOpenProbeToCheck(
   });
 }
 
-/**
- * Produkten använder Vertex AI (samma fakturering/IAM) — ingen separat
- * "Gemini API key" / OpenAI-hälsokontroll längre.
- */
+/** Vertex is retired and is not a local readiness requirement. */
 async function probeVertexAi(): Promise<ExternalHealthCheck> {
-  const st = vertexConfigStatus();
-  if (!st.configured) {
-    return buildCheck({
-      key: 'vertex_ai',
-      label: 'Vertex AI (generativ AI)',
-      category: 'AI',
-      status: 'not_configured',
-      mode: 'config',
-      configured: false,
-      detail: `Vertex is retired and is not required for local readiness. Missing config was: ${st.missing.join(', ') || 'none'}.`,
-      endpoint: 'https://cloud.google.com/vertex-ai',
-      activation: 'OPTIONAL',
-    });
-  }
   return buildCheck({
     key: 'vertex_ai',
-    label: 'Vertex AI (generativ AI)',
+    label: 'Vertex AI (retired)',
     category: 'AI',
-    status: st.hasExplicitServiceAccountFile || st.projectId ? 'healthy' : 'degraded',
+    status: 'not_configured',
     mode: 'config',
-    configured: true,
-    detail: `Projekt ${st.projectId}, region ${st.location}${
-      st.hasExplicitServiceAccountFile
-        ? ', explicit service account.'
-        : ' (använder ADC / workload identity – ok för Cloud Run).'
-    }`,
-    endpoint: `https://console.cloud.google.com/vertex-ai?project=${encodeURIComponent(String(st.projectId))}`,
+    configured: false,
+    detail: 'Vertex is retired and is not required for local readiness.',
+    endpoint: null,
     activation: 'OPTIONAL',
   });
 }
