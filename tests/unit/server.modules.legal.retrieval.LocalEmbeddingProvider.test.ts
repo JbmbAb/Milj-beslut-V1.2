@@ -6,20 +6,35 @@
  * It fails closed on every defect (no mock vector, no fallback provider, no padding/truncation to
  * reach a dimension) and it refuses to run unless the runtime proves it is exactly the pinned model.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Production admission is a frozen EMPTY list until a frozen evaluation selects exactly one model (owner decision,
+// A16). The tests that need an admitted key control it through this one seam; the real module is asserted separately.
+const admission = vi.hoisted(() => ({ keys: [] as string[] }));
+vi.mock("../../server/modules/legal/retrieval/LocalEmbeddingAdmission", () => ({
+  productionAdmittedLocalEmbeddingKeys: () => admission.keys,
+}));
+
 import { getLocalEmbeddingPipelineByKey } from "@miljobeslut/mps-embedding-identity";
 import { EmbeddingProviderError } from "../../server/modules/legal/retrieval/EmbeddingProvider";
 import {
   createLocalEmbeddingProvider,
+  createLocalEmbeddingProviderForEvaluationFromEnv,
   createLocalEmbeddingProviderFromEnv,
   type LocalEmbeddingRuntimeReport,
   type LocalEmbeddingTransport,
   type LocalEmbeddingTransportConfig,
   type LocalEmbeddingWireRequest,
 } from "../../server/modules/legal/retrieval/LocalEmbeddingProvider";
+import { isIssuedLocalEmbedding } from "../../server/modules/legal/retrieval/LocalEmbeddingProvenance";
 
 const BGE = getLocalEmbeddingPipelineByKey("bge-m3")!;
 const E5 = getLocalEmbeddingPipelineByKey("multilingual-e5-large")!;
+const INTERPRETER = "D:/runtime/venv/Scripts/python.exe";
+
+beforeEach(() => {
+  admission.keys = [];
+});
 
 /** A unit vector of the given dimension (L2 norm exactly 1 up to float rounding). */
 function unit(dim: number, hot = 0): number[] {
@@ -30,6 +45,7 @@ function unit(dim: number, hot = 0): number[] {
 
 function runtimeFor(spec: typeof BGE, overrides: Partial<LocalEmbeddingRuntimeReport> = {}): LocalEmbeddingRuntimeReport {
   return {
+    model_key: spec.key,
     hf_repo: spec.hf_repo,
     hf_revision: spec.hf_revision,
     pipeline_version: spec.pipeline_version,
@@ -39,6 +55,9 @@ function runtimeFor(spec: typeof BGE, overrides: Partial<LocalEmbeddingRuntimeRe
     dtype: "float16",
     max_seq_length: spec.max_seq_length ?? 8192,
     truncated_count: 0,
+    snapshot_revision: spec.hf_revision,
+    snapshot_manifest_sha256: spec.snapshot_manifest_sha256,
+    interpreter_realpath: INTERPRETER,
     library_versions: { torch: "2.6.0+cu124", sentence_transformers: "6.1.0", transformers: "5.17.0" },
     ...overrides,
   };

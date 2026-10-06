@@ -7,7 +7,7 @@
  * failure becomes a rejection -- never a vector.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,9 +23,12 @@ const mode = process.argv[2] ?? 'ok';
 const dump = process.argv[3];
 if (dump) fs.writeFileSync(dump, JSON.stringify({ pid: process.pid, env: process.env, args: process.argv.slice(2) }));
 const runtime = (extra = {}) => ({
+  model_key: 'bge-m3',
   hf_repo: 'BAAI/bge-m3', hf_revision: '5617a9f61b028005a4858fdac845db406aefb181',
   pipeline_version: 'local-st-bge-m3-dense-v1', dimension: 1024, normalization: 'l2',
   device: 'cuda:0', dtype: 'float16', max_seq_length: 8192, truncated_count: 0,
+  snapshot_revision: '5617a9f61b028005a4858fdac845db406aefb181', snapshot_manifest_sha256: 'f'.repeat(64),
+  interpreter_realpath: process.execPath,
   library_versions: { torch: 'fake' }, ...extra,
 });
 const unit = (i) => { const v = new Array(1024).fill(0); v[i % 1024] = 1; return v; };
@@ -37,6 +40,11 @@ rl.on('line', (line) => {
   if (mode === 'exit-on-request') process.exit(7);
   if (mode === 'hang') return;
   if (mode === 'garbage') { console.log('this is not json'); return; }
+  if (mode === 'null') { console.log('null'); return; }
+  if (mode === 'array') { console.log('[1, 2, 3]'); return; }
+  if (mode === 'number') { console.log('42'); return; }
+  if (mode === 'result-without-runtime') { console.log(JSON.stringify({ id: req.id, type: 'result', vectors: req.texts.map((_t, i) => unit(i)) })); return; }
+  if (mode === 'result-without-vectors') { console.log(JSON.stringify({ id: req.id, type: 'result', runtime: runtime() })); return; }
   if (mode === 'error') { console.log(JSON.stringify({ id: req.id, type: 'error', message: 'boom: model not found' })); return; }
   if (mode === 'wrong-id') { console.log(JSON.stringify({ id: req.id + 100, type: 'result', runtime: runtime(), vectors: req.texts.map((_t, i) => unit(i)) })); return; }
   console.log(JSON.stringify({ id: req.id, type: 'result', runtime: runtime(), vectors: req.texts.map((_t, i) => unit(i)), echo: { role: req.role, max_seq_length: req.max_seq_length } }));
@@ -57,7 +65,17 @@ function workerFile(): string {
 
 const INTERPRETER_DIR = path.join(os.tmpdir(), "mimer-fake-python-dir");
 
-function makeTransport(mode: string, opts: { dump?: string; timeoutMs?: number; startupTimeoutMs?: number } = {}) {
+interface SpawnLog {
+  /** Every child this transport started, in order. */
+  readonly children: ChildProcess[];
+  /** How many earlier children were still running at the moment each new one was started. */
+  readonly aliveAtSpawn: number[];
+}
+
+function makeTransport(
+  mode: string,
+  opts: { dump?: string; timeoutMs?: number; startupTimeoutMs?: number; restartBudget?: number; log?: SpawnLog } = {},
+) {
   const file = workerFile();
   const t = createLocalEmbeddingWorkerTransport({
     interpreterDir: INTERPRETER_DIR,
@@ -65,12 +83,21 @@ function makeTransport(mode: string, opts: { dump?: string; timeoutMs?: number; 
     device: "cuda",
     timeoutMs: opts.timeoutMs ?? 5000,
     startupTimeoutMs: opts.startupTimeoutMs ?? 5000,
+    ...(opts.restartBudget === undefined ? {} : { restartBudget: opts.restartBudget }),
     // The injected starter gets the exact environment the transport built for the child.
-    spawnWorker: (env) =>
-      spawn(process.execPath, [file, mode, ...(opts.dump ? [opts.dump] : [])], { env: { ...env }, stdio: ["pipe", "pipe", "pipe"] }),
+    spawnWorker: (env) => {
+      opts.log?.aliveAtSpawn.push(opts.log.children.filter((c) => c.exitCode === null && c.signalCode === null).length);
+      const child = spawn(process.execPath, [file, mode, ...(opts.dump ? [opts.dump] : [])], { env: { ...env }, stdio: ["pipe", "pipe", "pipe"] });
+      opts.log?.children.push(child);
+      return child;
+    },
   });
   transports.push(t);
   return t;
+}
+
+function newLog(): SpawnLog {
+  return { children: [], aliveAtSpawn: [] };
 }
 
 function alive(pid: number): boolean {
@@ -181,20 +208,34 @@ describe("LocalEmbeddingWorkerTransport", () => {
     expect(childEnv.HF_HOME).toBe(path.join(os.tmpdir(), "mimer-fake-hf-home"));
   });
 
-  it("hands the worker its pinned settings through the environment, with the interpreter directory first on PATH", async () => {
+  // Repair round A4/A5: Node sends a CLOSED model key. The worker owns the mapping key -> repo/revision/pipeline,
+  // so a caller can never assert provenance by environment and have it echoed back.
+  it("hands the worker a closed model KEY only -- never a repo, a revision or a pipeline to echo back", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mimer-fake-embed-dump-"));
     created.push(dir);
     const dump = path.join(dir, "dump.json");
     const t = makeTransport("ok", { dump });
     await t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null });
     const childEnv = JSON.parse(fs.readFileSync(dump, "utf8")).env as Record<string, string>;
-    expect(childEnv.MIMER_EMBED_REPO).toBe(BGE.hf_repo);
-    expect(childEnv.MIMER_EMBED_REVISION).toBe(BGE.hf_revision);
-    expect(childEnv.MIMER_EMBED_PIPELINE).toBe(BGE.pipeline_version);
-    expect(childEnv.MIMER_EMBED_DIMENSION).toBe("1024");
+    expect(childEnv.MIMER_EMBED_MODEL_KEY).toBe("bge-m3");
     expect(childEnv.MIMER_EMBED_DEVICE).toBe("cuda");
-    const pathKey = Object.keys(childEnv).find((k) => k.toUpperCase() === "PATH")!;
-    expect(childEnv[pathKey]!.split(path.delimiter)[0]).toBe(INTERPRETER_DIR);
+    for (const forbidden of ["MIMER_EMBED_REPO", "MIMER_EMBED_REVISION", "MIMER_EMBED_PIPELINE", "MIMER_EMBED_DIMENSION"]) {
+      expect(Object.keys(childEnv), forbidden).not.toContain(forbidden);
+    }
+    expect(JSON.stringify(childEnv)).not.toContain(BGE.hf_revision);
+  });
+
+  // Repair round A6: the configured interpreter is the ONLY place `python` can resolve from.
+  it("puts the configured interpreter directory alone on the child's PATH: the parent's PATH is not inherited", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mimer-fake-embed-dump-"));
+    created.push(dir);
+    const dump = path.join(dir, "dump.json");
+    const t = makeTransport("ok", { dump });
+    await t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null });
+    const childEnv = JSON.parse(fs.readFileSync(dump, "utf8")).env as Record<string, string>;
+    const pathKeys = Object.keys(childEnv).filter((k) => k.toUpperCase() === "PATH");
+    expect(pathKeys).toHaveLength(1);
+    expect(childEnv[pathKeys[0]!]).toBe(INTERPRETER_DIR);
   });
 
   it("refuses to serve a second model: one transport is bound to the model it started with", async () => {
@@ -216,4 +257,96 @@ describe("LocalEmbeddingWorkerTransport", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(alive(pid)).toBe(false);
   });
+});
+
+const REQ = { role: "query", texts: ["a"], max_seq_length: null } as const;
+
+// Repair round A1 -- a bounded worker lifecycle: one worker, never one per request, a defined shutdown, and a
+// crash that fails closed and never leaves two workers (or a mock, or a cloud call) in its place.
+describe("LocalEmbeddingWorkerTransport -- bounded lifecycle", () => {
+  it("serves 20 sequential requests with exactly one worker (no worker per request)", async () => {
+    const log = newLog();
+    const t = makeTransport("ok", { log });
+    for (let i = 0; i < 20; i++) await t.embed(BGE, REQ);
+    expect(log.children).toHaveLength(1);
+  });
+
+  it("serves 12 concurrent requests with exactly one worker and answers each its own batch", async () => {
+    const log = newLog();
+    const t = makeTransport("ok", { log });
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_v, i) => t.embed(BGE, { role: "passage", texts: Array.from({ length: i + 1 }, () => "x"), max_seq_length: null })),
+    );
+    results.forEach((r, i) => expect(r.vectors).toHaveLength(i + 1));
+    expect(log.children).toHaveLength(1);
+  });
+
+  it("shutdown: close() ends the worker, is idempotent, and a request after shutdown is refused without starting anything", async () => {
+    const log = newLog();
+    const t = makeTransport("ok", { log });
+    await t.embed(BGE, REQ);
+    await t.close?.();
+    await t.close?.();
+    expect(log.children[0]!.exitCode !== null || log.children[0]!.signalCode !== null).toBe(true);
+    await expect(t.embed(BGE, REQ)).rejects.toThrow(/closed|shut ?down/i);
+    expect(log.children).toHaveLength(1);
+  });
+
+  it("a crash fails closed: the request rejects, and the replacement starts only after the crashed worker is gone", async () => {
+    const log = newLog();
+    const t = makeTransport("exit-on-request", { log });
+    await expect(t.embed(BGE, REQ)).rejects.toThrow();
+    await expect(t.embed(BGE, REQ)).rejects.toThrow();
+    expect(log.children).toHaveLength(2);
+    expect(log.aliveAtSpawn).toEqual([0, 0]);
+  });
+
+  it("a worker that keeps failing is latched after the restart budget: no further worker is ever started in this process", async () => {
+    const log = newLog();
+    const t = makeTransport("exit-before-ready", { log, restartBudget: 2 });
+    for (let i = 0; i < 3; i++) await expect(t.embed(BGE, REQ)).rejects.toThrow();
+    expect(log.children).toHaveLength(3);
+    await expect(t.embed(BGE, REQ)).rejects.toThrow(/budget|no further worker|latched/i);
+    await expect(t.embed(BGE, REQ)).rejects.toThrow(/budget|no further worker|latched/i);
+    expect(log.children).toHaveLength(3);
+  });
+
+  it("a restart budget of 0 means a single failure latches immediately", async () => {
+    const log = newLog();
+    const t = makeTransport("exit-on-request", { log, restartBudget: 0 });
+    await expect(t.embed(BGE, REQ)).rejects.toThrow();
+    await expect(t.embed(BGE, REQ)).rejects.toThrow(/budget|no further worker|latched/i);
+    expect(log.children).toHaveLength(1);
+  });
+
+  it("a hung worker is killed on timeout and counts as a failure (the worker is not left running)", async () => {
+    const log = newLog();
+    const t = makeTransport("hang", { log, timeoutMs: 250 });
+    await expect(t.embed(BGE, REQ)).rejects.toThrow(/timed out/i);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(log.children[0]!.exitCode !== null || log.children[0]!.signalCode !== null).toBe(true);
+  });
+});
+
+// Repair round A7 -- a null / malformed worker line must fail that request and that worker, cleanly. It must
+// never throw out of the readline callback (an uncaught exception there would take the whole server down).
+describe("LocalEmbeddingWorkerTransport -- protocol safety", () => {
+  it.each(["null", "array", "number", "garbage", "result-without-runtime", "result-without-vectors"])(
+    "worker output '%s' rejects the request, kills the worker, and does not crash the process",
+    async (mode) => {
+      const uncaught: unknown[] = [];
+      const onUncaught = (error: unknown) => uncaught.push(error);
+      process.on("uncaughtException", onUncaught);
+      try {
+        const log = newLog();
+        const t = makeTransport(mode, { log, timeoutMs: 2000 });
+        await expect(t.embed(BGE, REQ)).rejects.toThrow();
+        await new Promise((r) => setTimeout(r, 300));
+        expect(log.children[0]!.exitCode !== null || log.children[0]!.signalCode !== null).toBe(true);
+        expect(uncaught).toEqual([]);
+      } finally {
+        process.off("uncaughtException", onUncaught);
+      }
+    },
+  );
 });

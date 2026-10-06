@@ -9,6 +9,9 @@
  * identity -- is rejected, never reinterpreted.
  */
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   bindEmbeddingIdentity,
   EmbeddingIdentityError,
@@ -19,9 +22,16 @@ import {
   LOCAL_EMBEDDING_PIPELINES,
   assertLocalEmbeddingIdentity,
   bindLocalEmbeddingIdentity,
+  computeSnapshotManifestSha256,
   findLocalEmbeddingPipeline,
   getLocalEmbeddingPipelineByKey,
+  type SnapshotManifestFile,
 } from "../src/LocalEmbeddingPipelines";
+
+const WORKER_FILE = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../server/modules/legal/retrieval/localEmbeddingWorker.py",
+);
 
 const CHUNK = {
   fragment_id: "frag:abc",
@@ -175,6 +185,35 @@ describe("assertLocalEmbeddingIdentity -- historical Google values are never acc
     expect(() => assertLocalEmbeddingIdentity(mixed2)).toThrow(EmbeddingIdentityError);
   });
 
+  // Repair round (owner decision 3, A9): the hash re-derivation is its OWN branch. These cases carry a
+  // fully registered local triple, so they cannot be satisfied by the earlier NOT_LOCAL check.
+  it("a registered local triple with a wrong identity hash fails with EMBEDDING_IDENTITY_HASH_MISMATCH, not NOT_LOCAL", () => {
+    for (const key of ["bge-m3", "multilingual-e5-large"] as const) {
+      const good = bindLocalEmbeddingIdentity(CHUNK, key);
+      expect(findLocalEmbeddingPipeline(good)?.key).toBe(key); // the triple really is local
+      const forged = { ...good, embedding_identity_hash: "0".repeat(64) };
+      try {
+        assertLocalEmbeddingIdentity(forged);
+        throw new Error("expected a throw");
+      } catch (error) {
+        expect(error).toBeInstanceOf(EmbeddingIdentityError);
+        expect((error as EmbeddingIdentityError).code).toBe("EMBEDDING_IDENTITY_HASH_MISMATCH");
+      }
+    }
+  });
+
+  it("a registered local triple whose chunk field was edited after binding fails with HASH_MISMATCH", () => {
+    const good = bindLocalEmbeddingIdentity(CHUNK, "bge-m3");
+    const edited = { ...good, chunk_content_hash: "hash:other" };
+    expect(findLocalEmbeddingPipeline(edited)?.key).toBe("bge-m3");
+    try {
+      assertLocalEmbeddingIdentity(edited);
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect((error as EmbeddingIdentityError).code).toBe("EMBEDDING_IDENTITY_HASH_MISMATCH");
+    }
+  });
+
   it("finds a pipeline only by the exact triple", () => {
     const bge = getLocalEmbeddingPipelineByKey("bge-m3")!;
     expect(
@@ -191,5 +230,86 @@ describe("assertLocalEmbeddingIdentity -- historical Google values are never acc
         embedding_pipeline_version: "embed-pipeline-gemini-v1",
       }),
     ).toBeUndefined();
+  });
+});
+
+// Repair round (owner decision 3, A4/A5): the worker -- not the caller -- establishes which pinned snapshot
+// was loaded. Node pins the digest of the expected snapshot manifest; the worker holds the file list and
+// measures the files on disk. Both sides must stay the same frozen definition.
+interface WorkerRegistryEntry {
+  readonly hf_repo: string;
+  readonly hf_revision: string;
+  readonly pipeline_version: string;
+  readonly dimension: number;
+  readonly files: readonly SnapshotManifestFile[];
+}
+
+function workerRegistry(): Record<string, WorkerRegistryEntry> {
+  const source = fs.readFileSync(WORKER_FILE, "utf8");
+  const begin = source.indexOf('_FROZEN_REGISTRY_JSON = r"""');
+  expect(begin, "the worker must hold its frozen registry as a JSON literal").toBeGreaterThan(-1);
+  const bodyStart = begin + '_FROZEN_REGISTRY_JSON = r"""'.length;
+  const bodyEnd = source.indexOf('"""', bodyStart);
+  const parsed = JSON.parse(source.slice(bodyStart, bodyEnd)) as { schema: string; pipelines: Record<string, WorkerRegistryEntry> };
+  expect(parsed.schema).toBe("mimer-local-embedding-registry-1");
+  return parsed.pipelines;
+}
+
+describe("pinned snapshot manifests -- the worker's frozen registry and the Node registry are one definition", () => {
+  const EXPECTED_DIGEST = {
+    "bge-m3": "3a2bfb3e454e9e86ff9aaeba900f4f76ef344ee73601021db65a4b9730e6bcdc",
+    "multilingual-e5-large": "5d338fb073d0d9841782030aafaf996784bc1f44a2162fc76d0243253112a5e7",
+  } as const;
+
+  it("every registered pipeline pins the digest of its snapshot manifest (the Hugging Face verified file list)", () => {
+    for (const p of LOCAL_EMBEDDING_PIPELINES) {
+      expect(p.snapshot_manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(p.snapshot_manifest_sha256).toBe(EXPECTED_DIGEST[p.key]);
+    }
+  });
+
+  it("the worker's registry names exactly the same closed set of keys", () => {
+    expect(Object.keys(workerRegistry()).sort()).toEqual(LOCAL_EMBEDDING_PIPELINES.map((p) => p.key).sort());
+  });
+
+  it.each(["bge-m3", "multilingual-e5-large"] as const)(
+    "%s: repo, exact revision, pipeline and dimension agree, and the worker's file list hashes to the pinned digest",
+    (key) => {
+      const spec = getLocalEmbeddingPipelineByKey(key)!;
+      const entry = workerRegistry()[key]!;
+      expect(entry.hf_repo).toBe(spec.hf_repo);
+      expect(entry.hf_revision).toBe(spec.hf_revision);
+      expect(entry.pipeline_version).toBe(spec.pipeline_version);
+      expect(entry.dimension).toBe(spec.dimension);
+      expect(computeSnapshotManifestSha256(entry.files)).toBe(spec.snapshot_manifest_sha256);
+    },
+  );
+
+  it("every manifest entry is a relative path with a known digest algorithm and a lowercase hex digest", () => {
+    for (const entry of Object.values(workerRegistry())) {
+      expect(entry.files.length).toBeGreaterThan(5);
+      for (const f of entry.files) {
+        expect(f.path).not.toMatch(/^\/|^[A-Za-z]:|\.\./);
+        expect(["sha256", "git-blob-sha1"]).toContain(f.algo);
+        expect(f.digest).toMatch(f.algo === "sha256" ? /^[0-9a-f]{64}$/ : /^[0-9a-f]{40}$/);
+        expect(Number.isInteger(f.size) && f.size > 0).toBe(true);
+      }
+      expect(new Set(entry.files.map((f) => f.path)).size).toBe(entry.files.length);
+    }
+  });
+
+  it("the manifest digest is order-independent but content-sensitive (it is a real binding, not a label)", () => {
+    const files = workerRegistry()["bge-m3"]!.files;
+    const reversed = [...files].reverse();
+    expect(computeSnapshotManifestSha256(reversed)).toBe(computeSnapshotManifestSha256(files));
+    const flipped = files.map((f, i) => (i === 0 ? { ...f, digest: f.digest.replace(/^./, (c) => (c === "0" ? "1" : "0")) } : f));
+    expect(computeSnapshotManifestSha256(flipped)).not.toBe(computeSnapshotManifestSha256(files));
+    expect(computeSnapshotManifestSha256(files.slice(1))).not.toBe(computeSnapshotManifestSha256(files));
+  });
+
+  it("the worker is configured by a closed model KEY only: it holds the mapping, the caller does not send repo/revision", () => {
+    const source = fs.readFileSync(WORKER_FILE, "utf8");
+    expect(source).toContain("MIMER_EMBED_MODEL_KEY");
+    expect(source).not.toMatch(/MIMER_EMBED_REPO|MIMER_EMBED_REVISION|MIMER_EMBED_PIPELINE/);
   });
 });
