@@ -1799,10 +1799,30 @@ function PrgDynamicConnectionPrefix([string[]]$argv, [int]$k) {
 # U30G814 (G8-14): the segment runs no program and only assigns (after { / ( and an assignment word: export, declare -x, cmd
 # set ...), and one assignment chooses the connection dynamically: every later command of the text runs with it
 function PrgSetsDynamicConnection([string[]]$argv) {
-    $words = (Get-ProtectedClassificationSpec).EnvAssignmentWords
+    $specNow = Get-ProtectedClassificationSpec
+    $words = $specNow.EnvAssignmentWords
+    $prefixes = @{}
+    foreach ($w in $specNow.ProgramPrefixWords) { $prefixes[(PrgLower $w)] = $true }
     $i = 0
-    while ($i -lt $argv.Count -and ($argv[$i] -ceq '{' -or $argv[$i] -ceq '(')) { $i++ }
+    while ($i -lt $argv.Count) {
+        $headSkip = PrgStripLeadingOpeners $argv[$i]
+        if ($argv[$i] -ceq '{' -or $argv[$i] -ceq '(' -or $prefixes.ContainsKey((PrgLower $headSkip)) -or $prefixes.ContainsKey((PrgLower $argv[$i]))) { $i++ }
+        else { break }
+    }
     $head = if ($i -lt $argv.Count) { PrgStripLeadingOpeners $argv[$i] } else { $null }
+    # A case arm or a function header sits in the same segment as the assignment word.
+    # Skip only that header. This does not model whether the assignment escapes the arm or the function.
+    $opensHeader = $false
+    if ($argv.Count -gt 0) {
+        $lead = $argv[0]
+        if ((PrgLower $lead) -ceq 'case' -or (PrgLower $lead) -ceq 'function' -or $lead -cmatch '^[A-Za-z_][A-Za-z0-9_]*\(\)$') { $opensHeader = $true }
+    }
+    if ($opensHeader -and -not ($null -ne $head -and ($words -ccontains (PrgLower $head)))) {
+        $j = $i
+        while ($j -lt $argv.Count -and -not ($words -ccontains (PrgLower (PrgStripLeadingOpeners $argv[$j])))) { $j++ }
+        if ($j -lt $argv.Count) { $i = $j }
+        $head = if ($i -lt $argv.Count) { PrgStripLeadingOpeners $argv[$i] } else { $null }
+    }
     if ($null -ne $head -and ($words -ccontains (PrgLower $head))) {
         $i++
         while ($i -lt $argv.Count -and $argv[$i].StartsWith('-', [StringComparison]::Ordinal)) { $i++ }

@@ -1891,10 +1891,26 @@ function dynamicConnectionPrefix(argv: readonly string[], k: number): boolean {
  * cmd set ...), and one assignment chooses the connection dynamically: every later command of the text runs with it.
  */
 function setsDynamicConnection(argv: readonly string[]): boolean {
-  const words = classificationSpec().commands.env_assignment_words;
+  const spec = classificationSpec().commands;
+  const words = spec.env_assignment_words;
+  const prefixes = new Set(spec.program_prefix_words.map((w) => asciiLower(w)));
   let i = 0;
-  while (argv[i] === "{" || argv[i] === "(") i += 1;
-  const head = argv[i] === undefined ? undefined : stripLeadingOpeners(argv[i]!);
+  while (argv[i] !== undefined) {
+    const head = stripLeadingOpeners(argv[i]!);
+    if (argv[i] === "{" || argv[i] === "(" || prefixes.has(asciiLower(head)) || prefixes.has(asciiLower(argv[i]!))) i += 1;
+    else break;
+  }
+  let head = argv[i] === undefined ? undefined : stripLeadingOpeners(argv[i]!);
+  // A case arm or a function header sits in the same segment as the assignment word.
+  // Skip only that header. This does not model whether the assignment escapes the arm or the function.
+  const lead = argv[0];
+  const opensHeader = lead !== undefined && (asciiLower(lead) === "case" || asciiLower(lead) === "function" || /^[A-Za-z_][A-Za-z0-9_]*\(\)$/.test(lead));
+  if (opensHeader && !(head !== undefined && words.includes(asciiLower(head)))) {
+    let j = i;
+    while (j < argv.length && !words.includes(asciiLower(stripLeadingOpeners(argv[j]!)))) j += 1;
+    if (j < argv.length) i = j;
+    head = argv[i] === undefined ? undefined : stripLeadingOpeners(argv[i]!);
+  }
   if (head !== undefined && words.includes(asciiLower(head))) {
     i += 1;
     while (argv[i] !== undefined && argv[i]!.startsWith("-")) i += 1;

@@ -2145,10 +2145,28 @@ def _sets_dynamic_connection(argv, spec):
     # U30G814 (G8-14): the segment runs no program and only assigns (after { / ( and an assignment word: export, declare -x,
     # cmd set ...), and one assignment chooses the connection dynamically: every later command of the text runs with it
     words = spec['commands']['env_assignment_words']
+    prefixes = {_ascii_lower(w) for w in spec['commands']['program_prefix_words']}
     i = 0
-    while i < len(argv) and argv[i] in ('{', '('):
-        i += 1
+    while i < len(argv):
+        head_skip = _strip_leading_openers(argv[i])
+        if argv[i] in ('{', '(') or _ascii_lower(head_skip) in prefixes or _ascii_lower(argv[i]) in prefixes:
+            i += 1
+        else:
+            break
     head = _strip_leading_openers(argv[i]) if i < len(argv) else None
+    # A case arm or a function header sits in the same segment as the assignment word.
+    # Skip only that header. This does not model whether the assignment escapes the arm or the function.
+    lead = argv[0] if argv else None
+    opens_header = lead is not None and (
+        _ascii_lower(lead) in ('case', 'function') or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*\(\)', lead) is not None
+    )
+    if opens_header and not (head is not None and _ascii_lower(head) in words):
+        j = i
+        while j < len(argv) and _ascii_lower(_strip_leading_openers(argv[j])) not in words:
+            j += 1
+        if j < len(argv):
+            i = j
+        head = _strip_leading_openers(argv[i]) if i < len(argv) else None
     if head is not None and _ascii_lower(head) in words:
         i += 1
         while i < len(argv) and argv[i].startswith('-'):
