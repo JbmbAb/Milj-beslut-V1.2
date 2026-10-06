@@ -272,6 +272,19 @@ export const HISTORICAL_SQL: readonly { readonly file: string; readonly sha256: 
 /** Every channel site that is neither gated nor statically ALLOWED, per file, with its review. */
 export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
   {
+    file: ".github/workflows/deploy-staging.yml",
+    policy: "DYNAMIC_REVIEWED",
+    contentSha256: "beff42eccc34d079a12f61cd925193691be660833e018bd793d32812bc33f5cf",
+    reachability: "GitHub Actions workflow: workflow_run after CI completes on main/master, and workflow_dispatch. Job deploy-staging, step Prisma migrate (staging).",
+    reviewedOn: "2026-10-06",
+    reviewedBy: "G814REP1 WRITER (Grok 4.7)",
+    justification:
+      "G814REP1 F-1a: the Prisma migrate (staging) step runs npx prisma migrate deploy with DATABASE_URL taken from the GitHub Actions secret STAGING_DATABASE_URL. The value is not in the file, so the connection is non-literal and the site is UNRESOLVABLE with detail NON_LITERAL. The Vercel step forwards the same secret to npm and vercel, which are not a database tool and are not a site. This review does not close environment inheritance into launched scripts, npm scripts or make targets (F-1h), other carriers (F-1b through F-1g), or gcloud --set-secrets (G814-N1).",
+    sites: [
+      "UNRESOLVABLE PROCESS yaml | export DATABASE_URL=\"⟦DYN:actions⟧\"; npx prisma migrate deploy",
+    ],
+  },
+  {
     file: ".github/workflows/devgov-v0-attest.yml",
     policy: "DYNAMIC_REVIEWED",
     contentSha256: "d189451ca61c1c8d057dcdfb9d50c6b4135ebadb8eab893306cc9187a10dd1fe",
