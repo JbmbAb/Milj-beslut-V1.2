@@ -2890,3 +2890,19 @@ describe('G814REP1 F-1a: GitHub Actions env: dynamic connection variables apply 
   ].map((f) => ({ ...f, violation: false as const }));
   caughtAndControls9('F-4 skanner', violations, controls, 8);
 }
+
+describe('F4-1-SKANNER', () => {
+  it('(bash -c "$1") in a shell script is a site', () => {
+    const sites = scanFile('scripts/u9/f4-glued-bash.sh', '#!/bin/sh\n(bash -c "$1")\n').sites;
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]).toMatchObject({ verdict: 'UNRESOLVABLE', detail: 'COMMAND' });
+  });
+
+  it('bash -c "$1" stays a site', () => {
+    expect(scanFile('scripts/u9/f4-plain-bash.sh', '#!/bin/sh\nbash -c "$1"\n').sites.length).toBeGreaterThan(0);
+  });
+
+  it('(echo hi) stays without a site', () => {
+    expect(scanFile('scripts/u9/f4-echo.sh', '#!/bin/sh\n(echo hi)\n').sites).toEqual([]);
+  });
+});

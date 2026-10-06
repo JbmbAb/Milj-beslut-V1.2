@@ -905,9 +905,9 @@ function interpreterOf(text: string): "node" | "python" | null {
   return null;
 }
 
-/** The last path segment of a program value, lower-cased, tool suffix (.exe, .cmd, ...) removed. */
+/** The last path segment of a program value, lower-cased, tool suffix (.exe, .cmd, ...) removed. Grouping glued to the name (`(bash`, `@(sh`) is not part of it. */
 function programBase(text: string): string {
-  let b = text.trim().replace(/^["']+|["']+$/g, "").split(/[\\/]/).pop()!.toLowerCase();
+  let b = text.trim().replace(/^["']+|["']+$/g, "").replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "").split(/[\\/]/).pop()!.toLowerCase();
   for (const suffix of classificationSpec().commands.tool_suffixes) if (b.endsWith(suffix)) b = b.slice(0, -suffix.length);
   return b;
 }
