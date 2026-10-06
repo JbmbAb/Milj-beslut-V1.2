@@ -108,7 +108,7 @@
     "argument_substituting_runners": ["xargs", "parallel", "find"],
     "code_runners": { "node": ["-e", "--eval", "-p", "--print"], "nodejs": ["-e", "--eval", "-p", "--print"], "bun": ["-e", "--eval", "-p", "--print"], "deno": ["eval"], "python": ["-c"], "python3": ["-c"], "py": ["-c"], "pypy": ["-c"], "pypy3": ["-c"], "ruby": ["-e"], "perl": ["-e"], "php": ["-r"] },
     "eval_words": ["eval", "invoke-expression", "iex"],
-    "program_prefix_words": ["exec", "command", "builtin", "sudo", "nohup", "time", "env"],
+    "program_prefix_words": ["exec", "command", "builtin", "sudo", "nohup", "time", "env", "(", "{", "!", "if", "then", "else", "elif", "while", "until", "do"],
     "remote_shells": { "ssh": { "value_flags": ["-b", "-B", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-P", "-Q", "-R", "-S", "-W", "-w"] } },
     "unread_code_runners": ["ruby", "perl", "php"],
     "non_literal_exempt_tools_unless_piped_to": { "PG_DUMP": "PSQL" },
