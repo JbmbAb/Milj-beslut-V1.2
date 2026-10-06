@@ -14,15 +14,17 @@ describe('parseDockerfile: the real root Dockerfile', () => {
 
   it('finds every stage at its expected line with its parent', () => {
     expect(parsed.stages.map((stage) => [stage.name, stage.instructions[0].line])).toEqual([
-      ['base', 1],
-      ['builder', 16],
-      ['production-base', 32],
-      ['web', 58],
-      ['gdpr-worker', 64],
-      ['search-indexer-worker', 68],
-      ['domstol-rss-worker', 72],
+      ['base', 4],
+      ['builder', 19],
+      ['production-base', 45],
+      ['web', 86],
+      ['gdpr-worker', 92],
+      ['search-indexer-worker', 96],
+      ['domstol-rss-worker', 100],
     ]);
-    expect(parsed.stages[0].from).toEqual({ image: 'node:22-alpine' });
+    expect(parsed.stages[0].from).toEqual({
+      image: 'node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402',
+    });
     expect(parsed.stages[1].from).toEqual({ image: 'base', parentStage: 'base' });
     expect(parsed.stages[2].from).toEqual({ image: 'base', parentStage: 'base' });
     expect(parsed.stages[3].from).toEqual({ image: 'production-base', parentStage: 'production-base' });
@@ -34,14 +36,14 @@ describe('parseDockerfile: the real root Dockerfile', () => {
   it('base stage: multi-key ENV continuation (7-8) joined, raw kept verbatim, line/endLine tracked', () => {
     const base = parsed.stages[0];
     expect(base.instructions.map((instruction) => [instruction.keyword, instruction.line])).toEqual([
-      ['FROM', 1],
-      ['RUN', 4],
-      ['ENV', 7],
-      ['RUN', 11],
-      ['WORKDIR', 13],
+      ['FROM', 4],
+      ['RUN', 7],
+      ['ENV', 10],
+      ['RUN', 14],
+      ['WORKDIR', 16],
     ]);
     const env = base.instructions[2];
-    expect(env.endLine).toBe(8);
+    expect(env.endLine).toBe(11);
     expect(env.args).toBe(
       'PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser',
     );
@@ -52,43 +54,44 @@ describe('parseDockerfile: the real root Dockerfile', () => {
     expect(base.instructions[4].args).toBe('/app');
   });
 
-  it('builder stage: COPY sources, the shell-form install RUN at line 20, COPY . . at 26', () => {
+  it('builder stage: COPY sources, the shell-form install RUN at line 27, COPY . . at 30', () => {
     const builder = parsed.stages[1];
     expect(builder.instructions.map((instruction) => [instruction.keyword, instruction.line])).toEqual([
-      ['FROM', 16],
-      ['COPY', 17],
-      ['COPY', 18],
-      ['RUN', 20],
-      ['COPY', 22],
-      ['RUN', 23],
-      ['COPY', 26],
-      ['RUN', 29],
+      ['FROM', 19],
+      ['COPY', 20],
+      ['COPY', 21],
+      ['COPY', 24],
+      ['RUN', 27],
+      ['COPY', 30],
+      ['RUN', 34],
+      ['RUN', 37],
+      ['RUN', 42],
     ]);
     expect(builder.instructions[1]).toMatchObject({ args: 'package*.json ./', flags: {} });
-    expect(builder.instructions[3]).toMatchObject({
-      args: 'npm ci --legacy-peer-deps',
-      raw: 'RUN npm ci --legacy-peer-deps',
+    expect(builder.instructions[4]).toMatchObject({
+      args: 'npm ci --legacy-peer-deps --ignore-scripts',
+      raw: 'RUN npm ci --legacy-peer-deps --ignore-scripts',
     });
-    expect(execFormTokens(builder.instructions[3].args)).toBeNull();
+    expect(execFormTokens(builder.instructions[4].args)).toBeNull();
   });
 
-  it('production-base stage: COPY --from flags are separated from args (41-50)', () => {
+  it('production-base stage: COPY --from flags are separated from args (62-74)', () => {
     const production = parsed.stages[2];
     const fromLines = production.instructions.filter((instruction) => instruction.flags.from !== undefined);
     expect(fromLines.map((instruction) => instruction.line)).toEqual([
-      41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+      61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
     ]);
     expect(fromLines[0]).toMatchObject({
       keyword: 'COPY',
-      flags: { from: 'builder' },
-      args: '/app/node_modules/.prisma ./node_modules/.prisma',
+      flags: { from: 'builder', chown: 'appuser:appgroup' },
+      args: '/app/package.json /app/package-lock.json /app/tsconfig.json ./',
     });
-    expect(production.instructions.find((instruction) => instruction.line === 40)).toMatchObject({
-      keyword: 'COPY',
+    expect(production.instructions.find((instruction) => instruction.line === 60)).toMatchObject({
+      keyword: 'RUN',
       flags: {},
-      args: 'prisma ./prisma',
+      args: 'chown appuser:appgroup /app',
     });
-    expect(production.instructions.find((instruction) => instruction.line === 54)).toMatchObject({
+    expect(production.instructions.find((instruction) => instruction.line === 76)).toMatchObject({
       keyword: 'USER',
       args: 'appuser',
     });
@@ -99,50 +102,19 @@ describe('parseDockerfile: the real root Dockerfile', () => {
     expect(
       web.instructions.map((instruction) => [instruction.keyword, instruction.line, instruction.args]),
     ).toEqual([
-      ['FROM', 58, 'production-base AS web'],
-      ['ENV', 59, 'PORT=8080'],
-      ['EXPOSE', 60, '8080'],
-      ['CMD', 61, '["npm", "start"]'],
+      ['FROM', 86, 'production-base AS web'],
+      ['ENV', 87, 'PORT=8080'],
+      ['EXPOSE', 88, '8080'],
+      ['CMD', 89, '["npm", "start"]'],
     ]);
     expect(execFormTokens(web.instructions[3].args)).toEqual(['npm', 'start']);
     expect(instructionShellText(web.instructions[3])).toBe('npm start');
   });
 });
 
-describe('parseDockerfile: Dockerfile.gcp', () => {
-  const parsed = parseDockerfile(readRepoFile('Dockerfile.gcp'));
-
-  it('has three stages at 12/17/36 and no preamble', () => {
-    expect(parsed.stages.map((stage) => [stage.name, stage.instructions[0].line, stage.from])).toEqual([
-      ['base', 12, { image: 'node:22-alpine' }],
-      ['builder', 17, { image: 'base', parentStage: 'base' }],
-      ['production', 36, { image: 'base', parentStage: 'base' }],
-    ]);
-    expect(parsed.preamble).toEqual([]);
-  });
-
-  it('joins the 51-54 RUN continuation into one shell text and keeps ARG/ENTRYPOINT verbatim', () => {
-    const production = parsed.stages[2];
-    const install = production.instructions.find((instruction) => instruction.line === 51);
-    expect(install).toMatchObject({
-      keyword: 'RUN',
-      endLine: 54,
-      args: 'npm ci --omit=dev --legacy-peer-deps --no-audit --prefer-offline --ignore-scripts && test -f node_modules/.bin/tsx && npx prisma generate && npm cache clean --force',
-    });
-    expect(install?.raw.split('\n')).toHaveLength(4);
-    expect(production.instructions.find((instruction) => instruction.line === 50)).toMatchObject({
-      keyword: 'ARG',
-      args: 'CACHEBUST=1',
-      raw: 'ARG CACHEBUST=1',
-    });
-    expect(production.instructions.find((instruction) => instruction.line === 72)).toMatchObject({
-      keyword: 'ENTRYPOINT',
-      args: '["/sbin/tini", "--"]',
-      raw: 'ENTRYPOINT ["/sbin/tini", "--"]',
-    });
-    expect(parsed.stages[1].instructions.find((instruction) => instruction.line === 26)).toMatchObject({
-      args: 'npm ci --legacy-peer-deps --no-audit --prefer-offline --ignore-scripts',
-    });
+describe('parseDockerfile: retired Dockerfile.gcp', () => {
+  it('is not a current repository file after W-NO-GOOGLE-01', () => {
+    expect(() => readRepoFile('Dockerfile.gcp')).toThrow(/ENOENT/);
   });
 });
 

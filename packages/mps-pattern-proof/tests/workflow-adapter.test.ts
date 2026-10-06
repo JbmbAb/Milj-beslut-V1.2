@@ -426,7 +426,8 @@ describe('(c) control flow with stubbed Workflow globals (T4)', () => {
     expect(discover).toContain(`${validate} discovery --file ${ARGS.evidenceDir}/discovery.json`);
     expect(discover).toContain(`${ARGS.evidenceDir}/runtime-ledger.json`);
     expect(discover).toContain('docker-compose.staging.yml');
-    expect(discover).toContain('Dockerfile.gcp');
+    expect(discover).toContain('Dockerfile target web');
+    expect(discover).not.toContain('Dockerfile.gcp');
     expect(discover).toContain('.github/workflows/deploy-*.yml');
     expect(graph).toContain(`Read ONLY ${ARGS.evidenceDir}/discovery.json`);
     expect(graph).toContain(`${validate} dependency-graph`);

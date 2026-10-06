@@ -723,7 +723,7 @@ const COMMON_RULES = [
   '- A runtime_result locator may only be emitted if you actually executed the reproduction it describes; then append the exact ref string, verbatim, to the JSON array in ' +
     artifactPaths.runtimeLedger +
     ' (create the file as `[]` first if absent) and nowhere else. Never invent runtime results.',
-  '- Do not modify Dockerfile, Dockerfile.gcp, Dockerfile.fly, docker-compose*.yml, package.json, package-lock.json or anything under .github/. Do not commit. Do not open a PR. Write only under ' +
+  '- Do not modify Dockerfile, Dockerfile.fly, docker-compose*.yml, package.json, package-lock.json or anything under .github/. Do not commit. Do not open a PR. Write only under ' +
     evidenceDir +
     ' (mkdir -p it) and, for reproductions, under the OS temp directory.',
   '- After writing the artifact file, run the validation command exactly as given and report its printed JSON in `validation` as { ok: <printed ok>, errors: [<each printed error rendered as "code: message">] }. Return the artifact only as you wrote it to disk; if validation printed ok:false, still return honestly with validation.ok=false (this script fails closed on it).',
@@ -857,7 +857,7 @@ const discover = await agent(
   [
     `You are the DISCOVER stage of PATTERN-PROOF-ENGINE-01 V1 (mode ${MODE}, run ${runStamp}, base ${baseSha}).`,
     '',
-    `Investigate the target build-ordering defect in THIS repository itself: the root ${dockerfile} runs an npm dependency-install step in one or more stages (${stages.join(', ')}) while only package*.json (and possibly tsconfig.json) are present in the image, yet package.json declares lifecycle scripts (preinstall/install/postinstall/prepare) that execute node scripts which are not yet copied at that point. Read, at minimum: ${dockerfile}; package.json (the scripts block); docker-compose.staging.yml (which Dockerfile/target the declared staging build uses); Dockerfile.gcp (how it orders or flags its own install step); and every .github/workflows/deploy-*.yml (which build contract deploys use). Investigate the repository, not the problem statement: report what the files say today.`,
+    `Investigate the target build-ordering defect in THIS repository itself: the root ${dockerfile} runs an npm dependency-install step in one or more stages (${stages.join(', ')}) while only package*.json (and possibly tsconfig.json) are present in the image, yet package.json declares lifecycle scripts (preinstall/install/postinstall/prepare) that execute node scripts which are not yet copied at that point. Read, at minimum: ${dockerfile}; package.json (the scripts block); docker-compose.staging.yml (which Dockerfile/target the declared staging build uses); and every .github/workflows/deploy-*.yml (which build contract deploys use). The local app image stage is Dockerfile target web. Investigate the repository, not the problem statement: report what the files say today.`,
     '',
     'Produce a DiscoveryArtifact: { findings: [{ category, description, evidence: [EvidenceLocator, ...] }] } with at least one finding, every finding carrying at least one verified locator. Categories are free text (e.g. build-ordering-defect, lifecycle-script, declared-build-contract, existing-mitigation, deploy-path).',
     '',

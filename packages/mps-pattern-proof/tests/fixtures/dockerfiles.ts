@@ -1,8 +1,9 @@
 /**
  * Dockerfile fixtures for the stage-prefix / parser tests.
  *
- * The real root `Dockerfile` and `Dockerfile.gcp` are read from the repository at test time (the
- * derivation must hold against the actual target). The synthetic variants below are the candidate
+ * The real root `Dockerfile` is read from the repository at test time (the
+ * derivation must hold against the actual target). Dockerfile.gcp is retired and must be absent.
+ * The synthetic variants below are the candidate
  * fixes the writer lane may choose (BOOTSTRAP section 5.3/5.4): the derivation must reflect each
  * candidate's own declared state -- solution neutrality.
  */
@@ -23,8 +24,7 @@ function replaceOnce(text: string, needle: string, replacement: string): string 
 }
 
 export const ROOT_INSTALL_LINES = {
-  builder: 'RUN npm ci --legacy-peer-deps\n',
-  'production-base': 'RUN npm ci --omit=dev --legacy-peer-deps\n',
+  builder: 'RUN npm ci --legacy-peer-deps --ignore-scripts\n',
 } as const;
 
 /** Candidate fix A: add `--ignore-scripts` to the install step of one stage (Dockerfile.gcp's pattern). */
