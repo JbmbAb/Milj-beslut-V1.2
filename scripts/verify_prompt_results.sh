@@ -20,10 +20,10 @@ cleanup() { rm -f "$TMP"; }
 trap cleanup EXIT
 
 if [[ "$RESULTS_URI" == gs://* ]]; then
-  gsutil cp "$RESULTS_URI" "$TMP"
-else
-  cp "$RESULTS_URI" "$TMP"
+  echo "GCS result URIs are retired. Pass a local results.json path." >&2
+  exit 1
 fi
+cp "$RESULTS_URI" "$TMP"
 
 python3 - <<'PY' "$TMP" "$PRODUCTION_NDCG" "$PRODUCTION_LATENCY_P95" \
   "$NDCG_REGRESSION_TOLERANCE" "$LATENCY_REGRESSION_TOLERANCE" "$MAX_FAILURE_RATE"

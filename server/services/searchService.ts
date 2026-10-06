@@ -1,13 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { EventEmitter } from 'events';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { computeMinMaxStats } from '../lib/stats';
 import { logger } from '../logger';
-import { RerankPromptService } from './rerankPromptService';
-import { embedTextWithVertexPredict } from './vertexEmbeddingService';
 import {
   enqueueSearchJob,
   getDocumentById,
@@ -30,7 +27,6 @@ const EMBEDDING_MODEL = String(
   process.env.VERTEX_EMBEDDING_MODEL || process.env.EMBEDDING_MODEL || 'text-multilingual-embedding-002',
 ).trim();
 const EMBEDDING_DIM = Math.max(64, Number(process.env.EMBEDDING_DIM || 768));
-let warnedEmbeddingFallback = false;
 
 /**
  * Delad Vertex-embedding (samma modellrum som legal_corpus_chunks).
@@ -42,29 +38,6 @@ export async function embedText(text: string): Promise<{ values: number[]; model
       values: new Array(EMBEDDING_DIM).fill(0).map(() => Math.random()),
       model: 'mock-embedding-v1',
     };
-  }
-
-  if (!process.env.VERTEX_PROJECT_ID?.trim()) {
-    return null;
-  }
-
-  try {
-    const vertexResult = await embedTextWithVertexPredict(text, EMBEDDING_DIM);
-    if (vertexResult) {
-      if (vertexResult.model !== EMBEDDING_MODEL && !warnedEmbeddingFallback) {
-        warnedEmbeddingFallback = true;
-        logger.warn('search: vertex embedding model', {
-          model: vertexResult.model,
-          embeddingModelEnv: EMBEDDING_MODEL,
-        });
-      }
-      return {
-        values: vertexResult.values.slice(0, EMBEDDING_DIM),
-        model: vertexResult.model,
-      };
-    }
-  } catch {
-    return null;
   }
 
   return null;
@@ -116,7 +89,6 @@ export interface SearchOptions {
 
 export class AlphaevolveSearchService extends EventEmitter {
   private prisma: PrismaClient;
-  private genAI: GoogleGenerativeAI;
   private lastRerankTelemetry: any = null;
   /** Cap hash input so fallback embedding cannot be abused with unbounded user strings (CodeQL). */
   private static readonly DETERMINISTIC_VECTOR_MAX_INPUT_CHARS = 4046;
@@ -124,9 +96,6 @@ export class AlphaevolveSearchService extends EventEmitter {
   constructor(prismaClient: PrismaClient) {
     super();
     this.prisma = prismaClient;
-    // Initiera den officiella Google Generative AI SDK:n lokalt
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
   /** Senaste rerank-telemetri från search()-anrop (för tester och observability). */
@@ -404,68 +373,13 @@ export class AlphaevolveSearchService extends EventEmitter {
       return candidatesToRank;
     }
 
-    if (!process.env.GEMINI_API_KEY) {
-      logger.warn('Hoppar över Gemini Reranking på grund av saknad API-nyckel. Kör lokal fallback.');
-
-      this.lastRerankTelemetry = {
-        promptVersion: 'offline-fallback',
-        semanticStats: distanceStats,
-        shouldSkipReranker: true,
-        skipReason: 'MISSING_GEMINI_API_KEY',
-      };
-
-      return this.executeLocalFallbackReranker(candidatesToRank, query);
-    }
-
-    try {
-      // Vi använder gemini-1.5-flash för snabb och kostnadseffektiv semantisk poängsättning
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const { prompt, version } = await RerankPromptService.getFormattedPrompt(query, candidatesToRank);
-
-      logger.info('Kör Gemini Reranker', {
-        query,
-        promptVersion: version,
-        semanticStats: distanceStats,
-        candidatesCount: candidatesToRank.length,
-      });
-
-      this.lastRerankTelemetry = {
-        promptVersion: version,
-        semanticStats: distanceStats,
-        shouldSkipReranker: false,
-      };
-
-      const response = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json' },
-      });
-
-      const text = response.response.text();
-      const scores = JSON.parse(text) as { id: string; score: number }[];
-
-      return candidatesToRank.map((item) => {
-        const match = scores.find((s) => s.id === item.id);
-        const finalScore = match ? match.score : item.rrfScore || 0;
-        return { ...item, finalScore };
-      });
-    } catch (error) {
-      logger.error(
-        'Kunde inte exekvera Gemini Reranker, faller tillbaka på lokal reranker: ' + (error as Error).message,
-      );
-
-      this.lastRerankTelemetry = {
-        promptVersion: 'error-fallback',
-        semanticStats: distanceStats,
-        shouldSkipReranker: true,
-        skipReason: 'ERROR: ' + (error as Error).message,
-      };
-
-      this.emit(
-        'search:warning',
-        'Kunde inte exekvera Gemini Reranker, faller tillbaka på lokal reranker: ' + (error as Error).message,
-      );
-      return this.executeLocalFallbackReranker(candidatesToRank, query);
-    }
+    this.lastRerankTelemetry = {
+      promptVersion: 'local-fallback',
+      semanticStats: distanceStats,
+      shouldSkipReranker: true,
+      skipReason: 'LOCAL_RERANK',
+    };
+    return this.executeLocalFallbackReranker(candidatesToRank, query);
   }
 
   /**
@@ -607,7 +521,6 @@ export class AlphaevolveSearchService extends EventEmitter {
 const MAX_TEXT_BYTES = 2_000_000;
 const CHUNK_WORDS = 180;
 const CHUNK_OVERLAP = 40;
-export { OCR_MODEL, OCR_MAX_FILE_BYTES, runGeminiOcr } from '../text-projection/geminiOcrClient';
 export const OCR_MIN_TEXT_CHARS = Math.max(1, Number(process.env.SEARCH_OCR_MIN_TEXT_CHARS || 120));
 export const OCR_IMAGE_EXTENSIONS = new Set([
   '.png',

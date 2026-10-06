@@ -39,24 +39,12 @@ def parse_gcs_uri(uri: str) -> tuple[str, str]:
     return parsed.netloc, parsed.path.lstrip("/")
 
 
-def gcs_client():
-    from google.cloud import storage
-
-    return storage.Client()
-
-
 def download_gcs_text(uri: str) -> str:
-    bucket_name, blob_name = parse_gcs_uri(uri)
-    client = gcs_client()
-    return client.bucket(bucket_name).blob(blob_name).download_as_text(encoding="utf-8")
+    raise RuntimeError(f"GCS is retired. Use a local dataset path, not {uri}")
 
 
 def upload_gcs_text(uri: str, content: str, content_type: str = "text/plain") -> None:
-    bucket_name, blob_name = parse_gcs_uri(uri)
-    client = gcs_client()
-    client.bucket(bucket_name).blob(blob_name).upload_from_string(
-        content, content_type=content_type
-    )
+    raise RuntimeError(f"GCS is retired. Refusing to upload {content_type} to {uri} ({len(content)} bytes)")
 
 
 def load_records(input_path: str) -> tuple[list[dict[str, Any]], str | None]:

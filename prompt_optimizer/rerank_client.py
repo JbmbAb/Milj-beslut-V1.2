@@ -129,8 +129,6 @@ class RerankClient:
                 self.mode = "mock"
             elif self.http_url:
                 self.mode = "http"
-            elif self.project_id:
-                self.mode = "vertex"
             else:
                 self.mode = "mock"
 
@@ -141,55 +139,14 @@ class RerankClient:
         return input_tokens * self.input_usd + output_tokens * self.output_usd
 
     def _init_vertex(self) -> None:
-        if self._vertex_model is not None:
-            return
-        import vertexai
-        from vertexai.generative_models import GenerativeModel
-
-        vertexai.init(project=self.project_id, location=self.location)
-        self._vertex_model = GenerativeModel(self.model_name)
+        raise RuntimeError("Vertex runtime is retired")
 
     def _call_vertex(
         self, prompt: str, latency: LatencyBreakdown
     ) -> tuple[list[dict[str, Any]], int, int]:
-        from vertexai.generative_models import GenerationConfig
-
-        t0 = time.perf_counter()
-        self._init_vertex()
-        latency.serialization_ms = (time.perf_counter() - t0) * 1000
-
-        assert self._vertex_model is not None
-        t_model = time.perf_counter()
-        response = self._vertex_model.generate_content(
-            prompt,
-            generation_config=GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=4096,
-                response_mime_type="application/json",
-            ),
+        raise RuntimeError(
+            f"Vertex runtime is retired ({len(prompt)} chars, latency={latency.total_ms if hasattr(latency, 'total_ms') else 'n/a'})"
         )
-        latency.model_ms = (time.perf_counter() - t_model) * 1000
-
-        t_deser = time.perf_counter()
-        text = response.text or "[]"
-        scores = _parse_scores(json.loads(text))
-        if scores is None:
-            raise ValueError("Vertex returned invalid rerank JSON")
-        input_tokens = _estimate_tokens(prompt)
-        output_tokens = _estimate_tokens(text)
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            input_tokens = int(
-                getattr(response.usage_metadata, "prompt_token_count", input_tokens)
-                or input_tokens
-            )
-            output_tokens = int(
-                getattr(
-                    response.usage_metadata, "candidates_token_count", output_tokens
-                )
-                or output_tokens
-            )
-        latency.deserialization_ms = (time.perf_counter() - t_deser) * 1000
-        return scores, input_tokens, output_tokens
 
     def _call_http(
         self, body_bytes: bytes, latency: LatencyBreakdown, timeout: float

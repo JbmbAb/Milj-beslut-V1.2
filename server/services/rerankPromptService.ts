@@ -1,4 +1,3 @@
-import { Storage } from '@google-cloud/storage';
 import { logger } from '../logger';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -79,36 +78,9 @@ export class RerankPromptService {
     return false;
   }
 
-  /**
-   * Downloads prompt from GCS with exponential backoff and jitter.
-   */
-  private static async downloadWithRetry(
-    storage: Storage,
-    bucket: string,
-    name: string,
-    maxRetries = 3,
-    baseDelayMs = 100
-  ): Promise<Buffer> {
-    let attempt = 0;
-    while (true) {
-      try {
-        const [contentBuffer] = await storage.bucket(bucket).file(name).download();
-        return contentBuffer;
-      } catch (error) {
-        attempt++;
-        if (attempt > maxRetries) {
-          throw error;
-        }
-        // Exponential backoff with random jitter
-        const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 100;
-        logger.warn(
-          `GCS-nedladdning misslyckades (försök ${attempt}/${maxRetries + 1}). Försöker igen om ${Math.round(
-            delay
-          )}ms. Fel: ${(error as Error).message}`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
+  /** GCS downloads are retired. */
+  private static async downloadWithRetry(): Promise<Buffer> {
+    throw new Error('GCS rerank prompt download is retired.');
   }
 
   /**
@@ -181,54 +153,9 @@ export class RerankPromptService {
       return this.activeFetchPromise;
     }
 
-    // 3. Try loading from GCS if configured
     if (gcsUri.startsWith('gs://')) {
-      // Check Rate Limiting
-      if (!this.acquireToken()) {
-        logger.warn(
-          `Hastighetsbegränsning överskriden för GCS-nedladdning (Rate Limit: 5 anrop/10s). Faller tillbaka direkt.`
-        );
-        return this.fallbackToLocalOrDefault(localFilePath, configVersion);
-      }
-
-      this.activeFetchPromise = (async () => {
-        try {
-          logger.info(`Laddar reranker-prompt från GCS: ${gcsUri} (version: ${configVersion})`);
-          const storage = new Storage();
-          const { bucket, name } = this.parseGsUri(gcsUri);
-          const contentBuffer = await this.downloadWithRetry(storage, bucket, name);
-          const raw = contentBuffer.toString('utf8');
-          const { template, metadata } = this.parsePromptFile(raw);
-          const version = this.resolveVersion(configVersion, metadata);
-
-          logger.info(
-            `Rerank prompt loaded from GCS (variant=${metadata.variant ?? 'n/a'}, hash=${metadata.hash ?? 'n/a'}, version=${version})`
-          );
-
-          this.cache = {
-            version,
-            template,
-            timestamp: Date.now(),
-            variant: metadata.variant,
-            hash: metadata.hash,
-          };
-
-          // Automatically trigger the background hydration daemon if not already running
-          this.startHydrationDaemon();
-
-          return { template, version };
-        } catch (error) {
-          logger.error(
-            `Misslyckades att ladda prompt från GCS (${gcsUri}) efter omförsök: ${(error as Error).message}. Faller tillbaka.`
-          );
-          // Return fallback paths
-          return this.fallbackToLocalOrDefault(localFilePath, configVersion);
-        } finally {
-          this.activeFetchPromise = null;
-        }
-      })();
-
-      return this.activeFetchPromise;
+      logger.warn('GCS rerank prompts are retired. Using the local prompt.');
+      return this.fallbackToLocalOrDefault(localFilePath, configVersion);
     }
 
     return this.fallbackToLocalOrDefault(localFilePath, configVersion);
@@ -268,54 +195,8 @@ export class RerankPromptService {
   /**
    * Starts the background cache hydration daemon to refresh the prompt before it expires.
    */
-  public static startHydrationDaemon(intervalMs = 4 * 60 * 1000): void {
-    const gcsUri = (process.env.LEGAL_RERANKER_PROMPT_GCS || '').trim();
-    if (!gcsUri.startsWith('gs://')) {
-      return; // No need to hydrate if not using GCS
-    }
-
-    if (this.hydrationInterval) {
-      return; // Already running
-    }
-
-    logger.info(`Startar bakgrundshydrering för reranker-prompter (intervall: ${intervalMs}ms)`);
-    this.hydrationInterval = setInterval(async () => {
-      try {
-        logger.debug('Kör bakgrundshydrering för GCS-reranker-prompt...');
-        
-        // We use acquireToken to respect rate limits even in the background daemon
-        if (!this.acquireToken()) {
-          logger.warn('Bakgrundshydrering hoppas över p.g.a. hastighetsbegränsning.');
-          return;
-        }
-
-        const configVersion = (process.env.LEGAL_RERANKER_PROMPT_VERSION || 'default').trim();
-        const storage = new Storage();
-        const { bucket, name } = this.parseGsUri(gcsUri);
-        const contentBuffer = await this.downloadWithRetry(storage, bucket, name);
-        const raw = contentBuffer.toString('utf8');
-        const { template, metadata } = this.parsePromptFile(raw);
-        const version = this.resolveVersion(configVersion, metadata);
-
-        this.cache = {
-          version,
-          template,
-          timestamp: Date.now(),
-          variant: metadata.variant,
-          hash: metadata.hash,
-        };
-        logger.info(
-          `Bakgrundshydrering lyckades (variant=${metadata.variant ?? 'n/a'}, hash=${metadata.hash ?? 'n/a'}, version=${version})`
-        );
-      } catch (error) {
-        logger.error(`Misslyckades vid bakgrundshydrering av reranker-prompt: ${(error as Error).message}`);
-      }
-    }, intervalMs);
-
-    // Unref the timer so it doesn't block node process from exiting
-    if (this.hydrationInterval && typeof this.hydrationInterval.unref === 'function') {
-      this.hydrationInterval.unref();
-    }
+  public static startHydrationDaemon(_intervalMs = 4 * 60 * 1000): void {
+    return;
   }
 
   /**

@@ -10,16 +10,12 @@
 import { createReadStream, promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { Storage } from '@google-cloud/storage';
 import { logger } from '../logger';
 
-let storageClient: Storage | null = null;
-
-function getGcsClient(): Storage {
-  if (!storageClient) {
-    storageClient = new Storage();
+function rejectRetiredGcs(ref: string): void {
+  if (isGcsUri(ref)) {
+    throw new Error('GCS is retired. Use a local filesystem path.');
   }
-  return storageClient;
 }
 
 export function isGcsUri(ref: string): boolean {
@@ -29,7 +25,7 @@ export function isGcsUri(ref: string): boolean {
 }
 
 export function gcsDocumentsEnabled(): boolean {
-  return Boolean(String(process.env.GCS_DOCUMENTS_BUCKET || '').trim());
+  return false;
 }
 
 /** gs://bucket/object/key → { bucket, name } */
@@ -57,16 +53,8 @@ export function buildGcsObjectUri(projectId: string, diskName: string): string {
  * För uppladdning: skriv buffer till mål. Vid GCS: `targetUri` ska vara `buildGcsObjectUri(...)`.
  * Vid lokal: `targetUri` är absolut filesystem-path.
  */
-export async function writeStorageFile(targetUri: string, body: Buffer, contentType?: string): Promise<void> {
-  if (isGcsUri(targetUri)) {
-    const { bucket, name } = parseGsUri(targetUri);
-    const file = getGcsClient().bucket(bucket).file(name);
-    await file.save(body, {
-      resumable: false,
-      metadata: contentType ? { contentType } : undefined,
-    });
-    return;
-  }
+export async function writeStorageFile(targetUri: string, body: Buffer, _contentType?: string): Promise<void> {
+  rejectRetiredGcs(targetUri);
 
   if (process.env.K_SERVICE) {
     logger.warn('document-storage: writing to local filesystem in a Cloud Run environment', { targetUri });
@@ -77,11 +65,7 @@ export async function writeStorageFile(targetUri: string, body: Buffer, contentT
 }
 
 export async function readStorageFile(absolutePath: string): Promise<Buffer> {
-  if (isGcsUri(absolutePath)) {
-    const { bucket, name } = parseGsUri(absolutePath);
-    const [buf] = await getGcsClient().bucket(bucket).file(name).download();
-    return buf;
-  }
+  rejectRetiredGcs(absolutePath);
 
   if (process.env.K_SERVICE) {
     logger.warn('document-storage: reading from local filesystem in a Cloud Run environment', {
@@ -93,20 +77,13 @@ export async function readStorageFile(absolutePath: string): Promise<Buffer> {
 }
 
 export function createStorageReadStream(absolutePath: string): Readable {
-  if (isGcsUri(absolutePath)) {
-    const { bucket, name } = parseGsUri(absolutePath);
-    return getGcsClient().bucket(bucket).file(name).createReadStream();
-  }
+  rejectRetiredGcs(absolutePath);
   return createReadStream(absolutePath);
 }
 
 export async function storageFileExists(absolutePath: string): Promise<boolean> {
   try {
-    if (isGcsUri(absolutePath)) {
-      const { bucket, name } = parseGsUri(absolutePath);
-      const [exists] = await getGcsClient().bucket(bucket).file(name).exists();
-      return Boolean(exists);
-    }
+    if (isGcsUri(absolutePath)) return false;
     await fsp.access(absolutePath);
     return true;
   } catch {
@@ -117,11 +94,7 @@ export async function storageFileExists(absolutePath: string): Promise<boolean> 
 export async function deleteStorageFile(absolutePath: string): Promise<void> {
   if (!absolutePath) return;
   try {
-    if (isGcsUri(absolutePath)) {
-      const { bucket, name } = parseGsUri(absolutePath);
-      await getGcsClient().bucket(bucket).file(name).delete({ ignoreNotFound: true });
-      return;
-    }
+    rejectRetiredGcs(absolutePath);
 
     if (process.env.K_SERVICE) {
       logger.warn('document-storage: deleting from local filesystem in a Cloud Run environment', {
@@ -139,13 +112,7 @@ export async function statStorageFile(
   absolutePath: string,
 ): Promise<{ size: bigint; mtimeMs: number } | null> {
   try {
-    if (isGcsUri(absolutePath)) {
-      const { bucket, name } = parseGsUri(absolutePath);
-      const [meta] = await getGcsClient().bucket(bucket).file(name).getMetadata();
-      const size = BigInt(String(meta.size ?? 0));
-      const t = meta.updated ? Date.parse(String(meta.updated)) : Date.now();
-      return { size, mtimeMs: t };
-    }
+    rejectRetiredGcs(absolutePath);
     const s = await fsp.stat(absolutePath);
     return { size: BigInt(s.size), mtimeMs: s.mtimeMs };
   } catch {

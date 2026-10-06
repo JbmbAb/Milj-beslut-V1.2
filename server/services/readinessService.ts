@@ -34,12 +34,7 @@ export interface ReadinessPayload {
  * Anropas vid serverstart för att förhindra start med felaktig konfiguration.
  */
 export function assertRequiredEnv() {
-  const required = [
-    'DATABASE_URL',
-    'JWT_ACCESS_SECRET',
-    'JWT_REFRESH_SECRET',
-    'VERTEX_PROJECT_ID',
-  ];
+  const required = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'];
 
   const missing: string[] = [];
 
@@ -74,19 +69,10 @@ export async function getReadinessPayload(): Promise<ReadinessPayload> {
   }
 
   const gcs = gcsDocumentsEnabled();
-  let storageState: IntegrationState;
-  let storageNote: string | undefined;
-  if (gcs) {
-    storageState = 'ok';
-  } else if (process.env.NODE_ENV === 'production') {
-    storageState = 'warning';
-    storageNote =
-      'GCS_DOCUMENTS_BUCKET saknas — uppladdade filer lagras på lokalt filsystem (ephemeral på Cloud Run).';
-  } else {
-    storageState = 'ok';
-  }
+  const storageState: IntegrationState = 'ok';
+  const storageNote = 'Local filesystem storage. GCS is retired.';
 
-  const ok = database === 'ok' && vertexState === 'ok';
+  const ok = database === 'ok';
 
   return {
     ok,
