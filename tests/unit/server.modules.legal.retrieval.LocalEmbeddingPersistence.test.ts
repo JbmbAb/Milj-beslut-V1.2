@@ -6,11 +6,19 @@
  * persistence function that refuses anything that is not exactly one of them before any SQL runs.
  * The historical Google rows stay untouched, are never read as local, and are never migrated.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+const db = vi.hoisted(() => ({
+  queryRawUnsafe: vi.fn(async (..._args: unknown[]) => [] as unknown[]),
+}));
+
+vi.mock("../../server/db/prisma", () => ({
+  prisma: { $queryRawUnsafe: db.queryRawUnsafe },
+}));
+
 import {
   bindEmbeddingIdentity,
   bindLocalEmbeddingIdentity,
@@ -19,6 +27,7 @@ import {
 } from "@miljobeslut/mps-embedding-identity";
 import { EmbeddingProviderError } from "../../server/modules/legal/retrieval/EmbeddingProvider";
 import {
+  LOCAL_EMBEDDING_INSERT_SQL,
   LOCAL_EMBEDDING_TABLE,
   assertLocalQueryVector,
   buildPersistLocalEmbeddingStatement,
@@ -95,23 +104,32 @@ describe("buildPersistLocalEmbeddingStatement", () => {
 });
 
 describe("persistLocalChunkEmbedding", () => {
-  it("runs exactly one statement through the injected executor and reports an insert", async () => {
-    const queryRawUnsafe = vi.fn(async () => [{ id: "row-1" }]);
-    const res = await persistLocalChunkEmbedding(IDENTITY, vec(1024), { queryRawUnsafe });
-    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
+  beforeEach(() => db.queryRawUnsafe.mockReset());
+
+  it("runs exactly one statement, the pinned local insert, and reports an insert", async () => {
+    db.queryRawUnsafe.mockResolvedValueOnce([{ id: "row-1" }]);
+    const res = await persistLocalChunkEmbedding(IDENTITY, vec(1024));
+    expect(db.queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(db.queryRawUnsafe.mock.calls[0]![0]).toBe(LOCAL_EMBEDDING_INSERT_SQL);
     expect(res).toEqual({ inserted: true, embedding_identity_hash: IDENTITY.embedding_identity_hash });
   });
 
+  it("the insert statement is a plain literal naming exactly LOCAL_EMBEDDING_TABLE (readable by the write inventory)", () => {
+    expect(LOCAL_EMBEDDING_INSERT_SQL).toContain(`INSERT INTO "${LOCAL_EMBEDDING_TABLE}"`);
+    expect(LOCAL_EMBEDDING_INSERT_SQL).not.toContain("${");
+    expect(LOCAL_EMBEDDING_INSERT_SQL).toContain("$9::vector(1024)");
+  });
+
   it("reports an idempotent replay (ON CONFLICT DO NOTHING returns no row) as inserted=false", async () => {
-    const res = await persistLocalChunkEmbedding(IDENTITY, vec(1024), { queryRawUnsafe: vi.fn(async () => []) });
+    db.queryRawUnsafe.mockResolvedValueOnce([]);
+    const res = await persistLocalChunkEmbedding(IDENTITY, vec(1024));
     expect(res.inserted).toBe(false);
   });
 
-  it("never reaches the executor for an invalid vector or identity", async () => {
-    const queryRawUnsafe = vi.fn(async () => [{ id: "x" }]);
-    await expect(persistLocalChunkEmbedding(IDENTITY, vec(3072), { queryRawUnsafe })).rejects.toThrow();
-    await expect(persistLocalChunkEmbedding(GOOGLE_IDENTITY, vec(1024), { queryRawUnsafe })).rejects.toThrow();
-    expect(queryRawUnsafe).not.toHaveBeenCalled();
+  it("never reaches the database for an invalid vector or identity", async () => {
+    await expect(persistLocalChunkEmbedding(IDENTITY, vec(3072))).rejects.toThrow();
+    await expect(persistLocalChunkEmbedding(GOOGLE_IDENTITY, vec(1024))).rejects.toThrow();
+    expect(db.queryRawUnsafe).not.toHaveBeenCalled();
   });
 });
 

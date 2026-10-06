@@ -273,6 +273,31 @@ describe("createLocalEmbeddingProviderFromEnv -- explicit configuration only, no
     expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, [name]: undefined })).toThrow(EmbeddingProviderError);
   });
 
+  it.each(["psql.exe", "C:/Windows/System32/cmd.exe", "bash", "node", "python.exe.bat", "pythonw-evil.exe"])(
+    "accepts only a Python interpreter as the runtime: %s is refused",
+    (name) => {
+      expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: `D:/runtime/${name}` })).toThrow(
+        EmbeddingProviderError,
+      );
+    },
+  );
+
+  it("requires an absolute interpreter path (no PATH lookup of a bare name)", () => {
+    expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: "python" })).toThrow(EmbeddingProviderError);
+  });
+
+  it.each(["D:/runtime/venv/Scripts/python.exe", "/opt/venv/bin/python3", "/opt/venv/bin/python3.13"])(
+    "accepts a Python interpreter path (%s) and passes its directory on",
+    (python) => {
+      const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
+      createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: python }, { createTransport });
+      const cfg = createTransport.mock.calls[0]![0];
+      expect(cfg.pythonPath).toBe(python);
+      expect(python.startsWith(cfg.interpreterDir)).toBe(true);
+      expect(cfg.interpreterDir.length).toBeLessThan(python.length);
+    },
+  );
+
   it("rejects an unknown device value instead of defaulting", () => {
     expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_DEVICE: "tpu" })).toThrow(
       EmbeddingProviderError,

@@ -21,7 +21,6 @@ import {
   type LocalEmbeddingPipelineSpec,
 } from "@miljobeslut/mps-embedding-identity";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { EmbeddingProviderError, type EmbeddingProvider } from "./EmbeddingProvider";
 import { createLocalEmbeddingWorkerTransport } from "./LocalEmbeddingWorkerTransport";
 
@@ -200,10 +199,12 @@ export function createLocalEmbeddingProvider(options: CreateLocalEmbeddingProvid
 }
 
 export interface LocalEmbeddingTransportConfig {
+  /** The configured interpreter of the pinned runtime (its file name is verified to be python). */
   readonly pythonPath: string;
+  /** Directory of that interpreter; the transport puts it first on the worker's PATH. */
+  readonly interpreterDir: string;
   readonly hfHome: string;
   readonly device: LocalEmbeddingDevice;
-  readonly workerScript: string;
   readonly timeoutMs: number;
 }
 
@@ -214,13 +215,26 @@ export interface LocalEmbeddingEnvDeps {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-/** The bundled worker sits next to this module; the working directory is only the fallback for loaders that give no file URL. */
-function defaultWorkerScript(): string {
-  const here = import.meta.url;
-  if (typeof here === "string" && here.startsWith("file:")) {
-    return path.join(path.dirname(fileURLToPath(here)), "localEmbeddingWorker.py");
+/** The configured runtime can be a Python interpreter and nothing else (python, python3, python3.13, with or without .exe). */
+const PYTHON_INTERPRETER_NAME = /^python(\d+(\.\d+)*)?(\.exe)?$/i;
+
+/** Directory of the configured interpreter, or an error if the configured file is not a Python interpreter. */
+function interpreterDirectoryOf(pythonPath: string): string {
+  // path.win32 understands both separators, so a Windows and a POSIX path are read the same way.
+  const file = path.win32.basename(pythonPath);
+  if (!PYTHON_INTERPRETER_NAME.test(file)) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+      `MIMER_LOCAL_EMBEDDING_PYTHON must name a Python interpreter (python, python3, python.exe ...), got '${file}'`,
+    );
   }
-  return path.resolve(process.cwd(), "server/modules/legal/retrieval/localEmbeddingWorker.py");
+  if (!path.win32.isAbsolute(pythonPath)) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+      "MIMER_LOCAL_EMBEDDING_PYTHON must be an absolute path to the pinned runtime's interpreter",
+    );
+  }
+  return path.win32.dirname(pythonPath);
 }
 
 function required(env: Readonly<Record<string, string | undefined>>, name: string): string {
@@ -239,11 +253,10 @@ function required(env: Readonly<Record<string, string | undefined>>, name: strin
  * an unconfigured process cannot embed, and says so.
  *
  *   MIMER_LOCAL_EMBEDDING_MODEL    bge-m3 | multilingual-e5-large   (required)
- *   MIMER_LOCAL_EMBEDDING_PYTHON   python interpreter of the pinned runtime   (required)
+ *   MIMER_LOCAL_EMBEDDING_PYTHON   path of the pinned runtime's Python interpreter   (required; a python file only)
  *   MIMER_LOCAL_EMBEDDING_HF_HOME  Hugging Face home holding the pinned snapshots   (required)
  *   MIMER_LOCAL_EMBEDDING_DEVICE   cuda | cpu   (default cuda; a cpu run is only ever explicit)
  *   MIMER_LOCAL_EMBEDDING_TIMEOUT_MS   per-request timeout   (default 120000)
- *   MIMER_LOCAL_EMBEDDING_WORKER_SCRIPT   override of the bundled worker script   (optional)
  */
 export function createLocalEmbeddingProviderFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -277,28 +290,12 @@ export function createLocalEmbeddingProviderFromEnv(
     );
   }
 
-  const workerScript = env.MIMER_LOCAL_EMBEDDING_WORKER_SCRIPT?.trim() || defaultWorkerScript();
-
-  const config: LocalEmbeddingTransportConfig = { pythonPath, hfHome, device, workerScript, timeoutMs };
+  const interpreterDir = interpreterDirectoryOf(pythonPath);
+  const config: LocalEmbeddingTransportConfig = { pythonPath, interpreterDir, hfHome, device, timeoutMs };
   const transport =
     deps.createTransport?.(config) ??
     createLocalEmbeddingWorkerTransport({
-      command: pythonPath,
-      buildArgs: (spec) => [
-        workerScript,
-        "--hf-home",
-        hfHome,
-        "--repo",
-        spec.hf_repo,
-        "--revision",
-        spec.hf_revision,
-        "--pipeline",
-        spec.pipeline_version,
-        "--dimension",
-        String(LOCAL_EMBEDDING_DIMENSION),
-        "--device",
-        device,
-      ],
+      interpreterDir,
       hfHome,
       device,
       timeoutMs,

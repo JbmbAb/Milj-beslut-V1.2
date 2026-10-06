@@ -7,6 +7,7 @@
  * failure becomes a rejection -- never a vector.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -54,15 +55,19 @@ function workerFile(): string {
   return file;
 }
 
+const INTERPRETER_DIR = path.join(os.tmpdir(), "mimer-fake-python-dir");
+
 function makeTransport(mode: string, opts: { dump?: string; timeoutMs?: number; startupTimeoutMs?: number } = {}) {
   const file = workerFile();
   const t = createLocalEmbeddingWorkerTransport({
-    command: process.execPath,
-    buildArgs: () => [file, mode, ...(opts.dump ? [opts.dump] : [])],
+    interpreterDir: INTERPRETER_DIR,
     hfHome: path.join(os.tmpdir(), "mimer-fake-hf-home"),
     device: "cuda",
     timeoutMs: opts.timeoutMs ?? 5000,
     startupTimeoutMs: opts.startupTimeoutMs ?? 5000,
+    // The injected starter gets the exact environment the transport built for the child.
+    spawnWorker: (env) =>
+      spawn(process.execPath, [file, mode, ...(opts.dump ? [opts.dump] : [])], { env: { ...env }, stdio: ["pipe", "pipe", "pipe"] }),
   });
   transports.push(t);
   return t;
@@ -174,6 +179,29 @@ describe("LocalEmbeddingWorkerTransport", () => {
     expect(childEnv.HF_HUB_OFFLINE).toBe("1");
     expect(childEnv.TRANSFORMERS_OFFLINE).toBe("1");
     expect(childEnv.HF_HOME).toBe(path.join(os.tmpdir(), "mimer-fake-hf-home"));
+  });
+
+  it("hands the worker its pinned settings through the environment, with the interpreter directory first on PATH", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mimer-fake-embed-dump-"));
+    created.push(dir);
+    const dump = path.join(dir, "dump.json");
+    const t = makeTransport("ok", { dump });
+    await t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null });
+    const childEnv = JSON.parse(fs.readFileSync(dump, "utf8")).env as Record<string, string>;
+    expect(childEnv.MIMER_EMBED_REPO).toBe(BGE.hf_repo);
+    expect(childEnv.MIMER_EMBED_REVISION).toBe(BGE.hf_revision);
+    expect(childEnv.MIMER_EMBED_PIPELINE).toBe(BGE.pipeline_version);
+    expect(childEnv.MIMER_EMBED_DIMENSION).toBe("1024");
+    expect(childEnv.MIMER_EMBED_DEVICE).toBe("cuda");
+    const pathKey = Object.keys(childEnv).find((k) => k.toUpperCase() === "PATH")!;
+    expect(childEnv[pathKey]!.split(path.delimiter)[0]).toBe(INTERPRETER_DIR);
+  });
+
+  it("refuses to serve a second model: one transport is bound to the model it started with", async () => {
+    const t = makeTransport("ok");
+    const E5 = getLocalEmbeddingPipelineByKey("multilingual-e5-large")!;
+    await t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null });
+    await expect(t.embed(E5, { role: "query", texts: ["a"], max_seq_length: null })).rejects.toThrow(/bound to 'bge-m3'/);
   });
 
   it("terminates the child on close()", async () => {
