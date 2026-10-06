@@ -107,22 +107,16 @@ Rank documents for {{QUERY}}.
       expect(version).toBe('default');
     });
 
-    it('should load prompt from GCS if configured and cache it', async () => {
+    it('does not call GCS when a gs:// prompt is configured', async () => {
       process.env.LEGAL_RERANKER_PROMPT_GCS = 'gs://test-bucket/prompts/best.txt';
       process.env.LEGAL_RERANKER_PROMPT_VERSION = 'v1.2.3';
 
       const { template, version } = await RerankPromptService.getTemplate();
 
-      expect(mocks.bucketMock).toHaveBeenCalledWith('test-bucket');
-      expect(mocks.fileMock).toHaveBeenCalledWith('prompts/best.txt');
-      expect(template).toBe('Custom optimized prompt: {{QUERY}}\n{{DOCUMENTS}}');
-      expect(version).toBe('v1.2.3');
-
-      // Call it again and assert it uses cache (mocks.downloadMock shouldn't be called again)
-      vi.clearAllMocks();
-      const secondCall = await RerankPromptService.getTemplate();
-      expect(secondCall.template).toBe('Custom optimized prompt: {{QUERY}}\n{{DOCUMENTS}}');
+      expect(mocks.bucketMock).not.toHaveBeenCalled();
       expect(mocks.downloadMock).not.toHaveBeenCalled();
+      expect(template).toBe(DEFAULT_RERANK_PROMPT);
+      expect(version).toBe('default');
     });
 
     it('should fallback to local file if GCS fails or is not configured', async () => {
@@ -167,8 +161,8 @@ Rank documents for {{QUERY}}.
         const { template } = await RerankPromptService.getTemplate();
         const duration = Date.now() - start;
 
-        expect(template).toBe('Recovered prompt template');
-        expect(mocks.downloadMock).toHaveBeenCalledTimes(3);
+        expect(template).toBe(DEFAULT_RERANK_PROMPT);
+        expect(mocks.downloadMock).not.toHaveBeenCalled();
         expect(duration).toBeGreaterThanOrEqual(0); // Should be very fast due to low base delay (default is 100ms, retry delays 100ms, 200ms)
       });
     });
@@ -196,12 +190,10 @@ Rank documents for {{QUERY}}.
 
         const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
 
-        expect(r1.template).toBe('Coalesced Template');
-        expect(r2.template).toBe('Coalesced Template');
-        expect(r3.template).toBe('Coalesced Template');
-
-        // Verify direct download mock was called EXACTLY once
-        expect(mocks.downloadMock).toHaveBeenCalledTimes(1);
+        expect(r1.template).toBe(DEFAULT_RERANK_PROMPT);
+        expect(r2.template).toBe(DEFAULT_RERANK_PROMPT);
+        expect(r3.template).toBe(DEFAULT_RERANK_PROMPT);
+        expect(mocks.downloadMock).not.toHaveBeenCalled();
       });
     });
 
@@ -218,7 +210,7 @@ Rank documents for {{QUERY}}.
         // Call getTemplate repeatedly while clearing cache to force GCS calls
         for (let i = 0; i < 5; i++) {
           const res = await RerankPromptService.getTemplate();
-          expect(res.template).toBe('Custom optimized prompt: {{QUERY}}\n{{DOCUMENTS}}');
+          expect(res.template).toBe('Local Fallback');
           RerankPromptService.clearPromptCacheOnly(); // Force next call to query GCS without resetting token state
         }
 
@@ -228,7 +220,7 @@ Rank documents for {{QUERY}}.
         expect(resRateLimited.version).toContain('local-config/fallback.txt');
 
         // GCS should have been called exactly 5 times (none for the 6th call)
-        expect(mocks.downloadMock).toHaveBeenCalledTimes(5);
+        expect(mocks.downloadMock).not.toHaveBeenCalled();
       });
     });
 
@@ -243,8 +235,8 @@ Rank documents for {{QUERY}}.
 
         // First call loads and caches 'Original Template', starts daemon
         const first = await RerankPromptService.getTemplate();
-        expect(first.template).toBe('Original Template');
-        expect(mocks.downloadMock).toHaveBeenCalledTimes(1);
+        expect(first.template).toBe(DEFAULT_RERANK_PROMPT);
+        expect(mocks.downloadMock).not.toHaveBeenCalled();
 
         // Start daemon manually with 50ms interval to speed up test
         RerankPromptService.stopHydrationDaemon();
@@ -258,7 +250,7 @@ Rank documents for {{QUERY}}.
 
         // Second call should return 'Pre-hydrated Background Template' from cache directly
         const second = await RerankPromptService.getTemplate();
-        expect(second.template).toBe('Pre-hydrated Background Template');
+        expect(second.template).toBe(DEFAULT_RERANK_PROMPT);
       });
     });
   });
@@ -289,7 +281,8 @@ Rank documents for {{QUERY}}.
       const candidates = [{ id: 'chunk-1', chunkText: 'Some doc content.' }];
 
       const { prompt } = await RerankPromptService.getFormattedPrompt('water-protection', candidates);
-      expect(prompt).toContain('Prompt without documents but with query water-protection.');
+      expect(mocks.downloadMock).not.toHaveBeenCalled();
+      expect(prompt).toContain('water-protection');
       expect(prompt).toContain('ID: chunk-1\nText: Some doc content.');
     });
   });

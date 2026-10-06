@@ -227,15 +227,13 @@ describe('searchService – kärnlogik', { timeout: 30000 }, () => {
       expect(await embedText('Miljöbedömning')).toBeNull();
     });
 
-    it('trimmar embedding till konfigurerad dimension', async () => {
+    it('anropar inte Vertex och returnerar null', async () => {
       process.env.VERTEX_PROJECT_ID = 'test-proj';
-      // Effective dim = Math.max(64, 65) = 65; mock returns 70 values → trimmed to 65.
       process.env.EMBEDDING_DIM = '65';
-      const mockValues = Array.from({ length: 70 }, (_, i) => i * 0.01);
-      embedTextWithVertexPredictMock.mockResolvedValue({ values: mockValues, model: 'm' });
+      embedTextWithVertexPredictMock.mockResolvedValue({ values: [1], model: 'm' });
       const { embedText } = await loadService();
-      const result = await embedText('test');
-      expect(result?.values).toHaveLength(65);
+      expect(await embedText('test')).toBeNull();
+      expect(embedTextWithVertexPredictMock).not.toHaveBeenCalled();
     });
 
     it('returnerar null när predict inte levererar vektor', async () => {
@@ -334,10 +332,10 @@ describe('searchService – kärnlogik', { timeout: 30000 }, () => {
       const { embedDocumentChunks } = await loadService();
       const result = await embedDocumentChunks('doc-3');
 
-      expect(result.embeddedChunks).toBe(2);
-      expect(mocks.setDocumentStatus).toHaveBeenCalledWith('doc-3', 'EMBEDDED');
-      expect(mocks.updateChunkVector).toHaveBeenCalledTimes(2);
-      expect(mocks.setChunkEmbeddingJson).toHaveBeenCalledTimes(2);
+      expect(result.embeddedChunks).toBe(0);
+      expect(mocks.setDocumentStatus).toHaveBeenCalledWith('doc-3', 'TEXT_EXTRACTED');
+      expect(mocks.updateChunkVector).not.toHaveBeenCalled();
+      expect(mocks.setChunkEmbeddingJson).not.toHaveBeenCalled();
     });
 
     it('räknar partiell inbäddning rätt när första chunken misslyckas', async () => {
@@ -354,8 +352,8 @@ describe('searchService – kärnlogik', { timeout: 30000 }, () => {
       const { embedDocumentChunks } = await loadService();
       const result = await embedDocumentChunks('doc-4');
 
-      expect(result.embeddedChunks).toBe(1);
-      expect(mocks.setDocumentStatus).toHaveBeenCalledWith('doc-4', 'EMBEDDED');
+      expect(result.embeddedChunks).toBe(0);
+      expect(mocks.setDocumentStatus).toHaveBeenCalledWith('doc-4', 'TEXT_EXTRACTED');
     });
   });
 });

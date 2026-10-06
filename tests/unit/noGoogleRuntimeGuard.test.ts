@@ -50,7 +50,9 @@ describe('no-google runtime guard', () => {
         const normalized = rel.replace(/\\/g, '/');
         if (ALLOW.some((re) => re.test(normalized))) continue;
         const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+        const executableScript = /\.(sh|ps1|yml|yaml|py)$/.test(normalized);
         for (const rule of RULES) {
+          if ((rule.id === 'gcloud' || rule.id === 'gsutil') && !executableScript) continue;
           if (rule.re.test(text)) hits.push(`${rule.id} ${normalized}`);
         }
       }

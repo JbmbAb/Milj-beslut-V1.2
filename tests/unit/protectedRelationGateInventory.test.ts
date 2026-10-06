@@ -68,9 +68,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 75,
-  reviewedSites: 161,
-  reviewedSha256: '556a2f9182d82a244d9f5f0e9d720faa3baf687d662de551613fd6ae9eb0be64',
+  reviewedEntries: 74,
+  reviewedSites: 160,
+  reviewedSha256: 'ffe3000149b472736034531b9d34bf2b9fced8db76bc7269dc94bef22d4fb190',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
@@ -89,7 +89,7 @@ const LOCKS = {
   openDecisionsSha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
   // U30F6 (F5-3): the reviewed launches that resolve to no repository file (and their category arguments)
   unresolvedLaunches: 67,
-  unresolvedLaunchesSha256: '852ac3ddbb80a925c59ada2ed95c9d76a47b1b999bcd1f67e809563b37fdba72',
+  unresolvedLaunchesSha256: '395ce5eb279d4216a6ef0a198f85782cceb46b21bd80c32cc8955b03fe0cc4ef',
 } as const;
 
 function sha256Of(value: unknown): string {

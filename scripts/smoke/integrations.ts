@@ -177,7 +177,7 @@ async function runChecks(): Promise<IntegrationCheck[]> {
     const status = vertexConfigStatus();
     const authNote = status.hasExplicitServiceAccountFile
       ? 'service account via env'
-      : 'förlitar sig på ADC (gcloud) eller molnets workload identity';
+      : 'Vertex is retired and is not part of local readiness';
     checks.push({
       name: 'vertex_ai',
       status: status.configured ? 'CONFIGURED' : 'MISSING',

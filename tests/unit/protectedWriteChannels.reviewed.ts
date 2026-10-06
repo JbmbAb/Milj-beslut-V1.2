@@ -1068,19 +1068,8 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "DYNAMIC PROCESS spawnSync | spawnSync('npx', ['tsx', ...args], { stdio: 'inherit', cwd: process.cwd(), env: process.env, shell: process.platform === 'win32', })",
     ],
   },
-  {
-    file: "scripts/import/sync-sgu-tier1-to-drive.ps1",
-    policy: "DYNAMIC_REVIEWED",
-    contentSha256: "76fe695dae11a08d3eb9a6c932c55aa7b82bde3adb4eca023e7337031bb307a8",
-    reachability: "Operator-run archive sync (pwsh -File); no npm script, CI step or runbook names it (grep 2026-10-03); rclone in docker, no DB.",
-    reviewedOn: "2026-10-03",
-    reviewedBy: "U30F8 W-U30F3 (Claude Opus 5.5): content pin (G6-2) -- the entry's review is the unit its justification names; the reachability field was added by U30F9 W-U30F9 (Claude Fable 5.1) from the justification and a repository grep (reachability-grep.json), without re-reading the file",
-    justification:
-      "Archive sync: docker run rclone/rclone with rclone arguments built in-file and passed as a splat (@args); a file-sync tool against the archive drive, no database.",
-    sites: [
-      "DYNAMIC PROCESS powershell | docker run --rm --dns 8.8.8.8 ` -v \"${rcloneConfig}:/config/rclone:ro\" ` @args ` rclone/rclone @args ` --config /config/rclone/rclone.conf",
-    ],
-  },
+  // W-NO-GOOGLE-02 (2026-10-06): withdrew scripts/import/sync-sgu-tier1-to-drive.ps1.
+  // The Google Drive upload script was deleted. Its content pin remains in git history through 3451fb72.
   {
     file: "scripts/import/test-harvest-sgu-jordart-norrland.ts",
     policy: "DYNAMIC_REVIEWED",
@@ -1353,7 +1342,8 @@ export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs:
   //   .github/workflows/vertex_prompt_optimize.yml -> python -m pytest
   // Those launcher files were deleted. An active pin of a launch no file answers is stale.
   // The previous entries remain in git history through 1b0e3db5.
-  { by: "scripts/ci_update_and_smoke_test.sh", runs: "python -m pytest", category: "INSTALLED_MODULE", justification: "pytest from the gitignored alphaevolve-on-googlecloud/.venv, on that separate checkout's tests (.gitignore: alphaevolve-on-googlecloud/)." },
+  // W-NO-GOOGLE-02 (2026-10-06): withdrew scripts/ci_update_and_smoke_test.sh -> python -m pytest.
+  // The AlphaEvolve checkout launcher was deleted. The previous entry remains in git history through 3451fb72.
   { by: "docs/alphaevolve/EXPERIMENTS.md", runs: "python -m examples.circle_packing.src.run_evolution", category: "INSTALLED_MODULE", justification: "a module of the separate, gitignored alphaevolve-on-googlecloud checkout (the runbook's working directory), not of this repository." },
   { by: "docs/alphaevolve/EXPERIMENTS.md", runs: "python -m examples.list_deduplication.src.run_evolution", category: "INSTALLED_MODULE", justification: "a module of the separate, gitignored alphaevolve-on-googlecloud checkout, not of this repository." },
   { by: "docs/alphaevolve/SETUP.md", runs: "python -m pytest", category: "INSTALLED_MODULE", justification: "pytest from the alphaevolve-on-googlecloud .venv on that checkout's tests." },
@@ -1385,6 +1375,7 @@ export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs:
   { by: "docs/alphaevolve/SETUP.md", runs: "../scripts/alphaevolve/verify-gcp.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/verify-gcp.ps1. This relative runbook line does not launch a repository file." },
   { by: "docs/google-ai/SETUP.md", runs: "scripts/google-ai/setup.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/google-ai/setup.ps1. docs/google-ai/SETUP.md remains historical text and does not launch a repository file." },
   { by: "docs/ops/local-prod-fas2.md", runs: "scripts/ops/sync-prod-secrets-gcp.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/ops/sync-prod-secrets-gcp.ps1. The local-prod note remains historical text and does not launch a repository file." },
+  { by: "docs/ops/backfill-codex-instructions.md", runs: "scripts/backfill/extract-metadata-pass3-llm.ts", category: "MISSING_FILE", justification: "W-NO-GOOGLE-02 deleted scripts/backfill/extract-metadata-pass3-llm.ts. The backfill note remains historical text and does not launch a repository file." },
   { by: "package.json", runs: "scripts/run-staging-smoke.mjs", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (git ls-files: 0 run-staging-smoke.mjs)." },
   { by: "package.json", runs: "scripts/export-figma.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 export-figma.ts)." },
   { by: "package.json", runs: "scripts/import/idempotent-ingest.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 idempotent-ingest.ts)." },

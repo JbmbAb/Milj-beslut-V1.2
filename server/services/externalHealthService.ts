@@ -199,7 +199,7 @@ async function probeVertexAi(): Promise<ExternalHealthCheck> {
       status: 'not_configured',
       mode: 'config',
       configured: false,
-      detail: `Saknas: ${st.missing.join(', ')}. Använd ADC (t.ex. gcloud) eller service account i molnet.`,
+      detail: `Vertex is retired and is not required for local readiness. Missing config was: ${st.missing.join(', ') || 'none'}.`,
       endpoint: 'https://cloud.google.com/vertex-ai',
       activation: 'OPTIONAL',
     });
