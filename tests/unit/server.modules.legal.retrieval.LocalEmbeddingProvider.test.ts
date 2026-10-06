@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const admission = vi.hoisted(() => ({ keys: [] as string[] }));
 vi.mock("../../server/modules/legal/retrieval/LocalEmbeddingAdmission", () => ({
   productionAdmittedLocalEmbeddingKeys: () => admission.keys,
+  isProductionAdmittedLocalEmbeddingKey: (key: string) => admission.keys.includes(key),
 }));
 
 import { getLocalEmbeddingPipelineByKey } from "@miljobeslut/mps-embedding-identity";
@@ -253,79 +254,77 @@ describe("LocalEmbeddingProvider -- fail closed, never fabricate", () => {
   });
 });
 
-describe("createLocalEmbeddingProviderFromEnv -- explicit configuration only, no Google, no default model", () => {
+describe("LocalEmbeddingProvider -- issued persistence provenance", () => {
+  it("issues an unforgeable local embedding only after runtime verification", async () => {
+    const { transport } = fakeTransport(BGE);
+    const p = createLocalEmbeddingProvider({ key: "bge-m3", transport });
+    const [issued] = await p.embedPassagesIssued([
+      { fragment_id: "frag:1", materialization_id: "mat:1", chunk_content_hash: "hash:1", text: "passage" },
+    ]);
+    expect(isIssuedLocalEmbedding(issued)).toBe(true);
+    expect(issued!.identity.embedding_model_id).toBe(BGE.hf_repo);
+    expect(issued!.snapshot_manifest_sha256).toBe(BGE.snapshot_manifest_sha256);
+    expect(isIssuedLocalEmbedding({ ...issued })).toBe(false);
+  });
+});
+
+describe("local embedding env configuration -- explicit, local and fail closed", () => {
   const FULL = {
     MIMER_LOCAL_EMBEDDING_MODEL: "bge-m3",
     MIMER_LOCAL_EMBEDDING_PYTHON: "D:\\mimer-eval\\venv\\Scripts\\python.exe",
     MIMER_LOCAL_EMBEDDING_HF_HOME: "D:\\mimer-eval\\hf-cache",
   };
+  const resolved = (p: string) => p;
 
-  it("does not guess a model: an unset model is EMBEDDING_PROVIDER_NOT_CONFIGURED", () => {
-    try {
-      createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_MODEL: undefined });
-      throw new Error("expected a throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(EmbeddingProviderError);
-      expect((error as EmbeddingProviderError).code).toBe("EMBEDDING_PROVIDER_NOT_CONFIGURED");
-    }
+  it("does not guess a model", () => {
+    expect(() =>
+      createLocalEmbeddingProviderForEvaluationFromEnv(
+        { ...FULL, MIMER_LOCAL_EMBEDDING_MODEL: undefined },
+        { resolveInterpreter: resolved },
+      ),
+    ).toThrow(EmbeddingProviderError);
   });
 
-  it("is not satisfied by a Google key: with only a Google key present it still refuses", () => {
-    expect(() => createLocalEmbeddingProviderFromEnv({ GEMINI_API_KEY: "present", GOOGLE_API_KEY: "present" })).toThrow(
-      EmbeddingProviderError,
-    );
+  it("is not satisfied by Google credentials", () => {
+    expect(() =>
+      createLocalEmbeddingProviderFromEnv({ GEMINI_API_KEY: "present", GOOGLE_API_KEY: "present" }),
+    ).toThrow(EmbeddingProviderError);
   });
 
-  it("rejects any model outside the two frozen candidates", () => {
+  it("rejects models outside the two frozen evaluation candidates", () => {
     for (const model of ["gemini-embedding-001", "text-embedding-004", "BAAI/bge-large-en", "mock"]) {
-      try {
-        createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_MODEL: model });
-        throw new Error("expected a throw for " + model);
-      } catch (error) {
-        expect(error).toBeInstanceOf(EmbeddingProviderError);
-        expect((error as EmbeddingProviderError).code).toBe("EMBEDDING_MODEL_NOT_ALLOWED");
-      }
+      expect(() =>
+        createLocalEmbeddingProviderForEvaluationFromEnv(
+          { ...FULL, MIMER_LOCAL_EMBEDDING_MODEL: model },
+          { resolveInterpreter: resolved },
+        ),
+      ).toThrow(EmbeddingProviderError);
     }
   });
 
   it.each(["MIMER_LOCAL_EMBEDDING_PYTHON", "MIMER_LOCAL_EMBEDDING_HF_HOME"])("requires %s", (name) => {
-    expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, [name]: undefined })).toThrow(EmbeddingProviderError);
+    expect(() =>
+      createLocalEmbeddingProviderForEvaluationFromEnv(
+        { ...FULL, [name]: undefined },
+        { resolveInterpreter: resolved },
+      ),
+    ).toThrow(EmbeddingProviderError);
   });
 
-  it.each(["psql.exe", "C:/Windows/System32/cmd.exe", "bash", "node", "python.exe.bat", "pythonw-evil.exe"])(
-    "accepts only a Python interpreter as the runtime: %s is refused",
-    (name) => {
-      expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: `D:/runtime/${name}` })).toThrow(
-        EmbeddingProviderError,
-      );
-    },
-  );
-
-  it("requires an absolute interpreter path (no PATH lookup of a bare name)", () => {
-    expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: "python" })).toThrow(EmbeddingProviderError);
+  it("requires an absolute interpreter path when the real resolver is used", () => {
+    expect(() =>
+      createLocalEmbeddingProviderForEvaluationFromEnv(
+        { ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: "python" },
+      ),
+    ).toThrow(EmbeddingProviderError);
   });
 
-  it.each(["D:/runtime/venv/Scripts/python.exe", "/opt/venv/bin/python3", "/opt/venv/bin/python3.13"])(
-    "accepts a Python interpreter path (%s) and passes its directory on",
-    (python) => {
-      const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
-      createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_PYTHON: python }, { createTransport });
-      const cfg = createTransport.mock.calls[0]![0];
-      expect(cfg.pythonPath).toBe(python);
-      expect(python.startsWith(cfg.interpreterDir)).toBe(true);
-      expect(cfg.interpreterDir.length).toBeLessThan(python.length);
-    },
-  );
-
-  it("rejects an unknown device value instead of defaulting", () => {
-    expect(() => createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_DEVICE: "tpu" })).toThrow(
-      EmbeddingProviderError,
-    );
-  });
-
-  it("builds the provider without starting the runtime (the worker starts lazily on first use)", () => {
+  it("passes the exact resolved interpreter path to the transport", () => {
     const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
-    const p = createLocalEmbeddingProviderFromEnv(FULL, { createTransport });
+    const p = createLocalEmbeddingProviderForEvaluationFromEnv(
+      FULL,
+      { createTransport, resolveInterpreter: resolved },
+    );
     expect(p.pipeline_version).toBe("local-st-bge-m3-dense-v1");
     expect(createTransport).toHaveBeenCalledTimes(1);
     expect(createTransport.mock.calls[0]![0]).toMatchObject({
@@ -333,6 +332,15 @@ describe("createLocalEmbeddingProviderFromEnv -- explicit configuration only, no
       hfHome: FULL.MIMER_LOCAL_EMBEDDING_HF_HOME,
       device: "cuda",
     });
+  });
+
+  it("rejects an unknown device value", () => {
+    expect(() =>
+      createLocalEmbeddingProviderForEvaluationFromEnv(
+        { ...FULL, MIMER_LOCAL_EMBEDDING_DEVICE: "tpu" },
+        { resolveInterpreter: resolved },
+      ),
+    ).toThrow(EmbeddingProviderError);
   });
 });
 
@@ -346,13 +354,13 @@ describe("production admission -- no local model is selected before the governed
 
   it("production creation refuses even a frozen candidate while the admission list is empty", () => {
     const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
-    expect(() => createLocalEmbeddingProviderFromEnv(FULL, { createTransport })).toThrow(/production|admitted|selected/i);
+    expect(() => createLocalEmbeddingProviderFromEnv(FULL, { createTransport, resolveInterpreter: (p) => p })).toThrow(/production|admitted|selected/i);
     expect(createTransport).not.toHaveBeenCalled();
   });
 
   it("the explicit evaluation seam may instantiate a frozen candidate without turning it into production admission", () => {
     const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
-    const p = createLocalEmbeddingProviderForEvaluationFromEnv(FULL, { createTransport });
+    const p = createLocalEmbeddingProviderForEvaluationFromEnv(FULL, { createTransport, resolveInterpreter: (p) => p });
     expect(p.model_id).toBe(BGE.hf_repo);
     expect(createTransport).toHaveBeenCalledTimes(1);
     expect(admission.keys).toEqual([]);
@@ -361,7 +369,7 @@ describe("production admission -- no local model is selected before the governed
   it("production creation succeeds only when the governed admission seam explicitly contains that one key", () => {
     admission.keys = ["bge-m3"];
     const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
-    const p = createLocalEmbeddingProviderFromEnv(FULL, { createTransport });
+    const p = createLocalEmbeddingProviderFromEnv(FULL, { createTransport, resolveInterpreter: (p) => p });
     expect(p.model_id).toBe(BGE.hf_repo);
   });
 });

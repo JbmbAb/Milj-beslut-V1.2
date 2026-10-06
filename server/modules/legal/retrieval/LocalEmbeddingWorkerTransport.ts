@@ -1,24 +1,12 @@
 /**
  * W-NO-GOOGLE-02A -- stdio transport to the local embedding worker.
  *
- * One long-lived child process per transport (loading a model takes seconds, so a process per
- * request would be useless), spoken to in line-delimited JSON over stdin/stdout. Requests are
- * serialised: exactly one is in flight.
- *
- * Containment, because this is the only place the provider touches a process boundary:
- * - the only program ever started is `python`, running the one bundled worker script; the pinned
- *   runtime's interpreter is selected by putting its directory first on the CHILD's PATH, so the
- *   configuration can name a Python interpreter and nothing else;
- * - the child gets an ALLOWLISTED environment (system basics, the offline Hugging Face settings and
- *   the worker's own MIMER_EMBED_* settings); nothing else of the parent's environment -- no API
- *   keys, no database settings, no cloud credentials -- is inherited;
- * - the child is forced offline (HF_HUB_OFFLINE, TRANSFORMERS_OFFLINE);
- * - any defect (exit, timeout, malformed output, a response that is not for the request) kills the
- *   child and rejects the call. A later call starts a fresh child of the SAME pinned runtime; that is
- *   a restart, not a fallback -- the transport is bound to one model and refuses to serve another.
+ * One bounded, long-lived child process per transport. The executable is an exact absolute Python
+ * path selected by governed configuration: no shell, no PATH lookup and no alternate interpreter.
+ * The child receives an allowlisted environment and is forced offline.
  */
-
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -31,25 +19,22 @@ import type {
 } from "./LocalEmbeddingProvider";
 
 export interface LocalEmbeddingWorkerTransportOptions {
-  /** Directory of the pinned runtime's `python` interpreter; placed first on the child's PATH. */
-  readonly interpreterDir: string;
+  /** Exact absolute interpreter path. Never resolved through PATH. */
+  readonly pythonPath: string;
   readonly hfHome: string;
   readonly device: "cuda" | "cpu";
-  /** Timeout of one request, in milliseconds. */
   readonly timeoutMs: number;
-  /** How long the worker may take to load the model and announce itself ready. */
   readonly startupTimeoutMs: number;
-  /**
-   * Test seam: starts the child instead of the pinned python worker. It receives the exact
-   * environment this transport built, so tests can inspect what a child would have inherited.
-   */
+  /** Number of replacement workers permitted after the first worker fails. */
+  readonly restartBudget?: number;
+  /** Test seam; production uses spawnPinnedWorker. */
   readonly spawnWorker?: (
+    pythonPath: string,
     environment: Readonly<Record<string, string>>,
     spec: LocalEmbeddingPipelineSpec,
   ) => ChildProcessWithoutNullStreams;
 }
 
-/** Variables the child may inherit. Matched case-insensitively (Windows keeps its own casing). */
 const INHERITED_ENV_KEYS: ReadonlySet<string> = new Set([
   "PATH",
   "PATHEXT",
@@ -76,25 +61,20 @@ const INHERITED_ENV_KEYS: ReadonlySet<string> = new Set([
 
 export interface WorkerEnvironmentInput {
   readonly hfHome: string;
-  readonly interpreterDir: string;
   readonly device: "cuda" | "cpu";
-  readonly spec: LocalEmbeddingPipelineSpec;
-  readonly dimension: number;
+  readonly modelKey: string;
 }
 
-/** The environment of the worker child: allowlisted basics, offline flags, and the worker's own settings. */
+/** The model identity crosses the process boundary only as a closed key. */
 export function buildWorkerEnvironment(
   input: WorkerEnvironmentInput,
   parent: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
   const env: Record<string, string> = {};
-  let pathKey = "PATH";
   for (const [name, value] of Object.entries(parent)) {
     if (value === undefined || !INHERITED_ENV_KEYS.has(name.toUpperCase())) continue;
     env[name] = value;
-    if (name.toUpperCase() === "PATH") pathKey = name;
   }
-  env[pathKey] = [input.interpreterDir, env[pathKey]].filter(Boolean).join(path.delimiter);
   return {
     ...env,
     HF_HOME: input.hfHome,
@@ -105,15 +85,11 @@ export function buildWorkerEnvironment(
     PYTHONUTF8: "1",
     PYTHONIOENCODING: "utf-8",
     PYTHONUNBUFFERED: "1",
-    MIMER_EMBED_REPO: input.spec.hf_repo,
-    MIMER_EMBED_REVISION: input.spec.hf_revision,
-    MIMER_EMBED_PIPELINE: input.spec.pipeline_version,
-    MIMER_EMBED_DIMENSION: String(input.dimension),
+    MIMER_EMBED_MODEL_KEY: input.modelKey,
     MIMER_EMBED_DEVICE: input.device,
   };
 }
 
-/** Repository root, found from this module's own location (server/modules/legal/retrieval -> up four). */
 function repositoryRoot(): string {
   const here = import.meta.url;
   if (typeof here === "string" && here.startsWith("file:")) {
@@ -122,16 +98,18 @@ function repositoryRoot(): string {
   return process.cwd();
 }
 
-/**
- * The one place a process is started: `python`, the bundled worker script, nothing else. Both are
- * literals, so what runs is readable from the source.
- */
-function spawnPinnedWorker(environment: Readonly<Record<string, string>>): ChildProcessWithoutNullStreams {
-  return spawn("python", ["server/modules/legal/retrieval/localEmbeddingWorker.py"], {
+const WORKER_SCRIPT = "server/modules/legal/retrieval/localEmbeddingWorker.py";
+
+function spawnPinnedWorker(
+  pythonPath: string,
+  environment: Readonly<Record<string, string>>,
+): ChildProcessWithoutNullStreams {
+  return spawn(pythonPath, [WORKER_SCRIPT], {
     env: { ...environment },
     cwd: repositoryRoot(),
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
+    shell: false,
   });
 }
 
@@ -147,7 +125,6 @@ interface WorkerHandle {
   readonly child: ChildProcessWithoutNullStreams;
   readonly ready: Promise<void>;
   readonly pending: Map<number, Pending>;
-  /** Tail of the child's stderr, kept for error messages. */
   stderrTail: string;
   failed: boolean;
   nextId: number;
@@ -155,33 +132,63 @@ interface WorkerHandle {
 
 const STDERR_TAIL_BYTES = 2000;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function canonicalPathForCompare(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 export function createLocalEmbeddingWorkerTransport(
   options: LocalEmbeddingWorkerTransportOptions,
 ): LocalEmbeddingTransport {
+  const restartBudget = options.restartBudget ?? 2;
+  if (!Number.isInteger(restartBudget) || restartBudget < 0) {
+    throw new Error("local embedding restartBudget must be a non-negative integer");
+  }
+
+  const configuredInterpreter = fs.realpathSync.native(options.pythonPath);
   let worker: WorkerHandle | null = null;
   let chain: Promise<unknown> = Promise.resolve();
+  let failures = 0;
+  let closed = false;
+  let latchedError: Error | null = null;
 
-  function fail(handle: WorkerHandle, error: Error): void {
+  function fail(handle: WorkerHandle, error: Error, countFailure = true): void {
     if (handle.failed) return;
     handle.failed = true;
     if (worker === handle) worker = null;
-    for (const p of handle.pending.values()) {
-      clearTimeout(p.timer);
-      p.reject(error);
+    if (countFailure) {
+      failures += 1;
+      if (failures > restartBudget) {
+        latchedError = new Error(
+          `local embedding worker restart budget exhausted after ${failures} failures; no further worker will be started`,
+        );
+      }
+    }
+    for (const pending of handle.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
     }
     handle.pending.clear();
-    handle.child.kill();
+    if (handle.child.exitCode === null && handle.child.signalCode === null) handle.child.kill();
   }
 
   function start(spec: LocalEmbeddingPipelineSpec): WorkerHandle {
+    if (closed) throw new Error("local embedding transport is closed");
+    if (latchedError) throw latchedError;
+
     const environment = buildWorkerEnvironment({
       hfHome: options.hfHome,
-      interpreterDir: options.interpreterDir,
       device: options.device,
-      spec,
-      dimension: spec.dimension,
+      modelKey: spec.key,
     });
-    const child = options.spawnWorker ? options.spawnWorker(environment, spec) : spawnPinnedWorker(environment);
+    const child = options.spawnWorker
+      ? options.spawnWorker(configuredInterpreter, environment, spec)
+      : spawnPinnedWorker(configuredInterpreter, environment);
+
     let resolveReady!: () => void;
     let rejectReady!: (error: Error) => void;
     const ready = new Promise<void>((resolve, reject) => {
@@ -208,6 +215,7 @@ export function createLocalEmbeddingWorkerTransport(
         fail(handle, error);
       }
     }, options.startupTimeoutMs);
+    startupTimer.unref?.();
 
     child.stderr.on("data", (chunk: Buffer) => {
       handle.stderrTail = (handle.stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_BYTES);
@@ -216,9 +224,9 @@ export function createLocalEmbeddingWorkerTransport(
     const rl = readline.createInterface({ input: child.stdout });
     rl.on("line", (line) => {
       if (handle.failed) return;
-      let message: Record<string, unknown>;
+      let parsed: unknown;
       try {
-        message = JSON.parse(line) as Record<string, unknown>;
+        parsed = JSON.parse(line);
       } catch (parseError) {
         const error = new Error(
           `local embedding worker produced malformed output (not JSON): ${parseError instanceof Error ? parseError.message : "parse error"}`,
@@ -227,12 +235,32 @@ export function createLocalEmbeddingWorkerTransport(
         fail(handle, error);
         return;
       }
+      if (!isRecord(parsed)) {
+        const error = new Error("local embedding worker produced a protocol value that is not an object");
+        rejectReady(error);
+        fail(handle, error);
+        return;
+      }
+      const message = parsed;
       if (message.type === "ready") {
+        if (!isRecord(message.runtime) || typeof message.runtime.interpreter_realpath !== "string") {
+          const error = new Error("local embedding worker ready message lacks a runtime/interpreter identity");
+          rejectReady(error);
+          fail(handle, error);
+          return;
+        }
+        if (canonicalPathForCompare(message.runtime.interpreter_realpath) !== canonicalPathForCompare(configuredInterpreter)) {
+          const error = new Error("local embedding worker interpreter identity differs from the configured absolute interpreter");
+          rejectReady(error);
+          fail(handle, error);
+          return;
+        }
         isReady = true;
         clearTimeout(startupTimer);
         resolveReady();
         return;
       }
+
       const id = message.id;
       const pending = typeof id === "number" ? handle.pending.get(id) : undefined;
       if (!pending) {
@@ -241,18 +269,28 @@ export function createLocalEmbeddingWorkerTransport(
       }
       handle.pending.delete(pending.id);
       clearTimeout(pending.timer);
+
       if (message.type === "error") {
         pending.reject(new Error(String(message.message ?? "local embedding worker reported an error")));
         return;
       }
       if (message.type === "result") {
+        if (!isRecord(message.runtime) || !Array.isArray(message.vectors)) {
+          const error = new Error("local embedding worker result lacks a runtime object or vector array");
+          pending.reject(error);
+          fail(handle, error);
+          return;
+        }
         pending.resolve({
-          runtime: message.runtime as LocalEmbeddingRuntimeReport,
+          runtime: message.runtime as unknown as LocalEmbeddingRuntimeReport,
           vectors: message.vectors as readonly (readonly number[])[],
         });
         return;
       }
-      fail(handle, new Error(`local embedding worker sent an unknown message type '${String(message.type)}'`));
+
+      const error = new Error(`local embedding worker sent an unknown message type '${String(message.type)}'`);
+      pending.reject(error);
+      fail(handle, error);
     });
 
     child.on("error", (cause) => {
@@ -272,13 +310,17 @@ export function createLocalEmbeddingWorkerTransport(
       rejectReady(error);
       fail(handle, error);
     });
-    // A closed stdin pipe must not crash the process; the exit and timeout paths report it.
     child.stdin.on("error", () => undefined);
 
     return handle;
   }
 
-  async function embedOnce(spec: LocalEmbeddingPipelineSpec, request: LocalEmbeddingWireRequest): Promise<LocalEmbeddingWireResponse> {
+  async function embedOnce(
+    spec: LocalEmbeddingPipelineSpec,
+    request: LocalEmbeddingWireRequest,
+  ): Promise<LocalEmbeddingWireResponse> {
+    if (closed) throw new Error("local embedding transport is closed");
+    if (latchedError) throw latchedError;
     if (worker && worker.specKey !== spec.key) {
       throw new Error(`this transport is bound to '${worker.specKey}' and refuses to serve '${spec.key}'`);
     }
@@ -291,6 +333,7 @@ export function createLocalEmbeddingWorkerTransport(
       const timer = setTimeout(() => {
         fail(handle, new Error(`local embedding request timed out after ${options.timeoutMs} ms`));
       }, options.timeoutMs);
+      timer.unref?.();
       handle.pending.set(id, { id, resolve, reject, timer });
       handle.child.stdin.write(
         `${JSON.stringify({ id, op: "embed", role: request.role, texts: request.texts, max_seq_length: request.max_seq_length })}\n`,
@@ -308,11 +351,18 @@ export function createLocalEmbeddingWorkerTransport(
       return run;
     },
     async close() {
+      if (closed) return;
+      closed = true;
       const handle = worker;
+      worker = null;
       if (!handle) return;
       const exited = new Promise<void>((resolve) => handle.child.once("exit", () => resolve()));
-      fail(handle, new Error("local embedding transport closed"));
-      await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
+      fail(handle, new Error("local embedding transport closed"), false);
+      const timer = new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, 2000);
+        t.unref?.();
+      });
+      await Promise.race([exited, timer]);
     },
   };
 }

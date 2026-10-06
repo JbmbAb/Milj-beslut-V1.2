@@ -1295,6 +1295,20 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "PROTECTED SQL_CALL client.query | client.query(` CREATE OR REPLACE FUNCTION core.normalize_designation(input_text text) RETURNS text AS $$ BEGIN -- Convert to uppercase, unaccent, and replace non-alphanumeric with spaces RETURN trim(…",
     ],
   },
+  {
+    file: "server/modules/legal/retrieval/LocalEmbeddingWorkerTransport.ts",
+    policy: "DYNAMIC_REVIEWED",
+    contentSha256: "c4a4e5ae19e9f3df7b9471898f7392c31955916c6d311920b62d3475324d4181",
+    reachability:
+      "W-NO-GOOGLE-02A local embedding runtime transport. Reached by LocalEmbeddingProvider when the local runtime is configured; production admission is currently empty, while the evaluation seam can invoke the frozen local candidates.",
+    reviewedOn: "2026-10-07",
+    reviewedBy: "W-NO-GOOGLE-02A writer (ChatGPT GPT-5.6 Sol)",
+    justification:
+      "A6 reviewed process site: spawn receives pythonPath only after configuration resolves an absolute python/python.exe path to its real path. The transport passes shell:false, the worker reports sys.executable realpath and Node rejects a mismatch. The spawned program is therefore the governed configured interpreter, not a PATH-selected command; no database tool or SQL is launched here.",
+    sites: [
+      "DYNAMIC PROCESS spawn | spawn(pythonPath, [WORKER_SCRIPT], { env: { ...environment }, cwd: repositoryRoot(), stdio: [\"pipe\", \"pipe\", \"pipe\"], windowsHide: true, shell: false, })",
+    ],
+  },
 ];
 
 // =============================================================================================

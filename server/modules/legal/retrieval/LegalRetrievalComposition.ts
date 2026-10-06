@@ -40,7 +40,7 @@ import { createRetrievalExecutionTrace, type RetrievalExecutionTraceArtifact } f
 import { prisma } from "../../../db/prisma";
 import type { EmbeddingProvider } from "./EmbeddingProvider";
 import { LOCAL_EMBEDDING_TABLE, assertLocalQueryVector } from "./LocalEmbeddingPersistence";
-import { createLocalEmbeddingProviderFromEnv } from "./LocalEmbeddingProvider";
+import { getSharedLocalEmbeddingProviderFromEnv } from "./LocalEmbeddingProvider";
 import { buildCandidateWhereClause } from "./LawSourceRoutingSql";
 import { describeRoutingDecision, routeLawQuery, type RoutingDecision } from "./LawSourceRouter";
 
@@ -233,7 +233,7 @@ export interface LegalRetrievalCompositionOptions {
  * unavailable: createLocalEmbeddingProviderFromEnv throws, nothing is substituted.
  */
 export function createLegalRetrievalComposition(options: LegalRetrievalCompositionOptions = {}): LegalRetrievalDeps {
-  const embeddingProvider = options.embeddingProvider ?? createLocalEmbeddingProviderFromEnv();
+  const embeddingProvider = options.embeddingProvider ?? getSharedLocalEmbeddingProviderFromEnv();
 
   const runSearch = async (
     queryVector: readonly number[],

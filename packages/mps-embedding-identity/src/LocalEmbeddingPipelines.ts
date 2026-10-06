@@ -3,16 +3,11 @@
  * 3072 -> 1024 identity boundary.
  *
  * embed-identity-1 (EmbeddingIdentity.ts) is unchanged: it binds six fields and says nothing about
- * dimension. This module adds what it deliberately does not have: the only two admitted local
- * pipelines, frozen, each pinned to an exact Hugging Face revision and a fixed input convention
- * (the frozen A7 candidates, CHUNK-RETRIEVAL-LOCAL-EMBEDDING-DESIGN-01 sections 6-7).
- *
- * An identity is "local" if and only if its (model id, model version, pipeline version) triple is
- * exactly one registered pipeline. Everything else -- in particular every historical identity of
- * the previous 3072-dimensional provider -- is rejected, never reinterpreted, never converted.
- * A revision bump is a new registered pipeline (and a new migration), never an edit in place.
+ * dimension. This module adds what it deliberately does not have: the two frozen A7 candidates,
+ * each pinned to an exact Hugging Face revision, input convention and runtime-essential snapshot
+ * manifest. Production admission is a separate concern and is currently empty.
  */
-
+import { createHash } from "node:crypto";
 import {
   bindEmbeddingIdentity,
   computeEmbeddingIdentityHash,
@@ -20,32 +15,55 @@ import {
   type EmbeddingIdentityFields,
 } from "./EmbeddingIdentity.js";
 
-/** Dimension of every admitted local pipeline (dense output of both frozen candidates). */
+/** Dimension of every frozen local candidate. */
 export const LOCAL_EMBEDDING_DIMENSION = 1024 as const;
 
-/**
- * Dimension of the historical, now retired provider. Present only to make the boundary explicit and
- * testable: a vector of this size is never a local embedding and is never padded or truncated into one.
- */
+/** Historical Google vectors remain a separate, retired identity/persistence space. */
 export const LEGACY_GOOGLE_EMBEDDING_DIMENSION = 3072 as const;
 
 export type LocalEmbeddingKey = "bge-m3" | "multilingual-e5-large";
+
+export interface SnapshotManifestFile {
+  readonly path: string;
+  readonly algo: "sha256" | "git-blob-sha1";
+  readonly digest: string;
+  readonly size: number;
+}
+
+/**
+ * Canonical identity of the runtime-essential file manifest.
+ * File order is not authority: sort by path, then bind path/algo/digest/size with NUL separators.
+ */
+export function computeSnapshotManifestSha256(files: readonly SnapshotManifestFile[]): string {
+  const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const hash = createHash("sha256");
+  for (const file of sorted) {
+    hash.update(file.path, "utf8");
+    hash.update("\0");
+    hash.update(file.algo, "utf8");
+    hash.update("\0");
+    hash.update(file.digest, "ascii");
+    hash.update("\0");
+    hash.update(String(file.size), "ascii");
+    hash.update("\n");
+  }
+  return hash.digest("hex");
+}
 
 export interface LocalEmbeddingPipelineSpec {
   readonly key: LocalEmbeddingKey;
   /** Becomes embedding_model_id. */
   readonly hf_repo: string;
-  /** Becomes embedding_model_version: the full 40-hex Hugging Face commit, never a branch or tag. */
+  /** Becomes embedding_model_version: full 40-hex Hugging Face commit. */
   readonly hf_revision: string;
   /** Becomes embedding_pipeline_version. */
   readonly pipeline_version: string;
   readonly dimension: typeof LOCAL_EMBEDDING_DIMENSION;
   readonly normalization: "l2";
-  /** Exact prefix put before every query text (empty = none). Part of the pipeline identity. */
+  /** SHA-256 of the runtime-essential file manifest verified by the Python worker before model load. */
+  readonly snapshot_manifest_sha256: string;
   readonly query_prefix: string;
-  /** Exact prefix put before every passage/chunk text (empty = none). Part of the pipeline identity. */
   readonly passage_prefix: string;
-  /** Fixed truncation length required by the pipeline, or null = the pinned model's own default. */
   readonly max_seq_length: number | null;
 }
 
@@ -57,6 +75,7 @@ const PIPELINES: readonly LocalEmbeddingPipelineSpec[] = Object.freeze([
     pipeline_version: "local-st-bge-m3-dense-v1",
     dimension: LOCAL_EMBEDDING_DIMENSION,
     normalization: "l2",
+    snapshot_manifest_sha256: "ad53098aac8c75a64934f63661527777481de725b45c8daa0d2bd44468372a66",
     query_prefix: "",
     passage_prefix: "",
     max_seq_length: null,
@@ -68,6 +87,7 @@ const PIPELINES: readonly LocalEmbeddingPipelineSpec[] = Object.freeze([
     pipeline_version: "local-st-multilingual-e5-large-v1",
     dimension: LOCAL_EMBEDDING_DIMENSION,
     normalization: "l2",
+    snapshot_manifest_sha256: "184a4cbfce0022ad5454ef20a4f484b5811f6d85bc1010a1bde6136fcc8e3c19",
     query_prefix: "query: ",
     passage_prefix: "passage: ",
     max_seq_length: 512,
@@ -76,7 +96,6 @@ const PIPELINES: readonly LocalEmbeddingPipelineSpec[] = Object.freeze([
 
 export const LOCAL_EMBEDDING_PIPELINES: readonly LocalEmbeddingPipelineSpec[] = PIPELINES;
 
-/** The three fields that, together, say which model and pipeline produced a vector. */
 export interface EmbeddingModelTriple {
   readonly embedding_model_id: string;
   readonly embedding_model_version: string;
@@ -87,7 +106,6 @@ export function getLocalEmbeddingPipelineByKey(key: string): LocalEmbeddingPipel
   return PIPELINES.find((p) => p.key === key);
 }
 
-/** Exact-triple lookup: a different revision or pipeline version is NOT the same local pipeline. */
 export function findLocalEmbeddingPipeline(triple: EmbeddingModelTriple): LocalEmbeddingPipelineSpec | undefined {
   return PIPELINES.find(
     (p) =>
@@ -97,10 +115,6 @@ export function findLocalEmbeddingPipeline(triple: EmbeddingModelTriple): LocalE
   );
 }
 
-/**
- * Binds a governed chunk to a registered local pipeline. The result is an ordinary embed-identity-1
- * identity; its hash differs from every identity of any other model/revision/pipeline for the same chunk.
- */
 export function bindLocalEmbeddingIdentity(
   chunk: { readonly fragment_id: string; readonly materialization_id: string; readonly chunk_content_hash: string },
   key: LocalEmbeddingKey,
@@ -109,7 +123,7 @@ export function bindLocalEmbeddingIdentity(
   if (!spec) {
     throw new EmbeddingIdentityError(
       "EMBEDDING_LOCAL_PIPELINE_UNKNOWN",
-      `'${String(key)}' is not a registered local embedding pipeline (admitted: ${PIPELINES.map((p) => p.key).join(", ")})`,
+      `'${String(key)}' is not a registered local embedding pipeline (frozen candidates: ${PIPELINES.map((p) => p.key).join(", ")})`,
     );
   }
   return bindEmbeddingIdentity({
@@ -122,18 +136,12 @@ export function bindLocalEmbeddingIdentity(
   });
 }
 
-/**
- * The boundary check. Returns the registered pipeline the identity is bound to, or throws.
- * Also re-derives the identity hash, so a record edited after binding does not pass.
- */
 export function assertLocalEmbeddingIdentity(identity: EmbeddingIdentityFields): LocalEmbeddingPipelineSpec {
   const spec = findLocalEmbeddingPipeline(identity);
   if (!spec) {
     throw new EmbeddingIdentityError(
       "EMBEDDING_IDENTITY_NOT_LOCAL",
-      `embedding identity (model '${identity.embedding_model_id}', version '${identity.embedding_model_version}', ` +
-        `pipeline '${identity.embedding_pipeline_version}') is not a registered local pipeline -- ` +
-        "historical or foreign identities are never accepted as local",
+      `embedding identity (model '${identity.embedding_model_id}', version '${identity.embedding_model_version}', pipeline '${identity.embedding_pipeline_version}') is not a frozen local pipeline -- historical or foreign identities are never accepted as local`,
     );
   }
   if (computeEmbeddingIdentityHash(identity) !== identity.embedding_identity_hash) {

@@ -195,20 +195,20 @@ const isStatusToken = (token: string) =>
  * lines. Update ONLY together with luErrorCodeInventory.reviewed.ts, after reviewing the change.
  */
 const REVIEWED_LIST_PIN = {
-  total: 1094,
+  total: 1097,
   groups: {
     COVERED_BY_PARENT: 23,
     GENERIC_TEXT_EXACT: 25,
     NOT_A_WIRE_CODE: 171,
     NOT_PRESENTED: 6,
-    OUTSIDE_LU_REACH: 420,
+    OUTSIDE_LU_REACH: 423,
     RAW_MESSAGE_ONLY: 187,
     SERVER_INTERNAL: 234,
     SERVER_TEXT_VERBATIM: 28,
   } as Record<string, number>,
-  // W-UI1 2026-10-03: 861 W-M2e/lane entries - 14 that now have their own UI text + 247 from the widened scan.
-  // W-UI1-R2: the digest now covers every note and the reviewed middleware; REJECT_DOCUMENT_FACT_CANDIDATE's note corrected.
-  sha256: '898251c2d1657e9bb70cb58b87c724291c86308ec318b93b8d7fef6eee986444',
+  // W-NO-GOOGLE-02A 2026-10-07: reviewed four local-embedding codes outside LU reach and withdrew stale EMBEDDING_MISSING_VALUES.
+  // W-UI1-R2: the digest covers every note plus reviewed middleware/router-level uses.
+  sha256: 'b7ef2bd79a6174ea9d3ec42d0543c49d2baa6514b4123c7e52ff054b7409272b',
 };
 
 function reviewedDigest(): { total: number; groups: Record<string, number>; sha256: string } {

@@ -68,9 +68,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 74,
-  reviewedSites: 160,
-  reviewedSha256: 'ffe3000149b472736034531b9d34bf2b9fced8db76bc7269dc94bef22d4fb190',
+  reviewedEntries: 75,
+  reviewedSites: 161,
+  reviewedSha256: '22d1158177ea8c816730a1510abe96dbb7541c78122b91beb3fdc96b2b668277',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',

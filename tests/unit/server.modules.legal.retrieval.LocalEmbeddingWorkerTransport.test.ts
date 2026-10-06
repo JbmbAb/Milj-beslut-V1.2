@@ -28,7 +28,7 @@ const runtime = (extra = {}) => ({
   pipeline_version: 'local-st-bge-m3-dense-v1', dimension: 1024, normalization: 'l2',
   device: 'cuda:0', dtype: 'float16', max_seq_length: 8192, truncated_count: 0,
   snapshot_revision: '5617a9f61b028005a4858fdac845db406aefb181', snapshot_manifest_sha256: 'f'.repeat(64),
-  interpreter_realpath: process.execPath,
+  interpreter_realpath: process.env.MIMER_FAKE_WRONG_INTERPRETER ? 'C:/wrong/python.exe' : process.execPath,
   library_versions: { torch: 'fake' }, ...extra,
 });
 const unit = (i) => { const v = new Array(1024).fill(0); v[i % 1024] = 1; return v; };
@@ -63,7 +63,7 @@ function workerFile(): string {
   return file;
 }
 
-const INTERPRETER_DIR = path.join(os.tmpdir(), "mimer-fake-python-dir");
+const INTERPRETER = process.execPath;
 
 interface SpawnLog {
   /** Every child this transport started, in order. */
@@ -78,14 +78,15 @@ function makeTransport(
 ) {
   const file = workerFile();
   const t = createLocalEmbeddingWorkerTransport({
-    interpreterDir: INTERPRETER_DIR,
+    pythonPath: INTERPRETER,
     hfHome: path.join(os.tmpdir(), "mimer-fake-hf-home"),
     device: "cuda",
     timeoutMs: opts.timeoutMs ?? 5000,
     startupTimeoutMs: opts.startupTimeoutMs ?? 5000,
     ...(opts.restartBudget === undefined ? {} : { restartBudget: opts.restartBudget }),
     // The injected starter gets the exact environment the transport built for the child.
-    spawnWorker: (env) => {
+    spawnWorker: (pythonPath, env) => {
+      expect(pythonPath).toBe(INTERPRETER);
       opts.log?.aliveAtSpawn.push(opts.log.children.filter((c) => c.exitCode === null && c.signalCode === null).length);
       const child = spawn(process.execPath, [file, mode, ...(opts.dump ? [opts.dump] : [])], { env: { ...env }, stdio: ["pipe", "pipe", "pipe"] });
       opts.log?.children.push(child);
@@ -225,17 +226,38 @@ describe("LocalEmbeddingWorkerTransport", () => {
     expect(JSON.stringify(childEnv)).not.toContain(BGE.hf_revision);
   });
 
-  // Repair round A6: the configured interpreter is the ONLY place `python` can resolve from.
-  it("puts the configured interpreter directory alone on the child's PATH: the parent's PATH is not inherited", async () => {
+  // Repair round A6: process selection is the exact absolute interpreter path, never PATH lookup.
+  it("passes the exact configured absolute interpreter to the process starter; PATH cannot select another python", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mimer-fake-embed-dump-"));
     created.push(dir);
     const dump = path.join(dir, "dump.json");
-    const t = makeTransport("ok", { dump });
-    await t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null });
-    const childEnv = JSON.parse(fs.readFileSync(dump, "utf8")).env as Record<string, string>;
-    const pathKeys = Object.keys(childEnv).filter((k) => k.toUpperCase() === "PATH");
-    expect(pathKeys).toHaveLength(1);
-    expect(childEnv[pathKeys[0]!]).toBe(INTERPRETER_DIR);
+    const oldPath = process.env.PATH;
+    process.env.PATH = path.join(os.tmpdir(), "attacker-python-first") + path.delimiter + (oldPath ?? "");
+    try {
+      const t = makeTransport("ok", { dump });
+      await t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null });
+    } finally {
+      process.env.PATH = oldPath;
+    }
+    expect(JSON.parse(fs.readFileSync(dump, "utf8")).pid).toBeTypeOf("number");
+  });
+
+  it("refuses a worker whose reported interpreter identity differs from the configured executable", async () => {
+    const file = workerFile();
+    const t = createLocalEmbeddingWorkerTransport({
+      pythonPath: INTERPRETER,
+      hfHome: path.join(os.tmpdir(), "mimer-fake-hf-home"),
+      device: "cuda",
+      timeoutMs: 1000,
+      startupTimeoutMs: 1000,
+      spawnWorker: (_pythonPath, env) =>
+        spawn(process.execPath, [file, "ok"], {
+          env: { ...env, MIMER_FAKE_WRONG_INTERPRETER: "1" },
+          stdio: ["pipe", "pipe", "pipe"],
+        }),
+    });
+    transports.push(t);
+    await expect(t.embed(BGE, { role: "query", texts: ["a"], max_seq_length: null })).rejects.toThrow(/interpreter identity/i);
   });
 
   it("refuses to serve a second model: one transport is bound to the model it started with", async () => {

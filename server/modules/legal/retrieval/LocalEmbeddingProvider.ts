@@ -1,33 +1,32 @@
 /**
- * W-NO-GOOGLE-02A -- the local embedding provider of the legal retrieval path.
+ * W-NO-GOOGLE-02A -- governed local embedding provider for legal retrieval.
  *
- * Fully local: vectors come from one of the two frozen A7 candidates (BAAI/bge-m3,
- * intfloat/multilingual-e5-large) running offline from a pinned snapshot behind an injected
- * transport. Nothing here reaches a network, a cloud API or a credential.
- *
- * Fail closed, always:
- * - no model is guessed: the model must be named explicitly and be one of the two candidates;
- * - the runtime must prove it is exactly the pinned model (repo, full revision, pipeline,
- *   dimension, normalisation, and where the pipeline fixes it, max sequence length) on every call;
- * - a vector whose length is not exactly 1024 is an error -- never padded, never truncated;
- * - a runtime failure is an error -- never a substitute vector, never another provider;
- * - a device other than the required one is an error -- no hidden CPU fallback.
+ * Frozen candidates are available to the evaluation seam. Production creation additionally requires
+ * an explicit governed admission; that admission is empty until the next frozen evaluation selects
+ * exactly one model.
  */
-
+import fs from "node:fs";
+import path from "node:path";
 import {
+  bindLocalEmbeddingIdentity,
   getLocalEmbeddingPipelineByKey,
   LOCAL_EMBEDDING_DIMENSION,
   LOCAL_EMBEDDING_PIPELINES,
+  type LocalEmbeddingKey,
   type LocalEmbeddingPipelineSpec,
 } from "@miljobeslut/mps-embedding-identity";
-import path from "node:path";
 import { EmbeddingProviderError, type EmbeddingProvider } from "./EmbeddingProvider";
+import { isProductionAdmittedLocalEmbeddingKey } from "./LocalEmbeddingAdmission";
+import {
+  issueLocalEmbeddingForProvider,
+  type IssuedLocalEmbedding,
+} from "./LocalEmbeddingProvenance";
 import { createLocalEmbeddingWorkerTransport } from "./LocalEmbeddingWorkerTransport";
 
 export type LocalEmbeddingDevice = "cuda" | "cpu";
 
-/** What the runtime says about itself with every result. Verified against the registry, then kept for audit. */
 export interface LocalEmbeddingRuntimeReport {
+  readonly model_key: string;
   readonly hf_repo: string;
   readonly hf_revision: string;
   readonly pipeline_version: string;
@@ -37,14 +36,15 @@ export interface LocalEmbeddingRuntimeReport {
   readonly dtype: string;
   readonly max_seq_length: number;
   readonly truncated_count: number;
+  readonly snapshot_revision: string;
+  readonly snapshot_manifest_sha256: string;
+  readonly interpreter_realpath: string;
   readonly library_versions: Readonly<Record<string, string>>;
 }
 
 export interface LocalEmbeddingWireRequest {
   readonly role: "query" | "passage";
-  /** Already carrying the pipeline's input prefix; the runtime adds nothing. */
   readonly texts: readonly string[];
-  /** Fixed truncation length required by the pipeline, or null for the pinned model's own default. */
   readonly max_seq_length: number | null;
 }
 
@@ -58,18 +58,23 @@ export interface LocalEmbeddingTransport {
   close?(): Promise<void>;
 }
 
+export interface GovernedEmbeddingChunk {
+  readonly fragment_id: string;
+  readonly materialization_id: string;
+  readonly chunk_content_hash: string;
+  readonly text: string;
+}
+
 export interface LocalEmbeddingProvider extends EmbeddingProvider {
-  /** Runtime report of the most recent successful call; null before the first one. */
   readonly last_runtime_report: LocalEmbeddingRuntimeReport | null;
+  embedPassagesIssued(chunks: readonly GovernedEmbeddingChunk[]): Promise<readonly IssuedLocalEmbedding[]>;
   close(): Promise<void>;
 }
 
-/** Unit-vector sanity tolerance; vectors are produced L2-normalised by the pinned runtime. */
 const NORM_TOLERANCE = 1e-3;
-
 const DEVICE_VALUES: readonly LocalEmbeddingDevice[] = ["cuda", "cpu"];
 
-function admittedKeys(): string {
+function frozenCandidateKeys(): string {
   return LOCAL_EMBEDDING_PIPELINES.map((p) => p.key).join(", ");
 }
 
@@ -77,21 +82,44 @@ function deviceMatches(actual: string, required: LocalEmbeddingDevice): boolean 
   return actual === required || actual.startsWith(`${required}:`);
 }
 
+function normalizePathForCompare(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 function verifyRuntime(
   spec: LocalEmbeddingPipelineSpec,
   runtime: LocalEmbeddingRuntimeReport,
   requiredDevice: LocalEmbeddingDevice | undefined,
+  expectedInterpreterRealpath: string | undefined,
 ): void {
   const mismatches: string[] = [];
+  if (runtime.model_key !== spec.key) mismatches.push(`key '${runtime.model_key}' != '${spec.key}'`);
   if (runtime.hf_repo !== spec.hf_repo) mismatches.push(`repo '${runtime.hf_repo}' != '${spec.hf_repo}'`);
   if (runtime.hf_revision !== spec.hf_revision) mismatches.push(`revision '${runtime.hf_revision}' != '${spec.hf_revision}'`);
   if (runtime.pipeline_version !== spec.pipeline_version) {
     mismatches.push(`pipeline '${runtime.pipeline_version}' != '${spec.pipeline_version}'`);
   }
-  if (runtime.dimension !== LOCAL_EMBEDDING_DIMENSION) mismatches.push(`dimension ${runtime.dimension} != ${LOCAL_EMBEDDING_DIMENSION}`);
-  if (runtime.normalization !== spec.normalization) mismatches.push(`normalization '${runtime.normalization}' != '${spec.normalization}'`);
+  if (runtime.dimension !== LOCAL_EMBEDDING_DIMENSION) {
+    mismatches.push(`dimension ${runtime.dimension} != ${LOCAL_EMBEDDING_DIMENSION}`);
+  }
+  if (runtime.normalization !== spec.normalization) {
+    mismatches.push(`normalization '${runtime.normalization}' != '${spec.normalization}'`);
+  }
+  if (runtime.snapshot_revision !== spec.hf_revision) {
+    mismatches.push(`snapshot revision '${runtime.snapshot_revision}' != '${spec.hf_revision}'`);
+  }
+  if (runtime.snapshot_manifest_sha256 !== spec.snapshot_manifest_sha256) {
+    mismatches.push("runtime-essential snapshot manifest digest differs from the frozen registry");
+  }
   if (spec.max_seq_length !== null && runtime.max_seq_length !== spec.max_seq_length) {
     mismatches.push(`max_seq_length ${runtime.max_seq_length} != ${spec.max_seq_length}`);
+  }
+  if (
+    expectedInterpreterRealpath &&
+    normalizePathForCompare(runtime.interpreter_realpath) !== normalizePathForCompare(expectedInterpreterRealpath)
+  ) {
+    mismatches.push("worker interpreter identity differs from the configured absolute interpreter");
   }
   if (mismatches.length > 0) {
     throw new EmbeddingProviderError(
@@ -118,8 +146,7 @@ function verifyVectors(expectedCount: number, vectors: readonly (readonly number
     if (!Array.isArray(vector) || vector.length !== LOCAL_EMBEDDING_DIMENSION) {
       throw new EmbeddingProviderError(
         "EMBEDDING_DIMENSION_MISMATCH",
-        `embedding ${i} has ${Array.isArray(vector) ? vector.length : "no"} dimensions, expected exactly ${LOCAL_EMBEDDING_DIMENSION} -- ` +
-          "never padded or truncated",
+        `embedding ${i} has ${Array.isArray(vector) ? vector.length : "no"} dimensions, expected exactly ${LOCAL_EMBEDDING_DIMENSION} -- vectors are never padded or truncated`,
       );
     }
     let sumSquares = 0;
@@ -140,11 +167,10 @@ function verifyVectors(expectedCount: number, vectors: readonly (readonly number
 }
 
 export interface CreateLocalEmbeddingProviderOptions {
-  /** Registry key of one of the two frozen candidates. */
   readonly key: string;
   readonly transport: LocalEmbeddingTransport;
-  /** When set, a result produced on another device is rejected. */
   readonly requiredDevice?: LocalEmbeddingDevice;
+  readonly expectedInterpreterRealpath?: string;
 }
 
 export function createLocalEmbeddingProvider(options: CreateLocalEmbeddingProviderOptions): LocalEmbeddingProvider {
@@ -152,23 +178,23 @@ export function createLocalEmbeddingProvider(options: CreateLocalEmbeddingProvid
   if (!spec) {
     throw new EmbeddingProviderError(
       "EMBEDDING_MODEL_NOT_ALLOWED",
-      `'${options.key}' is not an admitted local embedding model (admitted: ${admittedKeys()})`,
+      `'${options.key}' is not a frozen local embedding candidate (candidates: ${frozenCandidateKeys()})`,
     );
   }
-  const { transport, requiredDevice } = options;
+  const { transport, requiredDevice, expectedInterpreterRealpath } = options;
   let lastReport: LocalEmbeddingRuntimeReport | null = null;
 
   async function run(role: "query" | "passage", texts: readonly string[]): Promise<readonly (readonly number[])[]> {
     if (texts.length === 0) return [];
-    const prefix = role === "query" ? spec!.query_prefix : spec!.passage_prefix;
+    const prefix = role === "query" ? spec.query_prefix : spec.passage_prefix;
     const request: LocalEmbeddingWireRequest = {
       role,
       texts: texts.map((t) => `${prefix}${t}`),
-      max_seq_length: spec!.max_seq_length,
+      max_seq_length: spec.max_seq_length,
     };
     let response: LocalEmbeddingWireResponse;
     try {
-      response = await transport.embed(spec!, request);
+      response = await transport.embed(spec, request);
     } catch (cause) {
       throw new EmbeddingProviderError(
         "EMBEDDING_LOCAL_RUNTIME_FAILED",
@@ -176,7 +202,7 @@ export function createLocalEmbeddingProvider(options: CreateLocalEmbeddingProvid
         { cause },
       );
     }
-    verifyRuntime(spec!, response.runtime, requiredDevice);
+    verifyRuntime(spec, response.runtime, requiredDevice, expectedInterpreterRealpath);
     verifyVectors(texts.length, response.vectors);
     lastReport = response.runtime;
     return response.vectors;
@@ -192,6 +218,21 @@ export function createLocalEmbeddingProvider(options: CreateLocalEmbeddingProvid
     },
     embedQueries: (texts) => run("query", texts),
     embedPassages: (texts) => run("passage", texts),
+    async embedPassagesIssued(chunks) {
+      const vectors = await run("passage", chunks.map((chunk) => chunk.text));
+      const runtime = lastReport;
+      if (!runtime) {
+        throw new EmbeddingProviderError("EMBEDDING_LOCAL_RUNTIME_FAILED", "runtime provenance missing after successful embedding");
+      }
+      return chunks.map((chunk, i) =>
+        issueLocalEmbeddingForProvider({
+          identity: bindLocalEmbeddingIdentity(chunk, spec.key as LocalEmbeddingKey),
+          vector: vectors[i]!,
+          model_key: spec.key as LocalEmbeddingKey,
+          snapshot_manifest_sha256: runtime.snapshot_manifest_sha256,
+        }),
+      );
+    },
     async close() {
       await transport.close?.();
     },
@@ -199,43 +240,19 @@ export function createLocalEmbeddingProvider(options: CreateLocalEmbeddingProvid
 }
 
 export interface LocalEmbeddingTransportConfig {
-  /** The configured interpreter of the pinned runtime (its file name is verified to be python). */
   readonly pythonPath: string;
-  /** Directory of that interpreter; the transport puts it first on the worker's PATH. */
-  readonly interpreterDir: string;
   readonly hfHome: string;
   readonly device: LocalEmbeddingDevice;
   readonly timeoutMs: number;
 }
 
 export interface LocalEmbeddingEnvDeps {
-  /** Test seam: replaces the real child-process transport. */
   readonly createTransport?: (config: LocalEmbeddingTransportConfig) => LocalEmbeddingTransport;
+  /** Test seam. Production uses the filesystem-backed validation below. */
+  readonly resolveInterpreter?: (configuredPath: string) => string;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-
-/** The configured runtime can be a Python interpreter and nothing else (python, python3, python3.13, with or without .exe). */
-const PYTHON_INTERPRETER_NAME = /^python(\d+(\.\d+)*)?(\.exe)?$/i;
-
-/** Directory of the configured interpreter, or an error if the configured file is not a Python interpreter. */
-function interpreterDirectoryOf(pythonPath: string): string {
-  // path.win32 understands both separators, so a Windows and a POSIX path are read the same way.
-  const file = path.win32.basename(pythonPath);
-  if (!PYTHON_INTERPRETER_NAME.test(file)) {
-    throw new EmbeddingProviderError(
-      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
-      `MIMER_LOCAL_EMBEDDING_PYTHON must name a Python interpreter (python, python3, python.exe ...), got '${file}'`,
-    );
-  }
-  if (!path.win32.isAbsolute(pythonPath)) {
-    throw new EmbeddingProviderError(
-      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
-      "MIMER_LOCAL_EMBEDDING_PYTHON must be an absolute path to the pinned runtime's interpreter",
-    );
-  }
-  return path.win32.dirname(pythonPath);
-}
 
 function required(env: Readonly<Record<string, string | undefined>>, name: string): string {
   const value = env[name]?.trim();
@@ -248,28 +265,64 @@ function required(env: Readonly<Record<string, string | undefined>>, name: strin
   return value;
 }
 
-/**
- * Builds the provider from explicit configuration. There is no default model and no default runtime:
- * an unconfigured process cannot embed, and says so.
- *
- *   MIMER_LOCAL_EMBEDDING_MODEL    bge-m3 | multilingual-e5-large   (required)
- *   MIMER_LOCAL_EMBEDDING_PYTHON   path of the pinned runtime's Python interpreter   (required; a python file only)
- *   MIMER_LOCAL_EMBEDDING_HF_HOME  Hugging Face home holding the pinned snapshots   (required)
- *   MIMER_LOCAL_EMBEDDING_DEVICE   cuda | cpu   (default cuda; a cpu run is only ever explicit)
- *   MIMER_LOCAL_EMBEDDING_TIMEOUT_MS   per-request timeout   (default 120000)
- */
-export function createLocalEmbeddingProviderFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  deps: LocalEmbeddingEnvDeps = {},
-): LocalEmbeddingProvider {
+function validateAndResolveInterpreter(configuredPath: string): string {
+  const isAbsolute = path.win32.isAbsolute(configuredPath) || path.posix.isAbsolute(configuredPath);
+  if (!isAbsolute) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+      "MIMER_LOCAL_EMBEDDING_PYTHON must be an absolute path to the pinned runtime interpreter",
+    );
+  }
+  const basename = (configuredPath.includes("\\") ? path.win32 : path.posix).basename(configuredPath);
+  const expected = process.platform === "win32" ? "python.exe" : "python";
+  if (basename.toLowerCase() !== expected) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+      `MIMER_LOCAL_EMBEDDING_PYTHON must name exactly '${expected}', got '${basename}'`,
+    );
+  }
+  let stat: fs.Stats;
+  let resolved: string;
+  try {
+    stat = fs.statSync(configuredPath);
+    resolved = fs.realpathSync.native(configuredPath);
+  } catch (cause) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+      "MIMER_LOCAL_EMBEDDING_PYTHON does not resolve to the configured local interpreter",
+      { cause },
+    );
+  }
+  if (!stat.isFile()) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+      "MIMER_LOCAL_EMBEDDING_PYTHON must resolve to a regular file",
+    );
+  }
+  return resolved;
+}
+
+interface ParsedLocalEmbeddingEnv {
+  readonly key: string;
+  readonly pythonPath: string;
+  readonly hfHome: string;
+  readonly device: LocalEmbeddingDevice;
+  readonly timeoutMs: number;
+}
+
+function parseLocalEmbeddingEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  deps: LocalEmbeddingEnvDeps,
+): ParsedLocalEmbeddingEnv {
   const key = required(env, "MIMER_LOCAL_EMBEDDING_MODEL");
   if (!getLocalEmbeddingPipelineByKey(key)) {
     throw new EmbeddingProviderError(
       "EMBEDDING_MODEL_NOT_ALLOWED",
-      `MIMER_LOCAL_EMBEDDING_MODEL '${key}' is not an admitted local embedding model (admitted: ${admittedKeys()})`,
+      `MIMER_LOCAL_EMBEDDING_MODEL '${key}' is not a frozen local candidate (candidates: ${frozenCandidateKeys()})`,
     );
   }
-  const pythonPath = required(env, "MIMER_LOCAL_EMBEDDING_PYTHON");
+  const configuredPython = required(env, "MIMER_LOCAL_EMBEDDING_PYTHON");
+  const pythonPath = (deps.resolveInterpreter ?? validateAndResolveInterpreter)(configuredPython);
   const hfHome = required(env, "MIMER_LOCAL_EMBEDDING_HF_HOME");
 
   const deviceRaw = env.MIMER_LOCAL_EMBEDDING_DEVICE?.trim() || "cuda";
@@ -280,7 +333,6 @@ export function createLocalEmbeddingProviderFromEnv(
     );
   }
   const device = deviceRaw as LocalEmbeddingDevice;
-
   const timeoutRaw = env.MIMER_LOCAL_EMBEDDING_TIMEOUT_MS?.trim();
   const timeoutMs = timeoutRaw ? Number(timeoutRaw) : DEFAULT_TIMEOUT_MS;
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
@@ -289,18 +341,90 @@ export function createLocalEmbeddingProviderFromEnv(
       `MIMER_LOCAL_EMBEDDING_TIMEOUT_MS '${timeoutRaw}' is not a positive integer`,
     );
   }
+  return { key, pythonPath, hfHome, device, timeoutMs };
+}
 
-  const interpreterDir = interpreterDirectoryOf(pythonPath);
-  const config: LocalEmbeddingTransportConfig = { pythonPath, interpreterDir, hfHome, device, timeoutMs };
+function buildProvider(parsed: ParsedLocalEmbeddingEnv, deps: LocalEmbeddingEnvDeps): LocalEmbeddingProvider {
+  const config: LocalEmbeddingTransportConfig = {
+    pythonPath: parsed.pythonPath,
+    hfHome: parsed.hfHome,
+    device: parsed.device,
+    timeoutMs: parsed.timeoutMs,
+  };
   const transport =
     deps.createTransport?.(config) ??
     createLocalEmbeddingWorkerTransport({
-      interpreterDir,
-      hfHome,
-      device,
-      timeoutMs,
-      startupTimeoutMs: Math.max(timeoutMs, 300_000),
+      pythonPath: parsed.pythonPath,
+      hfHome: parsed.hfHome,
+      device: parsed.device,
+      timeoutMs: parsed.timeoutMs,
+      startupTimeoutMs: Math.max(parsed.timeoutMs, 300_000),
     });
+  return createLocalEmbeddingProvider({
+    key: parsed.key,
+    transport,
+    requiredDevice: parsed.device,
+    expectedInterpreterRealpath: parsed.pythonPath,
+  });
+}
 
-  return createLocalEmbeddingProvider({ key, transport, requiredDevice: device });
+/** Evaluation-only seam: frozen candidates may run, but this creates no production admission. */
+export function createLocalEmbeddingProviderForEvaluationFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  deps: LocalEmbeddingEnvDeps = {},
+): LocalEmbeddingProvider {
+  return buildProvider(parseLocalEmbeddingEnv(env, deps), deps);
+}
+
+/** Production seam: currently fail-closed because the governed admission list is empty. */
+export function createLocalEmbeddingProviderFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  deps: LocalEmbeddingEnvDeps = {},
+): LocalEmbeddingProvider {
+  const key = required(env, "MIMER_LOCAL_EMBEDDING_MODEL");
+  if (!isProductionAdmittedLocalEmbeddingKey(key)) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_MODEL_NOT_ALLOWED",
+      `local embedding model '${key}' is not production-admitted; no winner has been selected by the governed evaluation`,
+    );
+  }
+  return buildProvider(parseLocalEmbeddingEnv(env, deps), deps);
+}
+
+let sharedProduction: { readonly configKey: string; readonly provider: LocalEmbeddingProvider } | null = null;
+
+function productionConfigKey(env: Readonly<Record<string, string | undefined>>): string {
+  return [
+    env.MIMER_LOCAL_EMBEDDING_MODEL ?? "",
+    env.MIMER_LOCAL_EMBEDDING_PYTHON ?? "",
+    env.MIMER_LOCAL_EMBEDDING_HF_HOME ?? "",
+    env.MIMER_LOCAL_EMBEDDING_DEVICE ?? "cuda",
+    env.MIMER_LOCAL_EMBEDDING_TIMEOUT_MS ?? String(DEFAULT_TIMEOUT_MS),
+  ].join("\0");
+}
+
+/** Request-safe production provider: repeated compositions share one worker/model instance. */
+export function getSharedLocalEmbeddingProviderFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  deps: LocalEmbeddingEnvDeps = {},
+): LocalEmbeddingProvider {
+  const key = productionConfigKey(env);
+  if (sharedProduction) {
+    if (sharedProduction.configKey !== key) {
+      throw new EmbeddingProviderError(
+        "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+        "local embedding configuration changed while the shared production provider is live; shutdown is required before reconfiguration",
+      );
+    }
+    return sharedProduction.provider;
+  }
+  const provider = createLocalEmbeddingProviderFromEnv(env, deps);
+  sharedProduction = { configKey: key, provider };
+  return provider;
+}
+
+export async function shutdownSharedLocalEmbeddingProvider(): Promise<void> {
+  const current = sharedProduction;
+  sharedProduction = null;
+  if (current) await current.provider.close();
 }

@@ -257,8 +257,8 @@ function workerRegistry(): Record<string, WorkerRegistryEntry> {
 
 describe("pinned snapshot manifests -- the worker's frozen registry and the Node registry are one definition", () => {
   const EXPECTED_DIGEST = {
-    "bge-m3": "3a2bfb3e454e9e86ff9aaeba900f4f76ef344ee73601021db65a4b9730e6bcdc",
-    "multilingual-e5-large": "5d338fb073d0d9841782030aafaf996784bc1f44a2162fc76d0243253112a5e7",
+    "bge-m3": "ad53098aac8c75a64934f63661527777481de725b45c8daa0d2bd44468372a66",
+    "multilingual-e5-large": "184a4cbfce0022ad5454ef20a4f484b5811f6d85bc1010a1bde6136fcc8e3c19",
   } as const;
 
   it("every registered pipeline pins the digest of its snapshot manifest (the Hugging Face verified file list)", () => {
