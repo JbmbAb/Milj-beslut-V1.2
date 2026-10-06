@@ -1774,12 +1774,20 @@ function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undef
   return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 }
 
+/**
+ * U30F4REP1: grouping glued to a token is not part of its name. Leading openers `(`, `{`, `@(` and `@{`
+ * (any run: `((psql`) and trailing closers `)` / `}` at the absolute end (`psql)`, `psql}`).
+ */
+function unwrapGrouping(arg: string): string {
+  return arg.replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "");
+}
+
 /** The DB/GIS tool an argument names, by file name or by a dynamic value's variable name. */
 export function toolOf(arg: string): string | null {
   const spec = classificationSpec().commands;
   // U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
   // `@(psql` (sh/cmd subshell or group, PowerShell script block / array subexpression) and closers `psql)` / `psql}`
-  const unwrapped = arg.replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "");
+  const unwrapped = unwrapGrouping(arg);
   const hint = dynamicHint(unwrapped);
   const names = Object.keys(spec.tools).sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
   if (hint !== null) {

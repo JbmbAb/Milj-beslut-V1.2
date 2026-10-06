@@ -1826,12 +1826,18 @@ def _tool_base_name(arg):
     return _ascii_lower(parts[-1] if parts else '')
 
 
+def unwrap_grouping(arg):
+    # U30F4REP1: grouping glued to a token is not part of its name. Leading openers `(`, `{`, `@(` and `@{`
+    # (any run) and trailing closers `)` / `}` at the absolute end.
+    return re.sub(r'[)}]+\Z', '', re.sub(r'^(?:@?[({])+', '', arg))
+
+
 def tool_of(arg, spec=None):
     spec = spec or load_spec()
     c = spec['commands']
     # U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
     # `@(psql` (sh/cmd subshell or group, PowerShell script block / array subexpression) and closers `psql)` / `psql}`
-    unwrapped = re.sub(r'[)}]+\Z', '', re.sub(r'^(?:@?[({])+', '', arg))
+    unwrapped = unwrap_grouping(arg)
     hint = _dynamic_hint(spec, unwrapped)
     names = sorted(c['tools'].keys(), key=lambda x: (-len(x), x))
     if hint is not None:

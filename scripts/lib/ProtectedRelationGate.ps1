@@ -1502,11 +1502,17 @@ function PrgToolBaseName([string]$a) {
     return PrgLower $parts[$parts.Count - 1]
 }
 
+function PrgUnwrapGrouping([string]$a) {
+    # U30F4REP1: grouping glued to a token is not part of its name. Leading openers `(`, `{`, `@(` and `@{`
+    # (any run) and trailing closers `)` / `}` at the absolute end.
+    return [regex]::Replace([regex]::Replace($a, '^(?:@?[({])+', ''), '[)}]+\z', '')
+}
+
 function PrgToolOf([string]$a) {
     $spec = Get-ProtectedClassificationSpec
     # U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
     # `@(psql` (sh/cmd subshell or group, PowerShell script block / array subexpression) and closers `psql)` / `psql}`
-    $unwrapped = [regex]::Replace([regex]::Replace($a, '^(?:@?[({])+', ''), '[)}]+\z', '')
+    $unwrapped = PrgUnwrapGrouping $a
     $hint = PrgDynamicHint $unwrapped
     $names = @($spec.Tools.Keys) | Sort-Object -Property @{ Expression = { $_.Length }; Descending = $true }, @{ Expression = { $_ }; Descending = $false } -CaseSensitive
     if ($null -ne $hint) {
