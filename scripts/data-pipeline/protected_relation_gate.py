@@ -1858,7 +1858,7 @@ def tool_of(arg, spec=None):
 
 def _program_name(arg, spec):
     # a program's file name, lower-cased, without a tool suffix (.exe, .cmd, ...)
-    base = _tool_base_name(arg)
+    base = _tool_base_name(unwrap_grouping(arg))
     for suffix in spec['commands']['tool_suffixes']:
         if base.endswith(suffix):
             base = base[:-len(suffix)]
@@ -2198,7 +2198,7 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
                 pre = substituted(k, 'a shell command')
                 command = ' '.join(_requote(a) for a in argv[at + 1:]) if rest_of_line else argv[at + 1]
                 # U30F6 (F5-1): a shell running a command whose program is a value runs what the text does not hold
-                if any(seg['argv'] and _dynamic_hint(spec, seg['argv'][0]) is not None for pipeline in split_command_line(command, spec) for seg in pipeline):
+                if any(seg['argv'] and _dynamic_hint(spec, unwrap_grouping(seg['argv'][0])) is not None for pipeline in split_command_line(command, spec) for seg in pipeline):
                     pre = pre + [('COMMAND', 'a shell runs a command the text does not hold')]
                 t, u = _analyze_command_at(command, read_sql_file, depth + 1, spec, None, None, connection_at(k))
                 return targets + t, unresolved + pre + u
@@ -2243,7 +2243,10 @@ def _analyze_argv_at(argv, ctx, read_sql_file, depth, spec):
         # U30F9 (G8-12): a code runner of a language no binding reads (ruby, perl, php) given code -- an option, a script file
         # (a path or a name with an extension), stdin or a stdin file -- runs code the classifier cannot read
         if name in cmds['unread_code_runners']:
-            given = any(a.startswith('-') or re.search(r'[\\/]', a) or re.search(r'\.[A-Za-z0-9]+$', a) or _contains_dynamic(spec, a) for a in argv[k + 1:])
+            def _unread_given(a):
+                u = re.sub(r'[ \t\r\n]+\Z', '', unwrap_grouping(a))
+                return u.startswith('-') or re.search(r'[\\/]', u) or re.search(r'\.[A-Za-z0-9]+\Z', u) or _contains_dynamic(spec, u)
+            given = any(_unread_given(a) for a in argv[k + 1:])
             if given or ctx['stdin'] is not None or ctx['stdin_file'] is not None:
                 unresolved.append(('COMMAND', f'{name} runs code the classifier does not read'))
                 return targets, unresolved
@@ -2303,7 +2306,7 @@ def _analyze_command_at(command, read_sql_file, depth, spec, inherited_stdin=Non
             # U30F8 (G6-7): in a command line the shell expands the program: one that is a value runs what the text does not hold
             prefix = spec['commands']['program_prefix_words']
             p = next((m for m, a in enumerate(seg['argv']) if not re.match(r'[A-Za-z_][A-Za-z0-9_]*=', a) and _ascii_lower(a) not in prefix), -1)
-            if p >= 0 and _dynamic_hint(spec, seg['argv'][p]) is not None and not tool_of(seg['argv'][p], spec):
+            if p >= 0 and _dynamic_hint(spec, unwrap_grouping(seg['argv'][p])) is not None and not tool_of(seg['argv'][p], spec):
                 unresolved.append(('COMMAND', 'the program is a value the text does not hold'))
             inherits = first and n == 0 and seg['stdin'] is None and seg['stdin_file'] is None
             ctx = {'stdin': inherited_stdin if inherits else seg['stdin'], 'stdin_file': inherited_stdin_file if inherits else seg['stdin_file'],

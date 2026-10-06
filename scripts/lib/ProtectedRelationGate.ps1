@@ -1536,15 +1536,14 @@ function PrgToolOf([string]$a) {
 
 # A program's file name, lower-cased, without a tool suffix (.exe, .cmd, ...)
 function PrgProgramName([string]$a) {
-    $base = PrgToolBaseName $a
+    $base = PrgToolBaseName (PrgUnwrapGrouping $a)
     foreach ($suffix in (Get-ProtectedClassificationSpec).ToolSuffixes) { if ($base.EndsWith($suffix, [StringComparison]::Ordinal)) { $base = $base.Substring(0, $base.Length - $suffix.Length) } }
     return $base
 }
 
 function PrgWrapper([string]$a) {
     $spec = Get-ProtectedClassificationSpec
-    $base = PrgToolBaseName $a
-    foreach ($suffix in $spec.ToolSuffixes) { if ($base.EndsWith($suffix, [StringComparison]::Ordinal)) { $base = $base.Substring(0, $base.Length - $suffix.Length) } }
+    $base = PrgProgramName $a
     if ($spec.Wrappers.ContainsKey($base)) { return [pscustomobject]@{ Flags = $spec.Wrappers[$base]; RestOfLine = ($spec.WrappersRestOfLine -ccontains $base) } }
     return $null
 }
@@ -1843,7 +1842,7 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
                 $sub = PrgAnalyzeCommandAt $command $readSqlFile ($depth + 1) $null $null (& $connectionAt $k)
                 # U30F6 (F5-1): a shell running a command whose program is a value runs what the text does not hold
                 $dynProgram = $false
-                foreach ($pipeline in (Split-ProtectedCommandLine $command)) { foreach ($seg in $pipeline) { if ($seg.argv.Count -gt 0 -and $null -ne (PrgDynamicHint $seg.argv[0])) { $dynProgram = $true } } }
+                foreach ($pipeline in (Split-ProtectedCommandLine $command)) { foreach ($seg in $pipeline) { if ($seg.argv.Count -gt 0 -and $null -ne (PrgDynamicHint (PrgUnwrapGrouping $seg.argv[0]))) { $dynProgram = $true } } }
                 if ($dynProgram) { $sub.Unres('COMMAND', 'a shell runs a command the text does not hold') }
                 if ($runnerAt -ge 0 -and $runnerAt -lt $k) { $sub.Unres('COMMAND', "a shell command run by $(PrgProgramName $argv[$runnerAt]) takes arguments from its input") }
                 $acc.Merge($sub)
@@ -1897,7 +1896,8 @@ function PrgAnalyzeArgvAt([string[]]$argv, $ctx, $readSqlFile, [int]$depth) {
             $given = $false
             for ($n = $k + 1; $n -lt $argv.Count; $n++) {
                 $a = $argv[$n]
-                if ($a.StartsWith('-', [StringComparison]::Ordinal) -or $a -cmatch '[\\/]' -or $a -cmatch '\.[A-Za-z0-9]+\z' -or (PrgContainsDynamic $a)) { $given = $true }
+                $u = [regex]::Replace((PrgUnwrapGrouping $a), '[ \t\r\n]+\z', '')
+                if ($u.StartsWith('-', [StringComparison]::Ordinal) -or $u -cmatch '[\\/]' -or $u -cmatch '\.[A-Za-z0-9]+\z' -or (PrgContainsDynamic $u)) { $given = $true }
             }
             if ($given -or $null -ne $ctx.stdin -or $null -ne $ctx.stdinFile) {
                 $acc.Unres('COMMAND', "$name runs code the classifier does not read")
@@ -1970,7 +1970,7 @@ function PrgAnalyzeCommandAt([string]$command, $readSqlFile, [int]$depth, $inher
             $prefix = (Get-ProtectedClassificationSpec).ProgramPrefixWords
             $p = -1
             for ($m = 0; $m -lt $seg.argv.Count; $m++) { if (-not ($seg.argv[$m] -cmatch '^[A-Za-z_][A-Za-z0-9_]*=') -and -not ($prefix -ccontains (PrgLower $seg.argv[$m]))) { $p = $m; break } }
-            if ($p -ge 0 -and $null -ne (PrgDynamicHint $seg.argv[$p]) -and $null -eq (PrgToolOf $seg.argv[$p])) { $acc.Unres('COMMAND', 'the program is a value the text does not hold') }
+            if ($p -ge 0 -and $null -ne (PrgDynamicHint (PrgUnwrapGrouping $seg.argv[$p])) -and $null -eq (PrgToolOf $seg.argv[$p])) { $acc.Unres('COMMAND', 'the program is a value the text does not hold') }
             $inherits = ($first -and $n -eq 0 -and $null -eq $seg.stdin -and $null -eq $seg.stdinFile)
             $stdin = if ($inherits) { $inheritedStdin } else { $seg.stdin }
             $stdinFile = if ($inherits) { $inheritedStdinFile } else { $seg.stdinFile }

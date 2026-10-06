@@ -1810,7 +1810,7 @@ export function toolOf(arg: string): string | null {
 
 /** A program's file name, lower-cased, without a tool suffix (.exe, .cmd, ...). */
 function programName(arg: string): string {
-  let base = toolBaseName(arg);
+  let base = toolBaseName(unwrapGrouping(arg));
   for (const suffix of classificationSpec().commands.tool_suffixes) if (base.endsWith(suffix)) base = base.slice(0, -suffix.length);
   return base;
 }
@@ -2143,7 +2143,7 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
         substituted(k, "a shell command");
         const command = wrapper.restOfLine ? argv.slice(at + 1).map(requote).join(" ") : argv[at + 1]!;
         // U30F6 (F5-1): a shell running a command whose program is a value (bash -c "$1", cmd /c %1) runs what the text does not hold
-        if (splitCommandLine(command).some((pipeline) => pipeline.some((seg) => seg.argv[0] !== undefined && dynamicHint(seg.argv[0]) !== null))) {
+        if (splitCommandLine(command).some((pipeline) => pipeline.some((seg) => seg.argv[0] !== undefined && dynamicHint(unwrapGrouping(seg.argv[0])) !== null))) {
           out.unresolved.push({ operation: "COMMAND", reason: "a shell runs a command the text does not hold" });
         }
         merge(out, analyzeCommandAt(command, options, depth + 1, null, null, connectionAt(k)));
@@ -2187,7 +2187,10 @@ function analyzeArgvAt(argv: readonly string[], ctx: SegmentContext, options: Cl
     // U30F9 (G8-12): a code runner of a language no binding reads (ruby, perl, php) given code -- an option (-e, -pe, -r),
     // a script file (a path or a name with an extension), stdin or a stdin file -- runs code the classifier cannot read
     if (commands.unread_code_runners.includes(name)) {
-      const given = argv.slice(k + 1).some((a) => a.startsWith("-") || /[\\/]/.test(a) || /\.[A-Za-z0-9]+$/.test(a) || containsDynamic(a));
+      const given = argv.slice(k + 1).some((a) => {
+        const u = unwrapGrouping(a).replace(/[ \t\r\n]+$/, "");
+        return u.startsWith("-") || /[\\/]/.test(u) || /\.[A-Za-z0-9]+$/.test(u) || containsDynamic(u);
+      });
       if (given || ctx.stdin !== null || ctx.stdinFile !== null) {
         out.unresolved.push({ operation: "COMMAND", reason: `${name} runs code the classifier does not read` });
         return out;
@@ -2258,7 +2261,7 @@ function analyzeCommandAt(
       // what the text does not hold (an argument vector handed to the gate at run time holds real values)
       const prefix = classificationSpec().commands.program_prefix_words;
       const p = seg.argv.findIndex((a) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(a) && !prefix.includes(asciiLower(a)));
-      if (p >= 0 && dynamicHint(seg.argv[p]!) !== null && !toolOf(seg.argv[p]!)) out.unresolved.push({ operation: "COMMAND", reason: "the program is a value the text does not hold" });
+      if (p >= 0 && dynamicHint(unwrapGrouping(seg.argv[p]!)) !== null && !toolOf(seg.argv[p]!)) out.unresolved.push({ operation: "COMMAND", reason: "the program is a value the text does not hold" });
       const inherits = first && n === 0 && seg.stdin === null && seg.stdinFile === null;
       const stdin = inherits ? inheritedStdin : seg.stdin;
       const stdinFile = inherits ? inheritedStdinFile : seg.stdinFile;
