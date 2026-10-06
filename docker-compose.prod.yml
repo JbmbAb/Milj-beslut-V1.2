@@ -4,10 +4,12 @@ version: '3.9'
 
 services:
   app:
+    # Local/on-prem image. `web` is the server stage (CMD npm start).
+    # PORT below overrides the image default and is what server/index.ts binds.
     build:
       context: .
-      dockerfile: Dockerfile.gcp
-      target: production
+      dockerfile: Dockerfile
+      target: web
     image: miljobeslut-portal:latest
     container_name: miljobeslut-app
     restart: unless-stopped
