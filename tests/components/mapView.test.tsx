@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   fetchMunicipalityContext: vi.fn(),
 }));
 

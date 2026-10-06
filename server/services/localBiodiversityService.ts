@@ -4,7 +4,7 @@ import type { ProtectedArea } from './nvrService';
 import type { GeologicalData } from './sguService';
 import type { Monument } from './raaService';
 import { generateText as generateLocalText } from '../modules/ai/generation/LocalGenerationPort';
-import { GEMINI_SYSTEM_PROMPT } from './geminiSystemPrompt';
+import { LOCAL_GENERATION_SYSTEM_PROMPT } from './localGenerationSystemPrompt';
 
 export type BiodiversityAnalysisResult = {
   observations: SpeciesObservation[];
@@ -57,7 +57,7 @@ export async function analyzeBiodiversityWithCompliance(
 
   const summary = await generateLocalText(prompt, {
     profile: 'fast',
-    systemInstruction: GEMINI_SYSTEM_PROMPT,
+    systemInstruction: LOCAL_GENERATION_SYSTEM_PROMPT,
   });
 
   if (!summary?.trim()) {

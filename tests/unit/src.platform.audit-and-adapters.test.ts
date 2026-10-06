@@ -16,7 +16,8 @@ import { AuditService } from '../../src/platform/audit.service';
 import { AuditAction } from '../../src/domain/audit';
 import { PriceTrend } from '../../src/domain/market-intel';
 import { ExternalMarketIntelAdapter } from '../../src/infrastructure/external-market-adapter';
-import { GeminiAIAdapter } from '../../src/infrastructure/gemini-ai-adapter';
+import { LocalAIAdapter } from '../../src/infrastructure/local-ai-adapter';
+import { registerLocalGenerationRuntime } from '../../server/modules/ai/generation/LocalGenerationPort';
 import { LantmaterietAdapter } from '../../src/infrastructure/lantmateriet-adapter';
 import { logger } from '../../server/logger';
 
@@ -26,6 +27,7 @@ describe('src platform and adapter utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    registerLocalGenerationRuntime(null);
   });
 
   afterEach(() => {
@@ -60,18 +62,15 @@ describe('src platform and adapter utilities', () => {
     await expect(service.getHistory('Project', 'project-1')).resolves.toEqual([{ id: 'audit-1' }]);
   });
 
-  it('returns mocked Gemini analysis and extracted requirements', async () => {
-    const adapter = new GeminiAIAdapter('gemini-key');
+  it('local AI adapter fails closed without a governed runtime instead of returning fabricated data', async () => {
+    const adapter = new LocalAIAdapter();
 
-    await expect(adapter.analyzeDocumentText('abc', 'ctx')).resolves.toEqual({
-      confidenceScore: 0.85,
-      extractedText: 'Sammanfattning genererad av AI',
-      suggestedCategory: 'MILJÖRAPPORT',
-      metadata: { model: 'vertex', surface: 'platform-stub' },
+    await expect(adapter.analyzeDocumentText('abc', 'ctx')).rejects.toMatchObject({
+      code: 'BLOCKED_BY_LOCAL_GENERATION_RUNTIME',
     });
-    await expect(adapter.extractRequirements('abc')).resolves.toEqual([
-      { code: 'AI-KRAV-1', text: 'Bullernivå max 55 dB', level: 'MANDATORY' },
-    ]);
+    await expect(adapter.extractRequirements('abc')).rejects.toMatchObject({
+      code: 'BLOCKED_BY_LOCAL_GENERATION_RUNTIME',
+    });
   });
 
   it('returnerar "not_configured" + tom market intel utan endpoint', async () => {

@@ -3,14 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import UploadModal from '../../components/UploadModal';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   processDocumentOCR: vi.fn(),
   analyzeBiodiversity: vi.fn(),
   generateMarketingSummary: vi.fn(),
   classifyAsset: vi.fn(),
 }));
 
-import { processDocumentOCR } from '../../services/geminiService';
+import { processDocumentOCR } from '../../services/aiAssistantService';
 
 const ocrMock = processDocumentOCR as ReturnType<typeof vi.fn>;
 

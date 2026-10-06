@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { embedText } from '../../../../services/searchService';
 import {
-  rerankWithGeminiOrLexical,
+  rerankWithLocalOrLexical,
 } from '../../../../services/legalRerankService';
 import { prisma } from '../../../../db/prisma';
 import { parseLegalReference } from '../../../legal/services/legalReferenceParser';
@@ -553,7 +553,7 @@ export async function searchLegalCorpusHandler(args: { query: string; legalArea?
             }));
 
             const rerankOutcome = await withSpan('Rerank', { 'search.candidate_count': rerankCandidates.length }, () =>
-              rerankWithGeminiOrLexical(
+              rerankWithLocalOrLexical(
                 trimmedQuery,
                 rerankCandidates.map(({ id, chunkText, score }) => ({ id, chunkText, score })),
                 config.rerankerFinalK,

@@ -3,15 +3,15 @@ import { runComplianceWorkflow, type OrchestrationRequest } from '../../services
 
 // ─── mocks ───────────────────────────────────────────────────────────────────
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   validateLabData: vi.fn(),
   analyzeLogisticsCompliance: vi.fn(),
 }));
 
-import * as geminiService from '../../services/geminiService';
+import * as aiAssistantService from '../../services/aiAssistantService';
 
-const mockValidateLab = vi.mocked(geminiService.validateLabData);
-const mockAnalyzeLogistics = vi.mocked(geminiService.analyzeLogisticsCompliance);
+const mockValidateLab = vi.mocked(aiAssistantService.validateLabData);
+const mockAnalyzeLogistics = vi.mocked(aiAssistantService.analyzeLogisticsCompliance);
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

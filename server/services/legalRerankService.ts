@@ -10,7 +10,7 @@ export type LegalRerankCandidate = {
 
 export type LegalRerankOutcome<T extends LegalRerankCandidate> = {
   items: Array<T & { finalScore: number; rerankApplied: boolean }>;
-  engine: 'gemini' | 'lexical';
+  engine: 'local' | 'lexical';
   promptVersion: string;
   skipReason?: string;
 };
@@ -73,9 +73,9 @@ function parseRerankScores(payload: unknown): RerankScoreRow[] | null {
 }
 
 /**
- * Gemini rerank via Vertex AI (OAuth2/ADC); lexical fallback vid fel eller saknad Vertex-konfig.
+ * Local/on-prem rerank through the provider-neutral generation port; lexical fallback when the local runtime is unavailable or fails.
  */
-export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
+export async function rerankWithLocalOrLexical<T extends LegalRerankCandidate>(
   query: string,
   items: T[],
   limit: number,
@@ -128,7 +128,7 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
       })
       .sort((a, b) => b.finalScore - a.finalScore);
 
-    return { items: ranked, engine: 'gemini', promptVersion: version };
+    return { items: ranked, engine: 'local', promptVersion: version };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`LEGAL_RERANKER: lokal rerank misslyckades (${message}) — lexical fallback.`);

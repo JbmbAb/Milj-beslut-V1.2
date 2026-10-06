@@ -21,7 +21,7 @@ vi.mock('../../server/repositories/searchRepository', () => ({
   queryTopSemanticChunks: mocks.queryTopSemanticChunks,
 }));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   serverGenerateText: mocks.serverGenerateText,
 }));
 

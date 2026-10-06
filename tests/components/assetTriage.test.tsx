@@ -3,13 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AssetTriage from '../../components/AssetTriage';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   classifyAsset: vi.fn(),
   analyzeBiodiversity: vi.fn(),
   generateMarketingSummary: vi.fn(),
 }));
 
-import { classifyAsset } from '../../services/geminiService';
+import { classifyAsset } from '../../services/aiAssistantService';
 
 const classifyMock = classifyAsset as ReturnType<typeof vi.fn>;
 

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FieldAssistant from '../../components/FieldAssistant';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   analyzeSiteImage: vi.fn(),
   analyzeTechnicalDrawing: vi.fn(),
   analyzeDrawingOCR: vi.fn(),

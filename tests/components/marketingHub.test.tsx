@@ -4,12 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import MarketingHub from '../../components/MarketingHub';
 import { DecisionType, type Permit } from '../../types';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   generateMarketingSummary: vi.fn(),
   analyzeBiodiversity: vi.fn(),
 }));
 
-import { generateMarketingSummary } from '../../services/geminiService';
+import { generateMarketingSummary } from '../../services/aiAssistantService';
 
 const genMock = generateMarketingSummary as ReturnType<typeof vi.fn>;
 

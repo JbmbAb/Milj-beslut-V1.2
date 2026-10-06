@@ -8,8 +8,8 @@
  *   LegalSupportView -> /api/legal/answer -> canonical governed chain    PASS
  *   global ChatBot freeform answer                                      UNREACHABLE
  *   DetailModal permit freeform answer                                  UNREACHABLE
- *   /api/gemini askGeneralAssistant bare/fallback answer                FAIL CLOSED
- *   /api/gemini chatWithPermit freeform answer                          FAIL CLOSED
+ *   /api/ai-assistant askGeneralAssistant bare/fallback answer                FAIL CLOSED
+ *   /api/ai-assistant chatWithPermit freeform answer                          FAIL CLOSED
  *   unauthenticated loopback carve-out                                  ABSENT
  *   legacy /api/legal/search UI caller                                  0
  *
@@ -77,9 +77,9 @@ async function main() {
   const proofCanonical = answer.status === 200 && answer.body.contract_version === 'legal-answer-serving-v1';
   console.log('PROOF (canonical chain still reachable and unaffected):', proofCanonical);
 
-  console.log('\n--- PROOF: /api/gemini askGeneralAssistant -> FAIL CLOSED (authenticated) ---');
+  console.log('\n--- PROOF: /api/ai-assistant askGeneralAssistant -> FAIL CLOSED (authenticated) ---');
   const ask = await request
-    .post('/api/gemini')
+    .post('/api/ai-assistant')
     .set('Authorization', `Bearer ${token}`)
     .set('x-csrf-token', csrfToken)
     .send({ method: 'askGeneralAssistant', payload: { message: 'Vad säger miljöbalken om avfall?', history: [] } });
@@ -87,9 +87,9 @@ async function main() {
   const proofAskFailClosed = ask.status === 410 && ask.body.ok === false;
   console.log('PROOF (askGeneralAssistant fails closed server-side, authenticated):', proofAskFailClosed);
 
-  console.log('\n--- PROOF: /api/gemini chatWithPermit -> FAIL CLOSED (authenticated) ---');
+  console.log('\n--- PROOF: /api/ai-assistant chatWithPermit -> FAIL CLOSED (authenticated) ---');
   const chat = await request
-    .post('/api/gemini')
+    .post('/api/ai-assistant')
     .set('Authorization', `Bearer ${token}`)
     .set('x-csrf-token', csrfToken)
     .send({ method: 'chatWithPermit', payload: { permit: { property_id: 'X', municipality: 'Y', full_text: 'Z' }, message: 'Vad gäller?', history: [] } });
@@ -106,7 +106,7 @@ async function main() {
   const noAuthAgent = supertest.agent(app);
   const noAuthCsrf = String((await noAuthAgent.get('/api/csrf-token')).body.csrfToken);
   const unauth = await noAuthAgent
-    .post('/api/gemini')
+    .post('/api/ai-assistant')
     .set('x-csrf-token', noAuthCsrf)
     .send({ method: 'askGeneralAssistant', payload: { message: 'test' } });
   console.log('status (no Authorization header, valid CSRF, loopback origin, method=askGeneralAssistant):', unauth.status, '| body:', JSON.stringify(unauth.body));

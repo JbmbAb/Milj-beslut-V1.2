@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { processDocumentOCR } from '../services/geminiService';
+import { processDocumentOCR } from '../services/aiAssistantService';
 import { Permit } from '../types';
 
 interface UploadModalProps {

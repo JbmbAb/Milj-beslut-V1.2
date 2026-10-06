@@ -57,11 +57,14 @@ export const MIGRATION_SCOPE: readonly MigrationScopeItem[] = [
     evidence: ['docs/integrations/lantmateriet.md'],
   },
   {
-    id: 'ai_vertex_gateway',
+    id: 'ai_local_generation_gateway',
     surface: 'AI',
     inScope: true,
-    description: 'AI via Vertex AI med fail-soft och parsers.',
-    evidence: ['server/services/vertexAiService.ts', 'server/services/coreAiGatewayService.ts'],
+    description: 'AI-generering via provider-neutral lokal/on-prem-port. Utan governed lokal runtime är ytan blockerad och fail-closed.',
+    evidence: [
+      'server/modules/ai/generation/LocalGenerationPort.ts',
+      'server/services/coreAiGatewayService.ts',
+    ],
   },
   {
     id: 'rag_search',

@@ -1,4 +1,4 @@
-export const GEMINI_SYSTEM_PROMPT = `You are an Environmental Compliance Analysis Engine used in a professional SaaS platform for environmental permitting and waste management in Sweden.
+export const LOCAL_GENERATION_SYSTEM_PROMPT = `You are an Environmental Compliance Analysis Engine used in a professional SaaS platform for environmental permitting and waste management in Sweden.
 
 The platform supports:
 - Environmental permitting

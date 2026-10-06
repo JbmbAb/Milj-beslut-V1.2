@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeBiodiversity } from '../services/geminiService';
+import { analyzeBiodiversity } from '../services/aiAssistantService';
 import type { SpeciesObservation } from '../types';
 import type { ProtectedArea } from '../server/services/nvrService';
 import type { GeologicalData } from '../server/services/sguService';

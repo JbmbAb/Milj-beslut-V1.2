@@ -30,7 +30,7 @@ vi.mock('../../server/services/sguService', () => ({
 vi.mock('../../server/services/raaService', () => ({
   fetchAncientMonuments: vi.fn(async () => []),
 }));
-vi.mock('../../server/services/geminiBiodiversityService', () => ({
+vi.mock('../../server/services/localBiodiversityService', () => ({
   analyzeBiodiversityWithCompliance: vi.fn(async () => ({
     observations: [],
     protectedAreas: [],
@@ -39,11 +39,11 @@ vi.mock('../../server/services/geminiBiodiversityService', () => ({
 }));
 
 import { searchSluByCoordinates } from '../../server/services/sluService';
-import geminiRouter from '../../server/geminiApi.express';
+import aiAssistantRouter from '../../server/aiAssistantApi.express';
 
 const app = express();
 app.use(express.json());
-app.use(geminiRouter);
+app.use(aiAssistantRouter);
 
 function authHeader() {
   return `Bearer ${
@@ -56,7 +56,7 @@ function authHeader() {
   }`;
 }
 
-describe('W3b: geminiApi.express analyzeBiodiversity reports which upstream source failed', () => {
+describe('W3b: aiAssistantApi.express analyzeBiodiversity reports which upstream source failed', () => {
   beforeEach(() => {
     vi.mocked(searchSluByCoordinates).mockReset();
   });
@@ -65,7 +65,7 @@ describe('W3b: geminiApi.express analyzeBiodiversity reports which upstream sour
     vi.mocked(searchSluByCoordinates).mockRejectedValueOnce(new Error('SLU down'));
 
     const res = await request(app)
-      .post('/api/gemini')
+      .post('/api/ai-assistant')
       .set('Authorization', authHeader())
       .send({ method: 'analyzeBiodiversity', payload: { lat: 59.33, lng: 18.06, projectId: 'p1' } });
 
@@ -77,7 +77,7 @@ describe('W3b: geminiApi.express analyzeBiodiversity reports which upstream sour
     vi.mocked(searchSluByCoordinates).mockResolvedValueOnce({ records: [] } as any);
 
     const res = await request(app)
-      .post('/api/gemini')
+      .post('/api/ai-assistant')
       .set('Authorization', authHeader())
       .send({ method: 'analyzeBiodiversity', payload: { lat: 59.33, lng: 18.06, projectId: 'p1' } });
 

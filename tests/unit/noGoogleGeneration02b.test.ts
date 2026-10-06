@@ -24,13 +24,13 @@ const GENERATION_PATH_FILES = [
   'server/services/legalRerankService.ts',
   'server/services/projectPlanGeneratorService.ts',
   'server/services/logisticsGeneratorService.ts',
-  'server/services/geminiBiodiversityService.ts',
-  'server/services/vertexDirigent.ts',
+  'server/services/localBiodiversityService.ts',
+  'server/services/localDirigent.ts',
   'server/services/readinessService.ts',
   'server/services/appHealthService.ts',
   'server/services/operationalCoverageService.ts',
   'server/services/fullStatusService.ts',
-  'services/geminiService.ts',
+  'services/aiAssistantService.ts',
   'src/infrastructure/ai/llm-provider.ts',
 ];
 

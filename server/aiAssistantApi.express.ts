@@ -23,14 +23,14 @@ import {
   analyzeCourtRuling,
   validateLabData,
   analyzeLogisticsCompliance,
-} from '../services/geminiService';
+} from '../services/aiAssistantService';
 import { runComplianceWorkflow } from '../services/orchestrationService';
 import { searchSluByCoordinates } from './services/sluService';
 import { fetchProtectedAreas } from './services/nvrService';
 import { fetchGeologicalData } from './services/sguService';
 import { fetchAncientMonuments } from './services/raaService';
 import { SpeciesObservation } from '../types';
-import { analyzeBiodiversityWithCompliance } from './services/geminiBiodiversityService';
+import { analyzeBiodiversityWithCompliance } from './services/localBiodiversityService';
 
 const router = express.Router();
 router.use(bodyParser.json({ limit: '10mb' }));
@@ -62,7 +62,7 @@ router.use((req, res, next) => {
 });
 
 router.use((req, res, next) => {
-  if (!req.path.startsWith('/api/gemini') && !req.path.startsWith('/api/figma')) {
+  if (!req.path.startsWith('/api/ai-assistant') && !req.path.startsWith('/api/figma')) {
     next();
     return;
   }
@@ -82,7 +82,7 @@ router.use((req, res, next) => {
 });
 router.use(rateLimitByUser(120, 60_000));
 
-router.post('/api/gemini', async (req, res) => {
+router.post('/api/ai-assistant', async (req, res) => {
   const { method, payload } = req.body || {};
   try {
     let result: any;
@@ -197,9 +197,6 @@ router.post('/api/gemini', async (req, res) => {
         break;
       case 'performSpatialAudit':
         result = await performSpatialAudit(payload.lat, payload.lng);
-        break;
-      case 'askGeneralAssistant':
-        result = await askGeneralAssistant(payload.message, payload.history || []);
         break;
       case 'generateMarketingSummary':
         result = await generateMarketingSummary(payload.permits || []);

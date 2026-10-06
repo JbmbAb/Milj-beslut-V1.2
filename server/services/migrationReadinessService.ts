@@ -1,6 +1,7 @@
 import { INTEGRATION_REGISTRY } from '../datasources/integrationRegistry';
 import { MIGRATION_SCOPE } from '../migration/scope';
 import { CORE_MODEL_MANIFEST } from '../domain/coreModel';
+import { localGenerationStatus } from '../modules/ai/generation/LocalGenerationPort';
 
 export type ReadinessStatus = 'DONE' | 'PARTIAL' | 'MISSING';
 
@@ -57,6 +58,7 @@ export function buildMigrationReadinessReport(): MigrationReadinessReport {
   const coreModelManifest = CORE_MODEL_MANIFEST;
   const registryOk = isIntegrationRegistryOperational();
   const separationOk = runtimeBulkSeparationOk();
+  const generation = localGenerationStatus();
   const items: ReadinessCheckItem[] = [
     {
       id: 'domain_case_spine',
@@ -102,13 +104,16 @@ export function buildMigrationReadinessReport(): MigrationReadinessReport {
     },
     {
       id: 'architecture_ai_separated',
-      title: 'AI separerad (gateway + policy)',
-      status: 'DONE',
+      title: 'AI separerad (lokal gateway + policy)',
+      status: generation.available ? 'DONE' : 'PARTIAL',
       evidence: [
-        'server/services/vertexAiService.ts',
+        'server/modules/ai/generation/LocalGenerationPort.ts',
         'server/services/coreAiGatewayService.ts',
         'server/modules/ai/policy.ts',
         'server/services/ragSearchService.ts',
+        generation.available
+          ? `local generation runtime: ${generation.runtime_id ?? 'unknown'}`
+          : `local generation blocker: ${generation.blocker ?? 'LOCAL_GENERATION_UNAVAILABLE'}`,
       ],
     },
     {

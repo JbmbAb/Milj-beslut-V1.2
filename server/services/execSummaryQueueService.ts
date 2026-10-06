@@ -154,47 +154,12 @@ async function runWorkerOnce(): Promise<void> {
   }
 }
 
-// ─── AI generation (Vertex) ─────────────────────────────────────────────────
-
-function parseExecSummaryJson(
-  payload: unknown,
-): Pick<ExecSummaryResult, 'summary' | 'keyRisks' | 'recommendations' | 'complianceScore'> | null {
-  if (!payload || typeof payload !== 'object') return null;
-  const o = payload as Record<string, unknown>;
-  const summary = String(o.summary ?? '').trim();
-  if (!summary) return null;
-  const keyRisks = Array.isArray(o.keyRisks) ? o.keyRisks.map((x) => String(x)) : [];
-  const recommendations = Array.isArray(o.recommendations) ? o.recommendations.map((x) => String(x)) : [];
-  const complianceScore = typeof o.complianceScore === 'number' ? o.complianceScore : 0.75;
-  return { summary, keyRisks, recommendations, complianceScore };
-}
+// ─── AI generation (local/on-prem only) ──────────────────────────────────────
 
 async function generateSummary(projectId: string): Promise<ExecSummaryResult> {
-  const generatedAt = new Date().toISOString();
-  const mockRequested = (process.env.EXEC_SUMMARY_MOCK_MODE ?? '').toLowerCase() === 'true';
-
-  if (mockRequested) {
-    return {
-      summary: `Detta är en mock-sammanfattning för projekt ${projectId}. Inga live-data har analyserats.`,
-      keyRisks: ['Mock-risk: Beroende av externa system', 'Mock-risk: Ofullständig datainmatning'],
-      recommendations: [
-        'Mock-rekommendation: Verifiera alla datakällor',
-        'Mock-rekommendation: Genomför fullständig live-analys',
-      ],
-      complianceScore: 0.67,
-      generatedAt,
-    };
-  }
-
-  // HD-03 (A9 sweep, 2026-09-29): this branch used to send the LLM only the project id (no real
-  // project data — no observations, findings, or documents), then persist the model's guess as a
-  // genuine DONE result with a real-looking complianceScore. The job never failed, so the caller
-  // could not tell a data-grounded summary from an ungrounded one. Loading real project data into
-  // the prompt is a separate future unit, not this fix: until then, refuse explicitly rather than
-  // let an ungrounded model guess become an "exekutiv sammanfattning" a case handler relies on.
-  // (EXEC_SUMMARY_MOCK_MODE above stays available: it is an explicit opt-in whose own summary text
-  // says "no live data has been analysed" — self-disclosed, not a silent fabrication.)
+  // HD-03: no governed project-context loader is wired here yet. A production path must never
+  // substitute a mock/canned summary for missing local generation or missing governed context.
   throw new Error(
-    `exec-summary: real generation is not implemented for project ${projectId} (HD-03) — no real project data is loaded into the prompt, and no governed local generation runtime exists (BLOCKED_BY_LOCAL_GENERATION_RUNTIME). Set EXEC_SUMMARY_MOCK_MODE=true for a clearly-labelled placeholder.`,
+    `exec-summary: generation is unavailable for project ${projectId} — governed project context and a governed local generation runtime are required (BLOCKED_BY_LOCAL_GENERATION_RUNTIME).`,
   );
 }

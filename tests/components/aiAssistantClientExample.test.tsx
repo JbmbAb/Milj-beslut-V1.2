@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import GeminiClientExample from '../../components/GeminiClientExample';
+import AiAssistantClientExample from '../../components/AiAssistantClientExample';
 import type { Permit } from '../../types';
 import { DecisionType } from '../../types';
 
@@ -18,33 +18,33 @@ const mockPermit: Permit = {
   processed_at: '2024-01-02',
 };
 
-describe('GeminiClientExample', () => {
+describe('AiAssistantClientExample', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });
 
   it('renders the heading', () => {
-    render(<GeminiClientExample permit={mockPermit} />);
-    expect(screen.getByText('Gemini: Analysera tillstånd')).toBeInTheDocument();
+    render(<AiAssistantClientExample permit={mockPermit} />);
+    expect(screen.getByText('AI Assistant: Analysera tillstånd')).toBeInTheDocument();
   });
 
   it('displays the property_id', () => {
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     expect(screen.getByText(/SE-12345/)).toBeInTheDocument();
   });
 
   it('displays the municipality', () => {
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     expect(screen.getByText(/Stockholm/)).toBeInTheDocument();
   });
 
   it('renders the "Kör analys" button initially', () => {
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     expect(screen.getByRole('button', { name: /Kör analys/i })).toBeInTheDocument();
   });
 
   it('button is enabled initially', () => {
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     const btn = screen.getByRole('button', { name: /Kör analys/i });
     expect(btn).not.toBeDisabled();
   });
@@ -52,14 +52,14 @@ describe('GeminiClientExample', () => {
   it('shows loading state when button is clicked', async () => {
     // Mock fetch to never resolve during this test
     (fetch as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     await userEvent.click(screen.getByRole('button', { name: /Kör analys/i }));
     expect(screen.getByRole('button', { name: /Analyserar/i })).toBeDisabled();
   });
 
   it('shows error when fetch fails', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'));
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     await userEvent.click(screen.getByRole('button', { name: /Kör analys/i }));
     expect(await screen.findByText(/Network error/)).toBeInTheDocument();
   });
@@ -69,7 +69,7 @@ describe('GeminiClientExample', () => {
       ok: true,
       json: async () => ({ ok: true, result: 'Analys klar' }),
     });
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     await userEvent.click(screen.getByRole('button', { name: /Kör analys/i }));
     expect(await screen.findByText('Analys klar')).toBeInTheDocument();
   });
@@ -78,10 +78,10 @@ describe('GeminiClientExample', () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: false,
       status: 500,
-      json: async () => ({ ok: false, error: 'Gemini unavailable' }),
+      json: async () => ({ ok: false, error: 'Local generation unavailable' }),
     });
-    render(<GeminiClientExample permit={mockPermit} />);
+    render(<AiAssistantClientExample permit={mockPermit} />);
     await userEvent.click(screen.getByRole('button', { name: /Kör analys/i }));
-    expect(await screen.findByText(/Gemini unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText(/Local generation unavailable/)).toBeInTheDocument();
   });
 });

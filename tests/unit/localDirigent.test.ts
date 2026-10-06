@@ -3,21 +3,21 @@ import {
   runComplianceWorkflowWithToolTrace,
   type OrchestrationRequest,
 } from '../../services/orchestrationService';
-import { toolTraceContentHash, summarizeVerifiedToolTrace } from '../../server/services/vertexDirigent';
+import { toolTraceContentHash, summarizeVerifiedToolTrace } from '../../server/services/localDirigent';
 import {
   evaluateProjectCompliance,
   type ComplianceMetrics,
 } from '../../server/services/complianceRuleEngine';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   validateLabData: vi.fn(),
   analyzeLogisticsCompliance: vi.fn(),
 }));
 
-import * as geminiService from '../../services/geminiService';
+import * as aiAssistantService from '../../services/aiAssistantService';
 
-const mockValidateLab = vi.mocked(geminiService.validateLabData);
-const mockAnalyzeLogistics = vi.mocked(geminiService.analyzeLogisticsCompliance);
+const mockValidateLab = vi.mocked(aiAssistantService.validateLabData);
+const mockAnalyzeLogistics = vi.mocked(aiAssistantService.analyzeLogisticsCompliance);
 
 function baseRequest(overrides: Partial<OrchestrationRequest> = {}): OrchestrationRequest {
   return {

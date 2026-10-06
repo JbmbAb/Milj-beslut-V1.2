@@ -633,7 +633,7 @@ describe.skipIf(!hasDatabaseIntegration)('secure API integration', () => {
 
   it('validates gemini and figma AI endpoint contracts without external model calls', async () => {
     const geminiUnknownMethodRes = await request(app)
-      .post('/api/gemini')
+      .post('/api/ai-assistant')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ method: 'unknownMethod', payload: {} });
 

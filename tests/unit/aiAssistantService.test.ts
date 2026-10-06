@@ -17,7 +17,7 @@ import {
   validateLabData,
   analyzeLogisticsCompliance,
   serverGenerateText,
-} from '../../services/geminiService';
+} from '../../services/aiAssistantService';
 import { DecisionType, type Permit } from '../../types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ describe('serverGenerateText', () => {
 // ─── analyzePermitRisk – kräver live AI-källa ──────────────────────────────────
 //
 // OBS: Tidigare test förväntade "offline fallback" med lokala strängar.
-// Den vägen är avvecklad: utan verifierad AI-källa kastar geminiService
+// Den vägen är avvecklad: utan verifierad AI-källa kastar aiAssistantService
 // `unavailable(...)` enligt regeln att endast BankID får köras som demo.
 describe('analyzePermitRisk', () => {
   it('kastar när ingen AI-källa finns (ingen lokal fallback)', async () => {

@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Lock, Unlock, Zap, AlertTriangle, RefreshCcw } from 'lucide-react';
 import type { SewageGISAnalysis, SewageProtectionProfile } from '../../../../types';
-import { generateSewageSitingAssessment } from '../../../../services/geminiService';
+import { generateSewageSitingAssessment } from '../../../../services/aiAssistantService';
 import { useOperationsCenter } from '../../../context/OperationsCenterContext';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAppWorkspace } from '../../../app/providers/AppWorkspaceProvider';

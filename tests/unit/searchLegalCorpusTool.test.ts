@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   parseLegalReference: vi.fn(),
   generateJsonWithVertex: vi.fn(),
   localGenerationStatus: vi.fn(),
-  rerankWithGeminiOrLexical: vi.fn(),
+  rerankWithLocalOrLexical: vi.fn(),
 }));
 
 vi.mock('../../server/db/prisma', () => ({
@@ -30,7 +30,7 @@ vi.mock('../../server/modules/legal/services/legalReferenceParser', () => ({
 }));
 
 vi.mock('../../server/services/legalRerankService', () => ({
-  rerankWithGeminiOrLexical: mocks.rerankWithGeminiOrLexical,
+  rerankWithLocalOrLexical: mocks.rerankWithLocalOrLexical,
   localLexicalRerank: (query: string, items: Array<{ chunkText: string; score: number }>) => {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     const scored = items.map((it) => {
@@ -68,7 +68,7 @@ describe('searchLegalCorpusTool — Alphaevolve A1', () => {
       values: [0.1, 0.2, 0.3],
       model: 'text-multilingual-embedding-002',
     });
-    mocks.rerankWithGeminiOrLexical.mockImplementation(async (query, items) => {
+    mocks.rerankWithLocalOrLexical.mockImplementation(async (query, items) => {
       const sorted = [...items];
       sorted.sort((a, b) => {
         const aMatch = a.chunkText.toLowerCase().includes('fosforrening') ? 1 : 0;
@@ -538,7 +538,7 @@ describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => 
       { chunk_id: 'c-4', record_id: 'r-4', chunk_text: 'Avloppstext 4', rank: 0.87 },
     ]);
 
-    mocks.rerankWithGeminiOrLexical.mockRejectedValue(new Error('Network timeout fetching Gemini'));
+    mocks.rerankWithLocalOrLexical.mockRejectedValue(new Error('local generation timeout'));
 
     const result = await searchLegalCorpusHandler({ query: 'avlopp' });
     expect(result).toBeDefined();
@@ -549,7 +549,7 @@ describe('searchLegalCorpusTool — Resilience & Telemetry Improvements', () => 
     const rerankerErrorCall = calls.find((call) => call[1]?.event === 'reranker.error');
     expect(rerankerErrorCall).toBeDefined();
     expect(rerankerErrorCall![1].retryable).toBe(true);
-    expect(rerankerErrorCall![1].errorMessage).toContain('Network timeout');
+    expect(rerankerErrorCall![1].errorMessage).toContain('local generation timeout');
     errorSpy.mockRestore();
   });
 

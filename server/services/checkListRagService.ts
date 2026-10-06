@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../logger';
 import { embedText } from './searchService';
 import { queryTopSemanticChunks } from '../repositories/searchRepository';
-import { serverGenerateText } from '../../services/geminiService';
+import { serverGenerateText } from '../../services/aiAssistantService';
 import { prisma } from '../db/prisma';
 import { requirementExtractedSchema, type RequirementExtracted } from '../domain/requirementsModel';
 

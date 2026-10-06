@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DecisionType, Permit, Receiver } from "../types";
-import { fetchMunicipalityContext } from "../services/geminiService";
+import { fetchMunicipalityContext } from "../services/aiAssistantService";
 
 interface MapViewProps {
   permits?: Permit[];

@@ -1,5 +1,5 @@
 /**
- * vertexDirigent.ts
+ * localDirigent.ts
  *
  * "Beviset" mot naken chatt: compliance-flödets faktiska siffror kommer från
  * deterministiska verktyg (regelmotor) och serialiseras i `toolTrace` innan
@@ -75,7 +75,7 @@ export async function summarizeVerifiedToolTrace(
       },
     );
   } catch (e) {
-    logger.warn('vertexDirigent: summarize failed, faller tillbaka till offline-rapport', {
+    logger.warn('localDirigent: summarize failed, faller tillbaka till offline-rapport', {
       err: e instanceof Error ? e.message : String(e),
     });
     return summarizeVerifiedToolTrace(trace, { useLocalGenerationIfAvailable: false });

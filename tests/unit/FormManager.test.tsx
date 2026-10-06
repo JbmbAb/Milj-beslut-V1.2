@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import FormManager from '../../components/FormManager';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   validateForm: vi.fn(),
   generateFormFields: vi.fn(),
 }));

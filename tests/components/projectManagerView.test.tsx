@@ -57,7 +57,7 @@ vi.mock('../../components/ProjectPlanStructurePanel', () => ({
   default: () => <div data-testid="project-plan-structure-panel" />,
 }));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   suggestStakeholders: vi.fn().mockResolvedValue([]),
   generatePlanDraft: vi.fn().mockResolvedValue({ background: '', description: '' }),
 }));

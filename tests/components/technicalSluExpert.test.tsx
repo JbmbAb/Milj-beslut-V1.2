@@ -11,14 +11,14 @@ vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   analyzeBiodiversity: vi.fn(),
   generateMarketingSummary: vi.fn(),
   classifyAsset: vi.fn(),
 }));
 
 import { TechnicalSluExpert } from '../../components/TechnicalSluExpert';
-import { analyzeBiodiversity } from '../../services/geminiService';
+import { analyzeBiodiversity } from '../../services/aiAssistantService';
 
 const analyzesMock = analyzeBiodiversity as ReturnType<typeof vi.fn>;
 

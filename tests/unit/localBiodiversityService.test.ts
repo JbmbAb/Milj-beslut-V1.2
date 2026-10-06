@@ -25,9 +25,9 @@ vi.mock('../../server/services/complianceRuleEngine', () => ({
 
 import { evaluateComplianceRules } from '../../server/services/complianceRuleEngine';
 import { generateText } from '../../server/modules/ai/generation/LocalGenerationPort';
-import { analyzeBiodiversityWithCompliance } from '../../server/services/geminiBiodiversityService';
+import { analyzeBiodiversityWithCompliance } from '../../server/services/localBiodiversityService';
 
-describe('geminiBiodiversityService', () => {
+describe('localBiodiversityService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

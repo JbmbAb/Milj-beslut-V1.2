@@ -109,7 +109,7 @@ describe('src composition roots', { timeout: 15000 }, () => {
     const PrismaDocumentRepository = makeCtorMock('documentRepo');
     const PrismaRequirementRepository = makeCtorMock('requirementRepo');
     const PrismaPermitCaseRepository = makeCtorMock('permitRepo');
-    const GeminiAIAdapter = vi.fn(function MockedGemini(this: Record<string, unknown>) {
+    const LocalAIAdapter = vi.fn(function MockedLocalAI(this: Record<string, unknown>) {
       this.kind = 'aiAdapter';
     });
     const ProjectController = makeCtorMock('projectController');
@@ -133,8 +133,8 @@ describe('src composition roots', { timeout: 15000 }, () => {
     vi.doMock('../../src/infrastructure/prisma-permit-case-repository', () => ({
       PrismaPermitCaseRepository,
     }));
-    vi.doMock('../../src/infrastructure/gemini-ai-adapter', () => ({
-      GeminiAIAdapter,
+    vi.doMock('../../src/infrastructure/local-ai-adapter', () => ({
+      LocalAIAdapter,
     }));
     vi.doMock('../../src/api/project.controller', () => ({ ProjectController }));
     vi.doMock('../../src/api/document.api', () => ({ DocumentController }));
