@@ -2,12 +2,12 @@
  * coreAiGatewayService.ts
  *
  *
- * AI-gateway för Core-flödet. Allt körs via Vertex AI (Google Cloud).
+ * AI-gateway för Core-flödet. Allt körs via den lokala generation-porten (Google är avvecklat).
  * Tidigare direktanrop till Gemini API och OpenAI är avvecklade i spår 10b.
  */
 
 import type { RequirementItem } from '../schemas/coreSchemas';
-import { generateJsonWithVertex } from './vertexAiService';
+import { generateJson as generateLocalJson } from '../modules/ai/generation/LocalGenerationPort';
 
 type PermitDraftSuggestion = {
   document_type: string;
@@ -81,25 +81,10 @@ function parseVerificationPayload(payload: unknown): VerificationSecondOpinion |
   };
 }
 
-/**
- * Tydliga Vertex-nycklar i `.env` (P1), med stöd för äldre Core_GEMINI_* / MVP_* under övergång.
- */
-function vertexModelOrDefault(envKeys: string[], fallback: string): string {
-  for (const k of envKeys) {
-    const v = normalizeText(process.env[k]);
-    if (v) return v;
-  }
-  return fallback;
-}
-
 export async function suggestRequirementsFromGemini(input: {
   activityCode: string;
   ewcCode: string;
 }): Promise<RequirementItem[] | null> {
-  const model = vertexModelOrDefault(
-    ['VERTEX_CORE_REQUIREMENTS_MODEL', 'Core_GEMINI_REQUIREMENTS_MODEL', 'MVP_GEMINI_REQUIREMENTS_MODEL'],
-    'gemini-1.5-flash',
-  );
   const prompt = `Du är juridisk assistent för svensk miljöanmälan.
 Returnera ENDAST JSON enligt schema:
 {
@@ -117,13 +102,12 @@ activity_code=${input.activityCode}
 ewc_code=${input.ewcCode}`;
 
   return withRetry(() =>
-    generateJsonWithVertex<RequirementItem[]>(prompt, {
-      model,
+    generateLocalJson<RequirementItem[]>(prompt, {
       profile: 'fast',
       parse: parseRequirementsPayload,
     }),
   ).catch((error) => {
-    console.error(`Vertex (coreAi requirements) fel:`, error instanceof Error ? error.message : error);
+    console.error(`Lokal generering (coreAi requirements) fel:`, error instanceof Error ? error.message : error);
     return null;
   });
 }
@@ -134,10 +118,6 @@ export async function generatePermitDraftFromGemini(input: {
   riskFlags: string[];
   defaultDocumentType: string;
 }): Promise<PermitDraftSuggestion | null> {
-  const model = vertexModelOrDefault(
-    ['VERTEX_CORE_PERMIT_MODEL', 'Core_GEMINI_PERMIT_MODEL', 'MVP_GEMINI_PERMIT_MODEL'],
-    'gemini-1.5-pro',
-  );
   const prompt = `Du skriver utkast för svensk miljöansökan.
 Returnera ENDAST JSON enligt schema:
 {
@@ -163,28 +143,23 @@ ${JSON.stringify(
 )}`;
 
   return withRetry(() =>
-    generateJsonWithVertex<PermitDraftSuggestion>(prompt, {
-      model,
+    generateLocalJson<PermitDraftSuggestion>(prompt, {
       profile: 'text',
       parse: parsePermitDraftPayload,
     }),
   ).catch((error) => {
-    console.error(`Vertex (coreAi permit draft) fel:`, error instanceof Error ? error.message : error);
+    console.error(`Lokal generering (coreAi permit draft) fel:`, error instanceof Error ? error.message : error);
     return null;
   });
 }
 
 /**
  * Verifieringssecond-opinion. Funktionsnamnet behålls för bakåtkompatibilitet
- * med testsuiter och routes, men körs nu via Vertex AI (inte OpenAI).
+ * med testsuiter och routes, men körs via den lokala generation-porten.
  */
 export async function getVerificationSecondOpinionFromOpenAi(input: {
   analysis: string;
 }): Promise<VerificationSecondOpinion | null> {
-  const model = vertexModelOrDefault(
-    ['VERTEX_CORE_VERIFICATION_MODEL', 'Core_VERIFICATION_MODEL', 'MVP_OPENAI_VERIFICATION_MODEL'],
-    'gemini-1.5-pro',
-  );
   const schemaHint = {
     type: 'object',
     additionalProperties: false,
@@ -200,14 +175,13 @@ Analys att verifiera:
 ${input.analysis}`;
 
   return withRetry(() =>
-    generateJsonWithVertex<VerificationSecondOpinion>(prompt, {
-      model,
+    generateLocalJson<VerificationSecondOpinion>(prompt, {
       profile: 'json',
       schemaHint,
       parse: parseVerificationPayload,
     }),
   ).catch((error) => {
-    console.error(`Vertex (coreAi verification) fel:`, error instanceof Error ? error.message : error);
+    console.error(`Lokal generering (coreAi verification) fel:`, error instanceof Error ? error.message : error);
     return null;
   });
 }

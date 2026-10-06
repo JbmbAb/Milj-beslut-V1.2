@@ -1,4 +1,4 @@
-// Vertex AI används server-side via `server/services/vertexAiService.ts`.
+// Generering körs server-side via den lokala generation-porten (`server/modules/ai/generation`).
 // Klientsidan anropar plattformens egna /api/gemini-endpoint vilket i sin tur
 // går mot Vertex. Direktanrop till Google GenerativeAI SDK är avvecklat i
 // spår 10b (Vertex-migration).
@@ -222,48 +222,49 @@ function hasWindow(): boolean {
   return typeof window !== 'undefined' && !isNodeRuntime();
 }
 
-function isVertexConfigured(): boolean {
-  if (typeof process === 'undefined' || !process.env) return false;
-  return Boolean(String(process.env.VERTEX_PROJECT_ID || '').trim());
+async function isLocalGenerationConfigured(): Promise<boolean> {
+  if (!isNodeRuntime()) return false;
+  const { isLocalGenerationAvailable } = await import('../server/modules/ai/generation/LocalGenerationPort');
+  return isLocalGenerationAvailable();
 }
 
 export async function serverGenerateText(prompt: string): Promise<string | null> {
-  if (hasWindow() || !isVertexConfigured()) return null;
+  if (hasWindow() || !(await isLocalGenerationConfigured())) return null;
 
   return geminiCircuit
     .execute(async () => {
-      const { generateTextWithVertex } = await import('../server/services/vertexAiService');
-      const text = await generateTextWithVertex(prompt, {
+      const { generateText: generateLocalText } = await import('../server/modules/ai/generation/LocalGenerationPort');
+      const text = await generateLocalText(prompt, {
         profile: 'fast',
         systemInstruction: GEMINI_SYSTEM_PROMPT,
       });
       return text.trim() || null;
     })
     .catch((error) => {
-      console.error('Vertex Circuit Breaker caught error:', error.message);
+      console.error('Local generation circuit breaker caught error:', error.message);
       return null;
     });
 }
 
 async function serverGenerateFromParts(parts: unknown[]): Promise<string | null> {
-  if (hasWindow() || !isVertexConfigured()) return null;
+  if (hasWindow() || !(await isLocalGenerationConfigured())) return null;
 
   return geminiCircuit
     .execute(async () => {
-      const { generateTextWithVertex } = await import('../server/services/vertexAiService');
+      const { generateText: generateLocalText } = await import('../server/modules/ai/generation/LocalGenerationPort');
       const flattened = (parts as Array<{ text?: string }>)
         .map((part) => (typeof part?.text === 'string' ? part.text : ''))
         .filter(Boolean)
         .join('\n\n');
       if (!flattened) return null;
-      const text = await generateTextWithVertex(flattened, {
+      const text = await generateLocalText(flattened, {
         profile: 'fast',
         systemInstruction: GEMINI_SYSTEM_PROMPT,
       });
       return text.trim() || null;
     })
     .catch((error) => {
-      console.error('Vertex Circuit Breaker caught error:', error.message);
+      console.error('Local generation circuit breaker caught error:', error.message);
       return null;
     });
 }

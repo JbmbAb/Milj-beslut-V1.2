@@ -5,7 +5,7 @@
  * Använder LIBRARIAN_SYSTEM_PROMPT för att planera och granska dataflöden.
  */
 
-import { generateTextWithVertex } from './vertexAiService';
+import { generateText as generateLocalText } from '../modules/ai/generation/LocalGenerationPort';
 import { LIBRARIAN_SYSTEM_PROMPT } from './librarianSystemPrompt';
 import { logger } from '../logger';
 
@@ -41,7 +41,7 @@ Inkludera strategi för bulk-nedladdning och rate-limiting.
 `;
 
     try {
-      return await generateTextWithVertex(prompt, {
+      return await generateLocalText(prompt, {
         systemInstruction: LIBRARIAN_SYSTEM_PROMPT,
         profile: 'text',
         temperature: 0.2,
@@ -65,7 +65,7 @@ Identifiera kända mönster för denna myndighets webbdiarium och föreslå en s
 `;
 
     try {
-      return await generateTextWithVertex(prompt, {
+      return await generateLocalText(prompt, {
         systemInstruction: LIBRARIAN_SYSTEM_PROMPT,
         profile: 'text',
         temperature: 0.2,
@@ -89,7 +89,7 @@ Skapa en strategi för att identifiera, ladda ner och arkivera relevanta filer u
 `;
 
     try {
-      return await generateTextWithVertex(prompt, {
+      return await generateLocalText(prompt, {
         systemInstruction: LIBRARIAN_SYSTEM_PROMPT,
         profile: 'text',
         temperature: 0.2,
@@ -116,7 +116,7 @@ Föreslå indexering, partitionering och eventuella semantiska vyer (Context Bri
 `;
 
     try {
-      return await generateTextWithVertex(prompt, {
+      return await generateLocalText(prompt, {
         systemInstruction: LIBRARIAN_SYSTEM_PROMPT,
         profile: 'text',
         temperature: 0.1,
@@ -139,7 +139,7 @@ ${context ? `Kontext:\n${context}` : ''}
 `;
 
     try {
-      return await generateTextWithVertex(prompt, {
+      return await generateLocalText(prompt, {
         systemInstruction: LIBRARIAN_SYSTEM_PROMPT,
         profile: 'text',
         temperature: 0.3,

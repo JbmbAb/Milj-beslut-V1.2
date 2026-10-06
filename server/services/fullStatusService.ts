@@ -30,7 +30,6 @@ import { getSchedulerStatus as getDomstolSchedulerStatus } from './domstolRssSch
 import { listBackups } from './backupService';
 import { getRecentErrors } from './errorTrackingService';
 import { hasLantmaterietAuth, isLantmaterietOpenMode } from '../security/env';
-import { vertexConfigStatus } from './vertexAiService';
 import type { FullStatusReport } from '../../types';
 import { getReadinessPayload } from './readinessService';
 
@@ -137,16 +136,6 @@ async function probeIntegrations(): Promise<IntegrationProbe[]> {
     status: smtpOk ? 'CONFIGURED' : 'NOT_CONFIGURED',
     endpoint: smtpOk ? `${process.env.SMTP_HOST}:${process.env.SMTP_PORT ?? 587}` : undefined,
     note: smtpOk ? 'E-post aktiverat' : 'SMTP_HOST/USER/PASS saknas — aviseringar loggas men skickas ej',
-  });
-
-  // Vertex AI (generativ AI)
-  const vertex = vertexConfigStatus();
-  results.push({
-    name: 'Vertex AI',
-    status: vertex.configured ? 'CONFIGURED' : 'NOT_CONFIGURED',
-    note: vertex.configured
-      ? `Projekt ${vertex.projectId}, region ${vertex.location}`
-      : `Saknas: ${vertex.missing.join(', ')} — embeddings/OCR/LLM inaktiva tills konfigurerat`,
   });
 
   // LIMS
@@ -498,10 +487,6 @@ function collectEnvConfig(): EnvConfig[] {
     { name: 'BANKID_BASE_URL', category: 'BankID', required: false },
     { name: 'BANKID_CERT_PATH', category: 'BankID', required: false },
     { name: 'BANKID_KEY_PATH', category: 'BankID', required: false },
-    { name: 'VERTEX_PROJECT_ID', category: 'AI', required: false },
-    { name: 'VERTEX_LOCATION', category: 'AI', required: false },
-    { name: 'VERTEX_TEXT_MODEL', category: 'AI', required: false },
-    { name: 'VERTEX_FAST_MODEL', category: 'AI', required: false },
     { name: 'VERTEX_EMBEDDING_MODEL', category: 'AI', required: false },
     { name: 'GEMINI_API_KEY', category: 'AI (avvecklas)', required: false },
     { name: 'VITE_GEMINI_API_KEY', category: 'AI (avvecklas)', required: false },

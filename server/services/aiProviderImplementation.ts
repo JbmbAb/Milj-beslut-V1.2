@@ -1,9 +1,9 @@
 import { AiOptions, AiProvider, AiResponse } from './aiProvider';
-import { generateJsonWithVertex, generateTextWithVertex } from './vertexAiService';
+import { generateJson as generateLocalJson, generateText as generateLocalText } from '../modules/ai/generation/LocalGenerationPort';
 
-export class GeminiAiProvider implements AiProvider {
+export class LocalAiProvider implements AiProvider {
   async generateText(prompt: string, options?: AiOptions): Promise<AiResponse> {
-    const text = await generateTextWithVertex(prompt, {
+    const text = await generateLocalText(prompt, {
       profile: options?.profile,
       temperature: options?.temperature,
       maxOutputTokens: options?.maxOutputTokens,
@@ -13,7 +13,7 @@ export class GeminiAiProvider implements AiProvider {
   }
 
   async generateJson<T>(prompt: string, options?: AiOptions): Promise<T> {
-    const result = await generateJsonWithVertex<T>(prompt, {
+    const result = await generateLocalJson<T>(prompt, {
       profile: options?.profile,
       temperature: options?.temperature,
       maxOutputTokens: options?.maxOutputTokens,
@@ -41,10 +41,12 @@ let currentProvider: AiProvider | null = null;
 export function getAiProvider(): AiProvider {
   if (currentProvider) return currentProvider;
 
-  if (process.env.USE_MOCK_AI === 'true' || process.env.NODE_ENV === 'test') {
+  // The mock is selectable ONLY under the test runner -- never by an environment flag in a
+  // production composition (zero-Google: no mock may become a production provider).
+  if (process.env.NODE_ENV === 'test') {
     currentProvider = new MockAiProvider();
   } else {
-    currentProvider = new GeminiAiProvider();
+    currentProvider = new LocalAiProvider();
   }
   return currentProvider;
 }

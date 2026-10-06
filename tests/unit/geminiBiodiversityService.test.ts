@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: vi.fn(async () => 'Sammanfattning från Vertex'),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: vi.fn(async () => 'Sammanfattning från Vertex'),
 }));
 
 vi.mock('../../server/services/complianceRuleEngine', () => ({
@@ -24,7 +24,7 @@ vi.mock('../../server/services/complianceRuleEngine', () => ({
 }));
 
 import { evaluateComplianceRules } from '../../server/services/complianceRuleEngine';
-import { generateTextWithVertex } from '../../server/services/vertexAiService';
+import { generateText } from '../../server/modules/ai/generation/LocalGenerationPort';
 import { analyzeBiodiversityWithCompliance } from '../../server/services/geminiBiodiversityService';
 
 describe('geminiBiodiversityService', () => {
@@ -36,13 +36,13 @@ describe('geminiBiodiversityService', () => {
     const result = await analyzeBiodiversityWithCompliance(59.33, 18.07, [], [], undefined, []);
 
     expect(evaluateComplianceRules).toHaveBeenCalled();
-    expect(generateTextWithVertex).toHaveBeenCalled();
+    expect(generateText).toHaveBeenCalled();
     expect(result.summary).toBe('Sammanfattning från Vertex');
     expect(result.compliance?.rules).toHaveLength(1);
   });
 
   it('kastar när Vertex saknar svar', async () => {
-    vi.mocked(generateTextWithVertex).mockResolvedValueOnce('');
+    vi.mocked(generateText).mockResolvedValueOnce('');
 
     await expect(analyzeBiodiversityWithCompliance(59.33, 18.07)).rejects.toThrow(/verifierad AI-källa/);
   });

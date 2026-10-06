@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock Vertex AI gateway (ersätter gamla Gemini SDK-mockar) ──────────────
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: vi.fn(async () => ''),
-  generateJsonWithVertex: vi.fn(async () => null),
-  vertexConfigStatus: vi.fn(() => ({
-    configured: false,
-    missing: ['VERTEX_PROJECT_ID'],
-    projectId: null,
-    location: 'europe-west1',
-  })),
-  __resetVertexClientForTest: vi.fn(),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: vi.fn(async () => ''),
+  generateJson: vi.fn(async () => null),
+  isLocalGenerationAvailable: vi.fn(() => false),
+  localGenerationStatus: vi.fn(() => ({ available: false, runtime_id: 'test', model_id: 'test', blocker: 'BLOCKED_BY_LOCAL_GENERATION_RUNTIME' })),
 }));
 
 // ─── Module under test ────────────────────────────────────────────────────────

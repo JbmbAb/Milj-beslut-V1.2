@@ -3,9 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Denna mock ersätter Vertex-gatewayen (tidigare Gemini direct SDK).
 // Mocket skickar prompten vidare till en simulerad "Vertex" och väljer
 // svar baserat på vad som efterfrågas.
-vi.mock('../../server/services/vertexAiService', () => {
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => {
   return {
-    generateJsonWithVertex: async (prompt: string, opts: any) => {
+    generateJson: async (prompt: string, opts: any) => {
       if (prompt.includes('activity_code')) {
         return opts?.parse?.({
           requirements: [{ rule: 'Masshanteringskontroll', law: 'Miljöbalken', citation: '2 kap. 3 §' }],
@@ -16,14 +16,9 @@ vi.mock('../../server/services/vertexAiService', () => {
         draft_text: 'Juridiska krav: Miljöbalken. Human-in-the-loop: juridisk slutgranskning kravs',
       });
     },
-    generateTextWithVertex: vi.fn(async () => ''),
-    vertexConfigStatus: vi.fn(() => ({
-      configured: true,
-      missing: [],
-      projectId: 'test',
-      location: 'europe-west1',
-    })),
-    __resetVertexClientForTest: vi.fn(),
+    generateText: vi.fn(async () => ''),
+    isLocalGenerationAvailable: vi.fn(() => true),
+    localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
   };
 });
 

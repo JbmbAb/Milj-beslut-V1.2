@@ -7,11 +7,10 @@ const pnorm = (s: string) => s.replace(/\\/g, '/');
 
 /**
  * I webbundlen: ersätt moduler under `server/**` så Vite aldrig följer
- * @google-cloud/vertexai / node-fetch. Node/Express använder samma sökvägar
+ * serverbibliotek / node-fetch. Node/Express använder samma sökvägar
  * via tsx — denna plugin körs enbart från `vite` / `vite build`.
  */
 function serverModulesBrowserStubsPlugin(): Plugin {
-  const vertStub = path.resolve(__dirname, 'stubs/browser/vertexAiService.ts');
   const cbStub = path.resolve(__dirname, 'stubs/browser/circuit-breaker-stub.ts');
   const searchStub = path.resolve(__dirname, 'stubs/browser/searchService.ts');
   const orkesterStub = path.resolve(__dirname, 'stubs/browser/VertexOrkester.ts');
@@ -24,9 +23,6 @@ function serverModulesBrowserStubsPlugin(): Plugin {
     if (n.includes('server/modules/ai/orchestrator/VertexOrkester')) {
       return orkesterStub;
     }
-    if (n.includes('server/services/vertexAiService')) {
-      return vertStub;
-    }
     if (n.includes('server/utils/circuitBreaker')) {
       return cbStub;
     }
@@ -37,9 +33,6 @@ function serverModulesBrowserStubsPlugin(): Plugin {
       }
       if (joined.includes('server/modules/ai/orchestrator/VertexOrkester')) {
         return orkesterStub;
-      }
-      if (joined.includes('server/services/vertexAiService')) {
-        return vertStub;
       }
       if (joined.includes('server/utils/circuitBreaker')) {
         return cbStub;

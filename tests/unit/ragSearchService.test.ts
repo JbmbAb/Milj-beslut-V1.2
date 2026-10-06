@@ -28,10 +28,9 @@ vi.mock('../../server/logger', () => ({
   },
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateJsonWithVertex: vi.fn(),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateJson: vi.fn(),
   vertexConfigStatus: vi.fn(),
-  __resetVertexClientForTest: vi.fn(),
 }));
 
 vi.mock('../../server/services/aiProviderImplementation', () => ({
@@ -153,9 +152,7 @@ describe('runRagSearch', () => {
     expect(mocks.loggerWarn).toHaveBeenCalledWith('rag-search: graph search failed', expect.anything());
   });
 
-  it('skips Vertex generation when VERTEX_PROJECT_ID is not set', async () => {
-    delete process.env.VERTEX_PROJECT_ID;
-
+  it('skips generation when no context was retrieved', async () => {
     mocks.embedText.mockResolvedValue({ values: [0.1], model: 'm' });
     mocks.queryTopSemanticChunks.mockResolvedValue([]);
     mocks.searchGraph.mockResolvedValue({ nodes: [] });

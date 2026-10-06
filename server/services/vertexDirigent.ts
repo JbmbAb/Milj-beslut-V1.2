@@ -3,7 +3,7 @@
  *
  * "Beviset" mot naken chatt: compliance-flödets faktiska siffror kommer från
  * deterministiska verktyg (regelmotor) och serialiseras i `toolTrace` innan
- * valfri Vertex-text används. Modellen får då bara parafrasera spåret — inte
+ * valfri lokal text används. Modellen får då bara parafrasera spåret — inte
  * hitta nya risknivåer eller nya "lagkrav" som inte fanns i output.
  */
 
@@ -14,7 +14,7 @@ import {
   type OrchestrationRequest,
   type OrchestrationWithToolTrace,
 } from '../../services/orchestrationService';
-import { generateTextWithVertex } from './vertexAiService';
+import { generateText as generateLocalText, isLocalGenerationAvailable } from '../modules/ai/generation/LocalGenerationPort';
 import { logger } from '../logger';
 
 const SUMMARY_SYSTEM = `Du är en teknisk redaktör för miljö- och avfallscompliance.
@@ -44,20 +44,20 @@ export function toolTraceContentHash(trace: ComplianceToolTraceEntry[]): string 
 }
 
 /**
- * Frivillig Vertex-sammanfattning. Utan `VERTEX_PROJECT_ID` returneras en
+ * Frivillig sammanfattning via lokal generering. Utan registrerad lokal runtime returneras en
  * minimal maskinrapport så att CI/edge utan moln fortfarande bevisar spåret.
  */
 export async function summarizeVerifiedToolTrace(
   trace: ComplianceToolTraceEntry[],
-  options: { useVertexIfConfigured?: boolean } = {},
+  options: { useLocalGenerationIfAvailable?: boolean } = {},
 ): Promise<string> {
-  const use = options.useVertexIfConfigured !== false;
-  if (!use || !process.env.VERTEX_PROJECT_ID?.trim()) {
+  const use = options.useLocalGenerationIfAvailable !== false;
+  if (!use || !isLocalGenerationAvailable()) {
     const rule = trace.find((t) => t.toolId === 'rule_engine_evaluate')?.output as
       | { riskScore?: string; requiresPermitOrNotification?: string }
       | undefined;
     return [
-      '[offline/utan Vertex] Verifierat verktygsspår (hash: ' + toolTraceContentHash(trace) + ')',
+      '[offline/utan lokal generering] Verifierat verktygsspår (hash: ' + toolTraceContentHash(trace) + ')',
       'rule_engine riskScore: ' + (rule?.riskScore ?? 'saknas'),
       'krav: se toolTrace-JSON; ingen LLM har lagt till innehåll.',
     ].join('\n');
@@ -65,7 +65,7 @@ export async function summarizeVerifiedToolTrace(
 
   try {
     const payload = JSON.stringify({ verifiedToolTrace: trace }, null, 0);
-    return await generateTextWithVertex(
+    return await generateLocalText(
       'Summera följande ENDAST. Lägg inte till nya fakta:\n' + payload,
       {
         profile: 'fast',
@@ -78,7 +78,7 @@ export async function summarizeVerifiedToolTrace(
     logger.warn('vertexDirigent: summarize failed, faller tillbaka till offline-rapport', {
       err: e instanceof Error ? e.message : String(e),
     });
-    return summarizeVerifiedToolTrace(trace, { useVertexIfConfigured: false });
+    return summarizeVerifiedToolTrace(trace, { useLocalGenerationIfAvailable: false });
   }
 }
 

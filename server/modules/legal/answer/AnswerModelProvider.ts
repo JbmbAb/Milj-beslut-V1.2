@@ -1,24 +1,27 @@
 /**
- * LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01.
+ * LEGAL-RETRIEVAL-RAG-ANSWER-COMPOSITION-01 / W-NO-GOOGLE-02B.
  *
- * Real, Gemini API-key-backed answer model provider -- same call mechanism as
- * GeminiEmbeddingProvider.ts (GEMINI_API_KEY / `@google/genai`, NOT Vertex ADC, which was proven
- * broken in this environment during LEGAL-RETRIEVAL-BOUNDED-PILOT-01).
+ * The AnswerModelProvider DOMAIN SEAM plus the local, provider-neutral implementation. Google is
+ * retired: the former Gemini implementation was removed; generation now goes through the local
+ * generation port (server/modules/ai/generation/LocalGenerationPort.ts) and fails closed when no
+ * governed local runtime is registered.
  *
- * The model is asked for STRUCTURED JSON (responseSchema, not free text parsed by regex) so that
- * every claim's citations are explicit, machine-checkable data -- `cited_fragments` -- rather than
- * something inferred from prose. This provider itself does no validation of whether a claimed
- * citation is real; that is deliberately NOT its job. It only proposes claims and their claimed
- * citations. LegalAnswerComposition.ts is the only place a claimed citation is checked against the
- * governed retrieval set (via buildCitation) and admitted or dropped -- fail-closed enforcement
- * lives in the contract layer, never in the model call itself.
+ * The model is asked for STRUCTURED JSON so that every claim's citations are explicit,
+ * machine-checkable data -- `cited_fragments` -- rather than something inferred from prose. This
+ * provider itself does no validation of whether a claimed citation is real; that is deliberately
+ * NOT its job. It only proposes claims and their claimed citations. LegalAnswerComposition.ts is
+ * the only place a claimed citation is checked against the governed retrieval set (via
+ * buildCitation) and admitted or dropped.
  */
 
-import { GoogleGenAI, Type } from "@google/genai";
+import {
+  getLocalGenerationPort,
+  isLocalGenerationAvailable,
+  LocalGenerationUnavailableError,
+  type LocalGenerationPort,
+} from "../../ai/generation/LocalGenerationPort";
 
-export const ANSWER_MODEL_ID = "gemini-2.5-flash" as const;
-export const ANSWER_MODEL_VERSION = "2.5" as const;
-export const ANSWER_PIPELINE_VERSION = "answer-pipeline-gemini-v1" as const;
+export const ANSWER_PIPELINE_VERSION = "answer-pipeline-local-v1" as const;
 /** Bumped whenever buildPrompt()'s wording changes -- LEGAL-RETRIEVAL-ANSWER-QUALITY-BASELINE-01
  *  freezes this alongside the other answer-configuration versions before its run.
  *  v2 (LEGAL-ANSWER-PROMPT-CALIBRATION-01): calibrates the ANSWER vs INSUFFICIENT_EVIDENCE
@@ -28,7 +31,7 @@ export const ANSWER_PIPELINE_VERSION = "answer-pipeline-gemini-v1" as const;
  *  overclaims. Retrieval, context assembly, and the citation contract are untouched. */
 export const ANSWER_PROMPT_VERSION = "answer-prompt-v2" as const;
 /** Bumped whenever RESPONSE_SCHEMA's shape changes. */
-export const ANSWER_RESPONSE_SCHEMA_VERSION = "answer-response-schema-v1" as const;
+export const ANSWER_RESPONSE_SCHEMA_VERSION = "answer-response-schema-v2" as const;
 
 export class AnswerModelError extends Error {
   constructor(
@@ -66,22 +69,22 @@ export interface AnswerModelProvider {
 }
 
 const RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
+  type: "object",
   properties: {
-    insufficient_evidence: { type: Type.BOOLEAN },
+    insufficient_evidence: { type: "boolean" },
     claims: {
-      type: Type.ARRAY,
+      type: "array",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          text: { type: Type.STRING },
+          text: { type: "string" },
           cited_fragments: {
-            type: Type.ARRAY,
+            type: "array",
             items: {
-              type: Type.OBJECT,
+              type: "object",
               properties: {
-                fragment_id: { type: Type.STRING },
-                materialization_id: { type: Type.STRING },
+                fragment_id: { type: "string" },
+                materialization_id: { type: "string" },
               },
               required: ["fragment_id", "materialization_id"],
             },
@@ -92,7 +95,7 @@ const RESPONSE_SCHEMA = {
     },
   },
   required: ["insufficient_evidence", "claims"],
-};
+} as const;
 
 function buildPrompt(query: string, context: readonly AnswerContextEntryForModel[]): string {
   const passages = context
@@ -127,57 +130,71 @@ function buildPrompt(query: string, context: readonly AnswerContextEntryForModel
   ].join("\n");
 }
 
-/** Real provider. Fails closed: a malformed/unparseable model response throws rather than being
- *  silently treated as an empty or fabricated answer. */
-export function createGeminiAnswerModelProvider(modelId: string = ANSWER_MODEL_ID): AnswerModelProvider {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+/** Deterministic, fail-closed shape validation. No coercion, no best-effort repair. */
+export function parseAnswerGeneration(text: string): AnswerGeneration {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
     throw new AnswerModelError(
-      "ANSWER_MODEL_NOT_CONFIGURED",
-      "GEMINI_API_KEY is not set -- refusing to fabricate an answer",
+      "ANSWER_MODEL_INVALID_JSON",
+      "model response was not valid JSON -- failing closed",
     );
   }
-  const ai = new GoogleGenAI({ apiKey });
+  const obj = parsed as Partial<AnswerGeneration> | null;
+  const mismatch = () =>
+    new AnswerModelError(
+      "ANSWER_MODEL_SCHEMA_MISMATCH",
+      "model response did not match the required {insufficient_evidence, claims} shape -- failing closed",
+    );
+  if (!obj || typeof obj !== "object" || typeof obj.insufficient_evidence !== "boolean" || !Array.isArray(obj.claims)) {
+    throw mismatch();
+  }
+  for (const claim of obj.claims as unknown[]) {
+    const c = claim as { text?: unknown; cited_fragments?: unknown } | null;
+    if (!c || typeof c.text !== "string" || !Array.isArray(c.cited_fragments)) throw mismatch();
+    for (const f of c.cited_fragments as unknown[]) {
+      const r = f as { fragment_id?: unknown; materialization_id?: unknown } | null;
+      if (!r || typeof r.fragment_id !== "string" || typeof r.materialization_id !== "string") throw mismatch();
+    }
+  }
+  return { insufficient_evidence: obj.insufficient_evidence, claims: obj.claims as ProposedClaim[] };
+}
+
+/** Local provider over the generation port. Fails closed: no runtime, empty or malformed output
+ *  throws rather than being treated as an empty or fabricated answer. Never falls back to a mock
+ *  or to any cloud endpoint. */
+export function createLocalAnswerModelProvider(port?: LocalGenerationPort): AnswerModelProvider {
+  if (!port && !isLocalGenerationAvailable()) {
+    throw new AnswerModelError(
+      "ANSWER_MODEL_NOT_CONFIGURED",
+      "BLOCKED_BY_LOCAL_GENERATION_RUNTIME: no governed local generation runtime -- refusing to fabricate an answer",
+    );
+  }
+  const runtime = port ?? getLocalGenerationPort();
 
   return {
-    model_id: modelId,
-    model_version: ANSWER_MODEL_VERSION,
+    model_id: runtime.model_id,
+    model_version: runtime.model_version,
     pipeline_version: ANSWER_PIPELINE_VERSION,
     async generateAnswer(query, context): Promise<AnswerGeneration> {
-      const response = await ai.models.generateContent({
-        model: modelId,
-        contents: [{ role: "user", parts: [{ text: buildPrompt(query, context) }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
+      let text: string;
+      try {
+        text = await runtime.generateText(buildPrompt(query, context), {
+          profile: "json",
           temperature: 0,
-        },
-      });
-
-      const text = response.text;
-      if (!text) {
+          responseSchema: RESPONSE_SCHEMA,
+        });
+      } catch (err) {
+        if (err instanceof LocalGenerationUnavailableError) {
+          throw new AnswerModelError("ANSWER_MODEL_NOT_CONFIGURED", err.message);
+        }
+        throw err;
+      }
+      if (typeof text !== "string" || !text.trim()) {
         throw new AnswerModelError("ANSWER_MODEL_EMPTY_RESPONSE", "model returned no text -- failing closed");
       }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        throw new AnswerModelError(
-          "ANSWER_MODEL_INVALID_JSON",
-          "model response was not valid JSON despite a structured response schema -- failing closed",
-        );
-      }
-
-      const obj = parsed as Partial<AnswerGeneration>;
-      if (typeof obj.insufficient_evidence !== "boolean" || !Array.isArray(obj.claims)) {
-        throw new AnswerModelError(
-          "ANSWER_MODEL_SCHEMA_MISMATCH",
-          "model response did not match the required {insufficient_evidence, claims} shape -- failing closed",
-        );
-      }
-
-      return { insufficient_evidence: obj.insufficient_evidence, claims: obj.claims as ProposedClaim[] };
+      return parseAnswerGeneration(text);
     },
   };
 }

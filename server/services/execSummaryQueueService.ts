@@ -194,12 +194,7 @@ async function generateSummary(projectId: string): Promise<ExecSummaryResult> {
   // let an ungrounded model guess become an "exekutiv sammanfattning" a case handler relies on.
   // (EXEC_SUMMARY_MOCK_MODE above stays available: it is an explicit opt-in whose own summary text
   // says "no live data has been analysed" — self-disclosed, not a silent fabrication.)
-  if (process.env.VERTEX_PROJECT_ID?.trim()) {
-    throw new Error(
-      `exec-summary: real generation is not implemented for project ${projectId} (HD-03) — no real project data is loaded into the prompt. Set EXEC_SUMMARY_MOCK_MODE=true for a clearly-labelled placeholder.`,
-    );
-  }
-
-  // If no Vertex, it's a configuration error.
-  throw new Error('Vertex AI is not configured. Set VERTEX_PROJECT_ID or EXEC_SUMMARY_MOCK_MODE=true.');
+  throw new Error(
+    `exec-summary: real generation is not implemented for project ${projectId} (HD-03) — no real project data is loaded into the prompt, and no governed local generation runtime exists (BLOCKED_BY_LOCAL_GENERATION_RUNTIME). Set EXEC_SUMMARY_MOCK_MODE=true for a clearly-labelled placeholder.`,
+  );
 }

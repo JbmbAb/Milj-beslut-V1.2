@@ -1,11 +1,10 @@
 /**
- * Readiness (dependens mot DB, Vertex, object storage) för /ready och lastare.
+ * Readiness (dependens mot DB, object storage) för /ready och lastare.
  * Liveness hanteras separat i GET /health (processen svarar).
  */
 
 import { prisma } from '../db/prisma';
 import { gcsDocumentsEnabled } from './documentObjectStorage';
-import { vertexConfigStatus } from './vertexAiService';
 import { logger } from '../logger';
 
 export type IntegrationState = 'ok' | 'error' | 'degraded' | 'not_configured' | 'warning';
@@ -13,12 +12,6 @@ export type IntegrationState = 'ok' | 'error' | 'degraded' | 'not_configured' | 
 export interface ReadinessPayload {
   ok: boolean;
   database: IntegrationState;
-  vertex: {
-    state: IntegrationState;
-    projectId: string | null;
-    location: string;
-    missing: string[];
-  };
   storage: {
     state: IntegrationState;
     backend: 'gcs' | 'local';
@@ -60,14 +53,6 @@ export async function getReadinessPayload(): Promise<ReadinessPayload> {
     database = 'error';
   }
 
-  const vs = vertexConfigStatus();
-  let vertexState: IntegrationState;
-  if (vs.configured) {
-    vertexState = 'ok';
-  } else {
-    vertexState = 'degraded';
-  }
-
   const gcs = gcsDocumentsEnabled();
   const storageState: IntegrationState = 'ok';
   const storageNote = 'Local filesystem storage. GCS is retired.';
@@ -77,12 +62,6 @@ export async function getReadinessPayload(): Promise<ReadinessPayload> {
   return {
     ok,
     database,
-    vertex: {
-      state: vertexState,
-      projectId: vs.projectId,
-      location: vs.location,
-      missing: vs.missing,
-    },
     storage: {
       state: storageState,
       backend: gcs ? 'gcs' : 'local',

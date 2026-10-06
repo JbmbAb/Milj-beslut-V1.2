@@ -22,13 +22,9 @@ vi.mock('../../server/db/prisma', () => ({
   },
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  vertexConfigStatus: vi.fn(() => ({
-    configured: true,
-    missing: [],
-    projectId: 'test-project',
-    location: 'europe-west1',
-  })),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  isLocalGenerationAvailable: vi.fn(() => true),
+  localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
 }));
 
 vi.mock('../../server/repositories/userRepository', () => ({

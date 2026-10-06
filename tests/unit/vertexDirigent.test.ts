@@ -89,13 +89,13 @@ describe('bevis: toolTrace = källa, inte LLM', () => {
     expect(h1).toBe(h2);
   });
 
-  it('summarizeVerifiedToolTrace utan Vertex lämnar riskScore synlig oförändrad från spåret (ingen hallucination yta)', async () => {
+  it('summarizeVerifiedToolTrace utan lokal generering lämnar riskScore synlig oförändrad från spåret (ingen hallucination yta)', async () => {
     const r = await runComplianceWorkflowWithToolTrace(baseRequest({ volumeTons: 500 }));
     const text = await summarizeVerifiedToolTrace(r.toolTrace);
     const rule = r.toolTrace.find((t) => t.toolId === 'rule_engine_evaluate')?.output as {
       riskScore: string;
     };
     expect(text).toContain('rule_engine riskScore: ' + rule.riskScore);
-    expect(text).toContain('[offline/utan Vertex]');
+    expect(text).toContain('[offline/utan lokal generering]');
   });
 });

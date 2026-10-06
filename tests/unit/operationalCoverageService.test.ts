@@ -17,8 +17,9 @@ vi.mock('../../server/services/publicUiService', () => ({
   getPublicDatasourceSummary: vi.fn(),
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  vertexConfigStatus: vi.fn(() => ({ configured: true, projectId: 'p', location: 'europe', missing: [] })),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  isLocalGenerationAvailable: vi.fn(() => true),
+  localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
 }));
 
 import { prisma } from '../../server/db/prisma';

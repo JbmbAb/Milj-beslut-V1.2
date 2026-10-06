@@ -20,8 +20,8 @@ vi.mock('../../../server/utils/CircuitBreaker', () => {
 
 // Mocka Vertex-gatewayen (ersätter gamla GoogleGenerativeAI SDK).
 const mockGenerateContent = vi.fn();
-vi.mock('../../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: vi.fn(async (prompt: string) => {
+vi.mock('../../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: vi.fn(async (prompt: string) => {
     const result = await mockGenerateContent({ prompt });
     if (result && typeof result === 'object' && 'response' in result) {
       // Bakåtkompatibel shim: gamla tester returnerar { response: { text: () => '...' } }.
@@ -30,14 +30,9 @@ vi.mock('../../../server/services/vertexAiService', () => ({
     }
     return typeof result === 'string' ? result : '';
   }),
-  generateJsonWithVertex: vi.fn(async () => null),
-  vertexConfigStatus: vi.fn(() => ({
-    configured: true,
-    missing: [],
-    projectId: 'test',
-    location: 'europe-west1',
-  })),
-  __resetVertexClientForTest: vi.fn(),
+  generateJson: vi.fn(async () => null),
+  isLocalGenerationAvailable: vi.fn(() => true),
+  localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
 }));
 
 describe('geminiService', () => {

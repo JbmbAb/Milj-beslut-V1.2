@@ -214,7 +214,6 @@ jobs:
       SLU_API_KEY: ci-slu-key
       SEARCH_WORKER_ENABLED: 'false'
       DATABASE_INTEGRATION: 'true'
-      VERTEX_PROJECT_ID: miljointelligens
       GEMINI_API_KEY: ci-gemini-key
     steps:
       - uses: actions/checkout@v4
@@ -296,7 +295,6 @@ jobs:
       SLU_API_KEY: ci-slu-key
       SEARCH_WORKER_ENABLED: 'false'
       DISPATCH_PROVIDER_MODE: 'MOCK_FRAKTBORS'
-      VERTEX_PROJECT_ID: miljointelligens
       GEMINI_API_KEY: ci-gemini-key
       EXEC_SUMMARY_MOCK_MODE: 'true'
     steps:

@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   embedText: vi.fn(),
   parseLegalReference: vi.fn(),
   generateJsonWithVertex: vi.fn(),
-  vertexConfigStatus: vi.fn(),
+  localGenerationStatus: vi.fn(),
   rerankWithGeminiOrLexical: vi.fn(),
 }));
 
@@ -20,9 +20,9 @@ vi.mock('../../server/services/searchService', () => ({
   embedText: mocks.embedText,
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateJsonWithVertex: mocks.generateJsonWithVertex,
-  vertexConfigStatus: mocks.vertexConfigStatus,
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateJson: mocks.generateJsonWithVertex,
+  localGenerationStatus: mocks.localGenerationStatus,
 }));
 
 vi.mock('../../server/modules/legal/services/legalReferenceParser', () => ({
@@ -316,13 +316,7 @@ describe('searchLegalCorpusTool — Alphaevolve A2', () => {
       values: [0.1, 0.2, 0.3],
       model: 'text-multilingual-embedding-002',
     });
-    mocks.vertexConfigStatus.mockReturnValue({
-      configured: false,
-      missing: ['VERTEX_PROJECT_ID'],
-      projectId: null,
-      location: 'europe-west1',
-      hasExplicitServiceAccountFile: false,
-    });
+    mocks.localGenerationStatus.mockReturnValue({ available: false, runtime_id: null, model_id: null, blocker: 'BLOCKED_BY_LOCAL_GENERATION_RUNTIME' });
     mocks.generateJsonWithVertex.mockResolvedValue(null);
   });
 

@@ -23,18 +23,11 @@ vi.mock('../../server/services/vertexEmbeddingService', () => ({
   embedTextWithVertexPredict: embedTextWithVertexPredictMock,
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: generateTextWithVertexMock,
-  generateTextWithVertexAndInlineData: vi.fn(),
-  generateJsonWithVertex: vi.fn(),
-  vertexConfigStatus: vi.fn(() => ({
-    configured: true,
-    missing: [],
-    projectId: 't',
-    location: 'europe-west1',
-    hasExplicitServiceAccountFile: true,
-  })),
-  __resetVertexClientForTest: vi.fn(),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: generateTextWithVertexMock,
+  generateJson: vi.fn(),
+  isLocalGenerationAvailable: vi.fn(() => true),
+  localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
 }));
 
 vi.mock('../../server/logger', () => ({
