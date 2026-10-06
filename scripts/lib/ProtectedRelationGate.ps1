@@ -1508,6 +1508,11 @@ function PrgUnwrapGrouping([string]$a) {
     return [regex]::Replace([regex]::Replace($a, '^(?:@?[({])+', ''), '[)}]+\z', '')
 }
 
+function PrgStripLeadingOpeners([string]$a) {
+    # U30F4REP1 F4-2: leading grouping openers are not part of an assignment token. Closers stay.
+    return [regex]::Replace($a, '^(?:@?[({])+', '')
+}
+
 function PrgToolOf([string]$a) {
     $spec = Get-ProtectedClassificationSpec
     # U30G814F4 (F-4): grouping glued to the program is no part of its name -- openers `(psql`, `((psql`, `{psql`,
@@ -1748,7 +1753,7 @@ function PrgWriteCapable([string]$tool, [string[]]$rest, $ctx) {
 # $env:NAME carries NAME as its hint; the rest of the statement is the value) -- or $null
 function PrgEnvAssignmentAt([string[]]$argv, [int]$i) {
     if ($i -lt 0 -or $i -ge $argv.Count) { return $null }
-    $t = $argv[$i]
+    $t = PrgStripLeadingOpeners $argv[$i]
     if ($t -cmatch '^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)\z') { return [pscustomobject]@{ Name = $Matches[1]; Value = $Matches[2]; Next = $i + 1 } }
     $spec = Get-ProtectedClassificationSpec
     if (-not $t.StartsWith("$($spec.Open):", [StringComparison]::Ordinal)) { return $null }
@@ -1797,7 +1802,8 @@ function PrgSetsDynamicConnection([string[]]$argv) {
     $words = (Get-ProtectedClassificationSpec).EnvAssignmentWords
     $i = 0
     while ($i -lt $argv.Count -and ($argv[$i] -ceq '{' -or $argv[$i] -ceq '(')) { $i++ }
-    if ($i -lt $argv.Count -and ($words -ccontains (PrgLower $argv[$i]))) {
+    $head = if ($i -lt $argv.Count) { PrgStripLeadingOpeners $argv[$i] } else { $null }
+    if ($null -ne $head -and ($words -ccontains (PrgLower $head))) {
         $i++
         while ($i -lt $argv.Count -and $argv[$i].StartsWith('-', [StringComparison]::Ordinal)) { $i++ }
     }

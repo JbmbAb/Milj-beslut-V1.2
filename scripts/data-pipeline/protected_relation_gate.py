@@ -1832,6 +1832,11 @@ def unwrap_grouping(arg):
     return re.sub(r'[)}]+\Z', '', re.sub(r'^(?:@?[({])+', '', arg))
 
 
+def _strip_leading_openers(arg):
+    # U30F4REP1 F4-2: leading grouping openers are not part of an assignment token. Closers stay.
+    return re.sub(r'^(?:@?[({])+', '', arg)
+
+
 def tool_of(arg, spec=None):
     spec = spec or load_spec()
     c = spec['commands']
@@ -2100,9 +2105,10 @@ def _env_assignment_at(argv, i, spec):
     # U30G814 (G8-14): the environment assignment at argv[i] -- NAME=value (an sh env prefix; an argument of env, sudo,
     # cross-env, docker -e; a bare, export, declare or cmd set statement) or PowerShell $env:NAME=value / $env:NAME = value
     # (the placeholder of $env:NAME carries NAME as its hint; the rest of the statement is the value) -- or None
-    t = argv[i] if 0 <= i < len(argv) else None
-    if t is None:
+    raw = argv[i] if 0 <= i < len(argv) else None
+    if raw is None:
         return None
+    t = _strip_leading_openers(raw)
     plain = re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]*)=(.*)', t, re.S)
     if plain:
         return (plain.group(1), plain.group(2), i + 1)
@@ -2142,7 +2148,8 @@ def _sets_dynamic_connection(argv, spec):
     i = 0
     while i < len(argv) and argv[i] in ('{', '('):
         i += 1
-    if i < len(argv) and _ascii_lower(argv[i]) in words:
+    head = _strip_leading_openers(argv[i]) if i < len(argv) else None
+    if head is not None and _ascii_lower(head) in words:
         i += 1
         while i < len(argv) and argv[i].startswith('-'):
             i += 1

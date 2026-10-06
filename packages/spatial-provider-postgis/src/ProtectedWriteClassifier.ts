@@ -1782,6 +1782,11 @@ function unwrapGrouping(arg: string): string {
   return arg.replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "");
 }
 
+/** U30F4REP1 F4-2: leading grouping openers are not part of an assignment token. Closers stay. */
+function stripLeadingOpeners(arg: string): string {
+  return arg.replace(/^(?:@?[({])+/, "");
+}
+
 /** The DB/GIS tool an argument names, by file name or by a dynamic value's variable name. */
 export function toolOf(arg: string): string | null {
   const spec = classificationSpec().commands;
@@ -1848,8 +1853,9 @@ interface SegmentContext {
  * (the placeholder of `$env:NAME` carries NAME as its hint; the rest of the statement is the value) -- or null.
  */
 function envAssignmentAt(argv: readonly string[], i: number): { name: string; value: string; next: number } | null {
-  const t = argv[i];
-  if (t === undefined) return null;
+  const raw = argv[i];
+  if (raw === undefined) return null;
+  const t = stripLeadingOpeners(raw);
   const plain = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(t);
   if (plain) return { name: plain[1]!, value: plain[2]!, next: i + 1 };
   const spec = classificationSpec();
@@ -1888,7 +1894,8 @@ function setsDynamicConnection(argv: readonly string[]): boolean {
   const words = classificationSpec().commands.env_assignment_words;
   let i = 0;
   while (argv[i] === "{" || argv[i] === "(") i += 1;
-  if (argv[i] !== undefined && words.includes(asciiLower(argv[i]!))) {
+  const head = argv[i] === undefined ? undefined : stripLeadingOpeners(argv[i]!);
+  if (head !== undefined && words.includes(asciiLower(head))) {
     i += 1;
     while (argv[i] !== undefined && argv[i]!.startsWith("-")) i += 1;
   }
