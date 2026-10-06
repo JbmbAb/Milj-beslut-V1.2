@@ -2802,7 +2802,9 @@ describe('G814REP1 F-1a: GitHub Actions env: dynamic connection variables apply 
   });
 
   it('V8: cd && prisma still sees the export', () => {
-    expectsMigrate(oneStep(`      - run: cd server && npx prisma migrate deploy\n        env:\n          DATABASE_URL: ${DYN_URL}\n`));
+    const yaml = oneStep(`      - run: cd server && npx prisma migrate deploy\n        env:\n          DATABASE_URL: ${DYN_URL}\n`);
+    expectsMigrate(yaml);
+    expect(nonLiteral(yaml)[0]!.excerpt).toContain('export DATABASE_URL=');
   });
 
   it('V9: a for-loop body sees the export', () => {
@@ -2835,6 +2837,9 @@ describe('G814REP1 F-1a: GitHub Actions env: dynamic connection variables apply 
 
   it('C3: PGPASSWORD alone adds no site', () => {
     expect(sitesOf(oneStep(`      - run: npx prisma migrate deploy\n        env:\n          PGPASSWORD: ${DYN_URL}\n`))).toEqual([]);
+    const yaml = oneStep(`      - run: npx prisma migrate deploy\n        env:\n          DATABASE_URL: ${DYN_URL}\n          PGPASSWORD: ${DYN_URL}\n`);
+    expectsMigrate(yaml);
+    expect(nonLiteral(yaml)[0]!.excerpt).not.toContain('PGPASSWORD');
   });
 
   it('C4: a step env does not leak into the next step', () => {
