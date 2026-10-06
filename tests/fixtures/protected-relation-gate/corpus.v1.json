@@ -776,5 +776,6 @@
   {"id":"u30f4r-f44b-pg-restore","kind":"command","text":"@pg_restore --clean -n env -t sgu_well x.dump","expect":{"verdict":"PROTECTED","protected":["RESTORE env.sgu_well"]},"note":"U30F4REP1 F4-4b: twin of pg_restore measured on the F4-2b parent"},
   {"id":"u30f4r-f44b-bash","kind":"command","text":"@bash -c \"%CMD%\"","expect":{"verdict":"UNRESOLVABLE","unresolved":["COMMAND"]},"note":"U30F4REP1 F4-4b: twin of bash -c measured on the F4-2b parent"},
   {"id":"u30f4r-f44b-ctl-call","kind":"command","text":"@call psql -c \"TRUNCATE env.sgu_well\"","expect":{"verdict":"PROTECTED","protected":["TRUNCATE env.sgu_well"]},"note":"U30F4REP1 F4-4b control: already PROTECTED and stays so"},
-  {"id":"u30f4r-f44b-ctl-at-paren","kind":"command","text":"@(psql -c \"TRUNCATE env.sgu_well\")","expect":{"verdict":"PROTECTED","protected":["TRUNCATE env.sgu_well"]},"note":"U30F4REP1 F4-4b control: already PROTECTED and stays so"}
+  {"id":"u30f4r-f44b-ctl-at-paren","kind":"command","text":"@(psql -c \"TRUNCATE env.sgu_well\")","expect":{"verdict":"PROTECTED","protected":["TRUNCATE env.sgu_well"]},"note":"U30F4REP1 F4-4b control: already PROTECTED and stays so"},
+  {"id":"u30f4r-f43-elif-direct","kind":"command","text":"elif \"$CMD\"; then :; fi","expect":{"verdict":"UNRESOLVABLE","unresolved":["COMMAND"]},"note":"U30F4REP1 F4-3: elif is the program-position word. The earlier elif form is killed by then, not by elif."}
 ]
