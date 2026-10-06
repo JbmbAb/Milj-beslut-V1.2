@@ -1,7 +1,9 @@
 # NO-GOOGLE-02A -- local embedding replacement (writer report)
 
-Status: **WORKING / READY_FOR_INDEPENDENT_REVIEW.** Not verified, not proven. Written by the writer; no
-status above WORKING is claimed. Base `621a28680c277e1e4f8a24483acf33be566e99e9`, branch
+Status: **WORKING / BLOCKED_BY_MODEL_SELECTION_AND_MIGRATION_APPROVAL** (owner ruling 2026-10-06; this supersedes the earlier
+READY_FOR_INDEPENDENT_REVIEW label). Not verified, not proven. Written by the writer; no status above WORKING is claimed.
+The writer's own read-only review (a three-lens defect hunt) is a SELF-review and is not independent verification.
+See `NO-GOOGLE-02A-OWNER-DECISION-NOTE.md` for the two blockers. Base `621a28680c277e1e4f8a24483acf33be566e99e9`, branch
 `rt/no-google-02a-local-embedding`. No push, no squash, no migration applied.
 
 Scope: replace the active Google embedding surface `server/modules/legal/retrieval/GeminiEmbeddingProvider.ts`
@@ -102,10 +104,10 @@ and no inherited credentials.
 
 ## 6. Open items and honest limits
 
-1. **Model selection is not made here.** The corrected round 1 of the frozen A7 evaluation (2026-10-02) was NO-GO: neither candidate met the
+1. **Model selection is not made here and is a BLOCKER.** The corrected round 1 of the frozen A7 evaluation (2026-10-02) was NO-GO: neither candidate met the
    predeclared bars (MRR 0.22 / 0.32 against 0.885) on the demo-01 chunk-retrieval set. 02A only provides the mechanism for either frozen
    candidate; it does not activate retrieval quality claims.
-2. **The migration is a proposal.** It needs the Prisma-migration Dev-Gov unit and explicit owner approval before any apply.
+2. **The migration is a proposal and a BLOCKER until approved.** It needs the Prisma-migration Dev-Gov unit and explicit owner approval before any apply.
 3. **No local embeddings exist yet**; a re-embedding unit (separate, needs the migration) must populate the table.
 4. **The runtime lives outside the repository and the production image** (no Python/torch there). Deployment of the worker runtime is open.
 5. **Model files are pinned by revision directory**, not re-hashed at every start; the hash verification is the earlier eval tooling's.
