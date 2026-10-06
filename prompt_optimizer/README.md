@@ -83,21 +83,7 @@ python main.py \
 
 ## Vertex Custom Job
 
-Container entrypoint: `python main.py` with args passed by `gcloud_prompt_optimizer.sh` or `.github/workflows/vertex_prompt_optimize.yml`.
-
-GitHub Actions autentiserar via **Workload Identity Federation** (`.github/actions/gcp-wif-auth`) — ingen JSON-nyckel i repo eller secrets.
-
-Set container environment for real Vertex rerank (not mock):
-
-| Variable | Example |
-|---|---|
-| `VERTEX_PROJECT_ID` | `miljointelligens` |
-| `GOOGLE_CLOUD_PROJECT` | `miljointelligens` (fallback) |
-| `VERTEX_LOCATION` | `europe-west1` |
-
-Or set `LEGAL_RERANK_EVAL_URL` for HTTP eval mode.
-
-Set `GIT_COMMIT`, `CONTAINER_DIGEST`, and `IMAGE_URI` in the job env for manifest stamping.
+Retired in W-NO-GOOGLE-01. `gcloud_prompt_optimizer.sh`, `.github/workflows/vertex_prompt_optimize.yml` and `.github/actions/gcp-wif-auth` are not in this tree. Do not submit this container with `gcloud ai custom-jobs`.
 
 ## Tests
 
