@@ -2880,3 +2880,13 @@ describe('G814REP1 F-1a: GitHub Actions env: dynamic connection variables apply 
     expect(sites[0]!.excerpt).toContain('npx prisma migrate deploy');
   });
 });
+
+// ---- F4-Q5-PIN: the F-4 scanner effect of a glued psql, in the eight hosts that are not PowerShell ----
+{
+  const violations = hosts9('f4-glued-psql-dyn', '(psql -c "$1")', '& {psql -c $args[0]}').filter((f) => !f.id.includes('[PowerShell'));
+  const controls = [
+    ...hosts9('f4-ctl-glued-select', "(psql -c 'SELECT 1')", "& {psql -c 'SELECT 1'}"),
+    ...hosts9('f4-ctl-glued-echo', '(echo hi)', '& {echo hi}'),
+  ].map((f) => ({ ...f, violation: false as const }));
+  caughtAndControls9('F-4 skanner', violations, controls, 8);
+}
