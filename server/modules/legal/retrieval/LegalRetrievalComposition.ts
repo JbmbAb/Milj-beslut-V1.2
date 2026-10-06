@@ -20,8 +20,12 @@
  * unconstrained, same as every prior baseline/pilot run's default behavior.
  *
  * Dependency-injected (embedding provider, chunk search, chunk lookup) so the orchestration logic
- * itself is unit-testable with fakes -- real defaults are Prisma/Gemini-backed, wired in
- * `createLegalRetrievalComposition()`.
+ * itself is unit-testable with fakes -- real defaults are Prisma-backed and use the LOCAL embedding
+ * provider (W-NO-GOOGLE-02A), wired in `createLegalRetrievalComposition()`.
+ *
+ * Embeddings are searched in the versioned local 1024-dimensional table only. The historical
+ * 3072-dimensional rows are never searched here: they are not a local identity, and a vector of
+ * another dimension never reaches the database (assertLocalQueryVector).
  */
 import { createHash } from "node:crypto";
 import { bindEmbeddingIdentity, type EmbeddingIdentityFields } from "@miljobeslut/mps-embedding-identity";
@@ -34,10 +38,9 @@ import {
 import { evaluateLegalRetrieval } from "@miljobeslut/mps-retrieval-governance";
 import { createRetrievalExecutionTrace, type RetrievalExecutionTraceArtifact } from "@miljobeslut/mps-retrieval-trace";
 import { prisma } from "../../../db/prisma";
-import {
-  createGeminiEmbeddingProvider,
-  type EmbeddingProvider,
-} from "./GeminiEmbeddingProvider";
+import type { EmbeddingProvider } from "./EmbeddingProvider";
+import { LOCAL_EMBEDDING_TABLE, assertLocalQueryVector } from "./LocalEmbeddingPersistence";
+import { createLocalEmbeddingProviderFromEnv } from "./LocalEmbeddingProvider";
 import { buildCandidateWhereClause } from "./LawSourceRoutingSql";
 import { describeRoutingDecision, routeLawQuery, type RoutingDecision } from "./LawSourceRouter";
 
@@ -160,7 +163,7 @@ export async function performLegalRetrieval(
   }
   const routingLabel = routing ? describeRoutingDecision(routing) : `${LEGAL_RETRIEVAL_COMPOSITION_VERSION}:family=${request.family ?? "unspecified"}`;
 
-  const [queryVector] = await deps.embeddingProvider.embedBatch([request.query]);
+  const [queryVector] = await deps.embeddingProvider.embedQueries([request.query]);
   const hits = await deps.searchChunks(
     queryVector!,
     deps.embeddingProvider.model_id,
@@ -220,9 +223,17 @@ export async function performLegalRetrieval(
   return { results, trace, routing };
 }
 
-/** Real, Prisma/Gemini-backed default dependencies. */
-export function createLegalRetrievalComposition(): LegalRetrievalDeps {
-  const embeddingProvider = createGeminiEmbeddingProvider();
+export interface LegalRetrievalCompositionOptions {
+  /** Test seam. In production the provider is built from explicit local configuration or not at all. */
+  readonly embeddingProvider?: EmbeddingProvider;
+}
+
+/**
+ * Real, Prisma-backed default dependencies with the local embedding provider. Unconfigured means
+ * unavailable: createLocalEmbeddingProviderFromEnv throws, nothing is substituted.
+ */
+export function createLegalRetrievalComposition(options: LegalRetrievalCompositionOptions = {}): LegalRetrievalDeps {
+  const embeddingProvider = options.embeddingProvider ?? createLocalEmbeddingProviderFromEnv();
 
   const runSearch = async (
     queryVector: readonly number[],
@@ -232,6 +243,7 @@ export function createLegalRetrievalComposition(): LegalRetrievalDeps {
     routingForQuery: RoutingDecision | null,
     limit: number,
   ): Promise<SearchHit[]> => {
+    assertLocalQueryVector(queryVector, pipelineVersion);
     const vectorLiteral = `[${queryVector.join(",")}]`;
     const baseParams: unknown[] = [vectorLiteral, modelId, pipelineVersion];
     let familyFilter = "";
@@ -245,14 +257,14 @@ export function createLegalRetrievalComposition(): LegalRetrievalDeps {
 
     return prisma.$queryRawUnsafe<SearchHit[]>(
       `SELECT e.fragment_id, e.materialization_id, e.chunk_content_hash, c.structure_kind,
-              (e.embedding_vector <=> $1::vector) AS distance
-       FROM "legal_corpus_chunk_embeddings" e
+              (e.embedding_vector <=> $1::vector(1024)) AS distance
+       FROM "${LOCAL_EMBEDDING_TABLE}" e
        JOIN "legal_corpus_materialized_chunks" c
          ON c.materialization_id = e.materialization_id AND c.fragment_id = e.fragment_id
        JOIN "legal_corpus_materializations" m ON m.id = c.materialization_id
        WHERE e.embedding_model_id = $2 AND e.embedding_pipeline_version = $3
          ${familyFilter} ${where.sql}
-       ORDER BY e.embedding_vector <=> $1::vector
+       ORDER BY e.embedding_vector <=> $1::vector(1024)
        LIMIT ${limitParam}`,
       ...params,
     );

@@ -11,18 +11,19 @@
  * A wrong top-1 result with intact provenance is a RETRIEVAL QUALITY finding, not a governance
  * finding -- both are measured and reported, never conflated into one verdict.
  *
- * Usage: npx tsx scripts/db/legal-retrieval-quality-baseline-01.ts
+ * W-NO-GOOGLE-02A: the RUN of this baseline (its vector search against the historical
+ * 3072-dimensional embedding rows, embedded by the retired Google provider) is retired together
+ * with that provider. What remains is the frozen asset other scripts import: the 24 golden
+ * queries (QUERIES), the acceptable-fragment resolution, the failure classification and the
+ * provenance check. A new run over local 1024-dimensional embeddings is a separate, later unit.
  */
 import '../../server/loadEnvFirst';
-import { pathToFileURL } from 'node:url';
 import { prisma } from '../../server/db/prisma';
 import { bindEmbeddingIdentity } from '@miljobeslut/mps-embedding-identity';
 import {
   buildRetrievalResult,
   createInMemoryGovernedChunkLookup,
 } from '@miljobeslut/mps-legal-retrieval-contract';
-import { evaluateLegalRetrieval } from '@miljobeslut/mps-retrieval-governance';
-import { createGeminiEmbeddingProvider } from '../../server/modules/legal/retrieval/GeminiEmbeddingProvider';
 
 export type Category = 'law' | 'court' | 'court_citation' | 'standard';
 export type FailureMode =
@@ -119,25 +120,6 @@ export async function resolveAcceptableFragmentIds(spec: QuerySpec): Promise<Set
   return new Set(chunks.map((c) => c.fragmentId));
 }
 
-async function search(queryVector: readonly number[], modelId: string, pipelineVersion: string, topK = 10): Promise<HitRow[]> {
-  const vectorLiteral = `[${queryVector.join(',')}]`;
-  return prisma.$queryRawUnsafe<HitRow[]>(
-    `SELECT
-       e.fragment_id, e.materialization_id, c.chapter, c.court_section, c.structure_kind,
-       m.logical_source_id, rec.title,
-       (e.embedding_vector <=> $1::vector) AS distance
-     FROM "legal_corpus_chunk_embeddings" e
-     JOIN "legal_corpus_materialized_chunks" c
-       ON c.materialization_id = e.materialization_id AND c.fragment_id = e.fragment_id
-     JOIN "legal_corpus_materializations" m ON m.id = c.materialization_id
-     JOIN "legal_corpus_records" rec ON rec.id = c.record_id
-     WHERE e.embedding_model_id = $2 AND e.embedding_pipeline_version = $3
-     ORDER BY e.embedding_vector <=> $1::vector
-     LIMIT $4`,
-    vectorLiteral, modelId, pipelineVersion, topK,
-  );
-}
-
 export function classifyFailure(spec: QuerySpec, hits: HitRow[], acceptable: Set<string>, firstCorrectRank: number | null): FailureMode {
   if (firstCorrectRank === 1) return 'NONE';
   if (hits.length === 0) return 'SEMANTIC_MISS';
@@ -205,93 +187,4 @@ export async function provenanceIntact(hit: HitRow, provider: { model_id: string
   } catch {
     return false;
   }
-}
-
-async function main() {
-  console.log('########## LEGAL-RETRIEVAL-QUALITY-BASELINE-01 ##########\n');
-  const provider = createGeminiEmbeddingProvider();
-  const decision = evaluateLegalRetrieval('LEGAL_CORPUS_SEARCH');
-
-  const results: Record<string, unknown>[] = [];
-
-  for (const spec of QUERIES) {
-    const acceptable = await resolveAcceptableFragmentIds(spec);
-    const [queryVector] = await provider.embedBatch([spec.query]);
-    const hits = await search(queryVector!, provider.model_id, provider.pipeline_version, 10);
-
-    let firstCorrectRank: number | null = null;
-    for (let i = 0; i < hits.length; i++) {
-      if (acceptable.has(hits[i]!.fragment_id)) { firstCorrectRank = i + 1; break; }
-    }
-
-    const top1 = firstCorrectRank === 1;
-    const top3 = firstCorrectRank !== null && firstCorrectRank <= 3;
-    const top5 = firstCorrectRank !== null && firstCorrectRank <= 5;
-    const top10 = firstCorrectRank !== null && firstCorrectRank <= 10;
-    const reciprocalRank = firstCorrectRank ? 1 / firstCorrectRank : 0;
-    const failureMode = classifyFailure(spec, hits, acceptable, firstCorrectRank);
-    const top1ProvenanceIntact = hits.length > 0 ? await provenanceIntact(hits[0]!, provider, decision.policy.policy_version) : false;
-
-    console.log(`\n[${spec.query_id}/${spec.category}] "${spec.query}"`);
-    console.log(`  expected: ${spec.expected_family}/${spec.expected_logical_source_id}${spec.scope.type === 'chapter' ? ` ch.${spec.scope.chapter}` : ''} | acceptable fragments: ${acceptable.size}`);
-    console.log(`  top-3 hits:`, hits.slice(0, 3).map((h, i) => `#${i + 1} [${h.structure_kind}/${h.logical_source_id}${h.chapter ? ` ch.${h.chapter}` : ''}] dist=${h.distance.toFixed(4)}${acceptable.has(h.fragment_id) ? ' ✓CORRECT' : ''}`));
-    console.log(`  first correct rank: ${firstCorrectRank ?? 'not in top-10'} | RR=${reciprocalRank.toFixed(3)} | top1/3/5/10: ${top1}/${top3}/${top5}/${top10} | failure_mode: ${failureMode} | provenance_intact(top1): ${top1ProvenanceIntact}`);
-
-    results.push({
-      query_id: spec.query_id, query: spec.query, category: spec.category,
-      expected_family: spec.expected_family, expected_source: spec.expected_logical_source_id,
-      acceptable_fragment_count: acceptable.size,
-      top1, top3, top5, top10,
-      reciprocal_rank: reciprocalRank,
-      first_correct_rank: firstCorrectRank,
-      top1_hit: hits[0] ? { fragment_id: hits[0].fragment_id, materialization_id: hits[0].materialization_id, source: hits[0].logical_source_id, chapter: hits[0].chapter, score: 1 - hits[0].distance } : null,
-      top1_provenance_intact: top1ProvenanceIntact,
-      failure_mode: failureMode,
-      ambiguous_by_design: spec.ambiguous_by_design,
-    });
-  }
-
-  console.log('\n\n========== LEGAL-RETRIEVAL-QUALITY-BASELINE-01 SUMMARY ==========');
-  console.log(JSON.stringify(results, null, 2));
-
-  const byCategory = new Map<string, typeof results>();
-  for (const r of results) {
-    const key = r.category as string;
-    if (!byCategory.has(key)) byCategory.set(key, []);
-    byCategory.get(key)!.push(r);
-  }
-
-  console.log('\n--- Aggregate ---');
-  const agg = (rows: typeof results) => ({
-    n: rows.length,
-    top1: rows.filter((r) => r.top1).length,
-    top3: rows.filter((r) => r.top3).length,
-    top5: rows.filter((r) => r.top5).length,
-    top10: rows.filter((r) => r.top10).length,
-    mrr: Number((rows.reduce((s, r) => s + (r.reciprocal_rank as number), 0) / rows.length).toFixed(3)),
-    provenance_intact_rate: rows.filter((r) => r.top1_provenance_intact).length,
-  });
-  console.log('overall:', agg(results));
-  for (const [cat, rows] of byCategory) console.log(`  ${cat}:`, agg(rows));
-
-  const failureCounts = new Map<string, number>();
-  for (const r of results) failureCounts.set(r.failure_mode as string, (failureCounts.get(r.failure_mode as string) ?? 0) + 1);
-  console.log('\nfailure mode distribution:', Object.fromEntries(failureCounts));
-
-  await prisma.$disconnect();
-}
-
-// LEGAL-RETRIEVAL-LAW-METADATA-ROUTING-01: guarded so importing QUERIES/resolveAcceptable-
-// FragmentIds/classifyFailure/provenanceIntact from another script (the routing comparison run)
-// does not ALSO trigger this file's own full run as a side effect of the import. Comparing
-// against a bare `file://${process.argv[1]}` string is NOT reliable on Windows (import.meta.url
-// percent-encodes non-ASCII path segments like "ö" and always uses three slashes after
-// "file:", neither of which a manual string concat reproduces) -- pathToFileURL normalizes both.
-const isEntryPoint = import.meta.url === pathToFileURL(process.argv[1]!).href;
-if (isEntryPoint) {
-  main().catch(async (error) => {
-    console.error('FATAL:', error);
-    await prisma.$disconnect();
-    process.exitCode = 1;
-  });
 }

@@ -7,7 +7,7 @@ import {
   type SearchChunks,
   type SearchHit,
 } from '../../server/modules/legal/retrieval/LegalRetrievalComposition';
-import type { EmbeddingProvider } from '../../server/modules/legal/retrieval/GeminiEmbeddingProvider';
+import type { EmbeddingProvider } from '../../server/modules/legal/retrieval/EmbeddingProvider';
 import type { GovernedChunkRef } from '@miljobeslut/mps-legal-retrieval-contract';
 
 const FAKE_VECTOR = [0.1, 0.2, 0.3];
@@ -17,7 +17,11 @@ function fakeProvider(): EmbeddingProvider {
     model_id: 'fake-model',
     model_version: '1',
     pipeline_version: 'fake-pipeline-v1',
-    async embedBatch(texts) {
+    dimension: FAKE_VECTOR.length,
+    async embedQueries(texts) {
+      return texts.map(() => FAKE_VECTOR);
+    },
+    async embedPassages(texts) {
       return texts.map(() => FAKE_VECTOR);
     },
   };
