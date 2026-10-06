@@ -432,20 +432,8 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "DYNAMIC PROCESS exec | exec(code, exec_namespace)",
     ],
   },
-  {
-    file: "scripts/alphaevolve/setup.ps1",
-    policy: "DYNAMIC_REVIEWED",
-    contentSha256: "49bc59b05380966163fbcf51ec3a9783e7bedeea81987ffab07a0ca41364a2c0",
-    reachability: "Operator-run setup documented in docs/google-ai/SETUP.md; runs the alphaevolve CLI only (version, skills install); no npm script or CI step runs it.",
-    reviewedOn: "2026-10-03",
-    reviewedBy: "U30F8 W-U30F3 (Claude Opus 5.5): content pin (G6-2) -- the entry's review is the unit its justification names; the reachability field was added by U30F9 W-U30F9 (Claude Fable 5.1) from the justification and a repository grep (reachability-grep.json), without re-reading the file",
-    justification:
-      "AlphaEvolve CLI setup: runs the resolved alphaevolve executable ($aeCmd) with fixed subcommands (version, skills install); no database tool.",
-    sites: [
-      "DYNAMIC PROCESS powershell | & $aeCmd version",
-      "DYNAMIC PROCESS powershell | & $aeCmd skills install --source $SkillsSource --dest $SkillsDest --force",
-    ],
-  },
+  // W-NO-GOOGLE-01B (2026-10-06): withdrew scripts/alphaevolve/setup.ps1.
+  // The GCP/AlphaEvolve setup script was deleted. Its content pin remains in git history through 177909ea.
   {
     file: "scripts/build-requirements-verification-priority-workbook.ps1",
     policy: "DYNAMIC_REVIEWED",
@@ -1383,7 +1371,20 @@ export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs:
   { by: "server/modules/localization/luExecutionIdentityV3Provisioning.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads ./luExecutionIdentityV3VerifyCli.ts (resolved beside the launcher, scanned itself)." },
   { by: "server/modules/localization/luProjectContextBootstrap.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads ./luProjectContextBootstrapVerifyCli.ts (resolved beside the launcher, scanned itself)." },
   { by: "server/modules/localization/luViewerCapabilityProvisioning.ts", runs: "preload tsx", category: "INSTALLED_MODULE", justification: "tsx, the TypeScript loader (package.json devDependencies tsx ^4.16.2, pinned in package-lock.json): it compiles the TypeScript it loads and runs nothing else; it loads ./luViewerCapabilityVerifyCli.ts (resolved beside the launcher, scanned itself)." },
-  // ---- MISSING_FILE (14): stale script lines and runbook lines -- no tracked file of that name anywhere ----
+  // ---- MISSING_FILE: stale script lines and runbook lines -- no tracked file of that name anywhere ----
+  // W-NO-GOOGLE-01B (2026-10-06): historical docs still name the deleted GCP provisioning/auth/secret scripts.
+  // The executable files are gone. These entries record that the remaining lines do not launch a repository file.
+  { by: "deploy/gcp/README.md", runs: "scripts/gcp/audit-secrets.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/gcp/audit-secrets.ps1. deploy/gcp/README.md remains historical text and does not launch a repository file." },
+  { by: "deploy/gcp/README.md", runs: "scripts/gcp/sync-secrets-from-env.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/gcp/sync-secrets-from-env.ps1. deploy/gcp/README.md remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/EXPERIMENTS.md", runs: "scripts/alphaevolve/verify-gcp.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/verify-gcp.ps1. The experiment note remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/EXPERIMENTS.md", runs: "scripts/alphaevolve/provision-gcp.sh", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/provision-gcp.sh. The experiment note remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "scripts/alphaevolve/verify-gcp.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/verify-gcp.ps1. docs/alphaevolve/SETUP.md remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "scripts/alphaevolve/provision-gcp.sh", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/provision-gcp.sh. docs/alphaevolve/SETUP.md remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "scripts/alphaevolve/setup.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/setup.ps1. docs/alphaevolve/SETUP.md remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "scripts/google-ai/setup.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/google-ai/setup.ps1. docs/alphaevolve/SETUP.md remains historical text and does not launch a repository file." },
+  { by: "docs/alphaevolve/SETUP.md", runs: "../scripts/alphaevolve/verify-gcp.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/alphaevolve/verify-gcp.ps1. This relative runbook line does not launch a repository file." },
+  { by: "docs/google-ai/SETUP.md", runs: "scripts/google-ai/setup.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/google-ai/setup.ps1. docs/google-ai/SETUP.md remains historical text and does not launch a repository file." },
+  { by: "docs/ops/local-prod-fas2.md", runs: "scripts/ops/sync-prod-secrets-gcp.ps1", category: "MISSING_FILE", justification: "W-NO-GOOGLE-01B deleted scripts/ops/sync-prod-secrets-gcp.ps1. The local-prod note remains historical text and does not launch a repository file." },
   { by: "package.json", runs: "scripts/run-staging-smoke.mjs", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (git ls-files: 0 run-staging-smoke.mjs)." },
   { by: "package.json", runs: "scripts/export-figma.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 export-figma.ts)." },
   { by: "package.json", runs: "scripts/import/idempotent-ingest.ts", category: "MISSING_FILE", justification: "npm script to a file that is not in the repository (0 idempotent-ingest.ts)." },
@@ -1403,8 +1404,9 @@ export const UNRESOLVED_LAUNCHES: readonly { readonly by: string; readonly runs:
   { by: "scripts/import/run-full-raster-pipeline.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the aria2 download tool installed by winget on the operator's host (a downloader, no database client)." },
   { by: "scripts/import/run-historical-download-batched.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the winget-installed aria2 downloader on the operator's host." },
   { by: "scripts/import/run-historical-download.ps1", runs: "C:/Users/jimmy/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1/aria2c.exe", category: "HOST_PATH", justification: "the winget-installed aria2 downloader on the operator's host." },
-  { by: "setup_adc.sh", runs: "/tmp/gcloud_install.sh", category: "HOST_PATH", justification: "the Google Cloud SDK installer the script downloads with curl (third-party code, B3)." },
-  { by: "setup_adc.sh", runs: "<dynamic directory>/bin/gcloud", category: "HOST_PATH", justification: "GCLOUD_BIN=\"$SDK_PATH/bin/gcloud\": the installed Cloud SDK binary (auth, config, services enable), no repository file." },
+  // W-NO-GOOGLE-01B (2026-10-06): withdrew setup_adc.sh -> /tmp/gcloud_install.sh
+  // and setup_adc.sh -> <dynamic directory>/bin/gcloud. The ADC installer was deleted.
+  // Previous entries remain in git history through 177909ea.
   { by: "docs/google-ai/SETUP.md", runs: ".venv/Scripts/Activate.ps1", category: "HOST_PATH", justification: "after `cd alphaevolve-on-googlecloud`: that gitignored checkout's virtualenv activation script (generated by venv)." },
   { by: "docs/google-ai/SETUP.md", runs: ".venv-adk/Scripts/Activate.ps1", category: "HOST_PATH", justification: "the gitignored .venv-adk virtualenv's activation script (.gitignore: .venv-adk/), generated by venv." },
   { by: "docs/qa/STAGING_SETUP_CHECKLIST.md", runs: ".env.staging", category: "HOST_PATH", justification: "a gitignored local environment file (.env*): sourced on the operator's machine, never repository content." },
