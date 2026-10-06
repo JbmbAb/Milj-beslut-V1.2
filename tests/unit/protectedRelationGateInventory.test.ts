@@ -2653,9 +2653,10 @@ describe('U30F9 EQ-1: a program that is a value, whose substitution only looks p
 // (commands.connection_env_variables) with a value the text does not hold, before a DB-capable tool -- an env prefix
 // (VAR="$x" tool; env / sudo / docker -e / cross-env VAR="$x" tool) or an earlier assignment statement of the same command
 // text (export VAR="$x"; tool) -- makes the tool NON_LITERAL in the gate (corpus u30g814-*). The scanner hands each host's
-// command text to the gate, so every host that hands it the WHOLE text reports the site. Not covered here, registered as
-// owner questions in U30G814-REPORT: a PowerShell file (its scanner reads a `$env:` statement apart from the command), an
-// assignment on an earlier line, a CI `env:` block, a process `env` option.
+// command text to the gate, so every host that hands it the WHOLE text reports the site. A GitHub Actions
+// `env:` on jobs -> steps -> run is covered by G814REP1 F-1a below (an export before each logical line of that run).
+// Still not covered here: a PowerShell file (its scanner reads a `$env:` statement apart from the command), an
+// assignment on an earlier line, and a process `env` option.
 // ---------------------------------------------------------------------------------------------
 describe('U30G814 G8-14: a connection env assignment the text does not hold, before a DB-capable tool, is caught in every host that hands the gate the whole text', () => {
   /** hosts9 without its PowerShell host (`& VAR="$x" tool` is no PowerShell; the PowerShell forms are the corpus's). */

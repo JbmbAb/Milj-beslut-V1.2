@@ -4432,6 +4432,117 @@ export function foldYamlBlock(lines: readonly string[]): string {
 }
 
 /**
+ * G814REP1 F-1a: GitHub Actions `jobs` -> `steps` -> `run` inherits a connection variable
+ * (classificationSpec().commands.connection_env_variables, case-insensitive) that an `env:` mapping at
+ * workflow, job or step scope sets to a dynamic value. The run is handed to the gate as
+ * `export NAME="⟦DYN:actions⟧"; <logical line>` on every logical line — an export statement, not a
+ * prefix assignment — so the connection holds for that step's commands and does not leak to another step.
+ * Returns the export prefix for each `run:` key line, or nothing when no such variable applies.
+ */
+function githubActionsRunPrefixes(raw: readonly string[], stripComment: (l: string) => string, unquote: (v: string) => string, lineRe: RegExp): Map<number, string> {
+  const connectionNames = classificationSpec().commands.connection_env_variables.map((v) => v.toLowerCase());
+  const isConnectionName = (name: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && connectionNames.includes(name.toLowerCase());
+  const dynamicValue = (value: string) => containsDynamic(templateValues(unquote(value)));
+  interface EnvBinding { name: string; dynamic: boolean }
+  interface Frame { indent: number; key: string; scope: "workflow" | "job" | "step"; job: string | null; step: number }
+  const frames: Frame[] = [];
+  const workflowEnv: EnvBinding[] = [];
+  const jobEnv = new Map<string, EnvBinding[]>();
+  const stepEnv = new Map<number, EnvBinding[]>();
+  const runs: { line: number; job: string | null; step: number }[] = [];
+  let jobName: string | null = null;
+  let stepId = -1;
+  const scopeOf = (): "workflow" | "job" | "step" => {
+    const keys = frames.map((f) => f.key);
+    if (keys.includes("jobs") && keys.includes("steps")) return "step";
+    if (keys.includes("jobs")) return "job";
+    return "workflow";
+  };
+  const pushBinding = (scope: "workflow" | "job" | "step", job: string | null, step: number, name: string, value: string) => {
+    if (!isConnectionName(name)) return;
+    const binding = { name, dynamic: dynamicValue(value) };
+    if (scope === "workflow") workflowEnv.push(binding);
+    else if (scope === "job" && job !== null) {
+      const list = jobEnv.get(job) ?? [];
+      list.push(binding);
+      jobEnv.set(job, list);
+    } else if (scope === "step" && step >= 0) {
+      const list = stepEnv.get(step) ?? [];
+      list.push(binding);
+      stepEnv.set(step, list);
+    }
+  };
+  const parseFlow = (value: string, scope: "workflow" | "job" | "step", job: string | null, step: number) => {
+    const t = value.trim();
+    if (!t.startsWith("{") || !t.endsWith("}")) return;
+    const masked: string[] = [];
+    const inner = t.slice(1, -1).replace(/\$\{\{[\s\S]*?\}\}/g, (part) => {
+      masked.push(part);
+      return `\u0000${masked.length - 1}\u0000`;
+    });
+    for (const part of inner.split(",")) {
+      const idx = part.indexOf(":");
+      if (idx < 0) continue;
+      const name = unquote(part.slice(0, idx).trim());
+      const rawValue = part.slice(idx + 1).trim().replace(/\u0000(\d+)\u0000/g, (_m, n) => masked[Number(n)] ?? "");
+      pushBinding(scope, job, step, name, rawValue);
+    }
+  };
+  for (let k = 0; k < raw.length; k += 1) {
+    const l = stripComment(raw[k]!);
+    if (l.trim() === "") continue;
+    lineRe.lastIndex = 0;
+    const m = lineRe.exec(l);
+    if (!m) continue;
+    const indent = m[1]!.length;
+    const dash = m[2] !== undefined;
+    const key = m[3] !== undefined ? unquote(m[3]) : null;
+    const value = m[4]!.trim();
+    while (frames.length && (dash ? frames[frames.length - 1]!.indent > indent : frames[frames.length - 1]!.indent >= indent)) frames.pop();
+    const parent = frames[frames.length - 1];
+    if (dash && parent?.key === "steps") stepId += 1;
+    if (parent?.key === "jobs" && key !== null) jobName = key;
+    const scope = scopeOf();
+    if (key === "env" && value.startsWith("{")) parseFlow(value, scope, jobName, stepId);
+    if (parent?.key === "env" && key !== null && !dash) pushBinding(parent.scope, parent.job, parent.step, key, value);
+    if (key === "run" && frames.some((f) => f.key === "jobs") && frames.some((f) => f.key === "steps")) runs.push({ line: k, job: jobName, step: stepId });
+    if (key !== null && value === "") frames.push({ indent: indent + (dash ? m[2]!.length : 0), key, scope: key === "env" ? scope : parent?.scope ?? "workflow", job: jobName, step: stepId });
+  }
+  const win = (list: readonly EnvBinding[]) => {
+    const map = new Map<string, EnvBinding>();
+    for (const b of list) map.set(b.name.toLowerCase(), b);
+    return map;
+  };
+  const out = new Map<number, string>();
+  for (const run of runs) {
+    const map = win(workflowEnv);
+    for (const [name, binding] of win(jobEnv.get(run.job ?? "") ?? [])) map.set(name, binding);
+    for (const [name, binding] of win(stepEnv.get(run.step) ?? [])) map.set(name, binding);
+    const names = [...map.values()].filter((b) => b.dynamic).map((b) => b.name);
+    if (names.length > 0) out.set(run.line, names.map((n) => `export ${n}="${dyn("actions")}"`).join("; "));
+  }
+  return out;
+}
+
+/** The language a GitHub Actions `shell:` runs a step as. Null shell and bash/sh are the scan's sh path. */
+function actionsRunShell(shell: string | null): "sh" | "py" | "ps" | "js" | "cmd" | "unknown" {
+  if (shell === null) return "sh";
+  const s = shell.toLowerCase();
+  if (/^python[0-9.]*\b/.test(s)) return "py";
+  if (/^(pwsh|powershell)\b/.test(s)) return "ps";
+  if (/^node\b/.test(s)) return "js";
+  if (/^cmd\b/.test(s)) return "cmd";
+  if (/^(bash|sh|zsh)\b/.test(s)) return "sh";
+  return "unknown";
+}
+
+/** Prefix every logical sh line so an export holds for each command, including after `&&` and inside a block. */
+function prefixLogicalSh(body: string, prefix: string): string {
+  const starts = new Set(logicalLines(body, "sh").map((l) => l.line));
+  return body.split("\n").map((line, i) => (starts.has(i + 1) && line.trim() !== "" ? `${prefix}; ${line}` : line)).join("\n");
+}
+
+/**
  * YAML: a value under a command key (run:, command:, entrypoint:, args:, script:, test: ...) is a command;
  * every other scalar is classified as SQL text and, when it names a DB/GIS tool, as a command line.
  */
@@ -4518,6 +4629,19 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
     for (const site of scanEmbedded(body, lang, def, readSqlFile)) sink.add({ ...site, line: site.line + lineOffset, channel: `yaml shell: ${shell} -> ${site.channel}` });
     return true;
   };
+  // G814REP1 F-1a: connection env that applies to each jobs -> steps -> run, as an export prefix.
+  const runPrefix = githubActionsRunPrefixes(raw, stripComment, unquote, LINE);
+  const handRun = (body: string, at: number, keyCol: number): string => {
+    const prefix = runPrefix.get(at) ?? "";
+    const shell = actionsRunShell(stepShell(at, keyCol));
+    if (prefix && (shell === "py" || shell === "ps" || shell === "js")) {
+      const judged = classifyCommandText(`${prefix}; ${body}`, def, readSqlFile);
+      if (judged?.verdict === "UNRESOLVABLE" && judged.detail.split(", ").includes("NON_LITERAL")) {
+        sink.add({ line: at + 1, kind: "PROCESS", channel: "yaml", excerpt: norm(raw[at]!), verdict: "UNRESOLVABLE", detail: "NON_LITERAL" });
+      }
+    }
+    return prefix && shell === "sh" ? prefixLogicalSh(body, prefix) : body;
+  };
   // The keys of the enclosing mappings, by indentation of their content.
   const stack: { indent: number; key: string }[] = [];
   for (let k = 0; k < raw.length; k += 1) {
@@ -4557,7 +4681,8 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       const keyCol = indent + (dash ? m[2]!.length : 0);
       // (U30F9: the Actions `${{ }}` and template values are read BEFORE the body goes to its shell's language)
       const cmdText = commandContext ? templateValues(text) : text;
-      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(cmdText, k, keyCol, k + 1))) scanCommandScript(cmdText, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
+      const handed = commandContext && key !== null && key.toLowerCase() === "run" ? handRun(cmdText, k, keyCol) : cmdText;
+      if (!(commandContext && key !== null && key.toLowerCase() === "run" && runAs(cmdText, k, keyCol, k + 1))) scanCommandScript(handed, "sh", sink, def, readSqlFile, { ...opts, lineOffset: k + 1 });
       k = n - 1;
       continue;
     }
@@ -4576,8 +4701,9 @@ function scanYaml(src: string, sink: SiteSink, def: ProtectedRelationsDefinition
       continue;
     }
     const scalar = commandContext ? templateValues(unquote(value)) : unquote(value);
+    const handed = commandContext && key !== null && key.toLowerCase() === "run" ? handRun(scalar, k, keyCol) : scalar;
     if (commandContext && key !== null && key.toLowerCase() === "run" && runAs(scalar, k, keyCol, k)) continue;
-    scanCommandScript(scalar, "sh", sink, def, readSqlFile, opts);
+    scanCommandScript(handed, "sh", sink, def, readSqlFile, opts);
   }
 }
 
