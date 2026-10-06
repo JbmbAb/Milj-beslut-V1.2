@@ -335,3 +335,33 @@ describe("createLocalEmbeddingProviderFromEnv -- explicit configuration only, no
     });
   });
 });
+
+
+describe("production admission -- no local model is selected before the governed evaluation", () => {
+  const FULL = {
+    MIMER_LOCAL_EMBEDDING_MODEL: "bge-m3",
+    MIMER_LOCAL_EMBEDDING_PYTHON: "D:\\runtime\\venv\\Scripts\\python.exe",
+    MIMER_LOCAL_EMBEDDING_HF_HOME: "D:\\runtime\\hf",
+  };
+
+  it("production creation refuses even a frozen candidate while the admission list is empty", () => {
+    const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
+    expect(() => createLocalEmbeddingProviderFromEnv(FULL, { createTransport })).toThrow(/production|admitted|selected/i);
+    expect(createTransport).not.toHaveBeenCalled();
+  });
+
+  it("the explicit evaluation seam may instantiate a frozen candidate without turning it into production admission", () => {
+    const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
+    const p = createLocalEmbeddingProviderForEvaluationFromEnv(FULL, { createTransport });
+    expect(p.model_id).toBe(BGE.hf_repo);
+    expect(createTransport).toHaveBeenCalledTimes(1);
+    expect(admission.keys).toEqual([]);
+  });
+
+  it("production creation succeeds only when the governed admission seam explicitly contains that one key", () => {
+    admission.keys = ["bge-m3"];
+    const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
+    const p = createLocalEmbeddingProviderFromEnv(FULL, { createTransport });
+    expect(p.model_id).toBe(BGE.hf_repo);
+  });
+});

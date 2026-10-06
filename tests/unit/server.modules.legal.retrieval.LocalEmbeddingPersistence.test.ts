@@ -149,14 +149,18 @@ describe("assertLocalQueryVector -- the read side of the same boundary", () => {
   });
 });
 
-describe("migration proposal for the local 1024 table (text contract; NOT applied here)", () => {
-  const dirs = fs.readdirSync(path.join(ROOT, "prisma/migrations")).filter((d) => d.endsWith("_legal_corpus_chunk_embedding_local_v1"));
+describe("migration proposal for the local 1024 table (text contract; NOT executable by Prisma)", () => {
+  const proposalDir = path.join(ROOT, "docs/architecture/proposed-migrations");
+  const proposalSql = path.join(proposalDir, "20261006220000_legal_corpus_chunk_embedding_local_v1.sql");
+  const proposalPrisma = path.join(proposalDir, "20261006220000_legal_corpus_chunk_embedding_local_v1.prisma");
 
-  it("exists as exactly one migration directory", () => {
-    expect(dirs).toHaveLength(1);
+  it("exists only in the non-executable proposal directory, never in prisma/migrations", () => {
+    expect(fs.existsSync(proposalSql)).toBe(true);
+    const liveDirs = fs.readdirSync(path.join(ROOT, "prisma/migrations")).filter((d) => d.endsWith("_legal_corpus_chunk_embedding_local_v1"));
+    expect(liveDirs).toEqual([]);
   });
 
-  const sql = dirs.length === 1 ? fs.readFileSync(path.join(ROOT, "prisma/migrations", dirs[0]!, "migration.sql"), "utf8") : "";
+  const sql = fs.existsSync(proposalSql) ? fs.readFileSync(proposalSql, "utf8") : "";
   const code = sql
     .split(/\r?\n/)
     .filter((l) => !l.trim().startsWith("--"))
@@ -195,11 +199,14 @@ describe("migration proposal for the local 1024 table (text contract; NOT applie
     expect(code).not.toMatch(/ALTER\s+TABLE\s+"legal_corpus_chunk_embeddings"/);
   });
 
-  it("is mirrored by the Prisma schema, and the historical model is unchanged (still vector(3072))", () => {
+  it("keeps the proposed Prisma model outside the live schema; db push cannot create the proposal", () => {
     const schema = fs.readFileSync(path.join(ROOT, "prisma/schema.prisma"), "utf8");
-    expect(schema).toMatch(/model LegalCorpusChunkEmbeddingLocalV1\s*\{/);
-    expect(schema).toContain('Unsupported("vector(1024)")');
-    expect(schema).toContain('@@map("legal_corpus_chunk_embeddings_local_v1")');
+    expect(schema).not.toMatch(/model LegalCorpusChunkEmbeddingLocalV1\s*\{/);
+    expect(schema).not.toContain("localEmbeddings LegalCorpusChunkEmbeddingLocalV1[]");
+    expect(schema).not.toContain('@@map("legal_corpus_chunk_embeddings_local_v1")');
+    const proposal = fs.existsSync(proposalPrisma) ? fs.readFileSync(proposalPrisma, "utf8") : "";
+    expect(proposal).toMatch(/model LegalCorpusChunkEmbeddingLocalV1\s*\{/);
+    expect(proposal).toContain('Unsupported("vector(1024)")');
     const legacy = schema.slice(schema.indexOf("model LegalCorpusChunkEmbedding {"));
     expect(legacy.slice(0, legacy.indexOf("@@map(\"legal_corpus_chunk_embeddings\")"))).toContain('Unsupported("vector(3072)")');
   });

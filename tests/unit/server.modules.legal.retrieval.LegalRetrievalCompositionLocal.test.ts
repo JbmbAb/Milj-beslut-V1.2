@@ -70,8 +70,9 @@ describe("createLegalRetrievalComposition -- real search path", () => {
     expect(sql).toContain('"legal_corpus_chunk_embeddings_local_v1"');
     expect(sql).not.toMatch(/legal_corpus_chunk_embeddings(?!_local)/);
     expect(sql).toMatch(/\$1::vector\(1024\)/);
-    expect(params).toContain(BGE.hf_repo);
-    expect(params).toContain(BGE.pipeline_version);
+    expect(sql).toMatch(/WHERE\s+e\.embedding_model_id\s*=\s*\$2\s+AND\s+e\.embedding_pipeline_version\s*=\s*\$3/i);
+    expect(params[1]).toBe(BGE.hf_repo);
+    expect(params[2]).toBe(BGE.pipeline_version);
   });
 
   it("refuses a 3072-dimensional query vector before any SQL runs (no mixed-dimension comparison)", async () => {
