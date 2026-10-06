@@ -2735,3 +2735,142 @@ describe('U30G814 step 7: the two older U30F8 EQUIVALENT claims are closed by ca
     expect(problemsOfChange(files)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// G814REP1 F-1a: a connection variable (commands.connection_env_variables, case-insensitive;
+// PGPASSWORD is not one) given a dynamic value in a GitHub Actions env: at step, job or workflow
+// scope, and in force for a jobs -> steps -> run, is classified as
+//   export NAME="⟦DYN:actions⟧"; <run text>
+// an export statement on each logical line of that run. This does not close F-1b–F-1h or G814-N1.
+// ---------------------------------------------------------------------------------------------
+describe('G814REP1 F-1a: GitHub Actions env: dynamic connection variables apply to run: as an export', () => {
+  const DYN_URL = '${{ secrets.DATABASE_URL }}';
+  const DYN_HOST = '${{ secrets.PGHOST }}';
+  const file = '.github/workflows/g814rep1-f1a.yml';
+  const sitesOf = (yaml: string) => scanFile(file, yaml).sites;
+  const nonLiteral = (yaml: string) => sitesOf(yaml).filter((s) => s.verdict === 'UNRESOLVABLE' && s.detail.split(', ').includes('NON_LITERAL'));
+  const oneStep = (step: string) => `on: push\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n${step}`;
+  const expectsMigrate = (yaml: string) => {
+    const hit = nonLiteral(yaml);
+    expect(hit.map((s) => s.detail)).toEqual(['NON_LITERAL']);
+    expect(hit[0]!.excerpt).toContain('npx prisma migrate deploy');
+    expect(hit[0]!.verdict).toBe('UNRESOLVABLE');
+  };
+
+  it('V1: step env DATABASE_URL from a secret, run prisma migrate deploy', () => {
+    expectsMigrate(oneStep(`      - run: npx prisma migrate deploy\n        env:\n          DATABASE_URL: ${DYN_URL}\n`));
+  });
+
+  it('V2: env before run', () => {
+    expectsMigrate(oneStep(`      - env:\n          DATABASE_URL: ${DYN_URL}\n        run: npx prisma migrate deploy\n`));
+  });
+
+  it('V3: job-level env', () => {
+    expectsMigrate(`on: push\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      DATABASE_URL: ${DYN_URL}\n    steps:\n      - run: npx prisma migrate deploy\n`);
+  });
+
+  it('V4: workflow-level env', () => {
+    expectsMigrate(`on: push\nenv:\n  DATABASE_URL: ${DYN_URL}\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx prisma migrate deploy\n`);
+  });
+
+  it('V5: dynamic PGHOST and psql', () => {
+    const hit = nonLiteral(oneStep(`      - run: psql -c 'SELECT 1'\n        env:\n          PGHOST: ${DYN_HOST}\n`));
+    expect(hit.map((s) => s.detail)).toEqual(['NON_LITERAL']);
+    expect(hit[0]!.excerpt).toContain("psql -c 'SELECT 1'");
+  });
+
+  it('V6: each DB command line of a block run is NON_LITERAL', () => {
+    const yaml = oneStep(`      - run: |\n          set -e\n          npx prisma migrate deploy\n          npx prisma db push\n        env:\n          DATABASE_URL: ${DYN_URL}\n`);
+    const hit = nonLiteral(yaml);
+    const migrate = hit.filter((s) => s.excerpt.includes('npx prisma migrate deploy'));
+    const push = hit.filter((s) => s.excerpt.includes('npx prisma db push'));
+    expect(migrate).toHaveLength(1);
+    expect(push).toHaveLength(1);
+    expect(migrate[0]!.detail).toBe('NON_LITERAL');
+    expect(push[0]!.detail.split(', ')).toContain('NON_LITERAL');
+    expect(hit.some((s) => s.excerpt.includes('set -e') && !s.excerpt.includes('prisma'))).toBe(false);
+  });
+
+  it.each(['pwsh', 'python', 'node'] as const)('V7: shell %s with a dynamic connection env and a DB tool is UNRESOLVABLE NON_LITERAL on the run line', (shell) => {
+    const yaml = oneStep(`      - env:\n          DATABASE_URL: ${DYN_URL}\n        run: npx prisma migrate deploy\n        shell: ${shell}\n`);
+    const hit = nonLiteral(yaml);
+    expect(hit.length).toBeGreaterThan(0);
+    expect(hit.every((s) => s.verdict === 'UNRESOLVABLE' && s.detail.split(', ').includes('NON_LITERAL'))).toBe(true);
+    const runLine = yaml.split('\n').findIndex((l) => l.includes('run:')) + 1;
+    expect(hit.some((s) => s.line === runLine)).toBe(true);
+  });
+
+  it('V8: cd && prisma still sees the export', () => {
+    expectsMigrate(oneStep(`      - run: cd server && npx prisma migrate deploy\n        env:\n          DATABASE_URL: ${DYN_URL}\n`));
+  });
+
+  it('V9: a for-loop body sees the export', () => {
+    expectsMigrate(oneStep(`      - run: for f in a; do npx prisma migrate deploy; done\n        env:\n          DATABASE_URL: ${DYN_URL}\n`));
+  });
+
+  it('V10: a subshell sees the export', () => {
+    expectsMigrate(oneStep(`      - run: "(cd server; npx prisma migrate deploy)"\n        env:\n          DATABASE_URL: ${DYN_URL}\n`));
+  });
+
+  it('V11: database_url in lower case', () => {
+    expectsMigrate(oneStep(`      - run: npx prisma migrate deploy\n        env:\n          database_url: ${DYN_URL}\n`));
+  });
+
+  it('V12: quoted key', () => {
+    expectsMigrate(oneStep(`      - run: npx prisma migrate deploy\n        env:\n          'DATABASE_URL': ${DYN_URL}\n`));
+  });
+
+  it('V13: flow mapping env', () => {
+    expectsMigrate(oneStep(`      - run: npx prisma migrate deploy\n        env: { DATABASE_URL: ${DYN_URL} }\n`));
+  });
+
+  it('C1: a literal DATABASE_URL adds no site', () => {
+    expect(sitesOf(oneStep('      - run: npx prisma migrate deploy\n        env:\n          DATABASE_URL: postgresql://localhost/mimer\n'))).toEqual([]);
+  });
+
+  it('C2: a dynamic DATABASE_URL on a non-DB command adds no site', () => {
+    expect(sitesOf(oneStep(`      - run: echo hi\n        env:\n          DATABASE_URL: ${DYN_URL}\n`))).toEqual([]);
+  });
+
+  it('C3: PGPASSWORD alone adds no site', () => {
+    expect(sitesOf(oneStep(`      - run: npx prisma migrate deploy\n        env:\n          PGPASSWORD: ${DYN_URL}\n`))).toEqual([]);
+  });
+
+  it('C4: a step env does not leak into the next step', () => {
+    const yaml = oneStep(`      - run: npx prisma migrate deploy\n        env:\n          DATABASE_URL: ${DYN_URL}\n      - run: npx prisma migrate deploy\n`);
+    const runLines = yaml.split('\n').map((l, i) => ({ l, n: i + 1 })).filter((x) => x.l.includes('run:'));
+    const hit = nonLiteral(yaml);
+    expect(hit.map((s) => s.line)).toEqual([runLines[0]!.n]);
+    expect(sitesOf(yaml).some((s) => s.line === runLines[1]!.n)).toBe(false);
+  });
+
+  it('C5: PGAPPNAME adds no site', () => {
+    expect(sitesOf(oneStep(`      - run: npx prisma migrate deploy\n        env:\n          PGAPPNAME: ${DYN_URL}\n`))).toEqual([]);
+  });
+
+  it('C6: a compose environment mapping is not a GitHub Actions env', () => {
+    const yaml = `services:\n  app:\n    image: node:22\n    environment:\n      DATABASE_URL: \${DATABASE_URL}\n    command: npx prisma migrate deploy\n`;
+    expect(scanFile('deploy/g814rep1/docker-compose.yml', yaml).sites).toEqual([]);
+  });
+
+  it('C7: a cloudbuild env list is not a GitHub Actions env', () => {
+    const yaml = `steps:\n  - name: node:22\n    env:\n      - DATABASE_URL=\${_DATABASE_URL}\n    args:\n      - npx\n      - prisma\n      - migrate\n      - deploy\n`;
+    expect(scanFile('cloudbuild.yaml', yaml).sites).toEqual([]);
+  });
+
+  it('C8: a Kubernetes env list is not a GitHub Actions env', () => {
+    const yaml = `apiVersion: v1\nkind: Pod\nspec:\n  containers:\n    - name: migrate\n      image: node:22\n      env:\n        - name: DATABASE_URL\n          value: \${DB_URL}\n      command: ["npx", "prisma", "migrate", "deploy"]\n`;
+    expect(scanFile('deploy/g814rep1/migrate-pod.yaml', yaml).sites).toEqual([]);
+  });
+
+  it('repo: deploy-staging.yml reports exactly one UNRESOLVABLE NON_LITERAL site on the prisma migrate run', () => {
+    const rel = '.github/workflows/deploy-staging.yml';
+    const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+    const runLine = text.split('\n').findIndex((l) => l.includes('run: npx prisma migrate deploy')) + 1;
+    expect(runLine).toBe(69);
+    const sites = scanFile(rel, text).sites;
+    expect(sites).toHaveLength(1);
+    expect(sites[0]).toMatchObject({ line: runLine, verdict: 'UNRESOLVABLE', kind: 'PROCESS', channel: 'yaml', detail: 'NON_LITERAL' });
+    expect(sites[0]!.excerpt).toContain('npx prisma migrate deploy');
+  });
+});
