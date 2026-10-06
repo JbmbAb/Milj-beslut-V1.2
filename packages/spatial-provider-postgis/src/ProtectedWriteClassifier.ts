@@ -1777,9 +1777,10 @@ function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undef
 /**
  * U30F4REP1: grouping glued to a token is not part of its name. Leading openers `(`, `{`, `@(` and `@{`
  * (any run: `((psql`) and trailing closers `)` / `}` at the absolute end (`psql)`, `psql}`).
+ * F4-4b: one leading `@` before a word, `%`, or the dynamic placeholder (`@psql`, `@%PSQL%`). `@"`, `@'` and `@(` stay.
  */
 function unwrapGrouping(arg: string): string {
-  return arg.replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "");
+  return arg.replace(/^@(?=[A-Za-z%\u27e6])/, "").replace(/^(?:@?[({])+/, "").replace(/[)}]+$/, "");
 }
 
 /** U30F4REP1 F4-2: leading grouping openers are not part of an assignment token. Closers stay. */

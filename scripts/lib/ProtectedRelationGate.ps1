@@ -1505,6 +1505,8 @@ function PrgToolBaseName([string]$a) {
 function PrgUnwrapGrouping([string]$a) {
     # U30F4REP1: grouping glued to a token is not part of its name. Leading openers `(`, `{`, `@(` and `@{`
     # (any run) and trailing closers `)` / `}` at the absolute end.
+    # F4-4b: one leading @ before a word, %, or the dynamic placeholder (U+27E6). @" , @' and @( stay.
+    $a = [regex]::Replace($a, '^@(?=[A-Za-z%\u27e6])', '')
     return [regex]::Replace([regex]::Replace($a, '^(?:@?[({])+', ''), '[)}]+\z', '')
 }
 

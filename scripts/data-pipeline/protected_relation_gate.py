@@ -1829,6 +1829,8 @@ def _tool_base_name(arg):
 def unwrap_grouping(arg):
     # U30F4REP1: grouping glued to a token is not part of its name. Leading openers `(`, `{`, `@(` and `@{`
     # (any run) and trailing closers `)` / `}` at the absolute end.
+    # F4-4b: one leading @ before a word, %, or the dynamic placeholder (U+27E6). @" , @' and @( stay.
+    arg = re.sub('^@(?=[A-Za-z%\u27e6])', '', arg)
     return re.sub(r'[)}]+\Z', '', re.sub(r'^(?:@?[({])+', '', arg))
 
 
