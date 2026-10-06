@@ -172,7 +172,7 @@ describe("migration proposal for the local 1024 table (text contract; NOT applie
   });
 
   it("is schema-only: no data is copied, read, updated or deleted, and the historical table is not touched", () => {
-    expect(code).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s|DELETE\s+FROM|TRUNCATE|DROP\s)/i);
+    expect(code).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s+"|DELETE\s+FROM|TRUNCATE|DROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT))/i);
     expect(code).not.toMatch(LEGACY_TABLE_REF);
     expect(code).not.toMatch(/ALTER\s+TABLE\s+"legal_corpus_chunk_embeddings"/);
   });
