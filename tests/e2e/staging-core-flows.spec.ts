@@ -37,7 +37,7 @@ function envFlag(name: string): boolean {
 const p3PropertyDesignation = envString('E2E_PROPERTY_DESIGNATION', 'NACKA BOO 1:1');
 const p3Latitude = envNumber('E2E_PROPERTY_LATITUDE', 59.3293);
 const p3Longitude = envNumber('E2E_PROPERTY_LONGITUDE', 18.0686);
-const skipVertex = envFlag('E2E_SKIP_VERTEX_FLOWS');
+const skipVertex = true;
 const resolvedApiBaseUrl = getE2EApiBaseUrl();
 const isLocalTarget = /127\.0\.0\.1|localhost/i.test(resolvedApiBaseUrl);
 const isExternalTarget = isExternalE2E() && !isLocalTarget;
@@ -292,7 +292,7 @@ test.describe('P3 staging core flows (admin, no BankID)', () => {
   });
 
   test('API: tillståndsutkast via Vertex', async () => {
-    test.skip(skipVertex, 'Endast tillåtet för lokal felsökning; P3 staging ska köra Vertex-flödet.');
+    test.skip(skipVertex, 'Vertex runtime is retired (W-NO-GOOGLE-02).');
     test.skip(!isExternalTarget, 'Endpointen finns inte alltid lokalt; verifieras i staging.');
     test.setTimeout(180_000);
     const api = await createApiContext();

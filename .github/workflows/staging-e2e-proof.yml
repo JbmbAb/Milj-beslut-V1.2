@@ -7,12 +7,6 @@ on:
         description: 'Optional staging frontend URL (falls back to repository variable STAGING_URL)'
         required: false
         type: string
-      include_vertex_flows:
-        description: 'Include Vertex-heavy flow in the staging run'
-        required: false
-        default: false
-        type: boolean
-
 concurrency:
   group: staging-e2e-proof
   cancel-in-progress: false
@@ -32,8 +26,7 @@ jobs:
       PLAYWRIGHT_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL || inputs.base_url || vars.STAGING_URL }}
       E2E_ADMIN_USERNAME: ${{ secrets.STAGING_E2E_ADMIN_USERNAME || secrets.ADMIN_CONSOLE_USERNAME }}
       E2E_ADMIN_PASSWORD: ${{ secrets.STAGING_E2E_ADMIN_PASSWORD || secrets.ADMIN_CONSOLE_PASSWORD }}
-      E2E_INCLUDE_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'true' || 'false' }}
-      E2E_SKIP_VERTEX_FLOWS: ${{ inputs.include_vertex_flows && 'false' || 'true' }}
+      E2E_SKIP_VERTEX_FLOWS: 'true'
       STAGING_VERIFY_ALLOW_BANKID_PENDING: 'true'
 
     steps:
@@ -76,8 +69,6 @@ jobs:
           LANTMATERIET_OPEN_SUBSCRIPTION_KEY: ${{ secrets.STAGING_LANTMATERIET_OPEN_SUBSCRIPTION_KEY }}
           LANTMATERIET_API_KEY: ${{ secrets.STAGING_LANTMATERIET_API_KEY }}
           SLU_API_KEY: ${{ secrets.STAGING_SLU_API_KEY }}
-          VERTEX_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          VERTEX_LOCATION: ${{ vars.GCP_REGION || 'europe-west1' }}
           BANKID_MOCK_MODE: 'false'
           AUTHORITY_MOCK_MODE: 'false'
           LANTMATERIET_DEMO_MODE: 'false'
@@ -112,6 +103,6 @@ jobs:
             echo "## Staging E2E Proof";
             echo "";
             echo "- Base URL: ${PLAYWRIGHT_BASE_URL}";
-            echo "- Included Vertex flows: ${E2E_INCLUDE_VERTEX_FLOWS}";
+            echo "- Vertex flows: retired";
             echo "- Artifacts: staging-e2e-playwright-report";
           } >> "$GITHUB_STEP_SUMMARY"

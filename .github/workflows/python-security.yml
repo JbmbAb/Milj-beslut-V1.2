@@ -4,14 +4,12 @@ on:
   pull_request:
     paths:
       - 'prompt_optimizer/**'
-      - 'scripts/vertex_prompt_optimize.py'
       - 'scripts/ci_validate_results.py'
       - '.github/workflows/python-security.yml'
   push:
     branches: [main]
     paths:
       - 'prompt_optimizer/**'
-      - 'scripts/vertex_prompt_optimize.py'
       - 'scripts/ci_validate_results.py'
 
 permissions:
