@@ -53,7 +53,7 @@ function runtimeFor(spec: typeof BGE, overrides: Partial<LocalEmbeddingRuntimeRe
     dimension: 1024,
     normalization: "l2",
     device: "cuda:0",
-    dtype: "float16",
+    dtype: "float32",
     max_seq_length: spec.max_seq_length ?? 8192,
     truncated_count: 0,
     snapshot_revision: spec.hf_revision,
@@ -195,6 +195,30 @@ describe("LocalEmbeddingProvider -- the runtime must prove it is the pinned mode
     const { transport } = fakeTransport(E5, (req) => ({ vectors: req.texts.map(() => unit(1024)), runtime: { max_seq_length: 8192 } }));
     const p = createLocalEmbeddingProvider({ key: "multilingual-e5-large", transport });
     expect(await codeOf(p.embedQueries(["x"]))).toBe("EMBEDDING_RUNTIME_IDENTITY_MISMATCH");
+  });
+
+  // Owner decision 2026-10-07: the evaluated pipeline is fp32 with an explicit maximum length. A runtime that
+  // silently runs the same model in half precision, or with another maximum length, is a different pipeline.
+  it.each([
+    ["dtype float16 (half precision)", { dtype: "float16" }],
+    ["dtype bfloat16", { dtype: "bfloat16" }],
+  ])("rejects bge-m3 when the runtime ran with %s instead of the evaluated float32", async (_label, override) => {
+    const { transport } = fakeTransport(BGE, (req) => ({ vectors: req.texts.map(() => unit(1024)), runtime: override }));
+    const p = createLocalEmbeddingProvider({ key: "bge-m3", transport });
+    expect(await codeOf(p.embedQueries(["x"]))).toBe("EMBEDDING_RUNTIME_IDENTITY_MISMATCH");
+  });
+
+  it("rejects bge-m3 when the runtime applied a maximum length other than the frozen 8192", async () => {
+    const { transport } = fakeTransport(BGE, (req) => ({ vectors: req.texts.map(() => unit(1024)), runtime: { max_seq_length: 512 } }));
+    const p = createLocalEmbeddingProvider({ key: "bge-m3", transport });
+    expect(await codeOf(p.embedQueries(["x"]))).toBe("EMBEDDING_RUNTIME_IDENTITY_MISMATCH");
+  });
+
+  it("sends the frozen maximum length of bge-m3 (8192) on the wire, so the worker cannot choose its own", async () => {
+    const { transport, calls } = fakeTransport(BGE);
+    const p = createLocalEmbeddingProvider({ key: "bge-m3", transport });
+    await p.embedQueries(["x"]);
+    expect(calls[0]!.max_seq_length).toBe(8192);
   });
 
   it("has no hidden CPU fallback: a required cuda device that ran on cpu is rejected", async () => {
@@ -371,5 +395,27 @@ describe("production admission -- no local model is selected before the governed
     const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
     const p = createLocalEmbeddingProviderFromEnv(FULL, { createTransport, resolveInterpreter: (p) => p });
     expect(p.model_id).toBe(BGE.hf_repo);
+  });
+
+  // Owner decision 2026-10-07: with bge-m3 admitted, the other frozen candidate is still NOT a production option.
+  it("with bge-m3 admitted, production creation still refuses multilingual-e5-large and creates no transport", () => {
+    admission.keys = ["bge-m3"];
+    const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
+    let caught: unknown;
+    try {
+      createLocalEmbeddingProviderFromEnv({ ...FULL, MIMER_LOCAL_EMBEDDING_MODEL: "multilingual-e5-large" }, { createTransport, resolveInterpreter: (p) => p });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(EmbeddingProviderError);
+    expect((caught as EmbeddingProviderError).code).toBe("EMBEDDING_MODEL_NOT_ALLOWED");
+    expect((caught as Error).message).toMatch(/bge-m3/);
+    expect(createTransport).not.toHaveBeenCalled();
+  });
+
+  it("a missing MIMER_LOCAL_EMBEDDING_MODEL is not defaulted to the admitted model (explicit configuration, no silent activation)", () => {
+    admission.keys = ["bge-m3"];
+    const { MIMER_LOCAL_EMBEDDING_MODEL: _omit, ...withoutModel } = FULL;
+    expect(() => createLocalEmbeddingProviderFromEnv(withoutModel, { createTransport: vi.fn(), resolveInterpreter: (p) => p })).toThrow(EmbeddingProviderError);
   });
 });

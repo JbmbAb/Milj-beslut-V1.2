@@ -90,6 +90,20 @@ describe("local embedding pipeline registry", () => {
     expect(e5.max_seq_length).toBe(512);
   });
 
+  // Owner decision 2026-10-07 (W-EMBED-MODEL-SELECTION-04): the evaluated configuration is the pipeline identity.
+  // The evaluation ran fp32, batch size 1, bge-m3 with the sentence-transformers default max length (8192), L2.
+  // Precision and maximum length are part of what "local-st-bge-m3-dense-v1" means; they are no longer free
+  // runtime choices of the worker.
+  it("freezes the evaluated numeric configuration of each pipeline: float32 and an explicit maximum length", () => {
+    const bge = getLocalEmbeddingPipelineByKey("bge-m3")!;
+    const e5 = getLocalEmbeddingPipelineByKey("multilingual-e5-large")!;
+    expect(bge.dtype).toBe("float32");
+    expect(e5.dtype).toBe("float32");
+    expect(bge.max_seq_length).toBe(8192);
+    expect(e5.max_seq_length).toBe(512);
+    for (const p of LOCAL_EMBEDDING_PIPELINES) expect(p.max_seq_length).not.toBeNull();
+  });
+
   it("offers no third candidate and no Google entry by key", () => {
     for (const key of ["gemini-embedding-001", "gemini-embedding-2", "text-embedding-004", "bge-large", "", "BGE-M3"]) {
       expect(getLocalEmbeddingPipelineByKey(key)).toBeUndefined();
@@ -241,6 +255,8 @@ interface WorkerRegistryEntry {
   readonly hf_revision: string;
   readonly pipeline_version: string;
   readonly dimension: number;
+  readonly dtype: string;
+  readonly max_seq_length: number | null;
   readonly files: readonly SnapshotManifestFile[];
 }
 
@@ -281,6 +297,8 @@ describe("pinned snapshot manifests -- the worker's frozen registry and the Node
       expect(entry.hf_revision).toBe(spec.hf_revision);
       expect(entry.pipeline_version).toBe(spec.pipeline_version);
       expect(entry.dimension).toBe(spec.dimension);
+      expect(entry.dtype).toBe(spec.dtype);
+      expect(entry.max_seq_length).toBe(spec.max_seq_length);
       expect(computeSnapshotManifestSha256(entry.files)).toBe(spec.snapshot_manifest_sha256);
     },
   );
@@ -311,5 +329,12 @@ describe("pinned snapshot manifests -- the worker's frozen registry and the Node
     const source = fs.readFileSync(WORKER_FILE, "utf8");
     expect(source).toContain("MIMER_EMBED_MODEL_KEY");
     expect(source).not.toMatch(/MIMER_EMBED_REPO|MIMER_EMBED_REVISION|MIMER_EMBED_PIPELINE/);
+  });
+
+  it("the worker loads the model in the frozen dtype of the pipeline, not in a hard-coded half precision", () => {
+    const source = fs.readFileSync(WORKER_FILE, "utf8");
+    expect(source).not.toMatch(/torch\.float16/);
+    expect(source).toMatch(/spec\[\s*"dtype"\s*\]/);
+    expect(source).toMatch(/torch\.float32/);
   });
 });

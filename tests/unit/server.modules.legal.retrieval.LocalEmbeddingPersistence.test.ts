@@ -18,10 +18,8 @@ vi.mock("../../server/db/prisma", () => ({
   prisma: { $queryRawUnsafe: db.queryRawUnsafe },
 }));
 
-import {
-  getLocalEmbeddingPipelineByKey,
-  LOCAL_EMBEDDING_PIPELINES,
-} from "@miljobeslut/mps-embedding-identity";
+import { getLocalEmbeddingPipelineByKey } from "@miljobeslut/mps-embedding-identity";
+import { getProductionAdmittedLocalEmbeddingPipeline } from "../../server/modules/legal/retrieval/LocalEmbeddingAdmission";
 import { EmbeddingProviderError } from "../../server/modules/legal/retrieval/EmbeddingProvider";
 import {
   createLocalEmbeddingProvider,
@@ -40,6 +38,7 @@ import { isIssuedLocalEmbedding } from "../../server/modules/legal/retrieval/Loc
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const BGE = getLocalEmbeddingPipelineByKey("bge-m3")!;
+const E5 = getLocalEmbeddingPipelineByKey("multilingual-e5-large")!;
 
 function vec(dim: number, hot = 0): number[] {
   const v = new Array<number>(dim).fill(0);
@@ -47,23 +46,27 @@ function vec(dim: number, hot = 0): number[] {
   return v;
 }
 
-function runtime(): LocalEmbeddingRuntimeReport {
+function runtimeFor(spec: typeof BGE): LocalEmbeddingRuntimeReport {
   return {
-    model_key: BGE.key,
-    hf_repo: BGE.hf_repo,
-    hf_revision: BGE.hf_revision,
-    pipeline_version: BGE.pipeline_version,
+    model_key: spec.key,
+    hf_repo: spec.hf_repo,
+    hf_revision: spec.hf_revision,
+    pipeline_version: spec.pipeline_version,
     dimension: 1024,
     normalization: "l2",
     device: "cuda:0",
-    dtype: "float16",
-    max_seq_length: 8192,
+    dtype: "float32",
+    max_seq_length: spec.max_seq_length ?? 8192,
     truncated_count: 0,
-    snapshot_revision: BGE.hf_revision,
-    snapshot_manifest_sha256: BGE.snapshot_manifest_sha256,
+    snapshot_revision: spec.hf_revision,
+    snapshot_manifest_sha256: spec.snapshot_manifest_sha256,
     interpreter_realpath: "D:/runtime/python.exe",
     library_versions: { torch: "test" },
   };
+}
+
+function runtime(): LocalEmbeddingRuntimeReport {
+  return runtimeFor(BGE);
 }
 
 async function issued() {
@@ -172,42 +175,91 @@ describe("assertLocalQueryVector -- read-side dimension and pipeline boundary", 
     expect(() => assertLocalQueryVector(vec(3072), BGE.pipeline_version)).toThrow(EmbeddingProviderError);
     expect(() => assertLocalQueryVector(vec(1024), "embed-pipeline-gemini-v1")).toThrow(EmbeddingProviderError);
   });
+
+  // Owner decision 2026-10-07: only the production-admitted pipeline (bge-m3) may be read or written.
+  it("rejects the evaluation-only e5 pipeline on the read side even though it is a frozen registry entry", () => {
+    expect(() => assertLocalQueryVector(vec(1024), E5.pipeline_version)).toThrow(EmbeddingProviderError);
+    try {
+      assertLocalQueryVector(vec(1024), E5.pipeline_version);
+    } catch (error) {
+      expect((error as EmbeddingProviderError).code).toBe("EMBEDDING_MODEL_NOT_ALLOWED");
+    }
+  });
 });
 
-describe("local 1024 persistence proposal is frozen but non-executable", () => {
-  const proposalDir = path.join(ROOT, "docs/architecture/proposed-migrations");
-  const proposalSql = path.join(proposalDir, "20261006220000_legal_corpus_chunk_embedding_local_v1.sql");
-  const proposalPrisma = path.join(proposalDir, "20261006220000_legal_corpus_chunk_embedding_local_v1.prisma.proposal.md");
-
-  it("exists only outside Prisma migration discovery", () => {
-    expect(fs.existsSync(proposalSql)).toBe(true);
-    expect(fs.existsSync(proposalPrisma)).toBe(true);
-    const liveDirs = fs.readdirSync(path.join(ROOT, "prisma/migrations")).filter(
-      (d) => d.endsWith("_legal_corpus_chunk_embedding_local_v1"),
-    );
-    expect(liveDirs).toEqual([]);
+describe("write side admits only the production pipeline (bge-m3)", () => {
+  it("builds an insert for a bge-m3 issued embedding", async () => {
+    const value = await issued();
+    expect(() => buildPersistLocalEmbeddingStatement(value)).not.toThrow();
   });
 
-  const sql = fs.existsSync(proposalSql) ? fs.readFileSync(proposalSql, "utf8") : "";
+  it("refuses to persist a provider-issued e5 embedding: evaluation candidates never reach the production table", async () => {
+    const provider = createLocalEmbeddingProvider({
+      key: E5.key,
+      transport: {
+        async embed(_spec, request) {
+          return { runtime: runtimeFor(E5), vectors: request.texts.map((_t, i) => vec(1024, i)) };
+        },
+      },
+    });
+    const [value] = await provider.embedPassagesIssued([
+      { fragment_id: "frag:e5", materialization_id: "mat:1", chunk_content_hash: "hash:e5", text: "body" },
+    ]);
+    expect(isIssuedLocalEmbedding(value)).toBe(true);
+    expect(() => buildPersistLocalEmbeddingStatement(value!)).toThrow(EmbeddingProviderError);
+    await expect(persistLocalChunkEmbedding(value!)).rejects.toMatchObject({ code: "EMBEDDING_MODEL_NOT_ALLOWED" });
+    expect(db.queryRawUnsafe).not.toHaveBeenCalled();
+  });
+});
+
+// The 1024 table is now part of the real migration history (owner decision 2026-10-07 selected bge-m3). It is
+// still NOT applied by this unit to any live or shared database: the migration is committed, unpushed, and
+// proven only in a disposable container.
+describe("local 1024 persistence migration -- one admitted pipeline", () => {
+  const migrationsDir = path.join(ROOT, "prisma/migrations");
+  const liveDirs = fs.readdirSync(migrationsDir).filter((d) => d.endsWith("_legal_corpus_chunk_embedding_local_v1"));
+  const sqlFile = liveDirs.length === 1 ? path.join(migrationsDir, liveDirs[0]!, "migration.sql") : "";
+  const sql = sqlFile && fs.existsSync(sqlFile) ? fs.readFileSync(sqlFile, "utf8") : "";
   const code = sql
     .split(/\r?\n/)
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n");
 
-  it("proposes a separate vector(1024) table and explicit dimension check", () => {
+  it("exists exactly once in the real migration history and sorts after every earlier migration", () => {
+    expect(liveDirs).toHaveLength(1);
+    expect(sql.length).toBeGreaterThan(0);
+    const all = fs.readdirSync(migrationsDir).filter((d) => /^\d{8,14}_/.test(d)).sort();
+    expect(all[all.length - 1]).toBe(liveDirs[0]);
+  });
+
+  it("the earlier proposal location no longer holds a second, divergent copy", () => {
+    const proposalDir = path.join(ROOT, "docs/architecture/proposed-migrations");
+    const leftovers = fs.existsSync(proposalDir)
+      ? fs.readdirSync(proposalDir).filter((f) => f.includes("legal_corpus_chunk_embedding_local_v1"))
+      : [];
+    expect(leftovers).toEqual([]);
+  });
+
+  it("creates a separate vector(1024) table with an explicit dimension check; no 3072 anywhere", () => {
     expect(code).toContain(`CREATE TABLE "${LOCAL_EMBEDDING_TABLE}"`);
     expect(code).toMatch(/"embedding_vector"\s+vector\(1024\)\s+NOT NULL/);
     expect(code).toMatch(/CHECK\s*\(\s*"embedding_dimension"\s*=\s*1024\s*\)/);
     expect(code).not.toContain("3072");
   });
 
-  it("pins only the two frozen evaluation candidates in the current proposal; no Google triple", () => {
-    for (const pipeline of LOCAL_EMBEDDING_PIPELINES) {
-      expect(code).toContain(`'${pipeline.hf_repo}'`);
-      expect(code).toContain(`'${pipeline.hf_revision}'`);
-      expect(code).toContain(`'${pipeline.pipeline_version}'`);
-    }
+  it("pins EXACTLY the one admitted pipeline triple (bge-m3); e5 and Google can not be stored", () => {
+    const admitted = getProductionAdmittedLocalEmbeddingPipeline();
+    expect(code).toContain(`'${admitted.hf_repo}'`);
+    expect(code).toContain(`'${admitted.hf_revision}'`);
+    expect(code).toContain(`'${admitted.pipeline_version}'`);
+    expect(E5.hf_repo).not.toBe(admitted.hf_repo);
+    expect(code).not.toContain(`'${E5.hf_repo}'`);
+    expect(code).not.toContain(`'${E5.hf_revision}'`);
+    expect(code).not.toContain(`'${E5.pipeline_version}'`);
     expect(code).not.toMatch(/gemini|google|embed-pipeline-gemini/i);
+    const checks = code.match(/CONSTRAINT\s+"lcel_v1_pipeline_binding_chk"\s+CHECK\s*\(([\s\S]*?)\)\s*\n\s*\)\s*;/);
+    expect(checks, "the pipeline binding CHECK must be present").not.toBeNull();
+    expect(checks![1]!).not.toMatch(/\bOR\b/i);
   });
 
   it("contains no data copy/destructive DML; ON UPDATE CASCADE is not mistaken for UPDATE DML", () => {
@@ -218,14 +270,15 @@ describe("local 1024 persistence proposal is frozen but non-executable", () => {
     expect(code).not.toMatch(/ALTER\s+TABLE\s+"legal_corpus_chunk_embeddings"/);
   });
 
-  it("keeps the proposed Prisma model out of live schema so db push cannot create it", () => {
+  it("the Prisma schema models the table (so db push / migrate diff see no drift) with the relation and the unsupported 1024 vector", () => {
     const schema = fs.readFileSync(path.join(ROOT, "prisma/schema.prisma"), "utf8");
-    expect(schema).not.toMatch(/model LegalCorpusChunkEmbeddingLocalV1\s*\{/);
-    expect(schema).not.toContain("localEmbeddings LegalCorpusChunkEmbeddingLocalV1[]");
-    expect(schema).not.toContain('@@map("legal_corpus_chunk_embeddings_local_v1")');
-    const proposal = fs.readFileSync(proposalPrisma, "utf8");
-    expect(proposal).toMatch(/model LegalCorpusChunkEmbeddingLocalV1\s*\{/);
-    expect(proposal).toContain('Unsupported("vector(1024)")');
+    expect(schema).toMatch(/model LegalCorpusChunkEmbeddingLocalV1\s*\{/);
+    expect(schema).toContain("localEmbeddings LegalCorpusChunkEmbeddingLocalV1[]");
+    expect(schema).toContain('@@map("legal_corpus_chunk_embeddings_local_v1")');
+    expect(schema).toContain('Unsupported("vector(1024)")');
+    // the legacy 3072 model is untouched and separate
+    expect(schema).toContain('@@map("legal_corpus_chunk_embeddings")');
+    expect(schema).toContain('Unsupported("vector(3072)")');
   });
 });
 
