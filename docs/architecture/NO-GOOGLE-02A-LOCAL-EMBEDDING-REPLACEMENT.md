@@ -1,10 +1,11 @@
 # NO-GOOGLE-02A -- local embedding replacement (writer report)
 
-Status: **WORKING / BLOCKED_BY_MODEL_SELECTION_AND_MIGRATION_APPROVAL** (owner ruling 2026-10-06; this supersedes the earlier
-READY_FOR_INDEPENDENT_REVIEW label). Not verified, not proven. Written by the writer; no status above WORKING is claimed.
-The writer's own read-only review (a three-lens defect hunt) is a SELF-review and is not independent verification.
-See `NO-GOOGLE-02A-OWNER-DECISION-NOTE.md` for the two blockers. Base `621a28680c277e1e4f8a24483acf33be566e99e9`, branch
-`rt/no-google-02a-local-embedding`. No push, no squash, no migration applied.
+Status: **WORKING / READY_FOR_INDEPENDENT_REVIEW** (updated 2026-10-07 after the owner selected BAAI/bge-m3; section 7 below). The
+model-selection blocker of the 2026-10-06 ruling is resolved by that owner decision. Not verified, not proven; no status above WORKING is
+claimed and the writer's own checks are not independent verification. The migration is committed in the real migration history but is **not
+applied to any live or shared database** (only to a disposable container); promotion needs the Prisma-migration Dev-Gov unit and the owner.
+History: `NO-GOOGLE-02A-OWNER-DECISION-NOTE.md`. Base `621a28680c277e1e4f8a24483acf33be566e99e9`, branch
+`rt/no-google-02a-local-embedding`. No push, no squash.
 
 Scope: replace the active Google embedding surface `server/modules/legal/retrieval/GeminiEmbeddingProvider.ts`
 with a fully local provider. Out of scope and untouched: 02B generation (`GeminiAnswerModelProvider.ts`,
@@ -53,7 +54,8 @@ Remaining (all 02B generation): `google-sdk-import server/modules/legal/answer/G
 | transport | `.../LocalEmbeddingWorkerTransport.ts` | stdio JSON lines, one child, allowlisted environment |
 | worker | `.../localEmbeddingWorker.py` | offline, pinned snapshot, same load/encode path as the frozen A7 harness |
 | persistence boundary | `.../LocalEmbeddingPersistence.ts` | refuses non-local identity / non-1024 vector before any SQL |
-| migration PROPOSAL | `prisma/migrations/20261006220000_legal_corpus_chunk_embedding_local_v1/` + `schema.prisma` | new versioned 1024 table. **Not applied.** |
+| migration | `prisma/migrations/20261007120000_legal_corpus_chunk_embedding_local_v1/` + `schema.prisma` | new versioned 1024 table pinned to the ONE admitted pipeline. **Not applied to any live/shared database.** (Earlier two-triple proposal files removed.) |
+| production admission | `.../LocalEmbeddingAdmission.ts` | exactly one admitted pipeline: bge-m3 (see section 7) |
 | composition | `LegalRetrievalComposition.ts` | local provider or throw; local table only; dimension guard before SQL |
 
 Retired: `GeminiEmbeddingProvider.ts`; `LegalCorpusChunkEmbeddingPersistence.ts` (the only writer into the 3072 table, no caller left);
@@ -70,7 +72,7 @@ hash still matches the fields. Pipelines: `local-st-bge-m3-dense-v1` (BAAI/bge-m
 `assertLocalEmbeddingIdentity` (`EMBEDDING_IDENTITY_NOT_LOCAL`). A revision bump is a new registered pipeline, never an edit.
 
 **Persistence.** A separate table `legal_corpus_chunk_embeddings_local_v1`: `vector(1024) NOT NULL`, explicit `embedding_dimension`
-with `CHECK = 1024`, a `CHECK` pinning the two admitted triples (same values as the TypeScript registry; a test compares them),
+with `CHECK = 1024`, a `CHECK` pinning the ONE admitted triple (bge-m3; updated 2026-10-07, earlier two triples; a test compares it with the admission module),
 unique identity hash, the same composite FK to the governed chunks. Schema only: no data copied, the 3072 table is neither altered
 nor read as local. The boundary is enforced in three layers: code (before SQL), statement (`::vector(1024)`, dimension written),
 database (type + CHECKs). The read side asserts the query vector (`assertLocalQueryVector`) before any SQL.
@@ -80,7 +82,7 @@ re-embedding unit has run, which needs the migration approved first.
 
 ## 4. Fail-closed behaviour
 
-No default model (`MIMER_LOCAL_EMBEDDING_MODEL` must name one of the two); no third candidate; no Google key is read or forwarded;
+No default model (`MIMER_LOCAL_EMBEDDING_MODEL` must name the one production-admitted model, bge-m3; the evaluation seam may name a frozen candidate); no third candidate; no Google key is read or forwarded;
 the runtime must prove repo, revision, pipeline, dimension, normalisation (and e5's fixed `max_seq_length` 512) on every call; vectors
 must be exactly 1024 finite L2-normalised numbers (tolerance 1e-3; observed max deviation 4.9e-4 in fp16); a required device that did
 not run is an error (no hidden CPU fallback); a runtime failure throws (no mock, no second provider); the configured runtime can
@@ -95,19 +97,70 @@ and no inherited credentials.
 - Protected-write inventory (U30, default deny): green on a clean export of HEAD (1161/1161) with **no new reviewed entry**; the three channels it
   first flagged were removed by changing the code (plain-literal SQL, `spawn("python", [literal script])`), not by review entries.
   In a git worktree the `.git`-file B5 case is red at the base too (known harness gap; a clean export is the normative surface).
-- Real runtime, end to end through provider + transport + worker: both candidates loaded from the pinned snapshots on `cuda:0` in float16
+- (Historical, 2026-10-06, superseded by section 6: the worker then ran float16; it now runs the evaluated float32.) Real runtime, end to end
+  through provider + transport + worker: both candidates loaded from the pinned snapshots on `cuda:0` in float16
   (1024 dims, norms 1.0 +/- 5e-4, relevant passage ranked above an irrelevant one for both queries).
 - Negative controls against the real worker: absent snapshot, other revision present but pinned absent, interpreter without the runtime,
   non-python program: all rejected with `EMBEDDING_LOCAL_RUNTIME_FAILED` / `EMBEDDING_PROVIDER_NOT_CONFIGURED`, no vector.
 - Failures that exist at the base independently of this change: `noGoogleRuntimeGuard` (02B hits), `luBootstrapProofScriptsIsolation`
   (`prove-lu-deterministic-reexecution-01.ts`; identical failure on a clean export of the base).
 
-## 6. Open items and honest limits
+## 6. Production binding for bge-m3 (owner decision 2026-10-07)
 
-1. **Model selection is not made here and is a BLOCKER.** The corrected round 1 of the frozen A7 evaluation (2026-10-02) was NO-GO: neither candidate met the
-   predeclared bars (MRR 0.22 / 0.32 against 0.885) on the demo-01 chunk-retrieval set. 02A only provides the mechanism for either frozen
-   candidate; it does not activate retrieval quality claims.
-2. **The migration is a proposal and a BLOCKER until approved.** It needs the Prisma-migration Dev-Gov unit and explicit owner approval before any apply.
+**Decision.** The frozen W-EMBED-MODEL-SELECTION-04 evaluation (87 product-representative questions, four candidates, all four met the frozen
+viability floor, decision `MULTIPLE_DENSE_MODELS_VIABLE_NO_CLEAR_WINNER`) named no quality winner. The owner selected **BAAI/bge-m3 @
+5617a9f61b028005a4858fdac845db406aefb181, 1024 dimensions** on operational grounds (no `trust_remote_code`, no truncation of the evaluated
+corpus, ~52 ms query p50, ~2.3 GB VRAM, deterministic replay). multilingual-e5-large (and the two other evaluation candidates, Qwen3 and
+Jina v3) remain evaluation candidates: not rejected, not production-admitted. Evaluation artefacts and hashes (outside the repo):
+`D:\w-embed-eval-02\sel04\` (eval spec `6312c562...`, queries `1d38490d...`, gold `8fe00e1d...`, harness `66ed2807...`).
+
+**What the code now guarantees.**
+- *Admission:* `LocalEmbeddingAdmission.ts` admits exactly `bge-m3` (frozen list, module-load invariant: one key, registered). It is enforced on
+  the production provider seam (`createLocalEmbeddingProviderFromEnv`: a non-admitted key fails with `EMBEDDING_MODEL_NOT_ALLOWED` before any
+  transport exists), on the write side (`buildPersistLocalEmbeddingStatement` refuses a provider-issued e5 embedding) and on the read side
+  (`assertLocalQueryVector`). The registry still lists e5 so the evaluation seam keeps working; that is not a production option.
+- *Pipeline identity includes the evaluated numerics:* `dtype` `float32` and an explicit `max_seq_length` (bge-m3 8192, e5 512) are registry fields,
+  mirrored in the worker's frozen registry (a test compares them). The worker no longer hard-codes float16 (the earlier fp16/fp32 difference to the
+  evaluated pipeline is closed); the provider rejects a runtime that reports another dtype or maximum length.
+- *Persistence:* the migration pins exactly one `(model, revision, pipeline)` triple in `lcel_v1_pipeline_binding_chk`; a test compares it with the
+  admission module. The e5 triple, another revision, a Google identity, a mixed triple, a 3072/768-dimensional vector, a wrong dimension column, a
+  NULL vector and a missing governed chunk are all rejected by the database.
+- *No default and no fallback:* `MIMER_LOCAL_EMBEDDING_MODEL` is still required (no silent activation); the persisted vectors are fp32-derived.
+
+**Schema defect repaired.** `prisma/schema.prisma` at the previous HEAD was invalid: a truncated comment had replaced the header lines of
+`model LegalCorpusChunk {` (`prisma validate`: 20 errors, so `prisma generate` would fail). The header is restored and the new model
+`LegalCorpusChunkEmbeddingLocalV1` (+ relation) is added; `prisma validate` is green.
+
+**Evidence (writer-run; NOT verification).**
+- RED first (`84bd3945`, 18 failing tests), GREEN (`fe157dad`).
+- Disposable Postgres 16 + pgvector + PostGIS container (loopback-only port, tmpfs, removed afterwards): `prisma migrate deploy` applied the whole
+  history including the new migration; `prisma migrate diff` shows **no drift** for the new table (the diff has pre-existing unrelated drift);
+  the real insert text inserted a bge-m3 row, an identical replay returned 0 rows, the search shape (model+pipeline filter, `<=>`) returned the
+  row at distance 0, a 3072-dimensional query errored in the database, cascade delete removed the row, the legacy `vector(3072)` table stayed
+  untouched (script and output: `D:\w-embed-eval-02\sel04\02a-db-proof.sql` / `.out`).
+- Real runtime through the production seam (provider + transport + worker, `cuda:0`): bge-m3 loaded from the pinned snapshot with the manifest
+  digest verified, dtype `float32`, `max_seq_length` 8192, 1024 dimensions, norms 1.0, relevant passage 0.7105 vs irrelevant 0.3077; e5 and an
+  unknown model are refused by the same seam with `EMBEDDING_MODEL_NOT_ALLOWED`, no worker started. Runtime: torch 2.6.0+cu124, sentence-transformers
+  6.1.0, transformers 5.17.0 (the evaluation used 2.11.0+cu128 / 6.1.0 / 5.19.0; the tokenisation of both XLM-R models was shown identical across
+  transformers versions, and fp16/fp32 and batch-size cells gave identical rankings in W-EMBED-A7-REPRO-03).
+- Failures independent of this change: `noGoogleRuntimeGuard` (02B hits only), the B5 `.git`-file case of the protected-relation inventory in a git
+  worktree (same as before, a clean export is the normative surface).
+
+**Still open / not done here.** The migration is not applied to any shared database and has not been through the Prisma-migration Dev-Gov unit;
+no 1024-dimensional rows exist (a re-embedding unit must populate the table); the runtime lives outside the repo and the production image;
+the worker's default batch size is 4 (the evaluated run used batch size 1; the evaluation showed no difference in ranking, but vectors can
+differ in the last bits); nothing is pushed or merged; independent verification has not happened.
+
+## 7. Open items and honest limits
+
+1. **Model selection: resolved by the owner decision of 2026-10-07 (section 6).** History: the corrected round 1 of the frozen A7 evaluation
+   (2026-10-02) was NO-GO on the demo-01 keyword-style query set, but W-EMBED-A7-REPRO-03 showed that result was an evaluation-harness defect (the
+   same models reach Recall@10 ~0.8 in a correct harness) and W-EMBED-MODEL-SELECTION-04 re-ran the selection on a product-representative set.
+   The evaluation set is small (87 questions, 58 only self-reviewed); it supports a viable choice, not a claim of retrieval quality on the
+   31,718-chunk legal corpus.
+2. **The migration is committed but not applied to any shared database.** It needs the Prisma-migration Dev-Gov unit and explicit owner approval
+   before any apply; because it sits in `prisma/migrations/`, `prisma migrate deploy` (staging deploy, fly release command, test databases) would
+   apply it if this branch were merged -- non-application is by process (unpushed, unmerged), not structural.
 3. **No local embeddings exist yet**; a re-embedding unit (separate, needs the migration) must populate the table.
 4. **The runtime lives outside the repository and the production image** (no Python/torch there). Deployment of the worker runtime is open.
 5. **Model files are pinned by revision directory**, not re-hashed at every start; the hash verification is the earlier eval tooling's.

@@ -8,8 +8,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Production admission is a frozen EMPTY list until a frozen evaluation selects exactly one model (owner decision,
-// A16). The tests that need an admitted key control it through this one seam; the real module is asserted separately.
+// Production admits exactly one model (bge-m3, owner decision 2026-10-07; the real list is asserted in
+// server.modules.legal.retrieval.LocalEmbeddingAdmission.test.ts). The tests here control admission through this
+// one seam so each case states which key it assumes admitted.
 const admission = vi.hoisted(() => ({ keys: [] as string[] }));
 vi.mock("../../server/modules/legal/retrieval/LocalEmbeddingAdmission", () => ({
   productionAdmittedLocalEmbeddingKeys: () => admission.keys,
@@ -369,14 +370,14 @@ describe("local embedding env configuration -- explicit, local and fail closed",
 });
 
 
-describe("production admission -- no local model is selected before the governed evaluation", () => {
+describe("production admission -- exactly one admitted local model, explicit configuration only", () => {
   const FULL = {
     MIMER_LOCAL_EMBEDDING_MODEL: "bge-m3",
     MIMER_LOCAL_EMBEDDING_PYTHON: "D:\\runtime\\venv\\Scripts\\python.exe",
     MIMER_LOCAL_EMBEDDING_HF_HOME: "D:\\runtime\\hf",
   };
 
-  it("production creation refuses even a frozen candidate while the admission list is empty", () => {
+  it("production creation refuses even a frozen candidate unless the admission seam names it (seam mocked empty here; the real list is asserted in LocalEmbeddingAdmission.test.ts)", () => {
     const createTransport = vi.fn((_config: LocalEmbeddingTransportConfig) => ({ embed: vi.fn() }));
     expect(() => createLocalEmbeddingProviderFromEnv(FULL, { createTransport, resolveInterpreter: (p) => p })).toThrow(/production|admitted|selected/i);
     expect(createTransport).not.toHaveBeenCalled();

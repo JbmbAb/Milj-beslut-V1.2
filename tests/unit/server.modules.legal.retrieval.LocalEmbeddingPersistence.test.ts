@@ -1,8 +1,9 @@
 /**
  * W-NO-GOOGLE-02A -- explicit 3072 -> 1024 persistence/provenance boundary.
  *
- * Production persistence accepts only an object issued by the verified local provider. The 1024
- * table remains a non-executable proposal until the governed evaluation selects one model.
+ * Production persistence accepts only an object issued by the verified local provider, and only for the one
+ * production-admitted pipeline (bge-m3, owner decision 2026-10-07). The 1024 table is in the real migration history
+ * (not applied to any shared database by this unit).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";

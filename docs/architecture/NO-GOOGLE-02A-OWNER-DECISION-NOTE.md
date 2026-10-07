@@ -1,6 +1,13 @@
 # NO-GOOGLE-02A -- owner decision note (model selection and the 1024 migration)
 
-Status of the unit: **W-NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT: WORKING / BLOCKED_BY_MODEL_SELECTION_AND_MIGRATION_APPROVAL.**
+> **RESOLUTION 2026-10-07 (owner).** Both questions of section 3 are answered. (1) Model: after W-EMBED-A7-REPRO-03 (the A7 result below was an
+> evaluation-harness defect, not a model property) and the frozen W-EMBED-MODEL-SELECTION-04 evaluation, the owner selected
+> BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181 (1024) as the one production pipeline. (2) Migration: the schema/migration repair is part of
+> the production-binding unit; the migration now lives in `prisma/migrations/20261007120000_legal_corpus_chunk_embedding_local_v1/`, pinned to that
+> one triple, and is still NOT applied to any shared database. See `NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT.md` section 6. The text below is
+> kept as the record of the 2026-10-06 state.
+
+Status of the unit (as of 2026-10-06): **W-NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT: WORKING / BLOCKED_BY_MODEL_SELECTION_AND_MIGRATION_APPROVAL.**
 Nothing here is verified. The writer's own read-only review is a SELF-review and is not independent verification.
 No model is selected, no default model is wired, the migration is not applied, the eval is not rerun or tuned.
 
