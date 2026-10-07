@@ -1,48 +1,116 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock("../../../server/services/spatialAuditService", () => ({ runSpatialAudit: vi.fn().mockResolvedValue({ protectedAreaHits: [], protectedAreaAvailable: true, isProtected: false, sgu: { riskLevel: "LOW", manualReviewRequired: false, summary: "OK" }, insar: { riskLevel: "LOW" }, distanceToWaterMeters: 50, distanceToWaterAvailable: true, text: "OK", sources: [] }) }));
-vi.mock("../../../server/services/complianceRuleEngine", () => ({ evaluateComplianceRules: vi.fn().mockReturnValue({ overallRisk: "LOW", permitProbability: 0.8, restrictions: [], rules: [], summary: "OK", violations: [], warnings: [], feasibilityScore: 80, recommendations: [], requiredActions: [], notes: [] }) }));
-vi.mock("../../../server/services/nvrService", () => ({ fetchProtectedAreas: vi.fn().mockResolvedValue([]) }));
-vi.mock("../../../server/services/raaService", () => ({ fetchAncientMonuments: vi.fn().mockResolvedValue([]) }));
-vi.mock("../../../server/services/vissService", () => ({ queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }) }));
-vi.mock("../../../server/services/sguRiskService", () => ({ toGeologicalData: vi.fn().mockReturnValue({}) }));
-vi.mock("../../../server/services/sluService", () => ({ searchSluByCoordinates: vi.fn().mockResolvedValue([]), getSpeciesInformation: vi.fn().mockResolvedValue([]) }));
-vi.mock("../../../server/services/auditTrailService", () => ({ auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) } }));
-vi.mock("../../../server/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("../../../src/application/enqueue-lu-execution-ticket", () => ({ enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null) }));
+vi.mock('../../../server/services/spatialAuditService', () => ({
+  runSpatialAudit: vi.fn().mockResolvedValue({
+    protectedAreaHits: [],
+    protectedAreaAvailable: true,
+    isProtected: false,
+    sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' },
+    insar: { riskLevel: 'LOW' },
+    distanceToWaterMeters: 50,
+    distanceToWaterAvailable: true,
+    text: 'OK',
+    sources: [],
+  }),
+}));
+vi.mock('../../../server/services/complianceRuleEngine', () => ({
+  evaluateComplianceRules: vi.fn().mockReturnValue({
+    overallRisk: 'LOW',
+    permitProbability: 0.8,
+    restrictions: [],
+    rules: [],
+    summary: 'OK',
+    violations: [],
+    warnings: [],
+    feasibilityScore: 80,
+    recommendations: [],
+    requiredActions: [],
+    notes: [],
+  }),
+}));
+vi.mock('../../../server/services/nvrService', () => ({
+  fetchProtectedAreas: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../../../server/services/raaService', () => ({
+  fetchAncientMonuments: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../../../server/services/vissService', () => ({
+  queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }),
+}));
+vi.mock('../../../server/services/sguRiskService', () => ({ toGeologicalData: vi.fn().mockReturnValue({}) }));
+vi.mock('../../../server/services/sluService', () => ({
+  searchSluByCoordinates: vi.fn().mockResolvedValue([]),
+  getSpeciesInformation: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../../../server/services/auditTrailService', () => ({
+  auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) },
+}));
+vi.mock('../../../server/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('../../../src/application/enqueue-lu-execution-ticket', () => ({
+  enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null),
+}));
 
-vi.mock("../../../server/repositories/projectContextBindingRepository", () => {
-  type BindingRow = { binding_artifact_id: string; project_context_artifact_id: string; project_context_artifact_type: string };
+vi.mock('../../../server/repositories/projectContextBindingRepository', () => {
+  type BindingRow = {
+    binding_artifact_id: string;
+    project_context_artifact_id: string;
+    project_context_artifact_type: string;
+  };
   const bindingsByProject = new Map<string, BindingRow[]>();
   class FakeProjectContextBindingIndex {
-    async register(binding: { artifact_id: string; payload: { project_id: string; project_context_ref: { artifact_id: string; artifact_type: string } } }) {
+    async register(binding: {
+      artifact_id: string;
+      payload: { project_id: string; project_context_ref: { artifact_id: string; artifact_type: string } };
+    }) {
       const rows = bindingsByProject.get(binding.payload.project_id) ?? [];
       if (!rows.some((row) => row.binding_artifact_id === binding.artifact_id)) {
-        rows.push({ binding_artifact_id: binding.artifact_id, project_context_artifact_id: binding.payload.project_context_ref.artifact_id, project_context_artifact_type: binding.payload.project_context_ref.artifact_type });
+        rows.push({
+          binding_artifact_id: binding.artifact_id,
+          project_context_artifact_id: binding.payload.project_context_ref.artifact_id,
+          project_context_artifact_type: binding.payload.project_context_ref.artifact_type,
+        });
         bindingsByProject.set(binding.payload.project_id, rows);
       }
-      if (await this.resolve(binding.payload.project_id, binding.payload.project_context_ref) !== binding.artifact_id) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CONFLICT");
+      if (
+        (await this.resolve(binding.payload.project_id, binding.payload.project_context_ref)) !==
+        binding.artifact_id
+      )
+        throw new Error('REJECT_PROJECT_CONTEXT_BINDING_CONFLICT');
     }
     async resolve(projectId: string, ref: { artifact_id: string; artifact_type: string }) {
-      const rows = (bindingsByProject.get(projectId) ?? []).filter((row) => row.project_context_artifact_id === ref.artifact_id && row.project_context_artifact_type === ref.artifact_type);
-      if (rows.length !== 1) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+      const rows = (bindingsByProject.get(projectId) ?? []).filter(
+        (row) =>
+          row.project_context_artifact_id === ref.artifact_id &&
+          row.project_context_artifact_type === ref.artifact_type,
+      );
+      if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
       return rows[0]!.binding_artifact_id;
     }
-    async listBindingRefs(projectId: string) { return (bindingsByProject.get(projectId) ?? []).map((row) => ({ artifact_id: row.binding_artifact_id, artifact_type: "project_context_binding" })); }
-    async listSupersessionRefs() { return []; }
+    async listBindingRefs(projectId: string) {
+      return (bindingsByProject.get(projectId) ?? []).map((row) => ({
+        artifact_id: row.binding_artifact_id,
+        artifact_type: 'project_context_binding',
+      }));
+    }
+    async listSupersessionRefs() {
+      return [];
+    }
     async findProjectContextRef(projectId: string) {
       const rows = bindingsByProject.get(projectId) ?? [];
-      if (rows.length !== 1) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
-      return { artifact_id: rows[0]!.project_context_artifact_id, artifact_type: rows[0]!.project_context_artifact_type };
+      if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
+      return {
+        artifact_id: rows[0]!.project_context_artifact_id,
+        artifact_type: rows[0]!.project_context_artifact_type,
+      };
     }
   }
   return { PrismaProjectContextBindingIndex: FakeProjectContextBindingIndex };
 });
 
-import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
-import { sha256ContentHash } from "../../mps-runtime/src/kernel/ExecutionKernel";
-import { InMemoryArtifactRepository } from "../../mps-runtime/src/repository/InMemoryArtifactRepository";
-import { SecurityRuntime } from "../../mps-runtime/src/security/SecurityRuntime";
+import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import { sha256ContentHash } from '../../mps-runtime/src/kernel/ExecutionKernel';
+import { InMemoryArtifactRepository } from '../../mps-runtime/src/repository/InMemoryArtifactRepository';
+import { SecurityRuntime } from '../../mps-runtime/src/security/SecurityRuntime';
 import {
   createGovernedLocalizationAssessment,
   createLocalizationGeometryArtifactV2,
@@ -52,23 +120,34 @@ import {
   localizationAssessmentCanonicalBody,
   orchestrator,
   type ISpatialProvider,
-} from "../src/index";
-import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
-import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
-import { createLuRegistryRuntime } from "../src/registry/createLuRegistryRuntime";
-import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
-import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
-import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
-import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
-import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
-import { provisionLuSourceAuthorityFixture } from "./fixtures/provisionLuSourceAuthority";
-import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from "../../mps-governance/src/release/ProductReleaseAuthority";
-import { attestProductRelease } from "../../../server/modules/release/productReleaseAuthority";
+} from '../src/index';
+import { GenerateLocalizationReportUseCase } from '../../../src/application/generate-localization-report.usecase';
+import type { LocalizationSpatialRuntime } from '../../../server/modules/localization/createLocalizationSpatialRuntime';
+import { createLuRegistryRuntime } from '../src/registry/createLuRegistryRuntime';
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from '../src/registry/LuSiteAssessmentRegistry';
+import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../../server/security/luExecutionAuthoritySigningKey';
+import { __resetLuExecutionAuthorityVerifierForTests } from '../src/execution/LuExecutionAuthorityVerifier';
+import { provisionCanonicalLuContext } from './fixtures/provisionCanonicalLuContext';
+import { ensureLocalizationProjectionProject } from './fixtures/ensureLocalizationProjectionProject';
+import { provisionLuSourceAuthorityFixture } from './fixtures/provisionLuSourceAuthority';
+import {
+  createProductReleaseIssuerArtifact,
+  createProductReleaseManifestArtifact,
+} from '../../mps-governance/src/release/ProductReleaseAuthority';
+import { attestProductRelease } from '../../../server/modules/release/productReleaseAuthority';
 
 class RecordingRepository extends InMemoryArtifactRepository {
-  readonly writes: Array<{ artifact_id: string; content_hash: { algorithm: "sha256"; value: string }; body: unknown }> = [];
+  readonly writes: Array<{
+    artifact_id: string;
+    content_hash: { algorithm: 'sha256'; value: string };
+    body: unknown;
+  }> = [];
 
-  override async put(artifact: { artifact_id: string; content_hash: { algorithm: "sha256"; value: string }; body: unknown }): Promise<void> {
+  override async put(artifact: {
+    artifact_id: string;
+    content_hash: { algorithm: 'sha256'; value: string };
+    body: unknown;
+  }): Promise<void> {
     this.writes.push(artifact);
     await super.put(artifact);
   }
@@ -76,7 +155,9 @@ class RecordingRepository extends InMemoryArtifactRepository {
 
 function runtime(repository: RecordingRepository): LocalizationSpatialRuntime {
   // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
-  const provider: ISpatialProvider = { query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }) };
+  const provider: ISpatialProvider = {
+    query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }),
+  };
   return {
     artifactRepository: repository,
     resolveSpatialProvider: () => provider,
@@ -86,26 +167,26 @@ function runtime(repository: RecordingRepository): LocalizationSpatialRuntime {
   };
 }
 
-describe("HM1-C — governed assessment persistence", () => {
+describe('HM1-C — governed assessment persistence', () => {
   const originalEnv: Record<string, string | undefined> = {};
   let sourceAuthorityFixture: { restore(): void } | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
+    vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
   });
 
   afterEach(() => {
     sourceAuthorityFixture?.restore();
     sourceAuthorityFixture = null;
     for (const name of [
-      "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
-      "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
-      "PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID",
-      "PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM",
-      "PRODUCT_RELEASE_ARTIFACT_ID",
-      "PRODUCT_RELEASE_ISSUER_KEY_ID",
-      "PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM",
+      'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM',
+      'LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM',
+      'PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID',
+      'PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM',
+      'PRODUCT_RELEASE_ARTIFACT_ID',
+      'PRODUCT_RELEASE_ISSUER_KEY_ID',
+      'PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM',
     ] as const) {
       if (originalEnv[name] === undefined) delete process.env[name];
       else process.env[name] = originalEnv[name];
@@ -114,47 +195,65 @@ describe("HM1-C — governed assessment persistence", () => {
     __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
-  it("the real entrypoint writes an assessment canonically bound to the execution outcome and its attestation", async () => {
+  it('the real entrypoint writes an assessment canonically bound to the execution outcome and its attestation', async () => {
     // The real entrypoint derives its execution subject from a verified current binding. This
     // fixture provisions that chain before issuing the matching V3 identity.
 
     const repository = new RecordingRepository();
-    const contextIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:hm1c-context-issuer");
+    const contextIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:hm1c-context-issuer');
     const contextIssuer = createProjectContextBindingIssuerArtifact({
       issuer_key_id: contextIssuerKey.provider.keyId,
-      issuer_version: "project-context-binding-issuer-v2",
+      issuer_version: 'project-context-binding-issuer-v2',
     });
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = contextIssuerKey.provider.keyId;
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = contextIssuerKey.publicKey;
     // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): a real, self-consistent signed release.
-    const releaseIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:product-release-issuer-hm1c");
+    const releaseIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:product-release-issuer-hm1c');
     const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
-    await repository.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
-    const unsignedRelease = createProductReleaseManifestArtifact({
-      product_name: "Miljobeslut-hm1c",
-      package_lock_sha256: "a".repeat(64),
-      package_manifest_sha256: "b".repeat(64),
-      runtime_entrypoint_sha256: "c".repeat(64),
-      issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
-      issued_at: "2026-08-21T00:00:00.000Z",
+    await repository.put({
+      artifact_id: releaseIssuer.artifact_id,
+      content_hash: releaseIssuer.content_hash,
+      body: releaseIssuer,
     });
-    const signedRelease = { ...unsignedRelease, attestation: await attestProductRelease({ release: unsignedRelease, issuer: releaseIssuer, signing: releaseIssuerKey.provider }) };
+    const unsignedRelease = createProductReleaseManifestArtifact({
+      product_name: 'Miljobeslut-hm1c',
+      package_lock_sha256: 'a'.repeat(64),
+      package_manifest_sha256: 'b'.repeat(64),
+      runtime_entrypoint_sha256: 'c'.repeat(64),
+      issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
+      issued_at: '2026-08-21T00:00:00.000Z',
+    });
+    const signedRelease = {
+      ...unsignedRelease,
+      attestation: await attestProductRelease({
+        release: unsignedRelease,
+        issuer: releaseIssuer,
+        signing: releaseIssuerKey.provider,
+      }),
+    };
     process.env.PRODUCT_RELEASE_ARTIFACT_ID = signedRelease.artifact_id;
     process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
     process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
-    await repository.put({ artifact_id: signedRelease.artifact_id, content_hash: signedRelease.content_hash, body: signedRelease });
-    const projectId = "project-hm1c";
+    await repository.put({
+      artifact_id: signedRelease.artifact_id,
+      content_hash: signedRelease.content_hash,
+      body: signedRelease,
+    });
+    const projectId = 'project-hm1c';
     await ensureLocalizationProjectionProject({
       projectId,
-      propertyDesignation: "HM1C 1:1",
+      propertyDesignation: 'HM1C 1:1',
     });
     const context = await provisionCanonicalLuContext({
       repository,
       issuer: contextIssuer,
       signing: contextIssuerKey.provider,
-      verification: new LocalPemVerificationKeyProvider(contextIssuerKey.provider.keyId, contextIssuerKey.publicKey),
+      verification: new LocalPemVerificationKeyProvider(
+        contextIssuerKey.provider.keyId,
+        contextIssuerKey.publicKey,
+      ),
       projectId,
-      propertyDesignation: "HM1C 1:1",
+      propertyDesignation: 'HM1C 1:1',
     });
     const registry = createLuRegistryRuntime();
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
@@ -163,16 +262,19 @@ describe("HM1-C — governed assessment persistence", () => {
       property_context_ref: context.propertyContextRef,
       wgs84LngLat: [18.07, 59.33],
       sweref99NorthingEasting: [6580000, 674000],
-      provenance: "derived_from_property_boundary",
-      label: "Fastighetens centrumpunkt (automatiskt härledd)",
-      created_by: "system",
+      provenance: 'derived_from_property_boundary',
+      label: 'Fastighetens centrumpunkt (automatiskt härledd)',
+      created_by: 'system',
     });
     const geometryRef = { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
     const executionSubject = {
       site_id: context.propertyIdentity,
       project_context_binding_ref: context.contextBindingRef,
-      product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
-      execution_contract_version: "lu-execution-identity-v1",
+      product_release_ref: {
+        artifact_id: signedRelease.artifact_id,
+        artifact_type: 'product_release_manifest',
+      },
+      execution_contract_version: 'lu-execution-identity-v1',
       localization_geometry_ref: geometryRef,
     } as const;
     const executionSeed = deriveLuExecutionSeed({
@@ -181,9 +283,12 @@ describe("HM1-C — governed assessment persistence", () => {
       project_context_ref: context.projectContextRef,
       property_context_ref: context.propertyContextRef,
       project_context_binding_ref: context.contextBindingRef,
-      product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
+      product_release_ref: {
+        artifact_id: signedRelease.artifact_id,
+        artifact_type: 'product_release_manifest',
+      },
       product_release_hash: signedRelease.release_hash.value,
-      execution_contract_version: "lu-execution-identity-v1",
+      execution_contract_version: 'lu-execution-identity-v1',
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       localization_geometry_ref: geometryRef,
     });
@@ -197,22 +302,22 @@ describe("HM1-C — governed assessment persistence", () => {
         context.contextBindingRef,
         context.projectContextRef,
         context.propertyContextRef,
-        { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
+        { artifact_id: signedRelease.artifact_id, artifact_type: 'product_release_manifest' },
         geometryRef,
       ],
-      label: "hm1c",
+      label: 'hm1c',
     });
 
     const report = await new GenerateLocalizationReportUseCase(async () => runtime(repository)).execute({
       projectId,
-      siteAlternatives: [{ id: "hm1c", lat: 59.33, lng: 18.07 }],
+      siteAlternatives: [{ id: 'hm1c', lat: 59.33, lng: 18.07 }],
     });
     const id = report.siteAnalyses[0].executionMotor!.assessment_artifact_id!;
     const write = repository.writes.find((item) => item.artifact_id === id)!;
     const body = write.body as {
       artifact_id: string;
       artifact_type: string;
-      content_hash: { algorithm: "sha256"; value: string };
+      content_hash: { algorithm: 'sha256'; value: string };
       references: readonly { artifact_id: string; artifact_type: string }[];
       payload: {
         execution_outcome_ref?: { artifact_id: string; artifact_type: string };
@@ -223,35 +328,32 @@ describe("HM1-C — governed assessment persistence", () => {
     expect(body.payload.execution_outcome_ref?.artifact_id).toBe(
       report.siteAnalyses[0].executionMotor!.outcome_id,
     );
-    expect(body.payload.outcome_attestation_ref?.artifact_type).toBe("outcome_attestation");
-    expect(body.references).toEqual(expect.arrayContaining([
-      body.payload.execution_outcome_ref,
-      body.payload.outcome_attestation_ref,
-    ]));
-    expect(body.content_hash).toEqual(sha256ContentHash(
-      localizationAssessmentCanonicalBody(body as never),
-    ));
+    expect(body.payload.outcome_attestation_ref?.artifact_type).toBe('outcome_attestation');
+    expect(body.references).toEqual(
+      expect.arrayContaining([body.payload.execution_outcome_ref, body.payload.outcome_attestation_ref]),
+    );
+    expect(body.content_hash).toEqual(sha256ContentHash(localizationAssessmentCanonicalBody(body as never)));
   });
 
-  it("rejects a spoofed body that retains the originally declared hash before any assessment write", async () => {
+  it('rejects a spoofed body that retains the originally declared hash before any assessment write', async () => {
     const repository = new RecordingRepository();
-    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: "hm1c-spoof" });
-    security.bindPrincipal("lu.site_assessment.actor");
+    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: 'hm1c-spoof' });
+    security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
-      outcome_id: "outcome-hm1c-spoof",
-      artifact_type: "execution_outcome" as const,
-      attempt_ref: { artifact_id: "attempt-hm1c-spoof", artifact_type: "execution_attempt" },
-      result: "success" as const,
-      content_hash: sha256ContentHash({ result: "success", id: "hm1c-spoof" }),
+      outcome_id: 'outcome-hm1c-spoof',
+      artifact_type: 'execution_outcome' as const,
+      attempt_ref: { artifact_id: 'attempt-hm1c-spoof', artifact_type: 'execution_attempt' },
+      result: 'success' as const,
+      content_hash: sha256ContentHash({ result: 'success', id: 'hm1c-spoof' }),
     };
     const attestation = security.attestOutcome(outcome.content_hash);
     const artifact = createGovernedLocalizationAssessment({
       draft: {
-        site_id: "hm1c-spoof",
-        project_context_ref: { artifact_id: "project-hm1c", artifact_type: "LU_PROJECT_CONTEXT" },
-        property_ref: { artifact_id: "property-hm1c", artifact_type: "LU_PROPERTY_CONTEXT" },
+        site_id: 'hm1c-spoof',
+        project_context_ref: { artifact_id: 'project-hm1c', artifact_type: 'LU_PROJECT_CONTEXT' },
+        property_ref: { artifact_id: 'property-hm1c', artifact_type: 'LU_PROPERTY_CONTEXT' },
         evidence_refs: [],
-        system_summary: "original",
+        system_summary: 'original',
       },
       findings: [],
       outcome,
@@ -259,11 +361,10 @@ describe("HM1-C — governed assessment persistence", () => {
     });
     const spoofed = {
       ...artifact,
-      payload: { ...artifact.payload, system_summary: "tampered but hash retained" },
+      payload: { ...artifact.payload, system_summary: 'tampered but hash retained' },
     };
-    const gate = new GovernedAssessmentPersistence(
-      repository,
-      (candidate) => security.verifyAttestation(candidate),
+    const gate = new GovernedAssessmentPersistence(repository, (candidate) =>
+      security.verifyAttestation(candidate),
     );
 
     await expect(gate.persist({ artifact: spoofed, outcome, attestation })).rejects.toThrow(
@@ -272,34 +373,33 @@ describe("HM1-C — governed assessment persistence", () => {
     expect(repository.writes).toHaveLength(0);
   });
 
-  it("rejects an invalid outcome attestation before any assessment write", async () => {
+  it('rejects an invalid outcome attestation before any assessment write', async () => {
     const repository = new RecordingRepository();
-    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: "hm1c-attestation" });
-    security.bindPrincipal("lu.site_assessment.actor");
+    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: 'hm1c-attestation' });
+    security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
-      outcome_id: "outcome-hm1c-attestation",
-      artifact_type: "execution_outcome" as const,
-      attempt_ref: { artifact_id: "attempt-hm1c-attestation", artifact_type: "execution_attempt" },
-      result: "success" as const,
-      content_hash: sha256ContentHash({ result: "success", id: "hm1c-attestation" }),
+      outcome_id: 'outcome-hm1c-attestation',
+      artifact_type: 'execution_outcome' as const,
+      attempt_ref: { artifact_id: 'attempt-hm1c-attestation', artifact_type: 'execution_attempt' },
+      result: 'success' as const,
+      content_hash: sha256ContentHash({ result: 'success', id: 'hm1c-attestation' }),
     };
     const valid = security.attestOutcome(outcome.content_hash);
     const invalid = { ...valid, signature: `${valid.signature}00` };
     const artifact = createGovernedLocalizationAssessment({
       draft: {
-        site_id: "hm1c-attestation",
-        project_context_ref: { artifact_id: "project-hm1c", artifact_type: "LU_PROJECT_CONTEXT" },
-        property_ref: { artifact_id: "property-hm1c", artifact_type: "LU_PROPERTY_CONTEXT" },
+        site_id: 'hm1c-attestation',
+        project_context_ref: { artifact_id: 'project-hm1c', artifact_type: 'LU_PROJECT_CONTEXT' },
+        property_ref: { artifact_id: 'property-hm1c', artifact_type: 'LU_PROPERTY_CONTEXT' },
         evidence_refs: [],
-        system_summary: "attested assessment",
+        system_summary: 'attested assessment',
       },
       findings: [],
       outcome,
       attestation: invalid,
     });
-    const gate = new GovernedAssessmentPersistence(
-      repository,
-      (candidate) => security.verifyAttestation(candidate),
+    const gate = new GovernedAssessmentPersistence(repository, (candidate) =>
+      security.verifyAttestation(candidate),
     );
 
     await expect(gate.persist({ artifact, outcome, attestation: invalid })).rejects.toThrow(
@@ -308,39 +408,38 @@ describe("HM1-C — governed assessment persistence", () => {
     expect(repository.writes).toHaveLength(0);
   });
 
-  it("rejects a caller-chosen assessment id even when the canonical body hash is correct", async () => {
+  it('rejects a caller-chosen assessment id even when the canonical body hash is correct', async () => {
     const repository = new RecordingRepository();
-    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: "hm1c-id" });
-    security.bindPrincipal("lu.site_assessment.actor");
+    const security = SecurityRuntime.create({ bootstrapAdmit: true, bindSeed: 'hm1c-id' });
+    security.bindPrincipal('lu.site_assessment.actor');
     const outcome = {
-      outcome_id: "outcome-hm1c-id",
-      artifact_type: "execution_outcome" as const,
-      attempt_ref: { artifact_id: "attempt-hm1c-id", artifact_type: "execution_attempt" },
-      result: "success" as const,
-      content_hash: sha256ContentHash({ result: "success", id: "hm1c-id" }),
+      outcome_id: 'outcome-hm1c-id',
+      artifact_type: 'execution_outcome' as const,
+      attempt_ref: { artifact_id: 'attempt-hm1c-id', artifact_type: 'execution_attempt' },
+      result: 'success' as const,
+      content_hash: sha256ContentHash({ result: 'success', id: 'hm1c-id' }),
     };
     const attestation = security.attestOutcome(outcome.content_hash);
     const valid = createGovernedLocalizationAssessment({
       draft: {
-        site_id: "hm1c-id",
-        project_context_ref: { artifact_id: "project-hm1c", artifact_type: "LU_PROJECT_CONTEXT" },
-        property_ref: { artifact_id: "property-hm1c", artifact_type: "LU_PROPERTY_CONTEXT" },
+        site_id: 'hm1c-id',
+        project_context_ref: { artifact_id: 'project-hm1c', artifact_type: 'LU_PROJECT_CONTEXT' },
+        property_ref: { artifact_id: 'property-hm1c', artifact_type: 'LU_PROPERTY_CONTEXT' },
         evidence_refs: [],
-        system_summary: "canonical id",
+        system_summary: 'canonical id',
       },
       findings: [],
       outcome,
       attestation,
     });
-    const callerChosenId = { ...valid, artifact_id: "assessment-caller-chosen" };
-    const gate = new GovernedAssessmentPersistence(
-      repository,
-      (candidate) => security.verifyAttestation(candidate),
+    const callerChosenId = { ...valid, artifact_id: 'assessment-caller-chosen' };
+    const gate = new GovernedAssessmentPersistence(repository, (candidate) =>
+      security.verifyAttestation(candidate),
     );
 
-    await expect(
-      gate.persist({ artifact: callerChosenId, outcome, attestation }),
-    ).rejects.toThrow(/canonical_artifact_id/);
+    await expect(gate.persist({ artifact: callerChosenId, outcome, attestation })).rejects.toThrow(
+      /canonical_artifact_id/,
+    );
     expect(repository.writes).toHaveLength(0);
   });
 });

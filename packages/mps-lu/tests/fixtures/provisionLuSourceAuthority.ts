@@ -1,41 +1,37 @@
-import {
-  LocalPemSigningKeyProvider,
-} from "@miljobeslut/mimers-brunn-core";
-import type { ArtifactReference } from "../../../mps-compliance/src/artifacts/ArtifactReference";
-import type { ArtifactRepositoryPort } from "../../../mps-runtime/src/kernel/ExecutionKernel";
-import type { ExecutionIdentitySubjectV3 } from "../../../mps-runtime/src/execution/ExecutionIdentityScopeV2";
+import { LocalPemSigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import type { ArtifactReference } from '../../../mps-compliance/src/artifacts/ArtifactReference';
+import type { ArtifactRepositoryPort } from '../../../mps-runtime/src/kernel/ExecutionKernel';
+import type { ExecutionIdentitySubjectV3 } from '../../../mps-runtime/src/execution/ExecutionIdentityScopeV2';
 import {
   createLuExecutionAuthorityIssuerArtifact,
   createLuExecutionAuthorityRootArtifact,
   LU_EXECUTION_AUTHORITY_ISSUER_TYPE,
-} from "../../src/artifacts/LuExecutionAuthorityArtifact";
+} from '../../src/artifacts/LuExecutionAuthorityArtifact';
 import {
   attestLuExecutionAuthorityIssuer,
   attestLuExecutionAuthorityRoot,
-} from "../../src/execution/LuExecutionAuthorityChain";
-import { issueExecutionIdentityV3 } from "../../src/execution/LuExecutionIdentityIssuer";
-import {
-  __resetLuExecutionAuthorityVerifierForTests,
-} from "../../src/execution/LuExecutionAuthorityVerifier";
-import { LU_EXECUTION_PRINCIPAL_ID } from "../../src/execution/LuExecutionPrincipal";
+} from '../../src/execution/LuExecutionAuthorityChain';
+import { issueExecutionIdentityV3 } from '../../src/execution/LuExecutionIdentityIssuer';
+import { __resetLuExecutionAuthorityVerifierForTests } from '../../src/execution/LuExecutionAuthorityVerifier';
+import { LU_EXECUTION_PRINCIPAL_ID } from '../../src/execution/LuExecutionPrincipal';
 import {
   attestLuExecutionAuthorityLifecycle,
   createLuExecutionAuthorityLifecycleArtifact,
-} from "../../src/governance/LuExecutionAuthorityLifecycle";
+} from '../../src/governance/LuExecutionAuthorityLifecycle';
 import {
   attestLuSourceAuthorityTemporalStatus,
   createLuSourceAuthorityTemporalStatusArtifact,
-} from "../../src/governance/LuSourceAuthorityTemporalStatus";
-import { deriveLuCanonicalAssessmentAttemptRef } from "../../src/governance/LuSourceAuthorityWiring";
-import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../../server/security/luExecutionAuthoritySigningKey";
+} from '../../src/governance/LuSourceAuthorityTemporalStatus';
+import { deriveLuCanonicalAssessmentAttemptRef } from '../../src/governance/LuSourceAuthorityWiring';
+import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../../../server/security/luExecutionAuthoritySigningKey';
 
 const ENV_NAMES = [
-  "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
-  "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
-  "LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID",
-  "LU_EXECUTION_AUTHORITY_ROOT_KEY_ID",
-  "LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM",
-  "LU_EXECUTION_AUTHORITY_LIFECYCLE_ID",
+  'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM',
+  'LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM',
+  'LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID',
+  'LU_EXECUTION_AUTHORITY_ROOT_KEY_ID',
+  'LU_EXECUTION_AUTHORITY_ROOT_PUBLIC_KEY_PEM',
+  'LU_EXECUTION_AUTHORITY_LIFECYCLE_ID',
 ] as const;
 
 function ref(artifact: { readonly artifact_id: string; readonly artifact_type: string }): ArtifactReference {
@@ -51,9 +47,7 @@ export async function provisionLuSourceAuthorityFixture(input: {
   readonly governed_references: readonly ArtifactReference[];
   readonly label: string;
 }) {
-  const previous = new Map<string, string | undefined>(
-    ENV_NAMES.map((name) => [name, process.env[name]]),
-  );
+  const previous = new Map<string, string | undefined>(ENV_NAMES.map((name) => [name, process.env[name]]));
   const rootKey = LocalPemSigningKeyProvider.generate(`ed25519:lu-root-${input.label}`);
   const issuerKey = LocalPemSigningKeyProvider.generate(`ed25519:lu-issuer-${input.label}`);
 
@@ -92,8 +86,8 @@ export async function provisionLuSourceAuthorityFixture(input: {
   const bareLifecycle = createLuExecutionAuthorityLifecycleArtifact({
     root,
     issuer,
-    valid_from: "2020-01-01T00:00:00.000Z",
-    valid_until: "2035-01-01T00:00:00.000Z",
+    valid_from: '2020-01-01T00:00:00.000Z',
+    valid_until: '2035-01-01T00:00:00.000Z',
   });
   const lifecycle = {
     ...bareLifecycle,
@@ -118,7 +112,7 @@ export async function provisionLuSourceAuthorityFixture(input: {
     deterministic_seed: input.deterministic_seed,
     actor_ref: {
       artifact_id: LU_EXECUTION_PRINCIPAL_ID,
-      artifact_type: "execution_identity",
+      artifact_type: 'execution_identity',
     },
     capability_ref: input.capability_ref,
     release_snapshot_id: input.release_snapshot_id,
@@ -136,8 +130,8 @@ export async function provisionLuSourceAuthorityFixture(input: {
     subject: identity,
     attempt_ref: attemptRef,
     lifecycle,
-    action: "lu.localization_assessment.persist",
-    decision_time: "2026-10-07T08:00:00.000Z",
+    action: 'lu.localization_assessment.persist',
+    decision_time: '2026-10-07T08:00:00.000Z',
   });
   const status = {
     ...bareStatus,
@@ -166,6 +160,6 @@ export async function provisionLuSourceAuthorityFixture(input: {
       }
       __resetLuExecutionAuthoritySigningProviderForTests(null);
       __resetLuExecutionAuthorityVerifierForTests(null);
-        },
+    },
   };
 }

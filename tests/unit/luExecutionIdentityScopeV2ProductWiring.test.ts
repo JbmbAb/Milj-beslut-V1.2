@@ -19,12 +19,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * Postgres-backed index behaves regardless of how many instances exist.
  */
 vi.mock('../../server/repositories/projectContextBindingRepository', () => {
-  type BindingRow = { binding_artifact_id: string; project_context_artifact_id: string; project_context_artifact_type: string };
+  type BindingRow = {
+    binding_artifact_id: string;
+    project_context_artifact_id: string;
+    project_context_artifact_type: string;
+  };
   const bindingsByProject = new Map<string, BindingRow[]>();
   const supersessionsByProject = new Map<string, string[]>();
 
   class FakeProjectContextBindingIndex {
-    async register(binding: { artifact_id: string; payload: { project_id: string; project_context_ref: { artifact_id: string; artifact_type: string } } }) {
+    async register(binding: {
+      artifact_id: string;
+      payload: { project_id: string; project_context_ref: { artifact_id: string; artifact_type: string } };
+    }) {
       const rows = bindingsByProject.get(binding.payload.project_id) ?? [];
       if (!rows.some((r) => r.binding_artifact_id === binding.artifact_id)) {
         rows.push({
@@ -48,42 +55,92 @@ vi.mock('../../server/repositories/projectContextBindingRepository', () => {
 
     async resolve(projectId: string, projectContextRef: { artifact_id: string; artifact_type: string }) {
       const rows = (bindingsByProject.get(projectId) ?? []).filter(
-        (r) => r.project_context_artifact_id === projectContextRef.artifact_id && r.project_context_artifact_type === projectContextRef.artifact_type,
+        (r) =>
+          r.project_context_artifact_id === projectContextRef.artifact_id &&
+          r.project_context_artifact_type === projectContextRef.artifact_type,
       );
       if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
       return rows[0]!.binding_artifact_id;
     }
 
     async listBindingRefs(projectId: string) {
-      return (bindingsByProject.get(projectId) ?? []).map((r) => ({ artifact_id: r.binding_artifact_id, artifact_type: 'project_context_binding' }));
+      return (bindingsByProject.get(projectId) ?? []).map((r) => ({
+        artifact_id: r.binding_artifact_id,
+        artifact_type: 'project_context_binding',
+      }));
     }
 
     async listSupersessionRefs(projectId: string) {
-      return (supersessionsByProject.get(projectId) ?? []).map((id) => ({ artifact_id: id, artifact_type: 'project_context_binding_supersession' }));
+      return (supersessionsByProject.get(projectId) ?? []).map((id) => ({
+        artifact_id: id,
+        artifact_type: 'project_context_binding_supersession',
+      }));
     }
 
     async findProjectContextRef(projectId: string) {
       const rows = bindingsByProject.get(projectId) ?? [];
       if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
-      return { artifact_id: rows[0]!.project_context_artifact_id, artifact_type: rows[0]!.project_context_artifact_type };
+      return {
+        artifact_id: rows[0]!.project_context_artifact_id,
+        artifact_type: rows[0]!.project_context_artifact_type,
+      };
     }
   }
 
   return { PrismaProjectContextBindingIndex: FakeProjectContextBindingIndex };
 });
 
-vi.mock('../../server/services/spatialAuditService', () => ({ runSpatialAudit: vi.fn().mockResolvedValue({ protectedAreaHits: [], protectedAreaAvailable: true, isProtected: false, sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' }, insar: { riskLevel: 'LOW' }, distanceToWaterMeters: 50, distanceToWaterAvailable: true, text: 'OK', sources: [] }) }));
-vi.mock('../../server/services/complianceRuleEngine', () => ({ evaluateComplianceRules: vi.fn().mockReturnValue({ overallRisk: 'LOW', permitProbability: 0.8, restrictions: [], rules: [], summary: 'OK', violations: [], warnings: [], feasibilityScore: 80, recommendations: [], requiredActions: [], notes: [] }) }));
+vi.mock('../../server/services/spatialAuditService', () => ({
+  runSpatialAudit: vi.fn().mockResolvedValue({
+    protectedAreaHits: [],
+    protectedAreaAvailable: true,
+    isProtected: false,
+    sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' },
+    insar: { riskLevel: 'LOW' },
+    distanceToWaterMeters: 50,
+    distanceToWaterAvailable: true,
+    text: 'OK',
+    sources: [],
+  }),
+}));
+vi.mock('../../server/services/complianceRuleEngine', () => ({
+  evaluateComplianceRules: vi.fn().mockReturnValue({
+    overallRisk: 'LOW',
+    permitProbability: 0.8,
+    restrictions: [],
+    rules: [],
+    summary: 'OK',
+    violations: [],
+    warnings: [],
+    feasibilityScore: 80,
+    recommendations: [],
+    requiredActions: [],
+    notes: [],
+  }),
+}));
 vi.mock('../../server/services/nvrService', () => ({ fetchProtectedAreas: vi.fn().mockResolvedValue([]) }));
 vi.mock('../../server/services/raaService', () => ({ fetchAncientMonuments: vi.fn().mockResolvedValue([]) }));
-vi.mock('../../server/services/vissService', () => ({ queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }) }));
+vi.mock('../../server/services/vissService', () => ({
+  queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }),
+}));
 vi.mock('../../server/services/sguRiskService', () => ({ toGeologicalData: vi.fn().mockReturnValue({}) }));
-vi.mock('../../server/services/sluService', () => ({ searchSluByCoordinates: vi.fn().mockResolvedValue([]), getSpeciesInformation: vi.fn().mockResolvedValue([]) }));
-vi.mock('../../server/services/auditTrailService', () => ({ auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock('../../server/services/sluService', () => ({
+  searchSluByCoordinates: vi.fn().mockResolvedValue([]),
+  getSpeciesInformation: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../../server/services/auditTrailService', () => ({
+  auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) },
+}));
 vi.mock('../../server/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({ enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null) }));
+vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({
+  enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null),
+}));
 
-import { LocalPemSigningKeyProvider, type SigningKeyProvider, type VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import {
+  LocalPemSigningKeyProvider,
+  type SigningKeyProvider,
+  type VerificationKeyProvider,
+} from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import {
   orchestrator,
@@ -121,19 +178,31 @@ import {
 } from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
 import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import { installOwnerIssuedProjectContextBindingSupersession } from '../../server/modules/localization/installProjectContextBinding';
-import { issueExecutionIdentity, issueExecutionIdentityV2 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
+import {
+  issueExecutionIdentity,
+  issueExecutionIdentityV2,
+} from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { __resetLuExecutionAuthorityVerifierForTests } from '../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
 import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../server/security/luExecutionAuthoritySigningKey';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
-import type { ExecutionIdentitySubjectV2, ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
-import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact, type ProductReleaseManifestArtifact } from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
+import type {
+  ExecutionIdentitySubjectV2,
+  ExecutionIdentitySubjectV3,
+} from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
+import {
+  createProductReleaseIssuerArtifact,
+  createProductReleaseManifestArtifact,
+  type ProductReleaseManifestArtifact,
+} from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
 import { attestProductRelease } from '../../server/modules/release/productReleaseAuthority';
 import { provisionLuSourceAuthorityFixture } from '../../packages/mps-lu/tests/fixtures/provisionLuSourceAuthority';
 import { ensureLocalizationProjectionProject } from '../../packages/mps-lu/tests/fixtures/ensureLocalizationProjectionProject';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-v2-wiring-test';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
-const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:pcb-supersession-issuer-v2-wiring-test');
+const pcbSupersessionIssuerKey = LocalPemSigningKeyProvider.generate(
+  'ed25519:pcb-supersession-issuer-v2-wiring-test',
+);
 // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): two real, distinctly-content-addressed signed
 // releases, not bare id/hash literals -- the canonical resolver now requires trusted-issuer
 // verification, so "release A" and "release B" must each be a real signed artifact.
@@ -157,7 +226,14 @@ async function buildSignedRelease(label: 'A' | 'B'): Promise<ProductReleaseManif
     issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
     issued_at: '2026-08-21T00:00:00.000Z',
   });
-  return { ...unsigned, attestation: await attestProductRelease({ release: unsigned, issuer: releaseIssuer, signing: releaseIssuerKey.provider }) };
+  return {
+    ...unsigned,
+    attestation: await attestProductRelease({
+      release: unsigned,
+      issuer: releaseIssuer,
+      signing: releaseIssuerKey.provider,
+    }),
+  };
 }
 
 // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: the inverse of the property's own SWEREF coordinates
@@ -170,7 +246,9 @@ const DERIVED_WGS84_LAT_LNG: readonly [number, number] = [59.33, 18.07];
 
 function runtime(repository: InMemoryArtifactRepository): LocalizationSpatialRuntime {
   // SEM-1/OD-03 (W2): query() now returns SpatialQueryOutcomeV2, not a bare evidence array.
-  const provider: ISpatialProvider = { query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }) };
+  const provider: ISpatialProvider = {
+    query: vi.fn().mockResolvedValue({ evidence: [], unavailable_layers: [] }),
+  };
   return {
     artifactRepository: repository,
     resolveSpatialProvider: () => provider,
@@ -222,7 +300,17 @@ async function provisionRealProject(args: {
     propertyDesignation: args.propertyDesignation,
   });
   const geometry = createCanonicalPropertyGeometryArtifact({
-    geometry: { type: 'Polygon', coordinates: [[[14, 61], [14.1, 61], [14, 61.1], [14, 61]]] },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [14, 61],
+          [14.1, 61],
+          [14, 61.1],
+          [14, 61],
+        ],
+      ],
+    },
   });
   const observation = createPropertyLookupObservationArtifact({
     property_identity: `property:test:${args.projectId}`,
@@ -245,9 +333,16 @@ async function provisionRealProject(args: {
   });
   const propertyBinding = {
     ...propertyBindingUnsigned,
-    attestation: await attestProjectContextBindingArtifact({ artifact: propertyBindingUnsigned, issuer: args.issuer, signing: args.signing }),
+    attestation: await attestProjectContextBindingArtifact({
+      artifact: propertyBindingUnsigned,
+      issuer: args.issuer,
+      signing: args.signing,
+    }),
   };
-  const propertyBindingRef = { artifact_id: propertyBinding.artifact_id, artifact_type: propertyBinding.artifact_type };
+  const propertyBindingRef = {
+    artifact_id: propertyBinding.artifact_id,
+    artifact_type: propertyBinding.artifact_type,
+  };
   const propertyContext = createProductLuPropertyContextArtifact({
     property_identity: observation.payload.property_identity,
     property_ref: args.propertyDesignation,
@@ -262,12 +357,18 @@ async function provisionRealProject(args: {
     project_name: args.propertyDesignation,
     description: 'PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 real runtime proof',
     created_by: 'test-owner',
-    property_context_ref: { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type },
+    property_context_ref: {
+      artifact_id: propertyContext.artifact_id,
+      artifact_type: propertyContext.artifact_type,
+    },
     project_property_binding_ref: propertyBindingRef,
   });
   const contextBindingUnsigned = createProjectContextBindingArtifact({
     project_id: args.projectId,
-    project_context_ref: { artifact_id: projectContext.artifact_id, artifact_type: projectContext.artifact_type },
+    project_context_ref: {
+      artifact_id: projectContext.artifact_id,
+      artifact_type: projectContext.artifact_type,
+    },
     project_property_binding_ref: propertyBindingRef,
     binding_version: 'project-context-binding-v2',
     authority_ref: { artifact_id: args.issuer.artifact_id, artifact_type: args.issuer.artifact_type },
@@ -275,7 +376,11 @@ async function provisionRealProject(args: {
   });
   const contextBinding = {
     ...contextBindingUnsigned,
-    attestation: await attestProjectContextBindingArtifact({ artifact: contextBindingUnsigned, issuer: args.issuer, signing: args.signing }),
+    attestation: await attestProjectContextBindingArtifact({
+      artifact: contextBindingUnsigned,
+      issuer: args.issuer,
+      signing: args.signing,
+    }),
   };
 
   const verification = new (await import('@miljobeslut/mimers-brunn-core')).LocalPemVerificationKeyProvider(
@@ -296,9 +401,18 @@ async function provisionRealProject(args: {
   });
 
   return {
-    contextBindingRef: { artifact_id: contextBinding.artifact_id, artifact_type: contextBinding.artifact_type },
-    projectContextRef: { artifact_id: projectContext.artifact_id, artifact_type: projectContext.artifact_type },
-    propertyContextRef: { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type },
+    contextBindingRef: {
+      artifact_id: contextBinding.artifact_id,
+      artifact_type: contextBinding.artifact_type,
+    },
+    projectContextRef: {
+      artifact_id: projectContext.artifact_id,
+      artifact_type: projectContext.artifact_type,
+    },
+    propertyContextRef: {
+      artifact_id: propertyContext.artifact_id,
+      artifact_type: propertyContext.artifact_type,
+    },
     propertyIdentity: observation.payload.property_identity,
     verification,
   };
@@ -325,7 +439,11 @@ async function supersede(args: {
   });
   const supersession = {
     ...unsigned,
-    attestation: await attestProjectContextBindingSupersessionArtifact({ artifact: unsigned, issuer: args.issuer, signing: args.signing }),
+    attestation: await attestProjectContextBindingSupersessionArtifact({
+      artifact: unsigned,
+      issuer: args.issuer,
+      signing: args.signing,
+    }),
   };
   await installOwnerIssuedProjectContextBindingSupersession({
     artifactRepository: args.repo,
@@ -347,7 +465,10 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     vi.clearAllMocks();
     vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
-    issuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: issuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
+    issuer = createProjectContextBindingIssuerArtifact({
+      issuer_key_id: issuerKey.provider.keyId,
+      issuer_version: 'project-context-binding-issuer-v2',
+    });
     // Only the verifier (public key) is read via env by resolveCanonicalProjectContext /
     // installVerifiedProductLuContext -- signing here always uses issuerKey.provider directly.
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.provider.keyId;
@@ -355,7 +476,8 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     // PROJECT-CONTEXT-BINDING-SUPERSESSION-ISSUER-V1: a dedicated, differently-keyed issuer --
     // never the ordinary binding issuer above -- is the only one authorized to sign a supersession.
     process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID = pcbSupersessionIssuerKey.provider.keyId;
-    process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = pcbSupersessionIssuerKey.publicKey;
+    process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM =
+      pcbSupersessionIssuerKey.publicKey;
     __resetProjectContextBindingSupersessionVerifierForTests(null);
     const supersessionIssuerUnsigned = createProjectContextBindingSupersessionIssuerArtifact({
       issuer_key_id: pcbSupersessionIssuerKey.provider.keyId,
@@ -363,9 +485,16 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     });
     supersessionIssuer = {
       ...supersessionIssuerUnsigned,
-      attestation: await attestProjectContextBindingSupersessionIssuerArtifact({ issuer: supersessionIssuerUnsigned, signing: pcbSupersessionIssuerKey.provider }),
+      attestation: await attestProjectContextBindingSupersessionIssuerArtifact({
+        issuer: supersessionIssuerUnsigned,
+        signing: pcbSupersessionIssuerKey.provider,
+      }),
     };
-    await repo.put({ artifact_id: supersessionIssuer.artifact_id, content_hash: supersessionIssuer.content_hash, body: supersessionIssuer });
+    await repo.put({
+      artifact_id: supersessionIssuer.artifact_id,
+      content_hash: supersessionIssuer.content_hash,
+      body: supersessionIssuer,
+    });
     __resetLuExecutionAuthoritySigningProviderForTests(null);
     __resetLuExecutionAuthorityVerifierForTests(null);
     process.env.LU_EXECUTION_AUTHORITY_SIGNING_KEY_ID = luIssuerKey.provider.keyId;
@@ -399,7 +528,11 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       }),
     };
     await repo.put({ artifact_id: luRoot.artifact_id, content_hash: luRoot.content_hash, body: luRoot });
-    await repo.put({ artifact_id: luAuthorityIssuer.artifact_id, content_hash: luAuthorityIssuer.content_hash, body: luAuthorityIssuer });
+    await repo.put({
+      artifact_id: luAuthorityIssuer.artifact_id,
+      content_hash: luAuthorityIssuer.content_hash,
+      body: luAuthorityIssuer,
+    });
     luAuthorityIssuerRef = {
       artifact_id: luAuthorityIssuer.artifact_id,
       artifact_type: luAuthorityIssuer.artifact_type,
@@ -407,7 +540,11 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
 
     process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
     process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
-    await repo.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    await repo.put({
+      artifact_id: releaseIssuer.artifact_id,
+      content_hash: releaseIssuer.content_hash,
+      body: releaseIssuer,
+    });
     const releaseA = await buildSignedRelease('A');
     const releaseB = await buildSignedRelease('B');
     releaseArtifactsByLabel = { A: releaseA, B: releaseB };
@@ -445,7 +582,15 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     await repo.put({ artifact_id: release.artifact_id, content_hash: release.content_hash, body: release });
   }
 
-  function subjectFor(projectId: string, propertyIdentity: string, contextBindingRef: { artifact_id: string; artifact_type: string }, releaseRef: { artifact_id: string; artifact_type: string } = { artifact_id: RELEASE_A_ID, artifact_type: 'product_release_manifest' }): ExecutionIdentitySubjectV2 {
+  function subjectFor(
+    projectId: string,
+    propertyIdentity: string,
+    contextBindingRef: { artifact_id: string; artifact_type: string },
+    releaseRef: { artifact_id: string; artifact_type: string } = {
+      artifact_id: RELEASE_A_ID,
+      artifact_type: 'product_release_manifest',
+    },
+  ): ExecutionIdentitySubjectV2 {
     return {
       site_id: propertyIdentity,
       project_context_binding_ref: contextBindingRef,
@@ -486,7 +631,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   it('CURRENT HEAD + matching V2 identity -> ACCEPT', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-accept-${Date.now()}`;
-    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 ACCEPT 1:1' });
+    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } =
+      await provisionRealProject({
+        repo,
+        issuer,
+        signing: issuerKey.provider,
+        projectId,
+        propertyDesignation: 'V2 ACCEPT 1:1',
+      });
 
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
     // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: current product issuance is V3, scoped by the
@@ -535,7 +687,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   it('same exact product state replayed twice -> deterministic acceptance both times', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-replay-${Date.now()}`;
-    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 REPLAY' });
+    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } =
+      await provisionRealProject({
+        repo,
+        issuer,
+        signing: issuerKey.provider,
+        projectId,
+        propertyDesignation: 'V2 REPLAY',
+      });
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
     const geometryRef = deriveExpectedGeometryRef(projectId, propertyContextRef);
     const subjectV3: ExecutionIdentitySubjectV3 = { ...subject, localization_geometry_ref: geometryRef };
@@ -578,7 +737,13 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   it('superseded context binding: identity minted under the OLD head -> DENY on current execution', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-superseded-${Date.now()}`;
-    const first = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 SUPERSEDED (old head)' });
+    const first = await provisionRealProject({
+      repo,
+      issuer,
+      signing: issuerKey.provider,
+      projectId,
+      propertyDesignation: 'V2 SUPERSEDED (old head)',
+    });
 
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     // Identity minted against the binding that is about to be superseded.
@@ -607,7 +772,13 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     // Now provision a corrected chain for the SAME project (same shape as the real ORSA
     // correction: same project_id, a new context binding) and supersede the old one with it. No
     // new identity is minted for the corrected head.
-    const second = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 SUPERSEDED (new head)' });
+    const second = await provisionRealProject({
+      repo,
+      issuer,
+      signing: issuerKey.provider,
+      projectId,
+      propertyDesignation: 'V2 SUPERSEDED (new head)',
+    });
     await supersede({
       repo,
       issuer: supersessionIssuer,
@@ -631,8 +802,20 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectIdA = `project-v2-wrongproject-a-${Date.now()}`;
     const projectIdB = `project-v2-wrongproject-b-${Date.now()}`;
-    await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId: projectIdA, propertyDesignation: 'V2 WRONG PROJECT A' });
-    const provisionedB = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId: projectIdB, propertyDesignation: 'V2 WRONG PROJECT B' });
+    await provisionRealProject({
+      repo,
+      issuer,
+      signing: issuerKey.provider,
+      projectId: projectIdA,
+      propertyDesignation: 'V2 WRONG PROJECT A',
+    });
+    const provisionedB = await provisionRealProject({
+      repo,
+      issuer,
+      signing: issuerKey.provider,
+      projectId: projectIdB,
+      propertyDesignation: 'V2 WRONG PROJECT B',
+    });
 
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     // Mint an identity for project B's real context, then try to use it for project A's run.
@@ -671,12 +854,22 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     await putRelease(RELEASE_B_ID, RELEASE_B_HASH);
     const projectId = `project-v2-wrongrelease-${Date.now()}`;
-    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 WRONG RELEASE' });
+    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } =
+      await provisionRealProject({
+        repo,
+        issuer,
+        signing: issuerKey.provider,
+        projectId,
+        propertyDesignation: 'V2 WRONG RELEASE',
+      });
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
 
     // Identity minted against release B, while the environment's current release (per
     // PRODUCT_RELEASE_ARTIFACT_ID/HASH, set in beforeEach) is release A.
-    const subjectWrongRelease = subjectFor(projectId, propertyIdentity, contextBindingRef, { artifact_id: RELEASE_B_ID, artifact_type: 'product_release_manifest' });
+    const subjectWrongRelease = subjectFor(projectId, propertyIdentity, contextBindingRef, {
+      artifact_id: RELEASE_B_ID,
+      artifact_type: 'product_release_manifest',
+    });
     const seedWrongRelease = deriveLuExecutionSeed({
       site_id: propertyIdentity,
       project_id: projectId,
@@ -708,7 +901,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   it('V1 identity on a V2-required product path -> DENY', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-legacy-${Date.now()}`;
-    const { propertyIdentity, projectContextRef, propertyContextRef, contextBindingRef } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 LEGACY V1 IDENTITY' });
+    const { propertyIdentity, projectContextRef, propertyContextRef, contextBindingRef } =
+      await provisionRealProject({
+        repo,
+        issuer,
+        signing: issuerKey.provider,
+        projectId,
+        propertyDesignation: 'V2 LEGACY V1 IDENTITY',
+      });
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     // A legacy V1 identity minted for the exact same site_id, with a seed that even matches the
     // real canonical tuple -- still must not satisfy a V2-required current execution.
@@ -743,7 +943,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   it('tampered subject_v2: identity content altered after signing -> DENY', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-tampered-${Date.now()}`;
-    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 TAMPERED' });
+    const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } =
+      await provisionRealProject({
+        repo,
+        issuer,
+        signing: issuerKey.provider,
+        projectId,
+        propertyDesignation: 'V2 TAMPERED',
+      });
     const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
     const seed = deriveLuExecutionSeed({
@@ -773,7 +980,16 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     await repo.put({
       artifact_id: issued.artifact_id,
       content_hash: issued.content_hash,
-      body: { ...issued, subject_v2: { ...subject, project_context_binding_ref: { artifact_id: 'project-context-binding-attacker-chosen', artifact_type: 'project_context_binding' } } },
+      body: {
+        ...issued,
+        subject_v2: {
+          ...subject,
+          project_context_binding_ref: {
+            artifact_id: 'project-context-binding-attacker-chosen',
+            artifact_type: 'project_context_binding',
+          },
+        },
+      },
     });
 
     const report = await new GenerateLocalizationReportUseCase(async () => runtime(repo)).execute({

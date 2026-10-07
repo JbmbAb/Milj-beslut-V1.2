@@ -1,33 +1,30 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  LocalPemSigningKeyProvider,
-  LocalPemVerificationKeyProvider,
-} from "@miljobeslut/mimers-brunn-core";
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LocalPemSigningKeyProvider, LocalPemVerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
 
-vi.mock("../../../server/services/spatialAuditService", () => ({
+vi.mock('../../../server/services/spatialAuditService', () => ({
   runSpatialAudit: vi.fn().mockResolvedValue({
     protectedAreaHits: [],
     protectedAreaAvailable: true,
     isProtected: false,
-    sgu: { riskLevel: "LOW", manualReviewRequired: false, summary: "OK" },
-    insar: { riskLevel: "LOW" },
+    sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' },
+    insar: { riskLevel: 'LOW' },
     distanceToWaterMeters: 50,
     distanceToWaterAvailable: true,
-    text: "OK",
+    text: 'OK',
     sources: [],
   }),
 }));
 
-vi.mock("../../../server/services/complianceRuleEngine", () => ({
+vi.mock('../../../server/services/complianceRuleEngine', () => ({
   evaluateComplianceRules: vi.fn().mockReturnValue({
-    overallRisk: "LOW",
+    overallRisk: 'LOW',
     permitProbability: 0.8,
     restrictions: [],
     rules: [],
-    summary: "OK",
+    summary: 'OK',
     violations: [],
     warnings: [],
     feasibilityScore: 80,
@@ -37,33 +34,33 @@ vi.mock("../../../server/services/complianceRuleEngine", () => ({
   }),
 }));
 
-vi.mock("../../../server/services/nvrService", () => ({
+vi.mock('../../../server/services/nvrService', () => ({
   fetchProtectedAreas: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("../../../server/services/raaService", () => ({
+vi.mock('../../../server/services/raaService', () => ({
   fetchAncientMonuments: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("../../../server/services/vissService", () => ({
+vi.mock('../../../server/services/vissService', () => ({
   queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }),
 }));
-vi.mock("../../../server/services/sguRiskService", () => ({
+vi.mock('../../../server/services/sguRiskService', () => ({
   toGeologicalData: vi.fn().mockReturnValue({}),
 }));
-vi.mock("../../../server/services/sluService", () => ({
+vi.mock('../../../server/services/sluService', () => ({
   searchSluByCoordinates: vi.fn().mockResolvedValue([]),
   getSpeciesInformation: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("../../../server/services/auditTrailService", () => ({
+vi.mock('../../../server/services/auditTrailService', () => ({
   auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) },
 }));
-vi.mock("../../../server/logger", () => ({
+vi.mock('../../../server/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("../../../src/application/enqueue-lu-execution-ticket", () => ({
+vi.mock('../../../src/application/enqueue-lu-execution-ticket', () => ({
   enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("../../../server/repositories/projectContextBindingRepository", () => {
+vi.mock('../../../server/repositories/projectContextBindingRepository', () => {
   type BindingRow = {
     binding_artifact_id: string;
     project_context_artifact_id: string;
@@ -89,22 +86,23 @@ vi.mock("../../../server/repositories/projectContextBindingRepository", () => {
         bindingsByProject.set(binding.payload.project_id, rows);
       }
       const resolved = await this.resolve(binding.payload.project_id, binding.payload.project_context_ref);
-      if (resolved !== binding.artifact_id) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CONFLICT");
+      if (resolved !== binding.artifact_id) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_CONFLICT');
     }
 
     async resolve(projectId: string, projectContextRef: { artifact_id: string; artifact_type: string }) {
       const rows = (bindingsByProject.get(projectId) ?? []).filter(
-        (row) => row.project_context_artifact_id === projectContextRef.artifact_id
-          && row.project_context_artifact_type === projectContextRef.artifact_type,
+        (row) =>
+          row.project_context_artifact_id === projectContextRef.artifact_id &&
+          row.project_context_artifact_type === projectContextRef.artifact_type,
       );
-      if (rows.length !== 1) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+      if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
       return rows[0]!.binding_artifact_id;
     }
 
     async listBindingRefs(projectId: string) {
       return (bindingsByProject.get(projectId) ?? []).map((row) => ({
         artifact_id: row.binding_artifact_id,
-        artifact_type: "project_context_binding",
+        artifact_type: 'project_context_binding',
       }));
     }
 
@@ -114,7 +112,7 @@ vi.mock("../../../server/repositories/projectContextBindingRepository", () => {
 
     async findProjectContextRef(projectId: string) {
       const rows = bindingsByProject.get(projectId) ?? [];
-      if (rows.length !== 1) throw new Error("REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE");
+      if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
       return {
         artifact_id: rows[0]!.project_context_artifact_id,
         artifact_type: rows[0]!.project_context_artifact_type,
@@ -136,49 +134,48 @@ import {
   createLuRegistryRuntime,
   orchestrator,
   type SpatialEvidenceArtifact,
-} from "../src/index";
-import { SpatialProviderPostGIS } from "../../spatial-provider-postgis/src/SpatialProviderPostGIS";
-import { SPATIAL_LAYER_REGISTRY } from "../../spatial-provider-postgis/src/SpatialLayerRegistry";
+} from '../src/index';
+import { SpatialProviderPostGIS } from '../../spatial-provider-postgis/src/SpatialProviderPostGIS';
+import { SPATIAL_LAYER_REGISTRY } from '../../spatial-provider-postgis/src/SpatialLayerRegistry';
+import { InMemoryArtifactRepository } from '../../mps-runtime/src/index';
+import { GenerateLocalizationReportUseCase } from '../../../src/application/generate-localization-report.usecase';
+import type { LocalizationSpatialRuntime } from '../../../server/modules/localization/createLocalizationSpatialRuntime';
+import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from '../src/registry/LuSiteAssessmentRegistry';
+import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../../server/security/luExecutionAuthoritySigningKey';
+import { __resetLuExecutionAuthorityVerifierForTests } from '../src/execution/LuExecutionAuthorityVerifier';
+import { provisionCanonicalLuContext } from './fixtures/provisionCanonicalLuContext';
+import { ensureLocalizationProjectionProject } from './fixtures/ensureLocalizationProjectionProject';
+import { provisionLuSourceAuthorityFixture } from './fixtures/provisionLuSourceAuthority';
 import {
-  InMemoryArtifactRepository,
-} from "../../mps-runtime/src/index";
-import {
-  GenerateLocalizationReportUseCase,
-} from "../../../src/application/generate-localization-report.usecase";
-import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
-import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
-import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
-import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
-import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
-import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
-import { provisionLuSourceAuthorityFixture } from "./fixtures/provisionLuSourceAuthority";
-import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from "../../mps-governance/src/release/ProductReleaseAuthority";
-import { attestProductRelease } from "../../../server/modules/release/productReleaseAuthority";
+  createProductReleaseIssuerArtifact,
+  createProductReleaseManifestArtifact,
+} from '../../mps-governance/src/release/ProductReleaseAuthority';
+import { attestProductRelease } from '../../../server/modules/release/productReleaseAuthority';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "../../..");
+const repoRoot = path.resolve(__dirname, '../../..');
 
-describe("P4A-LU-05 — real runtime entrypoint", () => {
+describe('P4A-LU-05 — real runtime entrypoint', () => {
   const originalEnv: Record<string, string | undefined> = {};
   let sourceAuthorityFixture: { restore(): void } | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(orchestrator, "generateDocumentEvidence").mockResolvedValue([]);
+    vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
   });
 
   afterEach(() => {
     sourceAuthorityFixture?.restore();
     sourceAuthorityFixture = null;
     for (const name of [
-      "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
-      "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
-      "PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID",
-      "PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM",
-      "PRODUCT_RELEASE_ARTIFACT_ID",
-      "PRODUCT_RELEASE_HASH",
-      "PRODUCT_RELEASE_ISSUER_KEY_ID",
-      "PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM",
+      'LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM',
+      'LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM',
+      'PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID',
+      'PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM',
+      'PRODUCT_RELEASE_ARTIFACT_ID',
+      'PRODUCT_RELEASE_HASH',
+      'PRODUCT_RELEASE_ISSUER_KEY_ID',
+      'PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM',
     ] as const) {
       if (originalEnv[name] === undefined) delete process.env[name];
       else process.env[name] = originalEnv[name];
@@ -187,28 +184,32 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     __resetLuExecutionAuthorityVerifierForTests(null);
   });
 
-  it("runs GenerateLocalizationReportUseCase through registry resolution, production provider, evidence, findings and assessment", async () => {
+  it('runs GenerateLocalizationReportUseCase through registry resolution, production provider, evidence, findings and assessment', async () => {
     // The real entrypoint now derives its execution subject from a verified current binding;
     // the fixture provisions that full canonical chain before issuing the matching V3 identity.
 
-    const contextIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:p4a-context-issuer");
+    const contextIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:p4a-context-issuer');
     const contextIssuer = createProjectContextBindingIssuerArtifact({
       issuer_key_id: contextIssuerKey.provider.keyId,
-      issuer_version: "project-context-binding-issuer-v2",
+      issuer_version: 'project-context-binding-issuer-v2',
     });
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = contextIssuerKey.provider.keyId;
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM = contextIssuerKey.publicKey;
     const artifactRepository = new InMemoryArtifactRepository();
-    const releaseIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:product-release-issuer-p4a");
+    const releaseIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:product-release-issuer-p4a');
     const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
-    await artifactRepository.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    await artifactRepository.put({
+      artifact_id: releaseIssuer.artifact_id,
+      content_hash: releaseIssuer.content_hash,
+      body: releaseIssuer,
+    });
     const unsignedRelease = createProductReleaseManifestArtifact({
-      product_name: "Miljobeslut-p4a-lu-05",
-      package_lock_sha256: "a".repeat(64),
-      package_manifest_sha256: "b".repeat(64),
-      runtime_entrypoint_sha256: "c".repeat(64),
+      product_name: 'Miljobeslut-p4a-lu-05',
+      package_lock_sha256: 'a'.repeat(64),
+      package_manifest_sha256: 'b'.repeat(64),
+      runtime_entrypoint_sha256: 'c'.repeat(64),
       issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
-      issued_at: "2026-08-24T00:00:00.000Z",
+      issued_at: '2026-08-24T00:00:00.000Z',
     });
     const signedRelease = {
       ...unsignedRelease,
@@ -222,36 +223,37 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     process.env.PRODUCT_RELEASE_ARTIFACT_ID = releaseId;
     process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
     process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
-    await artifactRepository.put({ artifact_id: signedRelease.artifact_id, content_hash: signedRelease.content_hash, body: signedRelease });
-    const provider = new SpatialProviderPostGIS(
-      "postgresql://unused-by-proof",
-      artifactRepository,
-    );
+    await artifactRepository.put({
+      artifact_id: signedRelease.artifact_id,
+      content_hash: signedRelease.content_hash,
+      body: signedRelease,
+    });
+    const provider = new SpatialProviderPostGIS('postgresql://unused-by-proof', artifactRepository);
     const poolQuery = vi.fn(async (sql: string, values?: readonly unknown[]) => {
       if (sql.includes('FROM "PostgisImportBatch"')) {
         const [schema, table] = values ?? [];
         const binding = Object.values(SPATIAL_LAYER_REGISTRY).find((candidate) => {
-          const [candidateSchema, candidateTable] = candidate.table.split(".");
+          const [candidateSchema, candidateTable] = candidate.table.split('.');
           return candidateSchema === schema && candidateTable === table;
         });
         if (!binding) {
           throw new Error(`Unexpected H8 runtime-binding lookup in P4A-LU-05: ${schema}.${table}`);
         }
         return {
-          rows: [{ content_bundle_sha256: binding.version_hash, dataset_version: "fixture" }],
+          rows: [{ content_bundle_sha256: binding.version_hash, dataset_version: 'fixture' }],
           rowCount: 1,
         };
       }
-      if (sql.includes("ST_Transform")) {
+      if (sql.includes('ST_Transform')) {
         // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: sweref99ToWgs84 (the derived-geometry path) issues
         // the inverse transform, selecting AS lat/AS lng instead of AS n/AS e -- distinguish by
         // that column alias so both directions get a shape their caller can actually read.
-        if (sql.includes("AS lat")) {
+        if (sql.includes('AS lat')) {
           return { rows: [{ lat: 59.33, lng: 18.07 }], rowCount: 1 };
         }
         return { rows: [{ n: 6580000, e: 674000 }], rowCount: 1 };
       }
-      if (sql.includes("ST_DWithin")) {
+      if (sql.includes('ST_DWithin')) {
         return { rows: [{ hit: 1 }], rowCount: 1 };
       }
       throw new Error(`Unexpected SQL in P4A-LU-05 proof: ${sql}`);
@@ -263,13 +265,13 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     };
 
     const registry = createLuRegistryRuntime();
-    const registryResolve = vi.spyOn(registry, "resolveProviderByKey");
+    const registryResolve = vi.spyOn(registry, 'resolveProviderByKey');
     const resolver = new SpatialProviderResolver({
       registry,
       providers: { [LU_SPATIAL_PROVIDER_IMPLEMENTATION_ID]: provider },
     });
-    const resolveSpatialProvider = vi.spyOn(resolver, "resolve");
-    const providerQuery = vi.spyOn(provider, "query");
+    const resolveSpatialProvider = vi.spyOn(resolver, 'resolve');
+    const providerQuery = vi.spyOn(provider, 'query');
 
     const runtime: LocalizationSpatialRuntime = {
       artifactRepository,
@@ -280,10 +282,10 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     };
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);
 
-    const projectId = "project-p4a-lu-05";
+    const projectId = 'project-p4a-lu-05';
     await ensureLocalizationProjectionProject({
       projectId,
-      propertyDesignation: "P4A LU 05 1:1",
+      propertyDesignation: 'P4A LU 05 1:1',
     });
     const context = await provisionCanonicalLuContext({
       repository: artifactRepository,
@@ -294,7 +296,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         contextIssuerKey.publicKey,
       ),
       projectId,
-      propertyDesignation: "P4A LU 05 1:1",
+      propertyDesignation: 'P4A LU 05 1:1',
     });
     const luCapability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     const geometry = createLocalizationGeometryArtifactV2({
@@ -302,16 +304,16 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       property_context_ref: context.propertyContextRef,
       wgs84LngLat: [18.07, 59.33],
       sweref99NorthingEasting: [6580000, 674000],
-      provenance: "derived_from_property_boundary",
-      label: "Fastighetens centrumpunkt (automatiskt härledd)",
-      created_by: "system",
+      provenance: 'derived_from_property_boundary',
+      label: 'Fastighetens centrumpunkt (automatiskt härledd)',
+      created_by: 'system',
     });
     const geometryRef = { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
     const executionSubject = {
       site_id: context.propertyIdentity,
       project_context_binding_ref: context.contextBindingRef,
-      product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
-      execution_contract_version: "lu-execution-identity-v1",
+      product_release_ref: { artifact_id: releaseId, artifact_type: 'product_release_manifest' },
+      execution_contract_version: 'lu-execution-identity-v1',
       localization_geometry_ref: geometryRef,
     } as const;
     const executionSeed = deriveLuExecutionSeed({
@@ -320,9 +322,9 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       project_context_ref: context.projectContextRef,
       property_context_ref: context.propertyContextRef,
       project_context_binding_ref: context.contextBindingRef,
-      product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+      product_release_ref: { artifact_id: releaseId, artifact_type: 'product_release_manifest' },
       product_release_hash: signedRelease.release_hash.value,
-      execution_contract_version: "lu-execution-identity-v1",
+      execution_contract_version: 'lu-execution-identity-v1',
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       localization_geometry_ref: geometryRef,
     });
@@ -336,20 +338,20 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         context.contextBindingRef,
         context.projectContextRef,
         context.propertyContextRef,
-        { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+        { artifact_id: releaseId, artifact_type: 'product_release_manifest' },
         geometryRef,
       ],
-      label: "p4a-lu-05",
+      label: 'p4a-lu-05',
     });
 
     const report = await useCase.execute({
       projectId,
-      siteAlternatives: [{ id: "site-p4a-lu-05", lat: 59.33, lng: 18.07 }],
+      siteAlternatives: [{ id: 'site-p4a-lu-05', lat: 59.33, lng: 18.07 }],
     });
 
     expect(resolveSpatialProvider).toHaveBeenCalledOnce();
     expect(resolveSpatialProvider).toHaveBeenCalledWith(LU_SPATIAL_CAPABILITY_KEY);
-    expect(registryResolve).toHaveBeenCalledWith("lu.spatial.postgis");
+    expect(registryResolve).toHaveBeenCalledWith('lu.spatial.postgis');
     expect(provider).toBeInstanceOf(SpatialProviderPostGIS);
     expect(providerQuery).toHaveBeenCalledOnce();
 
@@ -369,67 +371,63 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       };
     }>({
       artifact_id: analysis.executionMotor!.assessment_artifact_id!,
-      artifact_type: "LOCALIZATION_ASSESSMENT",
+      artifact_type: 'LOCALIZATION_ASSESSMENT',
     });
-    expect(assessment.artifact_type).toBe("LOCALIZATION_ASSESSMENT");
+    expect(assessment.artifact_type).toBe('LOCALIZATION_ASSESSMENT');
     expect(assessment.payload.findings.map((finding) => finding.rule_id).sort()).toEqual([
-      "LU-EBH-001",
-      "LU-NATURA2000-001",
-      "LU-PROTECTED-001",
-      "LU-WATER-001",
-      "LU-WATERPROTECTION-001",
+      'LU-EBH-001',
+      'LU-NATURA2000-001',
+      'LU-PROTECTED-001',
+      'LU-WATER-001',
+      'LU-WATERPROTECTION-001',
     ]);
 
     const evidence = await Promise.all(
-      assessment.payload.evidence_refs.map((ref) =>
-        artifactRepository.resolve<SpatialEvidenceArtifact>(ref),
-      ),
+      assessment.payload.evidence_refs.map((ref) => artifactRepository.resolve<SpatialEvidenceArtifact>(ref)),
     );
     expect(evidence).toHaveLength(5);
     const findingEvidenceIds = new Set(
-      assessment.payload.findings.flatMap((finding) =>
-        finding.evidence_refs.map((ref) => ref.artifact_id),
-      ),
+      assessment.payload.findings.flatMap((finding) => finding.evidence_refs.map((ref) => ref.artifact_id)),
     );
     expect(findingEvidenceIds).toHaveLength(5);
     for (const artifact of evidence) {
       const layer = artifact.payload.layer_ref.layer_id;
-      expect(artifact.payload.result_semantics.kind).toBe("EXISTENCE_WITHIN_DISTANCE");
+      expect(artifact.payload.result_semantics.kind).toBe('EXISTENCE_WITHIN_DISTANCE');
       expect(artifact.payload.result_semantics.result.exists).toBe(true);
       expect(artifact.payload.operation.engine_fingerprint).toEqual(SPATIAL_STACK_V1);
-      expect(artifact.payload.layer_ref.version_hash).toBe(
-        SPATIAL_LAYER_REGISTRY[layer].version_hash,
-      );
+      expect(artifact.payload.layer_ref.version_hash).toBe(SPATIAL_LAYER_REGISTRY[layer].version_hash);
       expect(artifact.payload.geometry).toBeNull();
-      expect(["water", "ebh", "protected_area", "natura2000", "water_protection_area"]).toContain(layer);
+      expect(['water', 'ebh', 'protected_area', 'natura2000', 'water_protection_area']).toContain(layer);
       expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(true);
     }
-    expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes('FROM "PostgisImportBatch"'))).toHaveLength(5);
-    expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes("ST_DWithin"))).toHaveLength(5);
+    expect(
+      poolQuery.mock.calls.filter(([sql]) => String(sql).includes('FROM "PostgisImportBatch"')),
+    ).toHaveLength(5);
+    expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes('ST_DWithin'))).toHaveLength(5);
     expect(poolEnd).toHaveBeenCalledOnce();
   });
 
-  it("keeps concrete PostGIS construction in the composition root and out of the application entrypoint", () => {
+  it('keeps concrete PostGIS construction in the composition root and out of the application entrypoint', () => {
     const useCaseSource = readFileSync(
-      path.join(repoRoot, "src/application/generate-localization-report.usecase.ts"),
-      "utf8",
+      path.join(repoRoot, 'src/application/generate-localization-report.usecase.ts'),
+      'utf8',
     );
     const compositionSource = readFileSync(
-      path.join(repoRoot, "server/modules/localization/createLocalizationSpatialRuntime.ts"),
-      "utf8",
+      path.join(repoRoot, 'server/modules/localization/createLocalizationSpatialRuntime.ts'),
+      'utf8',
     );
 
-    expect(useCaseSource).not.toContain("@miljobeslut/spatial-provider-postgis");
+    expect(useCaseSource).not.toContain('@miljobeslut/spatial-provider-postgis');
     expect(useCaseSource).not.toMatch(/new\s+SpatialProviderPostGIS\s*\(/);
-    expect(useCaseSource).toContain("resolveSpatialProvider(LU_SPATIAL_CAPABILITY_KEY)");
-    expect(compositionSource).toContain("new SpatialProviderPostGIS");
-    expect(compositionSource).toContain("new SpatialProviderResolver");
+    expect(useCaseSource).toContain('resolveSpatialProvider(LU_SPATIAL_CAPABILITY_KEY)');
+    expect(compositionSource).toContain('new SpatialProviderPostGIS');
+    expect(compositionSource).toContain('new SpatialProviderResolver');
   });
 
-  it("fails closed before provider execution when the runtime cannot resolve the canonical capability", async () => {
+  it('fails closed before provider execution when the runtime cannot resolve the canonical capability', async () => {
     const artifactRepository = new InMemoryArtifactRepository();
     const resolveSpatialProvider = vi.fn(() => {
-      throw new Error("REJECT_SPATIAL_PROVIDER: missing canonical binding");
+      throw new Error('REJECT_SPATIAL_PROVIDER: missing canonical binding');
     });
     const wgs84ToSweref99 = vi.fn();
     const sweref99ToWgs84 = vi.fn();
@@ -443,19 +441,19 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     const useCase = new GenerateLocalizationReportUseCase(async () => runtime);
 
     const report = await useCase.execute({
-      projectId: "project-p4a-lu-05-reject",
-      siteAlternatives: [{ id: "site-reject", lat: 59.33, lng: 18.07 }],
+      projectId: 'project-p4a-lu-05-reject',
+      siteAlternatives: [{ id: 'site-reject', lat: 59.33, lng: 18.07 }],
     });
 
     expect(resolveSpatialProvider).toHaveBeenCalledWith(LU_SPATIAL_CAPABILITY_KEY);
     expect(wgs84ToSweref99).not.toHaveBeenCalled();
     expect(report.siteAnalyses[0].executionMotor).toMatchObject({
       admitted: false,
-      reason_codes: ["EXECUTION_KERNEL_ERROR"],
+      reason_codes: ['EXECUTION_KERNEL_ERROR'],
       assessment_artifact_id: null,
     });
-    expect(report.siteAnalyses[0].warnings.join(" ")).toContain(
-      "REJECT_SPATIAL_PROVIDER: missing canonical binding",
+    expect(report.siteAnalyses[0].warnings.join(' ')).toContain(
+      'REJECT_SPATIAL_PROVIDER: missing canonical binding',
     );
   });
 });
