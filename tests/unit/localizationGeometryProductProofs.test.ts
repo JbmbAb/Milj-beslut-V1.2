@@ -24,12 +24,19 @@
  * localizationGeometryContractProofs.test.ts.
  */
 vi.mock('../../server/repositories/projectContextBindingRepository', () => {
-  type BindingRow = { binding_artifact_id: string; project_context_artifact_id: string; project_context_artifact_type: string };
+  type BindingRow = {
+    binding_artifact_id: string;
+    project_context_artifact_id: string;
+    project_context_artifact_type: string;
+  };
   const bindingsByProject = new Map<string, BindingRow[]>();
   const supersessionsByProject = new Map<string, string[]>();
 
   class FakeProjectContextBindingIndex {
-    async register(binding: { artifact_id: string; payload: { project_id: string; project_context_ref: { artifact_id: string; artifact_type: string } } }) {
+    async register(binding: {
+      artifact_id: string;
+      payload: { project_id: string; project_context_ref: { artifact_id: string; artifact_type: string } };
+    }) {
       const rows = bindingsByProject.get(binding.payload.project_id) ?? [];
       if (!rows.some((r) => r.binding_artifact_id === binding.artifact_id)) {
         rows.push({
@@ -53,24 +60,35 @@ vi.mock('../../server/repositories/projectContextBindingRepository', () => {
 
     async resolve(projectId: string, projectContextRef: { artifact_id: string; artifact_type: string }) {
       const rows = (bindingsByProject.get(projectId) ?? []).filter(
-        (r) => r.project_context_artifact_id === projectContextRef.artifact_id && r.project_context_artifact_type === projectContextRef.artifact_type,
+        (r) =>
+          r.project_context_artifact_id === projectContextRef.artifact_id &&
+          r.project_context_artifact_type === projectContextRef.artifact_type,
       );
       if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
       return rows[0]!.binding_artifact_id;
     }
 
     async listBindingRefs(projectId: string) {
-      return (bindingsByProject.get(projectId) ?? []).map((r) => ({ artifact_id: r.binding_artifact_id, artifact_type: 'project_context_binding' }));
+      return (bindingsByProject.get(projectId) ?? []).map((r) => ({
+        artifact_id: r.binding_artifact_id,
+        artifact_type: 'project_context_binding',
+      }));
     }
 
     async listSupersessionRefs(projectId: string) {
-      return (supersessionsByProject.get(projectId) ?? []).map((id) => ({ artifact_id: id, artifact_type: 'project_context_binding_supersession' }));
+      return (supersessionsByProject.get(projectId) ?? []).map((id) => ({
+        artifact_id: id,
+        artifact_type: 'project_context_binding_supersession',
+      }));
     }
 
     async findProjectContextRef(projectId: string) {
       const rows = bindingsByProject.get(projectId) ?? [];
       if (rows.length !== 1) throw new Error('REJECT_PROJECT_CONTEXT_BINDING_UNAVAILABLE');
-      return { artifact_id: rows[0]!.project_context_artifact_id, artifact_type: rows[0]!.project_context_artifact_type };
+      return {
+        artifact_id: rows[0]!.project_context_artifact_id,
+        artifact_type: rows[0]!.project_context_artifact_type,
+      };
     }
   }
 
@@ -88,8 +106,13 @@ vi.mock('../../server/repositories/localizationGeometryProjectionRepository', ()
   const rows: Row[] = [];
 
   class FakeLocalizationGeometryProjectionIndex {
-    async register(row: { projectId: string; geometryArtifactId: string; propertyContextRef: { artifact_id: string; artifact_type: string } }) {
-      if (rows.some((r) => r.projectId === row.projectId && r.geometryArtifactId === row.geometryArtifactId)) return;
+    async register(row: {
+      projectId: string;
+      geometryArtifactId: string;
+      propertyContextRef: { artifact_id: string; artifact_type: string };
+    }) {
+      if (rows.some((r) => r.projectId === row.projectId && r.geometryArtifactId === row.geometryArtifactId))
+        return;
       rows.push({
         projectId: row.projectId,
         geometryArtifactId: row.geometryArtifactId,
@@ -130,7 +153,10 @@ vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () =>
       releaseArtifactId: string;
       localizationGeometryArtifactId?: string | null;
     }) {
-      if (rows.some((r) => r.projectId === row.projectId && r.assessmentArtifactId === row.assessmentArtifactId)) return;
+      if (
+        rows.some((r) => r.projectId === row.projectId && r.assessmentArtifactId === row.assessmentArtifactId)
+      )
+        return;
       rows.push({
         projectId: row.projectId,
         assessmentArtifactId: row.assessmentArtifactId,
@@ -152,11 +178,27 @@ vi.mock('../../server/repositories/projectAssessmentProjectionRepository', () =>
 });
 
 vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', () => {
-  type Row = { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string; createdAt: Date };
+  type Row = {
+    projectId: string;
+    supersessionArtifactId: string;
+    predecessorGeometryArtifactId: string;
+    successorGeometryArtifactId: string;
+    createdAt: Date;
+  };
   const rows: Row[] = [];
   class FakeLocalizationGeometrySupersessionIndex {
-    async register(row: { projectId: string; supersessionArtifactId: string; predecessorGeometryArtifactId: string; successorGeometryArtifactId: string }) {
-      if (rows.some((r) => r.projectId === row.projectId && r.supersessionArtifactId === row.supersessionArtifactId)) return;
+    async register(row: {
+      projectId: string;
+      supersessionArtifactId: string;
+      predecessorGeometryArtifactId: string;
+      successorGeometryArtifactId: string;
+    }) {
+      if (
+        rows.some(
+          (r) => r.projectId === row.projectId && r.supersessionArtifactId === row.supersessionArtifactId,
+        )
+      )
+        return;
       rows.push({ ...row, createdAt: new Date(Date.now() + rows.length) });
     }
     async listForProject(projectId: string) {
@@ -166,19 +208,58 @@ vi.mock('../../server/repositories/localizationGeometrySupersessionRepository', 
   return { PrismaLocalizationGeometrySupersessionIndex: FakeLocalizationGeometrySupersessionIndex };
 });
 
-vi.mock('../../server/services/spatialAuditService', () => ({ runSpatialAudit: vi.fn().mockResolvedValue({ protectedAreaHits: [], protectedAreaAvailable: true, isProtected: false, sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' }, insar: { riskLevel: 'LOW' }, distanceToWaterMeters: 50, distanceToWaterAvailable: true, text: 'OK', sources: [] }) }));
-vi.mock('../../server/services/complianceRuleEngine', () => ({ evaluateComplianceRules: vi.fn().mockReturnValue({ overallRisk: 'LOW', permitProbability: 0.8, restrictions: [], rules: [], summary: 'OK', violations: [], warnings: [], feasibilityScore: 80, recommendations: [], requiredActions: [], notes: [] }) }));
+vi.mock('../../server/services/spatialAuditService', () => ({
+  runSpatialAudit: vi.fn().mockResolvedValue({
+    protectedAreaHits: [],
+    protectedAreaAvailable: true,
+    isProtected: false,
+    sgu: { riskLevel: 'LOW', manualReviewRequired: false, summary: 'OK' },
+    insar: { riskLevel: 'LOW' },
+    distanceToWaterMeters: 50,
+    distanceToWaterAvailable: true,
+    text: 'OK',
+    sources: [],
+  }),
+}));
+vi.mock('../../server/services/complianceRuleEngine', () => ({
+  evaluateComplianceRules: vi.fn().mockReturnValue({
+    overallRisk: 'LOW',
+    permitProbability: 0.8,
+    restrictions: [],
+    rules: [],
+    summary: 'OK',
+    violations: [],
+    warnings: [],
+    feasibilityScore: 80,
+    recommendations: [],
+    requiredActions: [],
+    notes: [],
+  }),
+}));
 vi.mock('../../server/services/nvrService', () => ({ fetchProtectedAreas: vi.fn().mockResolvedValue([]) }));
 vi.mock('../../server/services/raaService', () => ({ fetchAncientMonuments: vi.fn().mockResolvedValue([]) }));
-vi.mock('../../server/services/vissService', () => ({ queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }) }));
+vi.mock('../../server/services/vissService', () => ({
+  queryVissPoint: vi.fn().mockResolvedValue({ ok: true, primaryWaterStatus: null }),
+}));
 vi.mock('../../server/services/sguRiskService', () => ({ toGeologicalData: vi.fn().mockReturnValue({}) }));
-vi.mock('../../server/services/sluService', () => ({ searchSluByCoordinates: vi.fn().mockResolvedValue([]), getSpeciesInformation: vi.fn().mockResolvedValue([]) }));
-vi.mock('../../server/services/auditTrailService', () => ({ auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock('../../server/services/sluService', () => ({
+  searchSluByCoordinates: vi.fn().mockResolvedValue([]),
+  getSpeciesInformation: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../../server/services/auditTrailService', () => ({
+  auditTrail: { logAction: vi.fn().mockResolvedValue(undefined) },
+}));
 vi.mock('../../server/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({ enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null) }));
+vi.mock('../../src/application/enqueue-lu-execution-ticket', () => ({
+  enqueueAdmittedLuTicket: vi.fn().mockResolvedValue(null),
+}));
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalPemSigningKeyProvider, type SigningKeyProvider, type VerificationKeyProvider } from '@miljobeslut/mimers-brunn-core';
+import {
+  LocalPemSigningKeyProvider,
+  type SigningKeyProvider,
+  type VerificationKeyProvider,
+} from '@miljobeslut/mimers-brunn-core';
 import { InMemoryArtifactRepository } from '@miljobeslut/mps-runtime';
 import {
   orchestrator,
@@ -213,21 +294,28 @@ import {
   installVerifiedProductLuContext,
   attestProjectContextBindingArtifact,
 } from '../../server/modules/localization/projectContextBindingAuthority';
-import { issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
-import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
+import { provisionLuSourceAuthorityFixture } from '../../packages/mps-lu/tests/fixtures/provisionLuSourceAuthority';
 import type { ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
-import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryProjection';
+import {
+  registerLocalizationGeometry,
+  resolveCurrentLocalizationGeometry,
+} from '../../server/modules/localization/localizationGeometryProjection';
 import { resolveCurrentAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
 import { ProjectContextBindingProvider } from '../../server/modules/localization/projectContextBindingRuntime';
 import { getProjectContextBindingIssuerVerifier } from '../../server/security/projectContextBindingIssuerKey';
-import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
+import {
+  createProductReleaseIssuerArtifact,
+  createProductReleaseManifestArtifact,
+} from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
 import { attestProductRelease } from '../../server/modules/release/productReleaseAuthority';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-product-proofs';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
 // PRODUCT-RELEASE-AUTHORITY-BINDING-V1 (H13): a real, self-consistent signed release, not a bare
 // artifact_id + hash pair -- the canonical resolver now requires trusted-issuer verification.
-const releaseIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:product-release-issuer-geometry-proofs');
+const releaseIssuerKey = LocalPemSigningKeyProvider.generate(
+  'ed25519:product-release-issuer-geometry-proofs',
+);
 const releaseIssuer = createProductReleaseIssuerArtifact(releaseIssuerKey.provider.keyId);
 let RELEASE_ID: string;
 let RELEASE_HASH: string;
@@ -236,9 +324,11 @@ let RELEASE_HASH: string;
 // explicit points (A, B) used in these proofs, so proof 11 ("uses the exact point, not the
 // centroid") is a real, discriminating assertion rather than a coincidence.
 const PROPERTY_CENTROID_SWEREF: readonly [number, number] = [6580000, 674000];
-const PROPERTY_CENTROID_WGS84: readonly [number, number] = [59.30, 18.00]; // [lat, lng] -- distinct from A/B
+const PROPERTY_CENTROID_WGS84: readonly [number, number] = [59.3, 18.0]; // [lat, lng] -- distinct from A/B
 
-const geometrySupersessionIssuerKey = LocalPemSigningKeyProvider.generate('ed25519:geometry-supersession-issuer-product-proofs');
+const geometrySupersessionIssuerKey = LocalPemSigningKeyProvider.generate(
+  'ed25519:geometry-supersession-issuer-product-proofs',
+);
 
 /** Mints, attests, CAS-persists, and registers a real signed geometry supersession edge -- the
  * exact real-world sequence the worker performs, invoked directly here since these proofs test
@@ -251,22 +341,48 @@ async function supersedeGeometry(args: {
 }): Promise<void> {
   const bareIssuer = createLocalizationGeometrySupersessionIssuerArtifact({
     issuer_key_id: geometrySupersessionIssuerKey.provider.keyId,
-    owner_authority_ref: { artifact_id: 'owner-authority-test', artifact_type: 'owner_authority_attestation' },
+    owner_authority_ref: {
+      artifact_id: 'owner-authority-test',
+      artifact_type: 'owner_authority_attestation',
+    },
   });
-  const issuer = { ...bareIssuer, attestation: await attestLocalizationGeometrySupersessionIssuerArtifact({ issuer: bareIssuer, signing: geometrySupersessionIssuerKey.provider }) };
+  const issuer = {
+    ...bareIssuer,
+    attestation: await attestLocalizationGeometrySupersessionIssuerArtifact({
+      issuer: bareIssuer,
+      signing: geometrySupersessionIssuerKey.provider,
+    }),
+  };
   await args.repo.put({ artifact_id: issuer.artifact_id, content_hash: issuer.content_hash, body: issuer });
 
   const bareArtifact = createLocalizationGeometrySupersessionArtifact({
     project_id: args.projectId,
-    predecessor_geometry_ref: { artifact_id: args.predecessor.artifact_id, artifact_type: args.predecessor.artifact_type },
-    successor_geometry_ref: { artifact_id: args.successor.artifact_id, artifact_type: args.successor.artifact_type },
+    predecessor_geometry_ref: {
+      artifact_id: args.predecessor.artifact_id,
+      artifact_type: args.predecessor.artifact_type,
+    },
+    successor_geometry_ref: {
+      artifact_id: args.successor.artifact_id,
+      artifact_type: args.successor.artifact_type,
+    },
     reason_code: 'USER_LOCALIZATION_CHANGE_V1',
     issuer_ref: { artifact_id: issuer.artifact_id, artifact_type: issuer.artifact_type },
     issuer_key_id: geometrySupersessionIssuerKey.provider.keyId,
     issued_at: '2026-08-23T00:00:00.000Z',
   });
-  const artifact = { ...bareArtifact, attestation: await attestLocalizationGeometrySupersessionArtifact({ artifact: bareArtifact, issuer, signing: geometrySupersessionIssuerKey.provider }) };
-  await args.repo.put({ artifact_id: artifact.artifact_id, content_hash: artifact.content_hash, body: artifact });
+  const artifact = {
+    ...bareArtifact,
+    attestation: await attestLocalizationGeometrySupersessionArtifact({
+      artifact: bareArtifact,
+      issuer,
+      signing: geometrySupersessionIssuerKey.provider,
+    }),
+  };
+  await args.repo.put({
+    artifact_id: artifact.artifact_id,
+    content_hash: artifact.content_hash,
+    body: artifact,
+  });
 
   await new PrismaLocalizationGeometrySupersessionIndex().register({
     projectId: args.projectId,
@@ -276,7 +392,8 @@ async function supersedeGeometry(args: {
   });
 
   process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_KEY_ID = geometrySupersessionIssuerKey.provider.keyId;
-  process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM = geometrySupersessionIssuerKey.publicKey;
+  process.env.LOCALIZATION_GEOMETRY_SUPERSESSION_ISSUER_PUBLIC_KEY_PEM =
+    geometrySupersessionIssuerKey.publicKey;
 }
 
 function makeRuntime(
@@ -307,7 +424,17 @@ async function provisionRealProject(args: {
   propertyDesignation: string;
 }) {
   const geometry = createCanonicalPropertyGeometryArtifact({
-    geometry: { type: 'Polygon', coordinates: [[[14, 61], [14.1, 61], [14, 61.1], [14, 61]]] },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [14, 61],
+          [14.1, 61],
+          [14, 61.1],
+          [14, 61],
+        ],
+      ],
+    },
   });
   const observation = createPropertyLookupObservationArtifact({
     property_identity: `property:test:${args.projectId}`,
@@ -330,9 +457,16 @@ async function provisionRealProject(args: {
   });
   const propertyBinding = {
     ...propertyBindingUnsigned,
-    attestation: await attestProjectContextBindingArtifact({ artifact: propertyBindingUnsigned, issuer: args.issuer, signing: args.signing }),
+    attestation: await attestProjectContextBindingArtifact({
+      artifact: propertyBindingUnsigned,
+      issuer: args.issuer,
+      signing: args.signing,
+    }),
   };
-  const propertyBindingRef = { artifact_id: propertyBinding.artifact_id, artifact_type: propertyBinding.artifact_type };
+  const propertyBindingRef = {
+    artifact_id: propertyBinding.artifact_id,
+    artifact_type: propertyBinding.artifact_type,
+  };
   const propertyContext = createProductLuPropertyContextArtifact({
     property_identity: observation.payload.property_identity,
     property_ref: args.propertyDesignation,
@@ -347,12 +481,18 @@ async function provisionRealProject(args: {
     project_name: args.propertyDesignation,
     description: 'PRODUCT-LU-LOCALIZATION-GEOMETRY-01 Phase B proof',
     created_by: 'test-owner',
-    property_context_ref: { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type },
+    property_context_ref: {
+      artifact_id: propertyContext.artifact_id,
+      artifact_type: propertyContext.artifact_type,
+    },
     project_property_binding_ref: propertyBindingRef,
   });
   const contextBindingUnsigned = createProjectContextBindingArtifact({
     project_id: args.projectId,
-    project_context_ref: { artifact_id: projectContext.artifact_id, artifact_type: projectContext.artifact_type },
+    project_context_ref: {
+      artifact_id: projectContext.artifact_id,
+      artifact_type: projectContext.artifact_type,
+    },
     project_property_binding_ref: propertyBindingRef,
     binding_version: 'project-context-binding-v2',
     authority_ref: { artifact_id: args.issuer.artifact_id, artifact_type: args.issuer.artifact_type },
@@ -360,7 +500,11 @@ async function provisionRealProject(args: {
   });
   const contextBinding = {
     ...contextBindingUnsigned,
-    attestation: await attestProjectContextBindingArtifact({ artifact: contextBindingUnsigned, issuer: args.issuer, signing: args.signing }),
+    attestation: await attestProjectContextBindingArtifact({
+      artifact: contextBindingUnsigned,
+      issuer: args.issuer,
+      signing: args.signing,
+    }),
   };
 
   const verification = new (await import('@miljobeslut/mimers-brunn-core')).LocalPemVerificationKeyProvider(
@@ -381,9 +525,18 @@ async function provisionRealProject(args: {
   });
 
   return {
-    contextBindingRef: { artifact_id: contextBinding.artifact_id, artifact_type: contextBinding.artifact_type },
-    projectContextRef: { artifact_id: projectContext.artifact_id, artifact_type: projectContext.artifact_type },
-    propertyContextRef: { artifact_id: propertyContext.artifact_id, artifact_type: propertyContext.artifact_type },
+    contextBindingRef: {
+      artifact_id: contextBinding.artifact_id,
+      artifact_type: contextBinding.artifact_type,
+    },
+    projectContextRef: {
+      artifact_id: projectContext.artifact_id,
+      artifact_type: projectContext.artifact_type,
+    },
+    propertyContextRef: {
+      artifact_id: propertyContext.artifact_id,
+      artifact_type: propertyContext.artifact_type,
+    },
     propertyIdentity: observation.payload.property_identity,
   };
 }
@@ -392,12 +545,17 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   let repo: InMemoryArtifactRepository;
   let issuer: ReturnType<typeof createProjectContextBindingIssuerArtifact>;
   let registry: ReturnType<typeof createLuRegistryRuntime>;
+  const authorityFixtures: Array<{ restore(): void }> = [];
 
   beforeEach(() => {
+    authorityFixtures.length = 0;
     vi.clearAllMocks();
     vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
-    issuer = createProjectContextBindingIssuerArtifact({ issuer_key_id: issuerKey.provider.keyId, issuer_version: 'project-context-binding-issuer-v2' });
+    issuer = createProjectContextBindingIssuerArtifact({
+      issuer_key_id: issuerKey.provider.keyId,
+      issuer_version: 'project-context-binding-issuer-v2',
+    });
     registry = createLuRegistryRuntime();
 
     process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID = issuerKey.provider.keyId;
@@ -410,6 +568,8 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   });
 
   afterEach(() => {
+    for (const fixture of [...authorityFixtures].reverse()) fixture.restore();
+    authorityFixtures.length = 0;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
@@ -420,7 +580,11 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   });
 
   async function putRelease() {
-    await repo.put({ artifact_id: releaseIssuer.artifact_id, content_hash: releaseIssuer.content_hash, body: releaseIssuer });
+    await repo.put({
+      artifact_id: releaseIssuer.artifact_id,
+      content_hash: releaseIssuer.content_hash,
+      body: releaseIssuer,
+    });
     const unsigned = createProductReleaseManifestArtifact({
       product_name: 'Miljobeslut-geometry-proofs',
       package_lock_sha256: 'a'.repeat(64),
@@ -429,7 +593,14 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       issuer_ref: { artifact_id: releaseIssuer.artifact_id, artifact_type: releaseIssuer.artifact_type },
       issued_at: '2026-08-21T00:00:00.000Z',
     });
-    const signed = { ...unsigned, attestation: await attestProductRelease({ release: unsigned, issuer: releaseIssuer, signing: releaseIssuerKey.provider }) };
+    const signed = {
+      ...unsigned,
+      attestation: await attestProductRelease({
+        release: unsigned,
+        issuer: releaseIssuer,
+        signing: releaseIssuerKey.provider,
+      }),
+    };
     await repo.put({ artifact_id: signed.artifact_id, content_hash: signed.content_hash, body: signed });
     RELEASE_ID = signed.artifact_id;
     RELEASE_HASH = signed.release_hash.value;
@@ -464,27 +635,40 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       localization_geometry_ref: args.geometryRef,
     });
-    return issueExecutionIdentityV3({
+    const authorityFixture = await provisionLuSourceAuthorityFixture({
+      repository: repo,
       subject,
       deterministic_seed: seed,
-      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-      artifact_repository: repo,
+      governed_references: [
+        args.contextBindingRef,
+        { artifact_id: RELEASE_ID, artifact_type: 'product_release_manifest' },
+        args.geometryRef,
+      ],
+      label: `geometry-${args.projectId}-${authorityFixtures.length}`,
     });
+    authorityFixtures.push(authorityFixture);
+    return authorityFixture.identity;
   }
 
   it('proof 10 + compatibility: existing project with no explicit geometry -> exactly one derived_from_property_boundary POINT is created and reused, and the run executes', async () => {
     await putRelease();
     const projectId = `project-geometry-derive-${Date.now()}`;
-    const provisioned = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'DERIVE 1:1' });
+    const provisioned = await provisionRealProject({
+      repo,
+      issuer,
+      signing: issuerKey.provider,
+      projectId,
+      propertyDesignation: 'DERIVE 1:1',
+    });
 
     // No LocalizationGeometryArtifact ever registered for this project -- the legacy/pre-Phase-B
     // state EVERY existing project is in. resolveCurrentLocalizationGeometry must refuse (nothing
     // to resolve yet); the usecase derives one from the property centroid.
-    await expect(
-      resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo }),
-    ).rejects.toThrow(/REJECT_LOCALIZATION_GEOMETRY_PROJECTION_NOT_FOUND/);
+    await expect(resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo })).rejects.toThrow(
+      /REJECT_LOCALIZATION_GEOMETRY_PROJECTION_NOT_FOUND/,
+    );
 
     // LOCALIZATION-GEOMETRY-CANONICALIZATION-V2: the real derive path
     // (resolveOrDeriveCurrentLocalizationGeometry) now quantizes the centroid to the canonical
@@ -502,7 +686,11 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       label: 'Fastighetens centrumpunkt (automatiskt härledd)',
       created_by: 'system',
     });
-    await issueV3For({ ...provisioned, projectId, geometryRef: { artifact_id: derivedGeometry.artifact_id, artifact_type: derivedGeometry.artifact_type } });
+    await issueV3For({
+      ...provisioned,
+      projectId,
+      geometryRef: { artifact_id: derivedGeometry.artifact_id, artifact_type: derivedGeometry.artifact_type },
+    });
 
     const queryRecorder: SpatialQueryRequest[] = [];
     const runtimeFactory = async () => makeRuntime(repo, queryRecorder);
@@ -513,7 +701,10 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     });
     expect(firstReport.siteAnalyses[0].executionMotor?.admitted).toBe(true);
 
-    const currentAfterFirst = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
+    const currentAfterFirst = await resolveCurrentLocalizationGeometry({
+      projectId,
+      artifactRepository: repo,
+    });
     expect(currentAfterFirst.geometryArtifactId).toBe(derivedGeometry.artifact_id);
 
     // Replay: the SAME derived geometry must be reused, never a second derived artifact minted.
@@ -522,7 +713,10 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       siteAlternatives: [{ id: 'alt-1', lat: 59.33, lng: 18.07 }],
     });
     expect(secondReport.siteAnalyses[0].executionMotor?.admitted).toBe(true);
-    const currentAfterSecond = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
+    const currentAfterSecond = await resolveCurrentLocalizationGeometry({
+      projectId,
+      artifactRepository: repo,
+    });
     expect(currentAfterSecond.geometryArtifactId).toBe(derivedGeometry.artifact_id);
     expect(secondReport.siteAnalyses[0].executionMotor?.assessment_artifact_id).toBe(
       firstReport.siteAnalyses[0].executionMotor?.assessment_artifact_id,
@@ -532,7 +726,13 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   it('proof 2 + 3 + 11: move point A -> B changes identity/manifest, keeps A historical, and the spatial query uses B exactly', async () => {
     await putRelease();
     const projectId = `project-geometry-move-${Date.now()}`;
-    const provisioned = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'MOVE 1:1' });
+    const provisioned = await provisionRealProject({
+      repo,
+      issuer,
+      signing: issuerKey.provider,
+      projectId,
+      propertyDesignation: 'MOVE 1:1',
+    });
 
     const pointA = createLocalizationGeometryArtifact({
       project_id: projectId,
@@ -553,7 +753,9 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     });
 
     const queryRecorderA: SpatialQueryRequest[] = [];
-    const reportA = await new GenerateLocalizationReportUseCase(async () => makeRuntime(repo, queryRecorderA)).execute({
+    const reportA = await new GenerateLocalizationReportUseCase(async () =>
+      makeRuntime(repo, queryRecorderA),
+    ).execute({
       projectId,
       siteAlternatives: [{ id: 'alt-1', lat: 59.33, lng: 18.07 }],
     });
@@ -566,7 +768,7 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     const pointB = createLocalizationGeometryArtifact({
       project_id: projectId,
       property_context_ref: provisioned.propertyContextRef,
-      wgs84LngLat: [18.20, 59.40],
+      wgs84LngLat: [18.2, 59.4],
       sweref99NorthingEasting: [6600000, 680000],
       provenance: 'user_defined',
       label: 'Point B',
@@ -586,7 +788,9 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     // Running now, with ONLY identityA issued (no identity for B yet), must DENY -- the old
     // identity cannot authorize the new point.
     const denyRecorder: SpatialQueryRequest[] = [];
-    const denyReport = await new GenerateLocalizationReportUseCase(async () => makeRuntime(repo, denyRecorder)).execute({
+    const denyReport = await new GenerateLocalizationReportUseCase(async () =>
+      makeRuntime(repo, denyRecorder),
+    ).execute({
       projectId,
       siteAlternatives: [{ id: 'alt-1', lat: 59.33, lng: 18.07 }],
     });
@@ -600,7 +804,9 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       geometryRef: { artifact_id: pointB.artifact_id, artifact_type: pointB.artifact_type },
     });
     const queryRecorderB: SpatialQueryRequest[] = [];
-    const reportB = await new GenerateLocalizationReportUseCase(async () => makeRuntime(repo, queryRecorderB)).execute({
+    const reportB = await new GenerateLocalizationReportUseCase(async () =>
+      makeRuntime(repo, queryRecorderB),
+    ).execute({
       projectId,
       siteAlternatives: [{ id: 'alt-1', lat: 59.33, lng: 18.07 }],
     });
@@ -617,11 +823,21 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
     expect(assessmentB).not.toBe(assessmentA);
 
     // Proof 3: A remains readable by its exact ref (immutable historical evidence)...
-    const historicalA = await repo.resolve<{ artifact_id: string }>({ artifact_id: assessmentA, artifact_type: 'LOCALIZATION_ASSESSMENT' });
+    const historicalA = await repo.resolve<{ artifact_id: string }>({
+      artifact_id: assessmentA,
+      artifact_type: 'LOCALIZATION_ASSESSMENT',
+    });
     expect(historicalA.artifact_id).toBe(assessmentA);
     // ...but "current assessment" for the project now resolves to B, never A.
-    const currentBindingProvider = new ProjectContextBindingProvider(repo, new PrismaProjectContextBindingIndex(), getProjectContextBindingIssuerVerifier());
-    const currentGeometryNow = await resolveCurrentLocalizationGeometry({ projectId, artifactRepository: repo });
+    const currentBindingProvider = new ProjectContextBindingProvider(
+      repo,
+      new PrismaProjectContextBindingIndex(),
+      getProjectContextBindingIssuerVerifier(),
+    );
+    const currentGeometryNow = await resolveCurrentLocalizationGeometry({
+      projectId,
+      artifactRepository: repo,
+    });
     const currentAssessment = await resolveCurrentAssessmentProjection({
       projectId,
       artifactRepository: repo,
