@@ -4,8 +4,10 @@
  *
  * embed-identity-1 (EmbeddingIdentity.ts) is unchanged: it binds six fields and says nothing about
  * dimension. This module adds what it deliberately does not have: the two frozen A7 candidates,
- * each pinned to an exact Hugging Face revision, input convention and runtime-essential snapshot
- * manifest. Production admission is a separate concern and is currently empty.
+ * each pinned to an exact Hugging Face revision, input convention, numeric configuration (precision
+ * and maximum length, as evaluated) and runtime-essential snapshot manifest. Production admission is a
+ * separate concern (server/modules/legal/retrieval/LocalEmbeddingAdmission.ts): the registry lists what
+ * is pinned, admission says which single pipeline production may use.
  */
 import { createHash } from "node:crypto";
 import {
@@ -60,11 +62,17 @@ export interface LocalEmbeddingPipelineSpec {
   readonly pipeline_version: string;
   readonly dimension: typeof LOCAL_EMBEDDING_DIMENSION;
   readonly normalization: "l2";
+  /**
+   * Model weights precision of the evaluated pipeline (W-EMBED-MODEL-SELECTION-04 ran fp32). Part of the
+   * pipeline identity: the runtime must report exactly this dtype, it is never a free worker choice.
+   */
+  readonly dtype: "float32";
   /** SHA-256 of the runtime-essential file manifest verified by the Python worker before model load. */
   readonly snapshot_manifest_sha256: string;
   readonly query_prefix: string;
   readonly passage_prefix: string;
-  readonly max_seq_length: number | null;
+  /** Explicit maximum sequence length of the evaluated pipeline (bge-m3: the model default 8192, e5: 512). */
+  readonly max_seq_length: number;
 }
 
 const PIPELINES: readonly LocalEmbeddingPipelineSpec[] = Object.freeze([
@@ -75,10 +83,11 @@ const PIPELINES: readonly LocalEmbeddingPipelineSpec[] = Object.freeze([
     pipeline_version: "local-st-bge-m3-dense-v1",
     dimension: LOCAL_EMBEDDING_DIMENSION,
     normalization: "l2",
+    dtype: "float32",
     snapshot_manifest_sha256: "ad53098aac8c75a64934f63661527777481de725b45c8daa0d2bd44468372a66",
     query_prefix: "",
     passage_prefix: "",
-    max_seq_length: null,
+    max_seq_length: 8192,
   } as const),
   Object.freeze({
     key: "multilingual-e5-large",
@@ -87,6 +96,7 @@ const PIPELINES: readonly LocalEmbeddingPipelineSpec[] = Object.freeze([
     pipeline_version: "local-st-multilingual-e5-large-v1",
     dimension: LOCAL_EMBEDDING_DIMENSION,
     normalization: "l2",
+    dtype: "float32",
     snapshot_manifest_sha256: "184a4cbfce0022ad5454ef20a4f484b5811f6d85bc1010a1bde6136fcc8e3c19",
     query_prefix: "query: ",
     passage_prefix: "passage: ",

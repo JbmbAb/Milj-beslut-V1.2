@@ -2,8 +2,8 @@
  * W-NO-GOOGLE-02A -- governed local embedding provider for legal retrieval.
  *
  * Frozen candidates are available to the evaluation seam. Production creation additionally requires
- * an explicit governed admission; that admission is empty until the next frozen evaluation selects
- * exactly one model.
+ * an explicit governed admission (LocalEmbeddingAdmission.ts), which names exactly one pipeline: the
+ * owner selected BAAI/bge-m3 on 2026-10-07 after the frozen model-selection evaluation.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -16,7 +16,7 @@ import {
   type LocalEmbeddingPipelineSpec,
 } from "@miljobeslut/mps-embedding-identity";
 import { EmbeddingProviderError, type EmbeddingProvider } from "./EmbeddingProvider";
-import { isProductionAdmittedLocalEmbeddingKey } from "./LocalEmbeddingAdmission";
+import { isProductionAdmittedLocalEmbeddingKey, productionAdmittedLocalEmbeddingKeys } from "./LocalEmbeddingAdmission";
 import {
   issueLocalEmbeddingForProvider,
   type IssuedLocalEmbedding,
@@ -106,13 +106,16 @@ function verifyRuntime(
   if (runtime.normalization !== spec.normalization) {
     mismatches.push(`normalization '${runtime.normalization}' != '${spec.normalization}'`);
   }
+  if (runtime.dtype !== spec.dtype) {
+    mismatches.push(`dtype '${runtime.dtype}' != '${spec.dtype}' (the evaluated precision is part of the pipeline identity)`);
+  }
   if (runtime.snapshot_revision !== spec.hf_revision) {
     mismatches.push(`snapshot revision '${runtime.snapshot_revision}' != '${spec.hf_revision}'`);
   }
   if (runtime.snapshot_manifest_sha256 !== spec.snapshot_manifest_sha256) {
     mismatches.push("runtime-essential snapshot manifest digest differs from the frozen registry");
   }
-  if (spec.max_seq_length !== null && runtime.max_seq_length !== spec.max_seq_length) {
+  if (runtime.max_seq_length !== spec.max_seq_length) {
     mismatches.push(`max_seq_length ${runtime.max_seq_length} != ${spec.max_seq_length}`);
   }
   if (
@@ -376,16 +379,20 @@ export function createLocalEmbeddingProviderForEvaluationFromEnv(
   return buildProvider(parseLocalEmbeddingEnv(env, deps), deps);
 }
 
-/** Production seam: currently fail-closed because the governed admission list is empty. */
+/**
+ * Production seam: only the production-admitted pipeline (exactly one, see LocalEmbeddingAdmission.ts) can be
+ * created, and only when MIMER_LOCAL_EMBEDDING_MODEL names it explicitly. There is no default and no fallback.
+ */
 export function createLocalEmbeddingProviderFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
   deps: LocalEmbeddingEnvDeps = {},
 ): LocalEmbeddingProvider {
   const key = required(env, "MIMER_LOCAL_EMBEDDING_MODEL");
   if (!isProductionAdmittedLocalEmbeddingKey(key)) {
+    const admitted = productionAdmittedLocalEmbeddingKeys();
     throw new EmbeddingProviderError(
       "EMBEDDING_MODEL_NOT_ALLOWED",
-      `local embedding model '${key}' is not production-admitted; no winner has been selected by the governed evaluation`,
+      `local embedding model '${key}' is not production-admitted (production admits exactly: ${admitted.length > 0 ? admitted.join(", ") : "none"})`,
     );
   }
   return buildProvider(parseLocalEmbeddingEnv(env, deps), deps);

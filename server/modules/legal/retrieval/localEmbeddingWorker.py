@@ -20,7 +20,8 @@ _FROZEN_REGISTRY_JSON = r"""{
       "pipeline_version": "local-st-bge-m3-dense-v1",
       "dimension": 1024,
       "normalization": "l2",
-      "max_seq_length": null,
+      "dtype": "float32",
+      "max_seq_length": 8192,
       "snapshot_manifest_sha256": "ad53098aac8c75a64934f63661527777481de725b45c8daa0d2bd44468372a66",
       "files": [
         {"path":"1_Pooling/config.json","algo":"git-blob-sha1","digest":"9bd85925f325e25246d94c4918dc02ab98f2a1b7","size":191},
@@ -41,6 +42,7 @@ _FROZEN_REGISTRY_JSON = r"""{
       "pipeline_version": "local-st-multilingual-e5-large-v1",
       "dimension": 1024,
       "normalization": "l2",
+      "dtype": "float32",
       "max_seq_length": 512,
       "snapshot_manifest_sha256": "184a4cbfce0022ad5454ef20a4f484b5811f6d85bc1010a1bde6136fcc8e3c19",
       "files": [
@@ -175,10 +177,14 @@ def main() -> int:
         print("cuda is required but not available -- refusing to fall back to cpu", file=sys.stderr)
         return 3
 
-    model_kwargs = {"dtype": torch.float16} if device == "cuda" else {}
+    # The precision is part of the frozen pipeline identity (evaluated fp32), not a worker choice.
+    dtypes = {"float32": torch.float32}
+    if spec["dtype"] not in dtypes:
+        print("frozen dtype %r is not supported by this worker" % spec["dtype"], file=sys.stderr)
+        return 4
+    model_kwargs = {"dtype": dtypes[spec["dtype"]]}
     model = SentenceTransformer(str(snapshot), device=device, model_kwargs=model_kwargs, local_files_only=True)
-    if spec["max_seq_length"] is not None:
-        model.max_seq_length = int(spec["max_seq_length"])
+    model.max_seq_length = int(spec["max_seq_length"])
 
     dimension = model.get_sentence_embedding_dimension()
     if dimension != int(spec["dimension"]):
@@ -224,11 +230,9 @@ def main() -> int:
             if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
                 raise ValueError("texts must be a list of strings")
             requested_max = request.get("max_seq_length")
-            frozen_max = spec["max_seq_length"]
-            if frozen_max is not None and requested_max != frozen_max:
+            frozen_max = int(spec["max_seq_length"])
+            if requested_max != frozen_max:
                 raise ValueError("requested max_seq_length differs from frozen pipeline")
-            if frozen_max is None and requested_max is not None:
-                raise ValueError("caller may not override the frozen model default")
             limit = int(model.max_seq_length)
             tokenizer = model.tokenizer
             truncated = sum(1 for t in texts if len(tokenizer(t, add_special_tokens=True)["input_ids"]) > limit)

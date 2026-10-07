@@ -188,6 +188,8 @@ describe("assertLocalQueryVector -- read-side dimension and pipeline boundary", 
 });
 
 describe("write side admits only the production pipeline (bge-m3)", () => {
+  beforeEach(() => db.queryRawUnsafe.mockReset());
+
   it("builds an insert for a bge-m3 issued embedding", async () => {
     const value = await issued();
     expect(() => buildPersistLocalEmbeddingStatement(value)).not.toThrow();

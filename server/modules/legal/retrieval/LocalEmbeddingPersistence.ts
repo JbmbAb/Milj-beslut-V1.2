@@ -3,6 +3,8 @@
  *
  * The executable persistence path accepts only an embedding issued by LocalEmbeddingProvider after
  * runtime/snapshot verification. A naked vector plus a claimed model identity is not persistable.
+ * Only the production-admitted pipeline (LocalEmbeddingAdmission.ts: bge-m3) can be written or queried;
+ * the database CHECK pins the same single triple.
  */
 import {
   assertLocalEmbeddingIdentity,
@@ -11,6 +13,10 @@ import {
 } from "@miljobeslut/mps-embedding-identity";
 import { prisma } from "../../../db/prisma";
 import { EmbeddingProviderError } from "./EmbeddingProvider";
+import {
+  isProductionAdmittedLocalEmbeddingKey,
+  isProductionAdmittedLocalEmbeddingPipelineVersion,
+} from "./LocalEmbeddingAdmission";
 import {
   isIssuedLocalEmbedding,
   type IssuedLocalEmbedding,
@@ -53,6 +59,12 @@ export function assertLocalQueryVector(vector: readonly number[], pipelineVersio
       `pipeline '${pipelineVersion}' is not a frozen local embedding pipeline`,
     );
   }
+  if (!isProductionAdmittedLocalEmbeddingPipelineVersion(pipelineVersion)) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_MODEL_NOT_ALLOWED",
+      `pipeline '${pipelineVersion}' is an evaluation candidate and is not production-admitted: it is never read in production`,
+    );
+  }
   assertLocalVector(vector);
 }
 
@@ -73,6 +85,12 @@ export function buildPersistLocalEmbeddingStatement(issued: IssuedLocalEmbedding
   }
   const identity = issued.identity;
   const spec = assertLocalEmbeddingIdentity(identity);
+  if (!isProductionAdmittedLocalEmbeddingKey(spec.key)) {
+    throw new EmbeddingProviderError(
+      "EMBEDDING_MODEL_NOT_ALLOWED",
+      `pipeline '${spec.pipeline_version}' is an evaluation candidate and is not production-admitted: it is never persisted to the production table`,
+    );
+  }
   if (spec.key !== issued.model_key || spec.snapshot_manifest_sha256 !== issued.snapshot_manifest_sha256) {
     throw new EmbeddingProviderError(
       "EMBEDDING_RUNTIME_IDENTITY_MISMATCH",
