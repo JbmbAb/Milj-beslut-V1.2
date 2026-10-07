@@ -8,6 +8,7 @@ import {
 import { preVerifyExecutionIdentityForAdmission } from "../src/execution/LuAdmissionPreVerification.js";
 import {
   buildExecutionIdentityAttestationPredicate,
+  executionIdentityCanonicalBody,
   LU_EXECUTION_IDENTITY_ATTESTATION_PREDICATE_TYPE,
 } from "../src/execution/ExecutionIdentityAttestation.js";
 import { sha256ContentHash } from "../../mps-runtime/src/kernel/ExecutionKernel.js";
@@ -41,20 +42,22 @@ const capabilityArtifact: ArtifactContract = {
 };
 
 function buildIdentity(): ExecutionIdentityArtifact {
-  return {
+  const unsigned: Omit<ExecutionIdentityArtifact, "content_hash"> = {
     artifact_id: "lu-identity-site-1",
     artifact_type: "execution_identity",
-    content_hash: sha256ContentHash({
-      principal_id: actorRef.artifact_id,
-      site_id: "site-1",
-      capability_id: capabilityRef.artifact_id,
-      release_snapshot_id: "release-1",
-      deterministic_seed: "seed:site-1",
-    }),
     references: [],
     actor_ref: actorRef,
     capability_ref: capabilityRef,
-    signature_envelope_ref: { artifact_id: "attestation-lu-identity-site-1", artifact_type: "outcome_attestation" },
+    signature_envelope_ref: {
+      artifact_id: "attestation-lu-identity-site-1",
+      artifact_type: "outcome_attestation",
+    },
+  };
+  return {
+    ...unsigned,
+    content_hash: sha256ContentHash(
+      executionIdentityCanonicalBody(unsigned as ExecutionIdentityArtifact),
+    ),
   };
 }
 
