@@ -121,13 +121,15 @@ import {
 } from '../../server/modules/localization/projectContextBindingSupersessionAuthority';
 import { __resetProjectContextBindingSupersessionVerifierForTests } from '../../server/security/projectContextBindingSupersessionVerifier';
 import { installOwnerIssuedProjectContextBindingSupersession } from '../../server/modules/localization/installProjectContextBinding';
-import { issueExecutionIdentity, issueExecutionIdentityV2, issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
+import { issueExecutionIdentity, issueExecutionIdentityV2 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
 import { __resetLuExecutionAuthorityVerifierForTests } from '../../packages/mps-lu/src/execution/LuExecutionAuthorityVerifier';
 import { __resetLuExecutionAuthoritySigningProviderForTests } from '../../server/security/luExecutionAuthoritySigningKey';
 import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
 import type { ExecutionIdentitySubjectV2, ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
 import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact, type ProductReleaseManifestArtifact } from '../../packages/mps-governance/src/release/ProductReleaseAuthority';
 import { attestProductRelease } from '../../server/modules/release/productReleaseAuthority';
+import { provisionLuSourceAuthorityFixture } from '../../packages/mps-lu/tests/fixtures/provisionLuSourceAuthority';
+import { ensureLocalizationProjectionProject } from '../../packages/mps-lu/tests/fixtures/ensureLocalizationProjectionProject';
 
 const ISSUER_KEY_ID = 'ed25519:pcb-issuer-v2-wiring-test';
 const issuerKey = LocalPemSigningKeyProvider.generate(ISSUER_KEY_ID);
@@ -215,6 +217,10 @@ async function provisionRealProject(args: {
   projectId: string;
   propertyDesignation: string;
 }) {
+  await ensureLocalizationProjectionProject({
+    projectId: args.projectId,
+    propertyDesignation: args.propertyDesignation,
+  });
   const geometry = createCanonicalPropertyGeometryArtifact({
     geometry: { type: 'Polygon', coordinates: [[[14, 61], [14.1, 61], [14, 61.1], [14, 61]]] },
   });
@@ -334,8 +340,10 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   let issuer: ReturnType<typeof createProjectContextBindingIssuerArtifact>;
   let supersessionIssuer: ProjectContextBindingSupersessionIssuerArtifact;
   let registry: ReturnType<typeof createLuRegistryRuntime>;
+  const authorityFixtures: Array<{ restore(): void }> = [];
 
   beforeEach(async () => {
+    authorityFixtures.length = 0;
     vi.clearAllMocks();
     vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
@@ -412,6 +420,8 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
   });
 
   afterEach(() => {
+    for (const fixture of [...authorityFixtures].reverse()) fixture.restore();
+    authorityFixtures.length = 0;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM;
     delete process.env.PROJECT_CONTEXT_BINDING_SUPERSESSION_ISSUER_KEY_ID;
@@ -444,12 +454,40 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     };
   }
 
+  async function provisionGovernedV3(args: {
+    subject: ExecutionIdentitySubjectV3;
+    deterministicSeed: string;
+    contextBindingRef: { artifact_id: string; artifact_type: string };
+    projectContextRef: { artifact_id: string; artifact_type: string };
+    propertyContextRef: { artifact_id: string; artifact_type: string };
+    geometryRef: { artifact_id: string; artifact_type: string };
+    label: string;
+  }) {
+    const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
+    const fixture = await provisionLuSourceAuthorityFixture({
+      repository: repo,
+      subject: args.subject,
+      deterministic_seed: args.deterministicSeed,
+      capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
+      release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      governed_references: [
+        args.contextBindingRef,
+        args.projectContextRef,
+        args.propertyContextRef,
+        { artifact_id: RELEASE_A_ID, artifact_type: 'product_release_manifest' },
+        args.geometryRef,
+      ],
+      label: args.label,
+    });
+    authorityFixtures.push(fixture);
+    return fixture.identity;
+  }
+
   it('CURRENT HEAD + matching V2 identity -> ACCEPT', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-accept-${Date.now()}`;
     const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 ACCEPT 1:1' });
 
-    const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
     // PRODUCT-LU-LOCALIZATION-GEOMETRY-01: current product issuance is V3, scoped by the
     // localization point too -- the project has no explicit point yet, so the usecase derives one
@@ -472,14 +510,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       localization_geometry_ref: geometryRef,
     });
-    await issueExecutionIdentityV3({
+    await provisionGovernedV3({
       subject: subjectV3,
-      deterministic_seed: seed,
-      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
-      capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
-      release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-      issuer_ref: luAuthorityIssuerRef,
-      artifact_repository: repo,
+      deterministicSeed: seed,
+      contextBindingRef,
+      projectContextRef,
+      propertyContextRef,
+      geometryRef,
+      label: `v2-positive-${projectId}`,
     });
 
     const report = await new GenerateLocalizationReportUseCase(async () => runtime(repo)).execute({
@@ -488,21 +526,16 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
     });
     expect(report.siteAnalyses[0].executionMotor?.admitted).toBe(true);
 
-    // P3-LU-ASSESSMENT-PROJECTION-RELIABILITY-01: this test's projectId has no real Postgres
-    // Project row, so registerAssessmentProjection's real DB write genuinely fails (FK
-    // violation) here -- proving, through the real usecase (not a mock), that a projection
-    // failure (a) does NOT invalidate the already CAS-persisted, already-admitted assessment,
-    // and (b) is surfaced on the returned report as an explicit false, not swallowed into a
-    // log line only.
+    // The proof provisions ordinary relational Project/owner state as well as the governed
+    // CAS context, so the admitted assessment's projection must also register successfully.
     expect(report.siteAnalyses[0].executionMotor?.assessment_artifact_id).toBeTruthy();
-    expect(report.siteAnalyses[0].executionMotor?.assessment_projection_registered).toBe(false);
+    expect(report.siteAnalyses[0].executionMotor?.assessment_projection_registered).toBe(true);
   });
 
   it('same exact product state replayed twice -> deterministic acceptance both times', async () => {
     await putRelease(RELEASE_A_ID, RELEASE_A_HASH);
     const projectId = `project-v2-replay-${Date.now()}`;
     const { contextBindingRef, projectContextRef, propertyContextRef, propertyIdentity } = await provisionRealProject({ repo, issuer, signing: issuerKey.provider, projectId, propertyDesignation: 'V2 REPLAY' });
-    const capability = registry.resolveCapabilityByKey(LU_SITE_ASSESSMENT_CAPABILITY_KEY)!;
     const subject = subjectFor(projectId, propertyIdentity, contextBindingRef);
     const geometryRef = deriveExpectedGeometryRef(projectId, propertyContextRef);
     const subjectV3: ExecutionIdentitySubjectV3 = { ...subject, localization_geometry_ref: geometryRef };
@@ -518,14 +551,14 @@ describe('PRODUCT-LU-EXECUTION-IDENTITY-V2-WIRING-01 — real runtime proof thro
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       localization_geometry_ref: geometryRef,
     });
-    await issueExecutionIdentityV3({
+    await provisionGovernedV3({
       subject: subjectV3,
-      deterministic_seed: seed,
-      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
-      capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
-      release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-      issuer_ref: luAuthorityIssuerRef,
-      artifact_repository: repo,
+      deterministicSeed: seed,
+      contextBindingRef,
+      projectContextRef,
+      propertyContextRef,
+      geometryRef,
+      label: `v2-positive-${projectId}`,
     });
 
     const runOnce = () =>

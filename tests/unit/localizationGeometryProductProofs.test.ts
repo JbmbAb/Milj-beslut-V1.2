@@ -213,8 +213,7 @@ import {
   installVerifiedProductLuContext,
   attestProjectContextBindingArtifact,
 } from '../../server/modules/localization/projectContextBindingAuthority';
-import { issueExecutionIdentityV3 } from '../../packages/mps-lu/src/execution/LuExecutionIdentityIssuer';
-import { LU_EXECUTION_PRINCIPAL_ID } from '../../packages/mps-lu/src/execution/LuExecutionKernelClient';
+import { provisionLuSourceAuthorityFixture } from '../../packages/mps-lu/tests/fixtures/provisionLuSourceAuthority';
 import type { ExecutionIdentitySubjectV3 } from '../../packages/mps-runtime/src/execution/ExecutionIdentityScopeV2';
 import { registerLocalizationGeometry, resolveCurrentLocalizationGeometry } from '../../server/modules/localization/localizationGeometryProjection';
 import { resolveCurrentAssessmentProjection } from '../../server/modules/localization/assessmentProjection';
@@ -392,8 +391,10 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   let repo: InMemoryArtifactRepository;
   let issuer: ReturnType<typeof createProjectContextBindingIssuerArtifact>;
   let registry: ReturnType<typeof createLuRegistryRuntime>;
+  const authorityFixtures: Array<{ restore(): void }> = [];
 
   beforeEach(() => {
+    authorityFixtures.length = 0;
     vi.clearAllMocks();
     vi.spyOn(orchestrator, 'generateDocumentEvidence').mockResolvedValue([]);
     repo = new InMemoryArtifactRepository();
@@ -410,6 +411,8 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
   });
 
   afterEach(() => {
+    for (const fixture of [...authorityFixtures].reverse()) fixture.restore();
+    authorityFixtures.length = 0;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_KEY_ID;
     delete process.env.PROJECT_CONTEXT_BINDING_ISSUER_PUBLIC_KEY_PEM;
     delete process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
@@ -464,14 +467,21 @@ describe('PRODUCT-LU-LOCALIZATION-GEOMETRY-01 — end-to-end product proofs thro
       rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
       localization_geometry_ref: args.geometryRef,
     });
-    return issueExecutionIdentityV3({
+    const authorityFixture = await provisionLuSourceAuthorityFixture({
+      repository: repo,
       subject,
       deterministic_seed: seed,
-      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: 'execution_identity' },
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-      artifact_repository: repo,
+      governed_references: [
+        args.contextBindingRef,
+        { artifact_id: RELEASE_ID, artifact_type: 'product_release_manifest' },
+        args.geometryRef,
+      ],
+      label: `geometry-${args.projectId}-${authorityFixtures.length}`,
     });
+    authorityFixtures.push(authorityFixture);
+    return authorityFixture.identity;
   }
 
   it('proof 10 + compatibility: existing project with no explicit geometry -> exactly one derived_from_property_boundary POINT is created and reused, and the run executes', async () => {
