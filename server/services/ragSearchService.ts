@@ -144,7 +144,7 @@ export async function runRagSearch(params: {
   let answer = '';
   let fallback = false;
 
-  if (process.env.VERTEX_PROJECT_ID?.trim() && (context || graphContext)) {
+  if (context || graphContext) {
     try {
       const systemLang = lang === 'sv' ? 'svenska' : 'English';
       const systemInstruction = ragSystemInstruction(DEFAULT_AI_POLICY);

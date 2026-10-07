@@ -167,21 +167,10 @@ if (!isTrue('BANKID_MOCK_MODE') && hasBankIdCert && hasBankIdUrl) {
 
 // ── 6. AI-modeller ────────────────────────────────────────────────────────────
 
-const hasVertexProject = Boolean(env('VERTEX_PROJECT_ID'));
-const hasVertexLocation = Boolean(env('VERTEX_LOCATION'));
-const hasVertexAdc =
-  Boolean(env('GOOGLE_APPLICATION_CREDENTIALS')) || Boolean(env('GOOGLE_APPLICATION_CREDENTIALS_JSON'));
-
-if (hasVertexProject && hasVertexLocation) {
-  pass(
-    'VERTEX_AI',
-    `Project ${env('VERTEX_PROJECT_ID')} @ ${env('VERTEX_LOCATION')}${hasVertexAdc ? '' : ' (förväntar ADC/workload identity i moln)'}`,
-  );
-} else if (env('GEMINI_API_KEY')) {
-  warn('VERTEX_AI', 'GEMINI_API_KEY satt men VERTEX_PROJECT_ID saknas – Vertex används inte i prod');
-} else {
-  fail('VERTEX_AI', 'VERTEX_PROJECT_ID + VERTEX_LOCATION krävs (GEMINI_API_KEY räcker inte längre)');
-}
+warn(
+  'LOCAL_GENERATION',
+  'Ingen styrd lokal generation-runtime finns ännu (BLOCKED_BY_LOCAL_GENERATION_RUNTIME) – generering fail-closed; inga Google/Vertex-krav',
+);
 
 // ── 7. CORS ───────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { EnvironmentalForm } from '../types';
-import { autoFillFormSection } from '../services/geminiService';
+import { autoFillFormSection } from '../services/aiAssistantService';
 
 const BLANK_FORM: EnvironmentalForm = {
   id: 'mkb-90.131',

@@ -2,17 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockGenerateContent = vi.fn();
 
-vi.mock('../../server/services/vertexAiService', () => {
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => {
   return {
-    generateTextWithVertex: vi.fn((prompt: string, opts?: unknown) => mockGenerateContent(prompt, opts)),
-    generateJsonWithVertex: vi.fn(async () => null),
-    vertexConfigStatus: vi.fn(() => ({
-      configured: true,
-      missing: [],
-      projectId: 'test',
-      location: 'europe-west1',
-    })),
-    __resetVertexClientForTest: vi.fn(),
+    generateText: vi.fn((prompt: string, opts?: unknown) => mockGenerateContent(prompt, opts)),
+    generateJson: vi.fn(async () => null),
+    isLocalGenerationAvailable: vi.fn(() => true),
+    localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
   };
 });
 

@@ -1,6 +1,6 @@
 import { logger } from '../logger';
 import { RerankPromptService } from './rerankPromptService';
-import { generateJsonWithVertex, vertexConfigStatus } from './vertexAiService';
+import { generateJson as generateLocalJson, localGenerationStatus } from '../modules/ai/generation/LocalGenerationPort';
 
 export type LegalRerankCandidate = {
   id: string;
@@ -10,7 +10,7 @@ export type LegalRerankCandidate = {
 
 export type LegalRerankOutcome<T extends LegalRerankCandidate> = {
   items: Array<T & { finalScore: number; rerankApplied: boolean }>;
-  engine: 'gemini' | 'lexical';
+  engine: 'local' | 'lexical';
   promptVersion: string;
   skipReason?: string;
 };
@@ -73,9 +73,9 @@ function parseRerankScores(payload: unknown): RerankScoreRow[] | null {
 }
 
 /**
- * Gemini rerank via Vertex AI (OAuth2/ADC); lexical fallback vid fel eller saknad Vertex-konfig.
+ * Local/on-prem rerank through the provider-neutral generation port; lexical fallback when the local runtime is unavailable or fails.
  */
-export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
+export async function rerankWithLocalOrLexical<T extends LegalRerankCandidate>(
   query: string,
   items: T[],
   limit: number,
@@ -88,12 +88,12 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
     return { items: [], engine: 'lexical', promptVersion: 'none', skipReason: 'NO_CANDIDATES' };
   }
 
-  const vertexStatus = vertexConfigStatus();
-  if (!vertexStatus.configured) {
-    logger.warn('LEGAL_RERANKER: Vertex AI saknas — kör lexical fallback.', {
-      missing: vertexStatus.missing,
+  const generation = localGenerationStatus();
+  if (!generation.available) {
+    logger.warn('LEGAL_RERANKER: ingen lokal generering registrerad — kör lexical fallback.', {
+      blocker: generation.blocker,
     });
-    return toLexicalOutcome(query, candidates, 'offline-fallback', 'MISSING_VERTEX_CONFIG');
+    return toLexicalOutcome(query, candidates, 'offline-fallback', 'MISSING_LOCAL_GENERATION_RUNTIME');
   }
 
   try {
@@ -102,15 +102,14 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
       candidates.map((c) => ({ id: c.id, chunkText: c.chunkText })),
     );
 
-    logger.info('LEGAL_RERANKER: kör Vertex Gemini rerank', {
+    logger.info('LEGAL_RERANKER: kör lokal rerank', {
       query,
       promptVersion: version,
       candidatesCount: candidates.length,
-      projectId: vertexStatus.projectId,
-      location: vertexStatus.location,
+      runtimeId: generation.runtime_id,
     });
 
-    const scores = await generateJsonWithVertex<RerankScoreRow[]>(prompt, {
+    const scores = await generateLocalJson<RerankScoreRow[]>(prompt, {
       profile: 'fast',
       temperature: 0.1,
       maxOutputTokens: 4096,
@@ -118,7 +117,7 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
     });
 
     if (!scores?.length) {
-      throw new Error('Vertex returnerade tom eller ogiltig rerank-JSON');
+      throw new Error('Lokal generering returnerade tom eller ogiltig rerank-JSON');
     }
 
     const ranked = candidates
@@ -129,10 +128,10 @@ export async function rerankWithGeminiOrLexical<T extends LegalRerankCandidate>(
       })
       .sort((a, b) => b.finalScore - a.finalScore);
 
-    return { items: ranked, engine: 'gemini', promptVersion: version };
+    return { items: ranked, engine: 'local', promptVersion: version };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error(`LEGAL_RERANKER: Vertex Gemini misslyckades (${message}) — lexical fallback.`);
+    logger.error(`LEGAL_RERANKER: lokal rerank misslyckades (${message}) — lexical fallback.`);
     return toLexicalOutcome(query, candidates, 'error-fallback', `ERROR: ${message}`);
   }
 }

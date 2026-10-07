@@ -8,7 +8,7 @@ import type { Permit, Receiver } from '../../types';
 // We still stub the leaflet module to prevent it from being loaded in jsdom (which lacks a DOM canvas).
 vi.mock('leaflet', () => ({}));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   fetchMunicipalityContext: vi.fn(),
 }));
 

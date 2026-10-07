@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Permit } from '../types';
-import { analyzePermitRisk } from '../services/geminiService';
+import { analyzePermitRisk } from '../services/aiAssistantService';
 import MunicipalityAvatar from './MunicipalityAvatar';
 import { BtfaNoteWidget } from './BtfaNoteWidget';
 

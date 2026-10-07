@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  generateJsonWithVertex: vi.fn(),
-  vertexConfigStatus: vi.fn(),
+  generateJson: vi.fn(),
+  localGenerationStatus: vi.fn(),
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateJsonWithVertex: mocks.generateJsonWithVertex,
-  vertexConfigStatus: mocks.vertexConfigStatus,
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateJson: mocks.generateJson,
+  localGenerationStatus: mocks.localGenerationStatus,
 }));
 
 vi.mock('../../server/services/rerankPromptService', () => ({
@@ -20,19 +20,13 @@ vi.mock('../../server/services/rerankPromptService', () => ({
   },
 }));
 
-import { localLexicalRerank, rerankWithGeminiOrLexical } from '../../server/services/legalRerankService';
+import { localLexicalRerank, rerankWithLocalOrLexical } from '../../server/services/legalRerankService';
 
 describe('legalRerankService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.vertexConfigStatus.mockReturnValue({
-      configured: true,
-      missing: [],
-      projectId: 'miljointelligens',
-      location: 'europe-west1',
-      hasExplicitServiceAccountFile: false,
-    });
-    mocks.generateJsonWithVertex.mockResolvedValue([
+    mocks.localGenerationStatus.mockReturnValue({ available: true, runtime_id: 'test', model_id: 'test', blocker: null });
+    mocks.generateJson.mockResolvedValue([
       { id: 'a', score: 0.95 },
       { id: 'b', score: 0.4 },
     ]);
@@ -50,8 +44,8 @@ describe('legalRerankService', () => {
     expect(ranked[0].chunkText).toBe('fosfor i avlopp');
   });
 
-  it('rerankWithGeminiOrLexical använder Vertex när konfigurerad', async () => {
-    const result = await rerankWithGeminiOrLexical(
+  it('rerankWithLocalOrLexical använder lokal runtime när konfigurerad', async () => {
+    const result = await rerankWithLocalOrLexical(
       'fosfor',
       [
         { id: 'a', chunkText: 'a', score: 0.1 },
@@ -60,23 +54,17 @@ describe('legalRerankService', () => {
       8,
     );
 
-    expect(result.engine).toBe('gemini');
+    expect(result.engine).toBe('local');
     expect(result.promptVersion).toBe('test-prompt-v1');
-    expect(mocks.generateJsonWithVertex).toHaveBeenCalledOnce();
+    expect(mocks.generateJson).toHaveBeenCalledOnce();
     expect(result.items[0].id).toBe('a');
     expect(result.items[0].finalScore).toBe(0.95);
   });
 
-  it('rerankWithGeminiOrLexical faller tillbaka till lexical utan Vertex-konfig', async () => {
-    mocks.vertexConfigStatus.mockReturnValue({
-      configured: false,
-      missing: ['VERTEX_PROJECT_ID'],
-      projectId: null,
-      location: 'europe-west1',
-      hasExplicitServiceAccountFile: false,
-    });
+  it('rerankWithLocalOrLexical faller tillbaka till lexical utan lokal generation-runtime', async () => {
+    mocks.localGenerationStatus.mockReturnValue({ available: false, runtime_id: null, model_id: null, blocker: 'BLOCKED_BY_LOCAL_GENERATION_RUNTIME' });
 
-    const result = await rerankWithGeminiOrLexical(
+    const result = await rerankWithLocalOrLexical(
       'fosfor avlopp',
       [{ id: 'a', chunkText: 'fosfor avlopp', score: 0.1 }],
       8,
@@ -84,14 +72,14 @@ describe('legalRerankService', () => {
 
     expect(result.engine).toBe('lexical');
     expect(result.promptVersion).toBe('offline-fallback');
-    expect(result.skipReason).toBe('MISSING_VERTEX_CONFIG');
-    expect(mocks.generateJsonWithVertex).not.toHaveBeenCalled();
+    expect(result.skipReason).toBe('MISSING_LOCAL_GENERATION_RUNTIME');
+    expect(mocks.generateJson).not.toHaveBeenCalled();
   });
 
-  it('rerankWithGeminiOrLexical faller tillbaka vid Vertex-fel', async () => {
-    mocks.generateJsonWithVertex.mockRejectedValue(new Error('Vertex timeout'));
+  it('rerankWithLocalOrLexical faller tillbaka vid lokalt runtime-fel', async () => {
+    mocks.generateJson.mockRejectedValue(new Error('local generation timeout'));
 
-    const result = await rerankWithGeminiOrLexical(
+    const result = await rerankWithLocalOrLexical(
       'fosfor',
       [{ id: 'a', chunkText: 'fosfor avlopp', score: 0.1 }],
       8,
@@ -99,6 +87,6 @@ describe('legalRerankService', () => {
 
     expect(result.engine).toBe('lexical');
     expect(result.promptVersion).toBe('error-fallback');
-    expect(result.skipReason).toContain('Vertex timeout');
+    expect(result.skipReason).toContain('local generation timeout');
   });
 });

@@ -57,11 +57,10 @@ export async function getAppHealthReport(): Promise<AppHealthReport> {
     {
       tier: 2 as const,
       label: 'Databas & kärntjänster',
-      description: 'PostgreSQL, Vertex och dokumentlagring.',
+      description: 'PostgreSQL och dokumentlagring.',
       ready: tier2Ready,
       checks: [
         { name: 'Databas', ok: readiness.database === 'ok', note: `Status: ${readiness.database}` },
-        { name: 'Vertex AI', ok: readiness.vertex.state === 'ok', note: readiness.vertex.missing.join(', ') || 'Konfigurerad' },
         { name: 'Lagring', ok: readiness.storage.state === 'ok' || readiness.storage.state === 'warning', note: readiness.storage.note ?? readiness.storage.backend },
       ],
     },

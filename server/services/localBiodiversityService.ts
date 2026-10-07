@@ -3,8 +3,8 @@ import { evaluateComplianceRules, type SiteAnalysis } from './complianceRuleEngi
 import type { ProtectedArea } from './nvrService';
 import type { GeologicalData } from './sguService';
 import type { Monument } from './raaService';
-import { generateTextWithVertex } from './vertexAiService';
-import { GEMINI_SYSTEM_PROMPT } from './geminiSystemPrompt';
+import { generateText as generateLocalText } from '../modules/ai/generation/LocalGenerationPort';
+import { LOCAL_GENERATION_SYSTEM_PROMPT } from './localGenerationSystemPrompt';
 
 export type BiodiversityAnalysisResult = {
   observations: SpeciesObservation[];
@@ -55,9 +55,9 @@ export async function analyzeBiodiversityWithCompliance(
      Analysera geodataresultaten enligt Miljöbalken (MB) och Kulturmiljölagen (KML). Bedöm sannolikheten för tillstånd.
      Svara med en text som förklarar vilka kapitel i MB som berörs (t.ex. 2 kap, 3 kap, 7 kap, 9 kap) och varför.`;
 
-  const summary = await generateTextWithVertex(prompt, {
+  const summary = await generateLocalText(prompt, {
     profile: 'fast',
-    systemInstruction: GEMINI_SYSTEM_PROMPT,
+    systemInstruction: LOCAL_GENERATION_SYSTEM_PROMPT,
   });
 
   if (!summary?.trim()) {

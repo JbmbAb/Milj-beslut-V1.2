@@ -89,9 +89,6 @@ async function main() {
   );
   record('env:LANTMATERIET_AUTH', hasLmAuth, hasLmAuth ? 'konfigurerad' : 'saknar nycklar');
 
-  const hasVertex = Boolean(env('VERTEX_PROJECT_ID') && env('VERTEX_LOCATION'));
-  record('env:VERTEX_AI', hasVertex, hasVertex ? env('VERTEX_PROJECT_ID') : 'VERTEX_PROJECT_ID saknas');
-
   // ── 2. Demo-flaggor ──────────────────────────────────────────────────────
   record('flag:LANTMATERIET_DEMO_MODE', !isTrue('LANTMATERIET_DEMO_MODE'), isTrue('LANTMATERIET_DEMO_MODE') ? 'AKTIV — stäng av' : 'av');
   record('flag:AUTHORITY_MOCK_MODE', !isTrue('AUTHORITY_MOCK_MODE'), isTrue('AUTHORITY_MOCK_MODE') ? 'AKTIV — stäng av i demo' : 'av');

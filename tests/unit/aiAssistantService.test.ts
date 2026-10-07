@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock Vertex AI gateway (ersätter gamla Gemini SDK-mockar) ──────────────
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: vi.fn(async () => ''),
-  generateJsonWithVertex: vi.fn(async () => null),
-  vertexConfigStatus: vi.fn(() => ({
-    configured: false,
-    missing: ['VERTEX_PROJECT_ID'],
-    projectId: null,
-    location: 'europe-west1',
-  })),
-  __resetVertexClientForTest: vi.fn(),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: vi.fn(async () => ''),
+  generateJson: vi.fn(async () => null),
+  isLocalGenerationAvailable: vi.fn(() => false),
+  localGenerationStatus: vi.fn(() => ({ available: false, runtime_id: 'test', model_id: 'test', blocker: 'BLOCKED_BY_LOCAL_GENERATION_RUNTIME' })),
 }));
 
 // ─── Module under test ────────────────────────────────────────────────────────
@@ -22,7 +17,7 @@ import {
   validateLabData,
   analyzeLogisticsCompliance,
   serverGenerateText,
-} from '../../services/geminiService';
+} from '../../services/aiAssistantService';
 import { DecisionType, type Permit } from '../../types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -68,7 +63,7 @@ describe('serverGenerateText', () => {
 // ─── analyzePermitRisk – kräver live AI-källa ──────────────────────────────────
 //
 // OBS: Tidigare test förväntade "offline fallback" med lokala strängar.
-// Den vägen är avvecklad: utan verifierad AI-källa kastar geminiService
+// Den vägen är avvecklad: utan verifierad AI-källa kastar aiAssistantService
 // `unavailable(...)` enligt regeln att endast BankID får köras som demo.
 describe('analyzePermitRisk', () => {
   it('kastar när ingen AI-källa finns (ingen lokal fallback)', async () => {

@@ -22,7 +22,7 @@ vi.mock('../../components/admin/hooks/usePaginationState', () => ({
   })),
 }));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   generateSewageSitingAssessment: vi.fn().mockResolvedValue('Placeringen uppfyller avståndskrav.'),
 }));
 

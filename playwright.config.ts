@@ -98,7 +98,6 @@ const serverEnv = {
   DOMSTOL_RSS_ENABLED: 'false',
   DISABLE_DB_RATE_LIMIT: 'true',
   SEARCH_WORKER_ENABLED: 'false',
-  VERTEX_PROJECT_ID: trim(process.env.VERTEX_PROJECT_ID) || 'miljointelligens',
   EXEC_SUMMARY_MOCK_MODE: trim(process.env.EXEC_SUMMARY_MOCK_MODE) || (process.env.CI ? 'true' : ''),
   ...(geminiApiKey ? { GEMINI_API_KEY: geminiApiKey } : {}),
 };

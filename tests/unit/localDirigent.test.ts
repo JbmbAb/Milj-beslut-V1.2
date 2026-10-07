@@ -3,21 +3,21 @@ import {
   runComplianceWorkflowWithToolTrace,
   type OrchestrationRequest,
 } from '../../services/orchestrationService';
-import { toolTraceContentHash, summarizeVerifiedToolTrace } from '../../server/services/vertexDirigent';
+import { toolTraceContentHash, summarizeVerifiedToolTrace } from '../../server/services/localDirigent';
 import {
   evaluateProjectCompliance,
   type ComplianceMetrics,
 } from '../../server/services/complianceRuleEngine';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   validateLabData: vi.fn(),
   analyzeLogisticsCompliance: vi.fn(),
 }));
 
-import * as geminiService from '../../services/geminiService';
+import * as aiAssistantService from '../../services/aiAssistantService';
 
-const mockValidateLab = vi.mocked(geminiService.validateLabData);
-const mockAnalyzeLogistics = vi.mocked(geminiService.analyzeLogisticsCompliance);
+const mockValidateLab = vi.mocked(aiAssistantService.validateLabData);
+const mockAnalyzeLogistics = vi.mocked(aiAssistantService.analyzeLogisticsCompliance);
 
 function baseRequest(overrides: Partial<OrchestrationRequest> = {}): OrchestrationRequest {
   return {
@@ -89,13 +89,13 @@ describe('bevis: toolTrace = källa, inte LLM', () => {
     expect(h1).toBe(h2);
   });
 
-  it('summarizeVerifiedToolTrace utan Vertex lämnar riskScore synlig oförändrad från spåret (ingen hallucination yta)', async () => {
+  it('summarizeVerifiedToolTrace utan lokal generering lämnar riskScore synlig oförändrad från spåret (ingen hallucination yta)', async () => {
     const r = await runComplianceWorkflowWithToolTrace(baseRequest({ volumeTons: 500 }));
     const text = await summarizeVerifiedToolTrace(r.toolTrace);
     const rule = r.toolTrace.find((t) => t.toolId === 'rule_engine_evaluate')?.output as {
       riskScore: string;
     };
     expect(text).toContain('rule_engine riskScore: ' + rule.riskScore);
-    expect(text).toContain('[offline/utan Vertex]');
+    expect(text).toContain('[offline/utan lokal generering]');
   });
 });

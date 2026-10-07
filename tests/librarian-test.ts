@@ -7,10 +7,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { LibrarianService } from '../server/services/librarianService';
-import * as vertexAi from '../server/services/vertexAiService';
+import * as vertexAi from '../server/modules/ai/generation/LocalGenerationPort';
 
-vi.mock('../server/services/vertexAiService', () => ({
-  generateTextWithVertex: vi.fn(),
+vi.mock('../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: vi.fn(),
 }));
 
 describe('Mimer Librarian Service', () => {
@@ -25,7 +25,7 @@ describe('Mimer Librarian Service', () => {
 - Import till PostGIS-tabell core.groundwater_wells (tidsberäknat till 2 min).
     `;
 
-    vi.mocked(vertexAi.generateTextWithVertex).mockResolvedValue(mockPlan);
+    vi.mocked(vertexAi.generateText).mockResolvedValue(mockPlan);
 
     const result = await LibrarianService.planHarvesting({
       datasetName: 'Grundvattenbrunnar',
@@ -47,7 +47,7 @@ describe('Mimer Librarian Service', () => {
 3. Arkivera funna PDF-handlingar till H-disken.
     `;
 
-    vi.mocked(vertexAi.generateTextWithVertex).mockResolvedValue(mockDiaryPlan);
+    vi.mocked(vertexAi.generateText).mockResolvedValue(mockDiaryPlan);
 
     const result = await LibrarianService.planDiaryIntegration('Mariestads kommun', 'Västra Götaland');
 
@@ -63,7 +63,7 @@ describe('Mimer Librarian Service', () => {
 3. Ladda ner med batch-storlek 5 och 2s jitter.
     `;
 
-    vi.mocked(vertexAi.generateTextWithVertex).mockResolvedValue(mockScrapingPlan);
+    vi.mocked(vertexAi.generateText).mockResolvedValue(mockScrapingPlan);
 
     const result = await LibrarianService.planSelectiveScraping('lmm_targets.csv', 'beslutsklass: C');
 
@@ -78,7 +78,7 @@ Föreslagna optimeringar för core.wells:
 2. Skapa Context Bridge-vy: view_well_context_summary som kombinerar djup och jordart.
     `;
 
-    vi.mocked(vertexAi.generateTextWithVertex).mockResolvedValue(mockReview);
+    vi.mocked(vertexAi.generateText).mockResolvedValue(mockReview);
 
     const result = await LibrarianService.reviewPostGisTable({
       tableName: 'core.wells',

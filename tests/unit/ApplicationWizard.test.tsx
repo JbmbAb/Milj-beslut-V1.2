@@ -3,7 +3,7 @@ import { render } from '@testing-library/react';
 import React from 'react';
 import ApplicationWizard from '../../components/ApplicationWizard';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   generatePlanDraft: vi.fn(),
   suggestStakeholders: vi.fn(),
   validateApplication: vi.fn(),

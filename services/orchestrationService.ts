@@ -3,7 +3,7 @@ import {
   analyzeLogisticsCompliance,
   LabDataValidationResult,
   LogisticsComplianceResult,
-} from './geminiService';
+} from './aiAssistantService';
 import {
   evaluateProjectCompliance,
   ComplianceMetrics,

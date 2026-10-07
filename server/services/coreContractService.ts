@@ -135,7 +135,7 @@ export async function getComplianceRequirements(
       userId: 'system',
       activityCode: input.activity_code,
       count: aiRequirements.length,
-      model: process.env.VERTEX_FAST_MODEL?.trim() || 'vertex-fast',
+      model: 'local-generation',
     }).catch(() => undefined);
     return {
       traceId,
@@ -261,7 +261,7 @@ export async function generatePermitDraft(
       ),
       userId: 'system',
       documentType: aiDraft.document_type,
-      model: process.env.VERTEX_TEXT_MODEL?.trim() || 'vertex-text',
+      model: 'local-generation',
     }).catch(() => undefined);
     return {
       traceId,

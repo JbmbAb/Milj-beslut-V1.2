@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { generateJsonWithVertex, generateTextWithVertex } from '../../../../services/vertexAiService';
+import { generateJson as generateLocalJson, generateText as generateLocalText } from '../../generation/LocalGenerationPort';
 
 const PROMPT_FILE = 'librarian_prompt.md';
 const promptDir = dirname(fileURLToPath(import.meta.url));
@@ -101,7 +101,7 @@ function parseActionPlan(payload: unknown): LibrarianActionPlan | null {
 export class MimerLibrarianService {
   async createActionPlan(request: LibrarianRequest): Promise<LibrarianActionPlan> {
     const systemInstruction = await loadLibrarianPrompt();
-    const plan = await generateJsonWithVertex<LibrarianActionPlan>(buildTaskPrompt(request), {
+    const plan = await generateLocalJson<LibrarianActionPlan>(buildTaskPrompt(request), {
       profile: 'json',
       temperature: 0.1,
       maxOutputTokens: 4096,
@@ -118,7 +118,7 @@ export class MimerLibrarianService {
 
   async ask(question: string): Promise<string> {
     const systemInstruction = await loadLibrarianPrompt();
-    return generateTextWithVertex(question, {
+    return generateLocalText(question, {
       profile: 'text',
       temperature: 0.1,
       maxOutputTokens: 2048,

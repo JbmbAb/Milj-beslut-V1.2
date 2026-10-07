@@ -5,11 +5,11 @@ import DetailModal from '../../components/DetailModal';
 import { DecisionType } from '../../types';
 import type { Permit } from '../../types';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   analyzePermitRisk: vi.fn(),
 }));
 
-import { analyzePermitRisk } from '../../services/geminiService';
+import { analyzePermitRisk } from '../../services/aiAssistantService';
 
 const mockPermit: Permit = {
   id: '1',

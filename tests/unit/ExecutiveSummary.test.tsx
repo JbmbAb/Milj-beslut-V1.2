@@ -3,7 +3,7 @@ import { render, waitFor } from '@testing-library/react';
 import React from 'react';
 import ExecutiveSummary from '../../components/ExecutiveSummary';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   generateExecutiveSummary: vi.fn(),
   fetchComplianceMetrics: vi.fn(),
 }));

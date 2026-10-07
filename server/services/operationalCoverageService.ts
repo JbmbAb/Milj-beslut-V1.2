@@ -6,7 +6,6 @@
 import { prisma } from '../db/prisma';
 import { hasLantmaterietAuth } from '../security/env';
 import { getPublicDatasourceSummary } from './publicUiService';
-import { vertexConfigStatus } from './vertexAiService';
 
 const SWEDISH_MUNICIPALITY_TARGET = 290;
 const PRODUCTION_MUNICIPALITY_TARGET = 260;
@@ -47,7 +46,6 @@ function integrationConfiguredChecks(): boolean[] {
       (envPresent('BANKID_PFX_PATH') ||
         (envPresent('BANKID_CERT_PATH') && envPresent('BANKID_KEY_PATH'))),
     hasLantmaterietAuth(),
-    vertexConfigStatus().configured,
     envPresent('AUTHORITY_SUBMIT_ENDPOINT') || envPresentAsTrue('AUTHORITY_MOCK_MODE'),
     envPresent('EIDAS_QTSP_ENDPOINT') && envPresent('EIDAS_QTSP_API_KEY'),
     envPresent('TERRAIN_ENDPOINT'),

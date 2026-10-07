@@ -1,5 +1,5 @@
-// Vertex AI används server-side via `server/services/vertexAiService.ts`.
-// Klientsidan anropar plattformens egna /api/gemini-endpoint vilket i sin tur
+// Generering körs server-side via den lokala generation-porten (`server/modules/ai/generation`).
+// Klientsidan anropar plattformens egna /api/ai-assistant-endpoint vilket i sin tur
 // går mot Vertex. Direktanrop till Google GenerativeAI SDK är avvecklat i
 // spår 10b (Vertex-migration).
 import { CircuitBreaker } from '../server/utils/circuitBreaker';
@@ -49,7 +49,7 @@ export type LogisticsComplianceResult = {
 
 const TOKEN_KEY = 'miljobeslut_admin_bearer';
 
-const GEMINI_SYSTEM_PROMPT = `You are an Environmental Compliance Analysis Engine used in a professional SaaS platform for environmental permitting and waste management in Sweden.
+const LOCAL_GENERATION_SYSTEM_PROMPT = `You are an Environmental Compliance Analysis Engine used in a professional SaaS platform for environmental permitting and waste management in Sweden.
 
 The platform supports:
 - Environmental permitting
@@ -209,7 +209,7 @@ Verify that every compliance statement contains a valid legal citation.
 If a statement lacks citation:
 mark as "UNVERIFIED".`;
 
-const geminiCircuit = new CircuitBreaker('Vertex-AI', {
+const localGenerationCircuit = new CircuitBreaker('Local-Generation', {
   failureThreshold: 3,
   recoveryTimeoutMs: 60000, // 1 minute
 });
@@ -222,60 +222,61 @@ function hasWindow(): boolean {
   return typeof window !== 'undefined' && !isNodeRuntime();
 }
 
-function isVertexConfigured(): boolean {
-  if (typeof process === 'undefined' || !process.env) return false;
-  return Boolean(String(process.env.VERTEX_PROJECT_ID || '').trim());
+async function isLocalGenerationConfigured(): Promise<boolean> {
+  if (!isNodeRuntime()) return false;
+  const { isLocalGenerationAvailable } = await import('../server/modules/ai/generation/LocalGenerationPort');
+  return isLocalGenerationAvailable();
 }
 
 export async function serverGenerateText(prompt: string): Promise<string | null> {
-  if (hasWindow() || !isVertexConfigured()) return null;
+  if (hasWindow() || !(await isLocalGenerationConfigured())) return null;
 
-  return geminiCircuit
+  return localGenerationCircuit
     .execute(async () => {
-      const { generateTextWithVertex } = await import('../server/services/vertexAiService');
-      const text = await generateTextWithVertex(prompt, {
+      const { generateText: generateLocalText } = await import('../server/modules/ai/generation/LocalGenerationPort');
+      const text = await generateLocalText(prompt, {
         profile: 'fast',
-        systemInstruction: GEMINI_SYSTEM_PROMPT,
+        systemInstruction: LOCAL_GENERATION_SYSTEM_PROMPT,
       });
       return text.trim() || null;
     })
     .catch((error) => {
-      console.error('Vertex Circuit Breaker caught error:', error.message);
+      console.error('Local generation circuit breaker caught error:', error.message);
       return null;
     });
 }
 
 async function serverGenerateFromParts(parts: unknown[]): Promise<string | null> {
-  if (hasWindow() || !isVertexConfigured()) return null;
+  if (hasWindow() || !(await isLocalGenerationConfigured())) return null;
 
-  return geminiCircuit
+  return localGenerationCircuit
     .execute(async () => {
-      const { generateTextWithVertex } = await import('../server/services/vertexAiService');
+      const { generateText: generateLocalText } = await import('../server/modules/ai/generation/LocalGenerationPort');
       const flattened = (parts as Array<{ text?: string }>)
         .map((part) => (typeof part?.text === 'string' ? part.text : ''))
         .filter(Boolean)
         .join('\n\n');
       if (!flattened) return null;
-      const text = await generateTextWithVertex(flattened, {
+      const text = await generateLocalText(flattened, {
         profile: 'fast',
-        systemInstruction: GEMINI_SYSTEM_PROMPT,
+        systemInstruction: LOCAL_GENERATION_SYSTEM_PROMPT,
       });
       return text.trim() || null;
     })
     .catch((error) => {
-      console.error('Vertex Circuit Breaker caught error:', error.message);
+      console.error('Local generation circuit breaker caught error:', error.message);
       return null;
     });
 }
 
-async function callGeminiApi<T>(method: string, payload: Record<string, unknown>): Promise<T | null> {
+async function callAiAssistantApi<T>(method: string, payload: Record<string, unknown>): Promise<T | null> {
   if (!hasWindow()) return null;
   try {
     const token = String(window.localStorage.getItem(TOKEN_KEY) || '').trim();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const response = await fetch('/api/gemini', {
+    const response = await fetch('/api/ai-assistant', {
       method: 'POST',
       headers,
       body: JSON.stringify({ method, payload }),
@@ -310,7 +311,7 @@ function unavailable<T>(feature: string): T {
 }
 
 export const analyzePermitRisk = async (permit: Permit): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('analyzePermitRisk', { permit });
+  const apiResult = await callAiAssistantApi<string>('analyzePermitRisk', { permit });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateText(
@@ -338,7 +339,7 @@ export const chatWithPermit = async (
 };
 
 export const analyzeSiteImage = async (base64: string, mimeType: string): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('analyzeSiteImage', { base64, mimeType });
+  const apiResult = await callAiAssistantApi<string>('analyzeSiteImage', { base64, mimeType });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateFromParts([
@@ -351,7 +352,7 @@ export const analyzeSiteImage = async (base64: string, mimeType: string): Promis
 };
 
 export const analyzeTechnicalDrawing = async (base64: string, mimeType: string): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('analyzeTechnicalDrawing', { base64, mimeType });
+  const apiResult = await callAiAssistantApi<string>('analyzeTechnicalDrawing', { base64, mimeType });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateFromParts([
@@ -364,7 +365,7 @@ export const analyzeTechnicalDrawing = async (base64: string, mimeType: string):
 };
 
 export const analyzeDrawingOCR = async (base64: string, mimeType: string): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('analyzeDrawingOCR', { base64, mimeType });
+  const apiResult = await callAiAssistantApi<string>('analyzeDrawingOCR', { base64, mimeType });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateFromParts([
@@ -377,7 +378,7 @@ export const analyzeDrawingOCR = async (base64: string, mimeType: string): Promi
 };
 
 export const classifyAsset = async (base64: string, mimeType: string): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('classifyAsset', { base64, mimeType });
+  const apiResult = await callAiAssistantApi<string>('classifyAsset', { base64, mimeType });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateFromParts([
@@ -390,7 +391,7 @@ export const classifyAsset = async (base64: string, mimeType: string): Promise<s
 };
 
 export const suggestStakeholders = async (location: string, description: string): Promise<Stakeholder[]> => {
-  const apiResult = await callGeminiApi<Stakeholder[]>('suggestStakeholders', { location, description });
+  const apiResult = await callAiAssistantApi<Stakeholder[]>('suggestStakeholders', { location, description });
   if (apiResult && Array.isArray(apiResult) && apiResult.length > 0) return apiResult;
 
   const serverResult = await serverGenerateText(
@@ -415,7 +416,7 @@ export const generatePlanDraft = async (
   type: 'background' | 'goals' | 'description',
   context: string,
 ): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('generatePlanDraft', { type, context });
+  const apiResult = await callAiAssistantApi<string>('generatePlanDraft', { type, context });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateText(`Generera utkast fÃ¶r ${type}. Kontext: ${context}.`);
@@ -439,7 +440,7 @@ export const analyzeBiodiversity = async (
   compliance?: SiteAnalysis;
   summary: string;
 }> => {
-  const apiResult = await callGeminiApi<{
+  const apiResult = await callAiAssistantApi<{
     observations: SpeciesObservation[];
     protectedAreas: ProtectedArea[];
     geological?: GeologicalData;
@@ -460,7 +461,7 @@ export const analyzeBiodiversity = async (
 };
 
 export const predictWeatherRisk = async (municipality: string): Promise<WeatherRisk> => {
-  const apiResult = await callGeminiApi<WeatherRisk>('predictWeatherRisk', { municipality });
+  const apiResult = await callAiAssistantApi<WeatherRisk>('predictWeatherRisk', { municipality });
   if (apiResult?.level) return apiResult;
 
   const serverResult = await serverGenerateText(`Väderrisk för schakt i ${municipality}.`);
@@ -494,7 +495,7 @@ export const predictWeatherRisk = async (municipality: string): Promise<WeatherR
 };
 
 export const autoFillFormSection = async (sectionTitle: string, propertyData: unknown): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('autoFillFormSection', {
+  const apiResult = await callAiAssistantApi<string>('autoFillFormSection', {
     sectionTitle,
     propertyData: propertyData as Record<string, unknown>,
   });
@@ -511,7 +512,7 @@ export const autoFillFormSection = async (sectionTitle: string, propertyData: un
 export const fetchMunicipalityContext = async (
   municipality: string,
 ): Promise<{ text: string; sources: GroundingSource[] }> => {
-  const apiResult = await callGeminiApi<{ text: string; sources: GroundingSource[] }>(
+  const apiResult = await callAiAssistantApi<{ text: string; sources: GroundingSource[] }>(
     'fetchMunicipalityContext',
     { municipality },
   );
@@ -527,7 +528,7 @@ export const performSpatialAudit = async (
   lat: number,
   lng: number,
 ): Promise<{ text: string; sources: GroundingSource[] }> => {
-  const apiResult = await callGeminiApi<{ text: string; sources: GroundingSource[] }>('performSpatialAudit', {
+  const apiResult = await callAiAssistantApi<{ text: string; sources: GroundingSource[] }>('performSpatialAudit', {
     lat,
     lng,
   });
@@ -581,7 +582,7 @@ export const askGeneralAssistant = async (_message: string, _history: HistoryIte
  * assessment has no legal-citation surface to begin with).
  */
 export const generateSewageSitingAssessment = async (prompt: string): Promise<string> => {
-  const apiResult = await callGeminiApi<string>('generateSewageSitingAssessment', { prompt });
+  const apiResult = await callAiAssistantApi<string>('generateSewageSitingAssessment', { prompt });
   if (apiResult) return apiResult;
 
   const serverResult = await serverGenerateFromParts([{ text: prompt }]);
@@ -647,7 +648,7 @@ export const processDocumentOCR = async (
 export const generateMarketingSummary = async (
   permits: Permit[],
 ): Promise<{ text: string; sources: GroundingSource[] }> => {
-  const apiResult = await callGeminiApi<{ text: string; sources: GroundingSource[] }>(
+  const apiResult = await callAiAssistantApi<{ text: string; sources: GroundingSource[] }>(
     'generateMarketingSummary',
     { permits },
   );
@@ -668,7 +669,7 @@ export const generateMarketingSummary = async (
 };
 
 export const analyzeCourtRuling = async (rulingText: string): Promise<CourtRulingAnalysis | null> => {
-  const apiResult = await callGeminiApi<CourtRulingAnalysis>('analyzeCourtRuling', { rulingText });
+  const apiResult = await callAiAssistantApi<CourtRulingAnalysis>('analyzeCourtRuling', { rulingText });
   if (apiResult) return apiResult;
 
   const prompt = `SYSTEM ROLE:
@@ -725,7 +726,7 @@ If the ruling text is ambiguous, mark precedent_strength as "unknown" and state 
 };
 
 export const validateLabData = async (labData: string): Promise<LabDataValidationResult | null> => {
-  const apiResult = await callGeminiApi<LabDataValidationResult>('validateLabData', { labData });
+  const apiResult = await callAiAssistantApi<LabDataValidationResult>('validateLabData', { labData });
   if (apiResult) return apiResult;
 
   const prompt = `SYSTEM ROLE:
@@ -783,7 +784,7 @@ export const analyzeLogisticsCompliance = async (params: {
   location: string;
   receivingFacility: string;
 }): Promise<LogisticsComplianceResult | null> => {
-  const apiResult = await callGeminiApi<LogisticsComplianceResult>('analyzeLogisticsCompliance', params);
+  const apiResult = await callAiAssistantApi<LogisticsComplianceResult>('analyzeLogisticsCompliance', params);
   if (apiResult) return apiResult;
 
   const prompt = `SYSTEM ROLE:

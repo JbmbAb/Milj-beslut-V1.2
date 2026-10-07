@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { analyzeSiteImage, analyzeTechnicalDrawing, analyzeDrawingOCR } from '../services/geminiService';
+import { analyzeSiteImage, analyzeTechnicalDrawing, analyzeDrawingOCR } from '../services/aiAssistantService';
 
 const TOKEN_KEY = 'miljobeslut_admin_bearer';
 const PROJECT_KEY = 'miljobeslut_project_id';

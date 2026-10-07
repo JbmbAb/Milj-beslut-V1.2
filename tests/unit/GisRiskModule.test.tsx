@@ -4,7 +4,7 @@ import React from 'react';
 import { resetCsrfTokenCache } from '../../services/csrfClient';
 import GisRiskModule from '../../components/GisRiskModule';
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   analyzeGeoRisk: vi.fn(),
   fetchRiskLayers: vi.fn(),
 }));

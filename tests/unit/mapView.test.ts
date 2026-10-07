@@ -27,7 +27,7 @@ vi.mock('../../src/ui/hooks/useGeoLayers', () => ({
 
 vi.mock('leaflet', () => ({}));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   fetchMunicipalityContext: vi.fn(),
 }));
 

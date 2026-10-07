@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { Permit } from '../types';
 
-export default function GeminiClientExample({ permit }: { permit: Permit }) {
+export default function AiAssistantClientExample({ permit }: { permit: Permit }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -11,7 +11,7 @@ export default function GeminiClientExample({ permit }: { permit: Permit }) {
     setError(null);
     setResult(null);
     try {
-      const res = await fetch('/api/gemini', {
+      const res = await fetch('/api/ai-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method: 'analyzePermitRisk', payload: { permit } }),
@@ -31,7 +31,7 @@ export default function GeminiClientExample({ permit }: { permit: Permit }) {
 
   return (
     <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 6 }}>
-      <h4>Gemini: Analysera tillstånd</h4>
+      <h4>AI Assistant: Analysera tillstånd</h4>
       <div style={{ marginBottom: 8 }}>
         <strong>Fastighet:</strong> {permit.property_id} — <strong>Kommun:</strong> {permit.municipality}
       </div>

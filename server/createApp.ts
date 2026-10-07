@@ -11,7 +11,7 @@ import projectLegacyRouter from './routes/project.routes';
 import organisationRouter from './routes/organisation.routes';
 import generatorsRouter from './routes/generators.routes';
 import logisticsRouter from './routes/logistics.routes';
-import geminiRouter from './geminiApi.express';
+import aiAssistantRouter from './aiAssistantApi.express';
 import geminiDbRouter from './geminiDbApi.express';
 import coreRouter from './coreApi.express';
 import gisRouter from './routes/gis.routes';
@@ -223,7 +223,7 @@ export function createApp() {
   app.use(adminLegacyRouter);
   app.use(adminV1Router);
 
-  app.use(geminiRouter);
+  app.use(aiAssistantRouter);
   app.use(geminiDbRouter);
 
   // Interactions prototype (Gemini) is retired and is not mounted.

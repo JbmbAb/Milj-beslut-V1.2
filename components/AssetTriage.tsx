@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { classifyAsset } from '../services/geminiService';
+import { classifyAsset } from '../services/aiAssistantService';
 
 interface Asset {
   id: string;

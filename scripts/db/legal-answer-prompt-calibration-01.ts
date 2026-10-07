@@ -3,7 +3,7 @@
  *
  * Scope, exactly as approved:
  *   IN:  prompt/version only (ANSWER_PROMPT_VERSION bumped to answer-prompt-v2 in
- *        GeminiAnswerModelProvider.ts), answer-model decision calibration, bounded synthesis
+ *        AnswerModelProvider.ts), answer-model decision calibration, bounded synthesis
  *        behavior, a separate calibration set, a new independent holdout.
  *   OUT: retrieval policy, embedding model, context assembly, citation contract, the query
  *        specificity gate, reranker, hybrid/BM25 -- none of these were touched.
@@ -46,7 +46,7 @@ import {
   createLegalAnswerComposition,
 } from '../../server/modules/legal/answer/LegalAnswerComposition';
 import { createLegalRetrievalComposition, type LegalFamily } from '../../server/modules/legal/retrieval/LegalRetrievalComposition';
-import { ANSWER_PROMPT_VERSION } from '../../server/modules/legal/answer/GeminiAnswerModelProvider';
+import { ANSWER_PROMPT_VERSION } from '../../server/modules/legal/answer/AnswerModelProvider';
 
 interface Scope {
   readonly logicalSourceId: string;

@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '../../db.server';
-import { generateTextWithVertex } from './vertexAiService';
+import { generateText as generateLocalText } from '../modules/ai/generation/LocalGenerationPort';
 import { fetchGeologicalData } from './sguService';
 import { tryFetchLocalPropertyGeometry } from './hybridGeoService';
 import { logger } from '../logger';
@@ -133,15 +133,15 @@ export async function generateProjectPlan(request: ProjectPlanRequest): Promise<
   const longitude = Number(request.longitude);
   const geodataFindings = await fetchGeodataFindings(latitude, longitude, request.propertyId);
 
-  // 3. Build Vertex prompt with all context
+  // 3. Build prompt with all context
   const prompt = buildGeneratorPrompt(request, project, geodataFindings);
 
-  console.log('[ProjectPlanGenerator] Sending prompt to Vertex AI...');
+  console.log('[ProjectPlanGenerator] Sending prompt to local generation...');
 
   try {
-    const responseText = await generateTextWithVertex(prompt, { profile: 'fast' });
+    const responseText = await generateLocalText(prompt, { profile: 'fast' });
 
-    console.log('[ProjectPlanGenerator] RECEIVED DATA FROM VERTEX, length:', responseText?.length);
+    console.log('[ProjectPlanGenerator] RECEIVED DATA FROM LOCAL GENERATION, length:', responseText?.length);
     if (responseText) {
       console.log('[ProjectPlanGenerator] Data snippet:', responseText.substring(0, 200));
     }
@@ -153,7 +153,7 @@ export async function generateProjectPlan(request: ProjectPlanRequest): Promise<
 
     return parsedPlan;
   } catch (error) {
-    console.error('[ProjectPlanGenerator] Vertex AI error:', error);
+    console.error('[ProjectPlanGenerator] local generation error:', error);
     throw new Error(`Failed to generate project plan: ${String(error)}`);
   }
 }

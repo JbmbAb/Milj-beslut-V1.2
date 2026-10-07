@@ -21,7 +21,7 @@ vi.mock('../../components/project/ProjectReportView', () => ({
   ProjectReportView: () => <div data-testid="report-view">Report View</div>,
 }));
 
-vi.mock('../../services/geminiService', () => ({
+vi.mock('../../services/aiAssistantService', () => ({
   generatePlanDraft: vi.fn(),
   suggestStakeholders: vi.fn(),
 }));

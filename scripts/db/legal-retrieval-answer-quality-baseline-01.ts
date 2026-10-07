@@ -56,12 +56,10 @@ import {
   type LegalFamily,
 } from '../../server/modules/legal/retrieval/LegalRetrievalComposition';
 import {
-  ANSWER_MODEL_ID,
-  ANSWER_MODEL_VERSION,
   ANSWER_PIPELINE_VERSION,
   ANSWER_PROMPT_VERSION,
   ANSWER_RESPONSE_SCHEMA_VERSION,
-} from '../../server/modules/legal/answer/GeminiAnswerModelProvider';
+} from '../../server/modules/legal/answer/AnswerModelProvider';
 import { QUERIES as BASELINE_QUERIES, resolveAcceptableFragmentIds as resolveBaselineFragmentIds } from './legal-retrieval-quality-baseline-01';
 
 interface AcceptableScope {
@@ -160,7 +158,7 @@ async function main() {
   console.log('  retrieval_composition_version :', LEGAL_RETRIEVAL_COMPOSITION_VERSION);
   console.log('  context_assembly_version      :', LEGAL_ANSWER_CONTEXT_CONTRACT_VERSION, JSON.stringify(DEFAULT_ANSWER_CONTEXT_POLICY));
   console.log('  answer_composition_version    :', LEGAL_ANSWER_COMPOSITION_VERSION);
-  console.log('  answer_model_id/version       :', ANSWER_MODEL_ID, '/', ANSWER_MODEL_VERSION);
+  console.log('  answer_model_id/version       :', '(bound at runtime by the local generation port)');
   console.log('  answer_pipeline_version       :', ANSWER_PIPELINE_VERSION);
   console.log('  answer_prompt_version         :', ANSWER_PROMPT_VERSION);
   console.log('  answer_response_schema_version:', ANSWER_RESPONSE_SCHEMA_VERSION);

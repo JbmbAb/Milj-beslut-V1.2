@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '../../db.server';
-import { generateTextWithVertex } from './vertexAiService';
+import { generateText as generateLocalText } from '../modules/ai/generation/LocalGenerationPort';
 
 export interface LogisticsGeneratorRequest {
   projectId: string;
@@ -110,15 +110,15 @@ export async function generateLogisticsPlan(
   }
   const co2Factor = getCO2Factor(request.transportMode, request.estimatedTons);
 
-  // 3. Build Vertex prompt
+  // 3. Build prompt
   const prompt = buildLogisticsPrompt(request, depotsData, co2Factor);
 
-  console.log('[LogisticsGenerator] Sending prompt to Vertex AI...');
+  console.log('[LogisticsGenerator] Sending prompt to local generation...');
 
   try {
-    const responseText = await generateTextWithVertex(prompt, { profile: 'fast' });
+    const responseText = await generateLocalText(prompt, { profile: 'fast' });
 
-    console.log('[LogisticsGenerator] Received response from Vertex');
+    console.log('[LogisticsGenerator] Received response from local generation');
 
     // 4. Parse response
     const parsedPlan = parseLogisticsResponse(responseText, request.projectId);
@@ -153,7 +153,7 @@ export async function generateLogisticsPlan(
 
     return parsedPlan;
   } catch (error) {
-    console.error('[LogisticsGenerator] Vertex AI error:', error);
+    console.error('[LogisticsGenerator] local generation error:', error);
     throw new Error(`Failed to generate logistics plan: ${String(error)}`);
   }
 }

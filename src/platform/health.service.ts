@@ -1,6 +1,7 @@
 import { prisma } from '../../db.server';
 import { IProjectRepository } from '../domain/project-repository.interface';
 import { IAIService } from '../domain/ai.interface';
+import { localGenerationStatus } from '../../server/modules/ai/generation/LocalGenerationPort';
 
 export interface HealthStatus {
   status: 'UP' | 'DOWN' | 'DEGRADED';
@@ -73,12 +74,13 @@ export class HealthService {
   }
 
   private async checkAI(): Promise<ComponentStatus> {
-    // Här kollar vi om API-nyckeln finns och om tjänsten svarar basalt
-    try {
-      // I en riktig miljö skulle vi anropa en "ping" endpoint på AI-tjänsten
-      return { status: 'UP' };
-    } catch (err: any) {
-      return { status: 'DOWN', message: err.message };
+    const generation = localGenerationStatus();
+    if (!generation.available) {
+      return { status: 'DOWN', message: generation.blocker ?? 'LOCAL_GENERATION_UNAVAILABLE' };
     }
+    return {
+      status: 'UP',
+      message: `local runtime ${generation.runtime_id ?? 'unknown'} / model ${generation.model_id ?? 'unknown'}`,
+    };
   }
 }

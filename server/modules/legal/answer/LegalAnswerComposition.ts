@@ -50,7 +50,7 @@ import {
   type LegalRetrievalOutcome,
 } from "../retrieval/LegalRetrievalComposition";
 import { routeLawQuery } from "../retrieval/LawSourceRouter";
-import { createGeminiAnswerModelProvider, type AnswerModelProvider } from "./GeminiAnswerModelProvider";
+import { createLocalAnswerModelProvider, type AnswerModelProvider } from "./AnswerModelProvider";
 import { findUnrecognizedStatuteMentions } from "./NamedSourceMentionDetector";
 
 export const LEGAL_ANSWER_COMPOSITION_VERSION = "legal-answer-composition-v1";
@@ -262,7 +262,7 @@ export async function composeLegalAnswer(
   return { mode, claims: admittedClaims, answerTrace, retrieval, context, querySpecificity, namedSourceConsistency };
 }
 
-/** Real, Prisma/Gemini-backed default dependencies. */
+/** Real, Prisma/local-generation-backed default dependencies. */
 export function createLegalAnswerComposition(retrievalDeps: LegalRetrievalDeps): LegalAnswerDeps {
   const fetchChunkContent: ChunkContentLookup = async (fragmentId, materializationId) => {
     const row = await prisma.legalCorpusMaterializedChunk.findUnique({
@@ -278,7 +278,7 @@ export function createLegalAnswerComposition(retrievalDeps: LegalRetrievalDeps):
 
   return {
     retrievalDeps,
-    answerModel: createGeminiAnswerModelProvider(),
+    answerModel: createLocalAnswerModelProvider(),
     fetchChunkContent,
     lookupMaterializationSourceId,
   };

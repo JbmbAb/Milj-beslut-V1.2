@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Permit } from '../types';
-import { generateMarketingSummary } from '../services/geminiService';
+import { generateMarketingSummary } from '../services/aiAssistantService';
 
 interface MarketingHubProps {
   permits: Permit[];

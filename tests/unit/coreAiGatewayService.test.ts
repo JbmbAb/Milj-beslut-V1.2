@@ -5,21 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // med en parse-funktion — vi kan simulera det genom att låta mock-funktionen
 // anropa parsern med det tillhandahållna payloadet.
 const mocks = vi.hoisted(() => ({
-  generateJsonWithVertex: vi.fn(),
+  generateJson: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
 }));
 
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateJsonWithVertex: mocks.generateJsonWithVertex,
-  __resetVertexClientForTest: vi.fn(),
-  vertexConfigStatus: vi.fn(() => ({
-    configured: true,
-    missing: [],
-    projectId: 'test',
-    location: 'europe-west1',
-  })),
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateJson: mocks.generateJson,
+  isLocalGenerationAvailable: vi.fn(() => true),
+  localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
 }));
 
 vi.mock('../../server/logger', () => ({
@@ -37,7 +32,7 @@ type AiGatewayModule = typeof import('../../server/services/coreAiGatewayService
  * köra anroparens `parse`-funktion på det.
  */
 function mockVertexPayload(jsonPayload: unknown): void {
-  mocks.generateJsonWithVertex.mockImplementation(async (_prompt: string, opts?: any) => {
+  mocks.generateJson.mockImplementation(async (_prompt: string, opts?: any) => {
     if (opts?.parse) {
       return opts.parse(jsonPayload);
     }
@@ -45,7 +40,7 @@ function mockVertexPayload(jsonPayload: unknown): void {
   });
 }
 
-describe('coreAiGatewayService (Vertex AI)', () => {
+describe('coreAiGatewayService (local generation)', () => {
   let mod: AiGatewayModule;
 
   beforeEach(async () => {
@@ -60,7 +55,7 @@ describe('coreAiGatewayService (Vertex AI)', () => {
   });
 
   describe('suggestRequirementsFromGemini', () => {
-    it('returns parsed requirements when Vertex returns valid JSON', async () => {
+    it('returns parsed requirements when the runtime returns valid JSON', async () => {
       mockVertexPayload({
         requirements: [{ rule: 'Egenkontroll krävs', law: 'Miljöbalken', citation: '26 kap. 19 §' }],
       });
@@ -73,14 +68,14 @@ describe('coreAiGatewayService (Vertex AI)', () => {
       expect(result![0].rule).toBe('Egenkontroll krävs');
     });
 
-    it('returns null when Vertex returns empty requirements array', async () => {
+    it('returns null when the runtime returns empty requirements array', async () => {
       mockVertexPayload({ requirements: [] });
       const result = await mod.suggestRequirementsFromGemini({ activityCode: '29.50', ewcCode: '' });
       expect(result).toBeNull();
     });
 
-    it('returns null when Vertex throws', async () => {
-      mocks.generateJsonWithVertex.mockRejectedValue(new Error('Vertex timeout'));
+    it('returns null when the runtime throws', async () => {
+      mocks.generateJson.mockRejectedValue(new Error('Vertex timeout'));
       const result = await mod.suggestRequirementsFromGemini({ activityCode: '29.40', ewcCode: '' });
       expect(result).toBeNull();
     });
@@ -117,7 +112,7 @@ describe('coreAiGatewayService (Vertex AI)', () => {
       expect(result?.draft_text).toBe('Tillståndstext för projektet.');
     });
 
-    it('returns null when Vertex returns incomplete payload', async () => {
+    it('returns null when the runtime returns incomplete payload', async () => {
       mockVertexPayload({ document_type: '' });
       const result = await mod.generatePermitDraftFromGemini({
         projectData: {},
@@ -128,8 +123,8 @@ describe('coreAiGatewayService (Vertex AI)', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null when Vertex throws', async () => {
-      mocks.generateJsonWithVertex.mockRejectedValue(new Error('API error'));
+    it('returns null when the runtime throws', async () => {
+      mocks.generateJson.mockRejectedValue(new Error('API error'));
       const result = await mod.generatePermitDraftFromGemini({
         projectData: {},
         requirements: [],
@@ -157,8 +152,8 @@ describe('coreAiGatewayService (Vertex AI)', () => {
       expect(result?.missing_citations).toContain('Saknar SFS-nummer');
     });
 
-    it('returns null när Vertex kraschar', async () => {
-      mocks.generateJsonWithVertex.mockRejectedValue(new Error('Network error'));
+    it('returns null när runtime kraschar', async () => {
+      mocks.generateJson.mockRejectedValue(new Error('Network error'));
       const result = await mod.getVerificationSecondOpinionFromOpenAi({ analysis: 'text' });
       expect(result).toBeNull();
     });

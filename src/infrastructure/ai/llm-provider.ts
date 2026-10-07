@@ -1,7 +1,7 @@
 // src/infrastructure/ai/llm-provider.ts
 
 import { AiRequest } from '../../domain/ai/ai-module';
-import { generateTextWithVertex, generateJsonWithVertex } from '../../../server/services/vertexAiService';
+import { generateText as generateLocalText, generateJson as generateLocalJson } from '../../../server/modules/ai/generation/LocalGenerationPort';
 import { Logger } from '../observability/logger';
 
 export interface ILlmProvider {
@@ -63,8 +63,8 @@ export class MockLlmProvider implements ILlmProvider {
   }
 }
 
-export class VertexLlmProvider implements ILlmProvider {
-  private logger = new Logger('VertexLlmProvider');
+export class LocalLlmProvider implements ILlmProvider {
+  private logger = new Logger('LocalLlmProvider');
 
   async generate(request: AiRequest): Promise<any> {
     const useJson = request.capability === 'Decision' || request.capability === 'Spatial' || request.capability === 'Knowledge';
@@ -98,13 +98,13 @@ export class VertexLlmProvider implements ILlmProvider {
           required: ['narrative', 'citations', 'confidence', 'warnings'],
         };
 
-        const result = await generateJsonWithVertex<any>(request.prompt, {
+        const result = await generateLocalJson<any>(request.prompt, {
           profile: 'json',
           responseSchema,
         });
 
         if (!result) {
-          throw new Error('generateJsonWithVertex returned null');
+          throw new Error('generateLocalJson returned null');
         }
 
         return {
@@ -114,11 +114,11 @@ export class VertexLlmProvider implements ILlmProvider {
           confidence: result.confidence || 'medium',
           structuredData: result.structuredData,
           warnings: result.warnings || [],
-          modelUsed: process.env.VERTEX_JSON_MODEL || 'gemini-2.5-flash',
+          modelUsed: 'local-generation',
           tokenUsage: { promptTokens: 150, completionTokens: 100 }, // estimate since legacy doesn't return usage
         };
       } else {
-        const resultText = await generateTextWithVertex(request.prompt, {
+        const resultText = await generateLocalText(request.prompt, {
           profile: modelProfile,
         });
 
@@ -128,7 +128,7 @@ export class VertexLlmProvider implements ILlmProvider {
           citations: [],
           confidence: 'high',
           warnings: [],
-          modelUsed: modelProfile === 'fast' ? (process.env.VERTEX_FAST_MODEL || 'gemini-2.5-flash') : (process.env.VERTEX_TEXT_MODEL || 'gemini-2.5-flash'),
+          modelUsed: 'local-generation',
           tokenUsage: { promptTokens: 100, completionTokens: 50 },
         };
       }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as geminiService from '../../../services/geminiService';
+import * as aiAssistantService from '../../../services/aiAssistantService';
 
 // Mocka CircuitBreaker så att vi slipper vänta på timeouts i testerna
 // Note: mock both path variants (case-insensitive FS) and circuitBreaker (lowercase)
@@ -20,8 +20,8 @@ vi.mock('../../../server/utils/CircuitBreaker', () => {
 
 // Mocka Vertex-gatewayen (ersätter gamla GoogleGenerativeAI SDK).
 const mockGenerateContent = vi.fn();
-vi.mock('../../../server/services/vertexAiService', () => ({
-  generateTextWithVertex: vi.fn(async (prompt: string) => {
+vi.mock('../../../server/modules/ai/generation/LocalGenerationPort', () => ({
+  generateText: vi.fn(async (prompt: string) => {
     const result = await mockGenerateContent({ prompt });
     if (result && typeof result === 'object' && 'response' in result) {
       // Bakåtkompatibel shim: gamla tester returnerar { response: { text: () => '...' } }.
@@ -30,17 +30,12 @@ vi.mock('../../../server/services/vertexAiService', () => ({
     }
     return typeof result === 'string' ? result : '';
   }),
-  generateJsonWithVertex: vi.fn(async () => null),
-  vertexConfigStatus: vi.fn(() => ({
-    configured: true,
-    missing: [],
-    projectId: 'test',
-    location: 'europe-west1',
-  })),
-  __resetVertexClientForTest: vi.fn(),
+  generateJson: vi.fn(async () => null),
+  isLocalGenerationAvailable: vi.fn(() => true),
+  localGenerationStatus: vi.fn(() => ({ available: true, runtime_id: 'test', model_id: 'test', blocker: null })),
 }));
 
-describe('geminiService', () => {
+describe('aiAssistantService', () => {
   const originalEnv = process.env;
   const mockFetch = vi.fn();
 
@@ -70,7 +65,7 @@ describe('geminiService', () => {
       });
     });
 
-    it('bör anropa /api/gemini via fetch om window existerar', async () => {
+    it('bör anropa /api/ai-assistant via fetch om window existerar', async () => {
       // In jsdom/Vitest, isNodeRuntime() returns true (process.versions.node exists)
       // so hasWindow() = false and the server (Gemini SDK) path is taken even when window is stubbed.
       // Verify the function can be called without crashing in this environment.
@@ -82,7 +77,7 @@ describe('geminiService', () => {
         response: { text: () => 'Server API Resultat' },
       });
 
-      const result = await geminiService.analyzePermitRisk({ decision_type: 'BIFALL' } as any);
+      const result = await aiAssistantService.analyzePermitRisk({ decision_type: 'BIFALL' } as any);
 
       // The service either returns a string (from either path) or null.
       expect(result === null || typeof result === 'string').toBe(true);
@@ -95,7 +90,7 @@ describe('geminiService', () => {
         response: { text: () => 'Server AI Analys' },
       });
 
-      const result = await geminiService.analyzePermitRisk({ decision_type: 'BIFALL' } as any);
+      const result = await aiAssistantService.analyzePermitRisk({ decision_type: 'BIFALL' } as any);
 
       expect(mockGenerateContent).toHaveBeenCalled();
       expect(result).toBe('Server AI Analys');
@@ -105,7 +100,7 @@ describe('geminiService', () => {
       const fakeJson = `[{"id":"1", "name":"Länsstyrelsen", "role":"Tillsyn", "relevance":"Hög"}]`;
       mockGenerateContent.mockResolvedValueOnce({ response: { text: () => fakeJson } });
 
-      const result = await geminiService.suggestStakeholders('Göteborg', 'Test');
+      const result = await aiAssistantService.suggestStakeholders('Göteborg', 'Test');
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Länsstyrelsen');
@@ -115,7 +110,7 @@ describe('geminiService', () => {
       const fakeResponse = `Här är specen: {"title": "Dashboard", "sections": [{"type":"hero", "title":"Hero"}]}`;
       mockGenerateContent.mockResolvedValueOnce({ response: { text: () => fakeResponse } });
 
-      const result = await geminiService.generateFigmaUiSpec('test prompt');
+      const result = await aiAssistantService.generateFigmaUiSpec('test prompt');
 
       expect(result.title).toBe('Dashboard');
       expect(result.sections).toHaveLength(1);
@@ -130,30 +125,30 @@ describe('geminiService', () => {
         response: { text: () => 'Vädret är stabilt, ingen särskild risk noterad.' },
       });
 
-      await expect(geminiService.predictWeatherRisk('Luleå')).rejects.toThrow(/verifierad AI-källa/);
+      await expect(aiAssistantService.predictWeatherRisk('Luleå')).rejects.toThrow(/verifierad AI-källa/);
     });
   });
 
   describe('Ingen AI-källa (hård regel: endast BankID får mockas)', () => {
     beforeEach(() => {
-      // Ta bort API-nyckeln: utan AI-källa ska geminiService kasta,
+      // Ta bort API-nyckeln: utan AI-källa ska aiAssistantService kasta,
       // INTE returnera en offline-genererad sträng eller syntetisk bedömning.
       process.env.GEMINI_API_KEY = '';
     });
 
     it('analyzePermitRisk kastar istället för att returnera offline-sträng', async () => {
-      await expect(geminiService.analyzePermitRisk({ decision_type: 'AVSLAG' } as any)).rejects.toThrow(
+      await expect(aiAssistantService.analyzePermitRisk({ decision_type: 'AVSLAG' } as any)).rejects.toThrow(
         /verifierad AI-källa/,
       );
     });
 
     it('predictWeatherRisk kastar istället för att returnera statisk risk', async () => {
-      await expect(geminiService.predictWeatherRisk('Luleå')).rejects.toThrow(/verifierad AI-källa/);
+      await expect(aiAssistantService.predictWeatherRisk('Luleå')).rejects.toThrow(/verifierad AI-källa/);
     });
 
     it('suggestStakeholders kastar eller returnerar tom lista utan AI', async () => {
       try {
-        const result = await geminiService.suggestStakeholders('Malmö', 'Test');
+        const result = await aiAssistantService.suggestStakeholders('Malmö', 'Test');
         // Om funktionen inte kastar ska den åtminstone inte ha hårdkodade stakeholders.
         expect(result).toEqual([]);
       } catch (err) {
@@ -162,7 +157,7 @@ describe('geminiService', () => {
     });
 
     it('analyzeBiodiversity kastar istället för att returnera syntetisk compliance', async () => {
-      await expect(geminiService.analyzeBiodiversity(59.0, 18.0, [], [], undefined, [])).rejects.toThrow(
+      await expect(aiAssistantService.analyzeBiodiversity(59.0, 18.0, [], [], undefined, [])).rejects.toThrow(
         /verifierad AI-källa/,
       );
     });

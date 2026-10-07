@@ -19,7 +19,7 @@ import { PrismaPermitCaseRepository } from '../infrastructure/prisma-permit-case
 import { ExternalMarketIntelAdapter } from '../infrastructure/external-market-adapter';
 import { LantmaterietAdapter } from '../infrastructure/lantmateriet-adapter';
 import { BankIdAdapter } from '../infrastructure/bankid-adapter';
-import { GeminiAIAdapter } from '../infrastructure/gemini-ai-adapter';
+import { LocalAIAdapter } from '../infrastructure/local-ai-adapter';
 
 import { ProjectController } from '../api/project.controller';
 import { LogisticsController } from '../api/logistics.api';
@@ -65,7 +65,7 @@ export class Platform {
     const marketIntelProvider = new ExternalMarketIntelAdapter();
     const geoProvider = new LantmaterietAdapter();
     const bankIdProvider = new BankIdAdapter();
-    const aiAdapter = new GeminiAIAdapter();
+    const aiAdapter = new LocalAIAdapter();
 
     // ─── Controller Instansiering ─────────────────────────────────────────────────
     const projectCtrl = new ProjectController(projectRepo, auditRepo);

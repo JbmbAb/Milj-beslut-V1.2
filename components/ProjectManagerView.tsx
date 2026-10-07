@@ -3,7 +3,7 @@ import GanttChart from './GanttChart';
 import ProjectOrgChart from './ProjectOrgChart';
 import ProjectPlanStructurePanel from './ProjectPlanStructurePanel';
 import type { ProjectPlan } from '../types';
-import { generatePlanDraft, suggestStakeholders } from '../services/geminiService';
+import { generatePlanDraft, suggestStakeholders } from '../services/aiAssistantService';
 import { useProjectStructure } from './ProjectStructureContext';
 import { useProjectPlan } from '../src/ui/hooks/useProjectPlan';
 import { ProjectReportView } from './project/ProjectReportView';

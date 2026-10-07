@@ -103,7 +103,7 @@ async function main() {
 
   console.log('\n--- P8: no legacy legal handler reached ---');
   // Structural: legalAnswer.routes.ts imports nothing from legal.routes.ts, searchLegalCorpusTool,
-  // or the /api/gemini router (verified by direct source inspection during this unit's own
+  // or the /api/ai-assistant router (verified by direct source inspection during this unit's own
   // implementation). Runtime corroboration: the legacy /api/legal/search endpoint has a completely
   // different response contract (no contract_version field at all) -- proving these are genuinely
   // distinct code paths, not aliased to the same handler under two routes.

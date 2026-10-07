@@ -9,7 +9,7 @@ import type {
   AnswerContextEntryForModel,
   AnswerGeneration,
   AnswerModelProvider,
-} from '../../server/modules/legal/answer/GeminiAnswerModelProvider';
+} from '../../server/modules/legal/answer/AnswerModelProvider';
 import type {
   ChunkRefLookup,
   LegalRetrievalDeps,

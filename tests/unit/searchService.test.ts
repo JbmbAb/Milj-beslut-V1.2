@@ -8,8 +8,7 @@ vi.mock('../../server/services/vertexEmbeddingService', () => ({
 }));
 
 const vertexMultimodalMock = vi.hoisted(() => vi.fn());
-vi.mock('../../server/services/vertexAiService', () => ({
-  generateTextWithVertexAndInlineData: vertexMultimodalMock,
+vi.mock('../../server/modules/ai/generation/LocalGenerationPort', () => ({
 }));
 
 const mocks = vi.hoisted(() => ({
