@@ -4,12 +4,16 @@
 > evaluation-harness defect, not a model property) and the frozen W-EMBED-MODEL-SELECTION-04 evaluation, the owner selected
 > BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181 (1024) as the one production pipeline. (2) Migration: the schema/migration repair is part of
 > the production-binding unit; the migration now lives in `prisma/migrations/20261007120000_legal_corpus_chunk_embedding_local_v1/`, pinned to that
-> one triple, and is still NOT applied to any shared database. See `NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT.md` section 6. The text below is
-> kept as the record of the 2026-10-06 state.
+> one triple, and is still NOT applied to any shared database. See `NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT.md` section 6. The 2026-10-06
+> record follows the live-status paragraph and is not the live status.
 
-Status of the unit (as of 2026-10-06): **W-NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT: WORKING / BLOCKED_BY_MODEL_SELECTION_AND_MIGRATION_APPROVAL.**
-Nothing here is verified. The writer's own read-only review is a SELF-review and is not independent verification.
-No model is selected, no default model is wired, the migration is not applied, the eval is not rerun or tuned.
+**Live status (normative, 2026-10-07).** Production admits exactly one pipeline: BAAI/bge-m3, revision `5617a9f61b028005a4858fdac845db406aefb181`, pipeline `local-st-bge-m3-dense-v1`, dimension 1024, dtype float32, `max_seq_length` 8192. The live database CHECK is that single triple in `prisma/migrations/20261007120000_legal_corpus_chunk_embedding_local_v1/`. W-EMBED-MODEL-SELECTION-04 remains `MULTIPLE_DENSE_MODELS_VIABLE_NO_CLEAR_WINNER`; bge-m3 was selected on operational grounds, not as an eval winner. multilingual-e5-large stays a registered evaluation candidate and is not production-admitted. Migration governance approval is not performed. Closure: `W-NO-GOOGLE-02A-CLOSURE-01.md`.
+
+Everything from the next heading through section 3 is **HISTORICAL / SUPERSEDED (2026-10-06)**. It does not describe the live pipeline, the live CHECK, or the current model-selection status.
+
+Status of the unit (as of 2026-10-06, superseded): **W-NO-GOOGLE-02A-LOCAL-EMBEDDING-REPLACEMENT: WORKING / BLOCKED_BY_MODEL_SELECTION_AND_MIGRATION_APPROVAL.**
+Nothing in this historical note was verified. The writer's own read-only review was a SELF-review and was not independent verification.
+As of 2026-10-06, no model had been selected, no default model was wired, the migration was not applied, and the eval had not been rerun or tuned. That sentence is not the current status.
 
 Sources: `EMBEDDING-EVAL-RERUN-REPORT.md` (corrected round 1, 2026-10-02) and its result files in
 `C:\Users\jimmy\brunn-capability-map-2026-10-01\demo-runtime\embedding-eval\` (not a git repository):
@@ -61,7 +65,7 @@ representative of the legal corpus (report section 7).
 
 - Provider contract, closed identity registry (both candidates, exact revisions), explicit 3072 -> 1024 boundary in code, statement and database.
 - Fail-closed behaviour: no default model, no third candidate, no Google fallback, no mock, no pad/truncate, runtime proves repo/revision/pipeline/dimension on every call, no hidden CPU fallback.
-- Both candidates load and run end to end through provider + transport + worker on the RTX 4050 (`cuda:0`, fp16, 1024 dims). This shows capability only; it is NOT a selection signal.
+- Historical 2026-10-06 observation, superseded by the float32 production binding: both candidates loaded and ran end to end through provider + transport + worker on the RTX 4050 (`cuda:0`, fp16, 1024 dims). That fp16 run is not the live production path. It showed capability only; it was not a selection signal.
 - Containment of the worker (python-only interpreter, allowlisted environment, offline flags), negative controls against the real worker.
 - The proposed table, constraints, the real INSERT and the search statement, in a disposable pgvector container (removed).
 - Google removed from the legal retrieval composition; guard hits 4 -> 3.
@@ -76,7 +80,9 @@ Not proven: any retrieval quality; any activation; any production wiring.
   and that there is exactly one comparison round. The old round is not rerun or tuned.
 In both options the migration below stays unapplied until approved. Both candidates are pinned by the table, so choosing either later needs no schema change; a different model or a new revision needs a new registry entry and a new migration.
 
-## 2. Frozen 3072 -> 1024 persistence proposal (NOT applied)
+## 2. Historical 2026-10-06 persistence proposal (SUPERSEDED — not the live CHECK)
+
+This section describes the withdrawn proposal, including a two-triple CHECK and the old path `20261006220000`. It is not the live migration. The live migration is `prisma/migrations/20261007120000_legal_corpus_chunk_embedding_local_v1/`, and its pipeline CHECK allows only `local-st-bge-m3-dense-v1` + `BAAI/bge-m3` + `5617a9f61b028005a4858fdac845db406aefb181`.
 
 - **Migration:** `prisma/migrations/20261006220000_legal_corpus_chunk_embedding_local_v1/migration.sql`, introduced in commit `660a7d12` (unchanged since),
   sha256 `40bfa1ed78b9197c93b4752d6a11c14c8d18bf4d52b088f5287066e7a9a7585c`, git blob `55abd3a52080c0157345605bef1f127839bbf2bb`. Prisma model `LegalCorpusChunkEmbeddingLocalV1` in `prisma/schema.prisma` (same commit).
@@ -103,7 +109,9 @@ In both options the migration below stays unapplied until approved. Both candida
   - If applied and later withdrawn: the migration is additive, creates one table and touches no existing object; the inverse is dropping `legal_corpus_chunk_embeddings_local_v1` and removing its `_prisma_migrations` row. No rollback SQL is shipped as a migration.
   - If never applied: the provider and the code-level boundary still hold; the search or the persist call fails closed with a database error (relation missing); an empty table returns no hits. Nothing falls back to the legacy table.
 
-## 3. What this note asks of the owner
+## 3. What this note asked of the owner (HISTORICAL / SUPERSEDED, answered 2026-10-07)
 
-1. Choose A or B for model selection (1.5), or another route; until then no model is selected and nothing is wired as a default.
-2. Decide whether the migration proposal in section 2 may be approved for the Prisma-migration Dev-Gov unit, and whether it should be moved out of `prisma/migrations/` in the meantime.
+These were the open questions on 2026-10-06. They are not the current status. The resolution banner above is the answer: bge-m3 is the one production pipeline, selected on operational grounds after `MULTIPLE_DENSE_MODELS_VIABLE_NO_CLEAR_WINNER`. Migration governance approval is still not performed.
+
+1. Historical ask: choose A or B for model selection (1.5), or another route. As of 2026-10-06, no model was selected and nothing was wired as a default. That is superseded.
+2. Historical ask: decide whether the section 2 proposal may be approved for the Prisma-migration Dev-Gov unit. The two-triple proposal was not approved; the live migration pins one triple and still has no governance approval.

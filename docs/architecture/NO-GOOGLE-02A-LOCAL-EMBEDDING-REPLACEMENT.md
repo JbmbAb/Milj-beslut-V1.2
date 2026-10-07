@@ -1,11 +1,6 @@
 # NO-GOOGLE-02A -- local embedding replacement (writer report)
 
-Status: **WORKING / READY_FOR_INDEPENDENT_REVIEW** (updated 2026-10-07 after the owner selected BAAI/bge-m3; section 7 below). The
-model-selection blocker of the 2026-10-06 ruling is resolved by that owner decision. Not verified, not proven; no status above WORKING is
-claimed and the writer's own checks are not independent verification. The migration is committed in the real migration history but is **not
-applied to any live or shared database** (only to a disposable container); promotion needs the Prisma-migration Dev-Gov unit and the owner.
-History: `NO-GOOGLE-02A-OWNER-DECISION-NOTE.md`. Base `621a28680c277e1e4f8a24483acf33be566e99e9`, branch
-`rt/no-google-02a-local-embedding`. No push, no squash.
+Status: **EXECUTION_VERIFIED / CLOSURE_READY** (`W-NO-GOOGLE-02A-CLOSURE-01.md`). Independent review of `cd30039e79968fde729a09b97e0703b951a74f6f` (tree `d192ebedc6a583178d64c8b86fc1b44f95bc5620`) is `ACCEPT_WITH_NONBLOCKING_FINDINGS`. The active production pipeline is exactly one: **BAAI/bge-m3** @ `5617a9f61b028005a4858fdac845db406aefb181`, `local-st-bge-m3-dense-v1`, 1024 dimensions, float32, `max_seq_length` 8192. W-EMBED-MODEL-SELECTION-04 decided `MULTIPLE_DENSE_MODELS_VIABLE_NO_CLEAR_WINNER`; bge-m3 was owner-selected on operational grounds, not as an eval winner. This status is not PROVEN, not a green full suite, not migration governance approval, not a production worker deployment, not a completed re-embedding, and not ZERO GOOGLE. The migration is in the Prisma history and is **not applied to any live or shared database**. History: `NO-GOOGLE-02A-OWNER-DECISION-NOTE.md` (the 2026-10-06 body there is superseded). Branch `rt/no-google-02a-local-embedding`. No push, no squash.
 
 Scope: replace the active Google embedding surface `server/modules/legal/retrieval/GeminiEmbeddingProvider.ts`
 with a fully local provider. Out of scope and untouched: 02B generation (`GeminiAnswerModelProvider.ts`,
@@ -48,7 +43,7 @@ Remaining (all 02B generation): `google-sdk-import server/modules/legal/answer/G
 
 | Part | File | Role |
 |---|---|---|
-| identity registry | `packages/mps-embedding-identity/src/LocalEmbeddingPipelines.ts` | closed frozen registry of the two admitted pipelines; `assertLocalEmbeddingIdentity` |
+| identity registry | `packages/mps-embedding-identity/src/LocalEmbeddingPipelines.ts` | closed frozen candidate registry; production admits exactly one pipeline (bge-m3). e5 stays registered and is not production-admitted |
 | provider contract | `server/modules/legal/retrieval/EmbeddingProvider.ts` | vendor-neutral, `embedQueries` / `embedPassages`, explicit `dimension` |
 | provider | `.../LocalEmbeddingProvider.ts` | the only producer; verifies the runtime on every call |
 | transport | `.../LocalEmbeddingWorkerTransport.ts` | stdio JSON lines, one child, allowlisted environment |
@@ -82,9 +77,9 @@ re-embedding unit has run, which needs the migration approved first.
 
 ## 4. Fail-closed behaviour
 
-No default model (`MIMER_LOCAL_EMBEDDING_MODEL` must name the one production-admitted model, bge-m3; the evaluation seam may name a frozen candidate); no third candidate; no Google key is read or forwarded;
-the runtime must prove repo, revision, pipeline, dimension, normalisation (and e5's fixed `max_seq_length` 512) on every call; vectors
-must be exactly 1024 finite L2-normalised numbers (tolerance 1e-3; observed max deviation 4.9e-4 in fp16); a required device that did
+No default model (`MIMER_LOCAL_EMBEDDING_MODEL` must name the one production-admitted pipeline: BAAI/bge-m3 @ `5617a9f61b028005a4858fdac845db406aefb181`, `local-st-bge-m3-dense-v1`, 1024, float32, `max_seq_length` 8192). The evaluation seam may name a frozen candidate such as multilingual-e5-large (registry `max_seq_length` 512); that does not admit it. No Google key is read or forwarded;
+the production runtime must prove repo, revision, pipeline, dimension 1024, L2 normalisation, dtype float32 and `max_seq_length` 8192 on every call; vectors
+must be exactly 1024 finite L2-normalised numbers (code tolerance 1e-3). The 2026-10-06 fp16 norm note is historical and is not the production path; a required device that did
 not run is an error (no hidden CPU fallback); a runtime failure throws (no mock, no second provider); the configured runtime can
 only be a Python interpreter (psql, cmd, bash, node refused), and the worker child gets an allowlisted environment, offline flags,
 and no inherited credentials.
@@ -148,8 +143,7 @@ Jina v3) remain evaluation candidates: not rejected, not production-admitted. Ev
 
 **Still open / not done here.** The migration is not applied to any shared database and has not been through the Prisma-migration Dev-Gov unit;
 no 1024-dimensional rows exist (a re-embedding unit must populate the table); the runtime lives outside the repo and the production image;
-the worker's default batch size is 4 (the evaluated run used batch size 1; the evaluation showed no difference in ranking, but vectors can
-differ in the last bits); nothing is pushed or merged; independent verification has not happened.
+the worker's default batch size is 4 (the evaluated run used batch size 1; independent review classified batch 1 vs batch 4 as operationally equivalent and not identity-relevant). Nothing is pushed or merged. Independent review of the implementation commit is recorded in `W-NO-GOOGLE-02A-CLOSURE-01.md`; that review is not a claim that the full suite is green, that the migration is approved, or that the worker is deployed.
 
 ## 7. Open items and honest limits
 
