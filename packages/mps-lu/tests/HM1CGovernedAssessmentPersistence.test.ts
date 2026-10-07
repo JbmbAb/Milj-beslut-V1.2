@@ -55,14 +55,13 @@ import {
 } from "../src/index";
 import { GenerateLocalizationReportUseCase } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
-import { issueExecutionIdentityV3 } from "../src/execution/LuExecutionIdentityIssuer";
-import { LU_EXECUTION_PRINCIPAL_ID } from "../src/execution/LuExecutionKernelClient";
 import { createLuRegistryRuntime } from "../src/registry/createLuRegistryRuntime";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
 import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
 import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
+import { provisionLuSourceAuthorityFixture } from "./fixtures/provisionLuSourceAuthority";
 import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from "../../mps-governance/src/release/ProductReleaseAuthority";
 import { attestProductRelease } from "../../../server/modules/release/productReleaseAuthority";
 
@@ -89,6 +88,7 @@ function runtime(repository: RecordingRepository): LocalizationSpatialRuntime {
 
 describe("HM1-C — governed assessment persistence", () => {
   const originalEnv: Record<string, string | undefined> = {};
+  let sourceAuthorityFixture: { restore(): void } | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -96,6 +96,8 @@ describe("HM1-C — governed assessment persistence", () => {
   });
 
   afterEach(() => {
+    sourceAuthorityFixture?.restore();
+    sourceAuthorityFixture = null;
     for (const name of [
       "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
       "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
@@ -115,11 +117,6 @@ describe("HM1-C — governed assessment persistence", () => {
   it("the real entrypoint writes an assessment canonically bound to the execution outcome and its attestation", async () => {
     // The real entrypoint derives its execution subject from a verified current binding. This
     // fixture provisions that chain before issuing the matching V3 identity.
-    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
-    originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
-    originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
-    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
-    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
 
     const repository = new RecordingRepository();
     const contextIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:hm1c-context-issuer");
@@ -171,30 +168,39 @@ describe("HM1-C — governed assessment persistence", () => {
       created_by: "system",
     });
     const geometryRef = { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
-    await issueExecutionIdentityV3({
-      subject: {
-        site_id: context.propertyIdentity,
-        project_context_binding_ref: context.contextBindingRef,
-        product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
-        execution_contract_version: "lu-execution-identity-v1",
-        localization_geometry_ref: geometryRef,
-      },
-      deterministic_seed: deriveLuExecutionSeed({
-        site_id: context.propertyIdentity,
-        project_id: projectId,
-        project_context_ref: context.projectContextRef,
-        property_context_ref: context.propertyContextRef,
-        project_context_binding_ref: context.contextBindingRef,
-        product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
-        product_release_hash: signedRelease.release_hash.value,
-        execution_contract_version: "lu-execution-identity-v1",
-        rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-        localization_geometry_ref: geometryRef,
-      }),
-      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
+    const executionSubject = {
+      site_id: context.propertyIdentity,
+      project_context_binding_ref: context.contextBindingRef,
+      product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
+      execution_contract_version: "lu-execution-identity-v1",
+      localization_geometry_ref: geometryRef,
+    } as const;
+    const executionSeed = deriveLuExecutionSeed({
+      site_id: context.propertyIdentity,
+      project_id: projectId,
+      project_context_ref: context.projectContextRef,
+      property_context_ref: context.propertyContextRef,
+      project_context_binding_ref: context.contextBindingRef,
+      product_release_ref: { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
+      product_release_hash: signedRelease.release_hash.value,
+      execution_contract_version: "lu-execution-identity-v1",
+      rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      localization_geometry_ref: geometryRef,
+    });
+    sourceAuthorityFixture = await provisionLuSourceAuthorityFixture({
+      repository: repository,
+      subject: executionSubject,
+      deterministic_seed: executionSeed,
       capability_ref: { artifact_id: capability.artifact_id, artifact_type: capability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-      artifact_repository: repository,
+      governed_references: [
+        context.contextBindingRef,
+        context.projectContextRef,
+        context.propertyContextRef,
+        { artifact_id: signedRelease.artifact_id, artifact_type: "product_release_manifest" },
+        geometryRef,
+      ],
+      label: "hm1c",
     });
 
     const report = await new GenerateLocalizationReportUseCase(async () => runtime(repository)).execute({

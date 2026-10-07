@@ -141,19 +141,17 @@ import { SpatialProviderPostGIS } from "../../spatial-provider-postgis/src/Spati
 import { SPATIAL_LAYER_REGISTRY } from "../../spatial-provider-postgis/src/SpatialLayerRegistry";
 import {
   InMemoryArtifactRepository,
-  type ArtifactRepositoryPort,
 } from "../../mps-runtime/src/index";
 import {
   GenerateLocalizationReportUseCase,
 } from "../../../src/application/generate-localization-report.usecase";
 import type { LocalizationSpatialRuntime } from "../../../server/modules/localization/createLocalizationSpatialRuntime";
-import { issueExecutionIdentityV3 } from "../src/execution/LuExecutionIdentityIssuer";
-import { LU_EXECUTION_PRINCIPAL_ID } from "../src/execution/LuExecutionKernelClient";
 import { LU_SITE_ASSESSMENT_CAPABILITY_KEY } from "../src/registry/LuSiteAssessmentRegistry";
 import { __resetLuExecutionAuthoritySigningProviderForTests } from "../../../server/security/luExecutionAuthoritySigningKey";
 import { __resetLuExecutionAuthorityVerifierForTests } from "../src/execution/LuExecutionAuthorityVerifier";
 import { provisionCanonicalLuContext } from "./fixtures/provisionCanonicalLuContext";
 import { ensureLocalizationProjectionProject } from "./fixtures/ensureLocalizationProjectionProject";
+import { provisionLuSourceAuthorityFixture } from "./fixtures/provisionLuSourceAuthority";
 import { createProductReleaseIssuerArtifact, createProductReleaseManifestArtifact } from "../../mps-governance/src/release/ProductReleaseAuthority";
 import { attestProductRelease } from "../../../server/modules/release/productReleaseAuthority";
 
@@ -162,6 +160,7 @@ const repoRoot = path.resolve(__dirname, "../../..");
 
 describe("P4A-LU-05 — real runtime entrypoint", () => {
   const originalEnv: Record<string, string | undefined> = {};
+  let sourceAuthorityFixture: { restore(): void } | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -169,6 +168,8 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
   });
 
   afterEach(() => {
+    sourceAuthorityFixture?.restore();
+    sourceAuthorityFixture = null;
     for (const name of [
       "LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM",
       "LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM",
@@ -189,11 +190,6 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
   it("runs GenerateLocalizationReportUseCase through registry resolution, production provider, evidence, findings and assessment", async () => {
     // The real entrypoint now derives its execution subject from a verified current binding;
     // the fixture provisions that full canonical chain before issuing the matching V3 identity.
-    const { publicKey, privateKey } = LocalPemSigningKeyProvider.generate("ed25519:lu-execution-authority-v1");
-    originalEnv.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM;
-    originalEnv.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM;
-    process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM = privateKey;
-    process.env.LU_EXECUTION_AUTHORITY_PUBLIC_KEY_PEM = publicKey;
 
     const contextIssuerKey = LocalPemSigningKeyProvider.generate("ed25519:p4a-context-issuer");
     const contextIssuer = createProjectContextBindingIssuerArtifact({
@@ -223,7 +219,6 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       }),
     };
     const releaseId = signedRelease.artifact_id;
-    const releaseHash = signedRelease.release_hash.value;
     process.env.PRODUCT_RELEASE_ARTIFACT_ID = releaseId;
     process.env.PRODUCT_RELEASE_ISSUER_KEY_ID = releaseIssuerKey.provider.keyId;
     process.env.PRODUCT_RELEASE_ISSUER_PUBLIC_KEY_PEM = releaseIssuerKey.publicKey;
@@ -312,30 +307,39 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
       created_by: "system",
     });
     const geometryRef = { artifact_id: geometry.artifact_id, artifact_type: geometry.artifact_type };
-    await issueExecutionIdentityV3({
-      subject: {
-        site_id: context.propertyIdentity,
-        project_context_binding_ref: context.contextBindingRef,
-        product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
-        execution_contract_version: "lu-execution-identity-v1",
-        localization_geometry_ref: geometryRef,
-      },
-      deterministic_seed: deriveLuExecutionSeed({
-        site_id: context.propertyIdentity,
-        project_id: projectId,
-        project_context_ref: context.projectContextRef,
-        property_context_ref: context.propertyContextRef,
-        project_context_binding_ref: context.contextBindingRef,
-        product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
-        product_release_hash: releaseHash,
-        execution_contract_version: "lu-execution-identity-v1",
-        rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-        localization_geometry_ref: geometryRef,
-      }),
-      actor_ref: { artifact_id: LU_EXECUTION_PRINCIPAL_ID, artifact_type: "execution_identity" },
+    const executionSubject = {
+      site_id: context.propertyIdentity,
+      project_context_binding_ref: context.contextBindingRef,
+      product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+      execution_contract_version: "lu-execution-identity-v1",
+      localization_geometry_ref: geometryRef,
+    } as const;
+    const executionSeed = deriveLuExecutionSeed({
+      site_id: context.propertyIdentity,
+      project_id: projectId,
+      project_context_ref: context.projectContextRef,
+      property_context_ref: context.propertyContextRef,
+      project_context_binding_ref: context.contextBindingRef,
+      product_release_ref: { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+      product_release_hash: signedRelease.release_hash.value,
+      execution_contract_version: "lu-execution-identity-v1",
+      rule_registry_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
+      localization_geometry_ref: geometryRef,
+    });
+    sourceAuthorityFixture = await provisionLuSourceAuthorityFixture({
+      repository: artifactRepository,
+      subject: executionSubject,
+      deterministic_seed: executionSeed,
       capability_ref: { artifact_id: luCapability.artifact_id, artifact_type: luCapability.artifact_type },
       release_snapshot_id: registry.getReleaseSnapshot().snapshot_id,
-      artifact_repository: artifactRepository,
+      governed_references: [
+        context.contextBindingRef,
+        context.projectContextRef,
+        context.propertyContextRef,
+        { artifact_id: releaseId, artifact_type: "product_release_manifest" },
+        geometryRef,
+      ],
+      label: "p4a-lu-05",
     });
 
     const report = await useCase.execute({
@@ -351,7 +355,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
 
     const analysis = report.siteAnalyses[0];
     expect(analysis.executionMotor?.admitted).toBe(true);
-    expect(analysis.executionMotor?.finding_ids).toHaveLength(3);
+    expect(analysis.executionMotor?.finding_ids).toHaveLength(5);
     expect(analysis.executionMotor?.assessment_artifact_id).toBeTruthy();
 
     const assessment = await artifactRepository.resolve<{
@@ -370,8 +374,10 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
     expect(assessment.artifact_type).toBe("LOCALIZATION_ASSESSMENT");
     expect(assessment.payload.findings.map((finding) => finding.rule_id).sort()).toEqual([
       "LU-EBH-001",
+      "LU-NATURA2000-001",
       "LU-PROTECTED-001",
       "LU-WATER-001",
+      "LU-WATERPROTECTION-001",
     ]);
 
     const evidence = await Promise.all(
@@ -385,7 +391,7 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         finding.evidence_refs.map((ref) => ref.artifact_id),
       ),
     );
-    expect(findingEvidenceIds).toHaveLength(3);
+    expect(findingEvidenceIds).toHaveLength(5);
     for (const artifact of evidence) {
       const layer = artifact.payload.layer_ref.layer_id;
       expect(artifact.payload.result_semantics.kind).toBe("EXISTENCE_WITHIN_DISTANCE");
@@ -395,12 +401,8 @@ describe("P4A-LU-05 — real runtime entrypoint", () => {
         SPATIAL_LAYER_REGISTRY[layer].version_hash,
       );
       expect(artifact.payload.geometry).toBeNull();
-      if (["water", "ebh", "protected_area"].includes(layer)) {
-        expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(true);
-      } else {
-        expect(["natura2000", "water_protection_area"]).toContain(layer);
-        expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(false);
-      }
+      expect(["water", "ebh", "protected_area", "natura2000", "water_protection_area"]).toContain(layer);
+      expect(findingEvidenceIds.has(artifact.artifact_id)).toBe(true);
     }
     expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes('FROM "PostgisImportBatch"'))).toHaveLength(5);
     expect(poolQuery.mock.calls.filter(([sql]) => String(sql).includes("ST_DWithin"))).toHaveLength(5);
