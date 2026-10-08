@@ -29,6 +29,12 @@ import path from 'node:path';
 import { prisma } from '../db/prisma';
 import { appendDomainAudit } from '../security/auditTrail';
 import { logger } from '../logger';
+import { createRequire } from 'node:module';
+
+// Node-side loader for the optional S3 SDK. A literal require('<specifier>') keeps the load visible to the
+// static census. The SDK is deliberately not a declared dependency: when it is absent the load throws and
+// the local backup stands.
+const require = createRequire(import.meta.url);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -168,7 +174,8 @@ export async function runBackup(actingUserId: string): Promise<BackupManifest> {
   const s3Bucket = process.env.BACKUP_S3_BUCKET;
   if (s3Bucket) {
     void uploadToS3(manifest, filePath, s3Bucket).then((s3Key) => {
-      manifest.uploadedTo = s3Key;
+      // An unavailable SDK or a failed upload yields '' and must leave `uploadedTo` absent, never an empty claim.
+      if (s3Key) manifest.uploadedTo = s3Key;
     });
   }
 
@@ -192,16 +199,22 @@ export function getBackup(id: string): BackupManifest | undefined {
 
 // ─── S3 upload (optional) ─────────────────────────────────────────────────────
 
+type AwsS3Module = {
+  S3Client: new (config: object) => { send(command: object): Promise<unknown> };
+  PutObjectCommand: new (input: object) => object;
+};
+
 async function uploadToS3(manifest: BackupManifest, filePath: string, bucket: string): Promise<string> {
   try {
-    // Dynamic import of AWS SDK v3 (optional peer dependency)
-    // Install with: npm install @aws-sdk/client-s3
-    const awsModule = '@aws-sdk/client-s3';
-    const { S3Client, PutObjectCommand } = await import(/* @vite-ignore */ awsModule).catch(() => ({
-      S3Client: null,
-      PutObjectCommand: null,
-    }));
-    if (!S3Client || !PutObjectCommand) return '';
+    // Loaded only when a bucket is configured. A missing SDK is a normal state, not an upload failure.
+    let aws: AwsS3Module | null = null;
+    try {
+      aws = require('@aws-sdk/client-s3') as AwsS3Module;
+    } catch {
+      aws = null;
+    }
+    if (!aws) return '';
+    const { S3Client, PutObjectCommand } = aws;
 
     const client = new S3Client({});
     const prefix = process.env.BACKUP_S3_PREFIX ?? 'backups/';

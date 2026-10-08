@@ -15,7 +15,6 @@ import {
   predictWeatherRisk,
   autoFillFormSection,
   fetchMunicipalityContext,
-  performSpatialAudit,
   generateSewageSitingAssessment,
   generateMarketingSummary,
   generateFigmaAiResponse,
@@ -28,6 +27,7 @@ import { runComplianceWorkflow } from '../services/orchestrationService';
 import { searchSluByCoordinates } from './services/sluService';
 import { fetchProtectedAreas } from './services/nvrService';
 import { fetchGeologicalData } from './services/sguService';
+import { performServerSpatialAudit } from './services/aiSpatialAuditService';
 import { fetchAncientMonuments } from './services/raaService';
 import { SpeciesObservation } from '../types';
 import { analyzeBiodiversityWithCompliance } from './services/localBiodiversityService';
@@ -196,7 +196,7 @@ router.post('/api/ai-assistant', async (req, res) => {
         result = await fetchMunicipalityContext(payload.municipality);
         break;
       case 'performSpatialAudit':
-        result = await performSpatialAudit(payload.lat, payload.lng);
+        result = await performServerSpatialAudit(payload.lat, payload.lng);
         break;
       case 'generateMarketingSummary':
         result = await generateMarketingSummary(payload.permits || []);
