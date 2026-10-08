@@ -128,7 +128,10 @@ describe("local PDF OCR", () => {
     const result = await adapter.ocr(pdfSource(), pdf);
     expect(result.succeeded).toBe(true);
     expect(result.page_count).toBe(2);
-    expect(result.version).toContain("renderer=pdftoppm@25.07.0+pdfinfo@25.07.0");
+    // The host-provided Poppler version is not a fixture contract. The provenance contract is
+    // that both executables are identified independently, so a renderer upgrade remains
+    // observable without making the local proof depend on the machine's package version.
+    expect(result.version).toMatch(/renderer=pdftoppm@\S+\+pdfinfo@\S+/);
     expect(result.version).toContain("dpi=200");
     expect(result.version).toContain("render=png");
     expect(result.text.toUpperCase().indexOf("ALPHA")).toBeGreaterThanOrEqual(0);
