@@ -70,13 +70,25 @@ describe('followed edges', () => {
   });
 });
 
+describe('createRequire(import.meta.url)(literal) is a require relative to the file', () => {
+  it('follows a relative literal and lists a bare literal as external, with no computed-resolution blocker', () => {
+    const r = computeClosure(tree({ 'root.ts': "import { createRequire } from 'node:module';\nconst a = createRequire(import.meta.url)('./x');\nconst b = createRequire(import.meta.url)('pg');", 'x.ts': '' }), ['root.ts']);
+    expect(r.unresolved).toEqual([]);
+    expect(r.union_all).toEqual(['root.ts', 'x.ts']);
+    expect(r.external_packages).toEqual(['node:module', 'pg']);
+  });
+});
+
 describe('FAIL CLOSED: every form the resolver cannot classify is an unresolved blocker', () => {
   const cases: Array<[string, Record<string, string>, string, { withConfig?: boolean; roots?: string[] }?]> = [
     ['a non-literal import()', { 'root.ts': 'const m = "./x"; import(m);' }, 'nonliteral-dynamic-import'],
     ['an import() of a template with a substitution', { 'root.ts': 'import(`./x/${name}`);' }, 'nonliteral-dynamic-import'],
     ['a non-literal require()', { 'root.ts': 'require(name);' }, 'nonliteral-require'],
     ['a require.call with no argument', { 'root.ts': 'require();' }, 'nonliteral-require'],
-    ['createRequire', { 'root.ts': "import { createRequire } from 'node:module';\ncreateRequire(import.meta.url)('./x');" }, 'computed-resolution'],
+    ['a stored createRequire instance', { 'root.ts': "import { createRequire } from 'node:module';\nconst r = createRequire(import.meta.url);\nr('./x');" }, 'computed-resolution'],
+    ['createRequire with another base', { 'root.ts': "import { createRequire } from 'node:module';\ncreateRequire(base)('./x');" }, 'computed-resolution'],
+    ['createRequire(import.meta.url) with a non-literal argument', { 'root.ts': "import { createRequire } from 'node:module';\ncreateRequire(import.meta.url)(name);" }, 'nonliteral-require'],
+    ['createRequire(import.meta.url) of a relative file that is missing', { 'root.ts': "import { createRequire } from 'node:module';\ncreateRequire(import.meta.url)('./nope');" }, 'unresolved-relative'],
     ['import.meta.glob', { 'root.ts': "import.meta.glob('./x/*.ts');" }, 'computed-resolution'],
     ['a relative specifier that resolves to no file', { 'root.ts': "import './nope';" }, 'unresolved-relative'],
     ['a relative specifier that climbs out of the tree', { 'root.ts': "import '../../outside';" }, 'unresolved-relative'],

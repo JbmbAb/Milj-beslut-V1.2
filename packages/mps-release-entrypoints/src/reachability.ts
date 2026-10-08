@@ -96,6 +96,7 @@ export function parseModule(file: string, text: string): ParsedModule {
   const edges: ImportEdge[] = [];
   const nonliteral: NonLiteralHit[] = [];
   const computed: Array<{ line: number; text: string }> = [];
+  const handledCreateRequire = new Set<ts.Node>();
   const lineOf = (node: ts.Node): number => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
   const literalOf = (node: ts.Node | undefined): string | null =>
     node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
@@ -126,13 +127,22 @@ export function parseModule(file: string, text: string): ParsedModule {
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const isImport = callee.kind === ts.SyntaxKind.ImportKeyword;
-      const isRequire = ts.isIdentifier(callee) && callee.text === 'require';
+      // `createRequire(import.meta.url)('x')`: a require relative to this very file, classifiable with certainty.
+      // Any other use of createRequire (stored instance, other argument) stays a computed resolution below.
+      const direct =
+        ts.isCallExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === 'createRequire' &&
+        callee.arguments.length === 1 &&
+        callee.arguments[0]!.getText(sf) === 'import.meta.url';
+      if (direct) handledCreateRequire.add(callee);
+      const isRequire = direct || (ts.isIdentifier(callee) && callee.text === 'require');
       if (isImport || isRequire) {
         const spec = literalOf(node.arguments[0]);
         if (spec !== null && node.arguments.length >= 1) edges.push({ specifier: spec, line: lineOf(node), typeOnly: false, form: isImport ? 'dynamic' : 'require' });
         else nonliteral.push({ file, line: lineOf(node), form: isImport ? 'import' : 'require', text: clip(node.arguments[0]?.getText(sf) ?? '') });
       } else if (
-        (ts.isIdentifier(callee) && callee.text === 'createRequire') ||
+        (ts.isIdentifier(callee) && callee.text === 'createRequire' && !handledCreateRequire.has(node)) ||
         (ts.isPropertyAccessExpression(callee) && (callee.name.text === 'createRequire' || /^import\.meta\.glob/.test(callee.getText(sf))))
       ) {
         computed.push({ line: lineOf(node), text: clip(callee.getText(sf)) });
