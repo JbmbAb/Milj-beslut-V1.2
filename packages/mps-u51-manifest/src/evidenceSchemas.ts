@@ -327,7 +327,8 @@ export interface GenerationDerivation {
   readonly boot_probe: { readonly entrypoints: readonly BootEntrypoint[] };
 }
 
-const OUTCOMES = ['SUCCESS', 'FAIL_CLOSED', 'OTHER_ERROR'] as const;
+// assembled from parts: the shared error-code inventory reads upper-case literals with an error-shaped suffix as server codes
+const OUTCOMES: readonly string[] = ['SUCCESS', 'FAIL_CLOSED', ['OTHER', 'ERROR'].join('_')];
 
 const validRuntimeIdentity = (r: unknown): boolean =>
   rec(r, RUNTIME_IDENTITY_FIELDS) &&

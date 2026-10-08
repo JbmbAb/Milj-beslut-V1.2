@@ -186,8 +186,11 @@ class Parser {
   }
 }
 
+/** A byte array of any realm (a jsdom test environment has its own Uint8Array, so instanceof is not enough). */
+export const isByteArray = (v: unknown): v is Uint8Array => ArrayBuffer.isView(v) && Object.prototype.toString.call(v) === '[object Uint8Array]';
+
 export function parseStrictJsonBytes(bytes: unknown): StrictParse {
-  if (!(bytes instanceof Uint8Array)) return { ok: false, problem: 'manifest bytes are not a byte array' };
+  if (!isByteArray(bytes)) return { ok: false, problem: 'manifest bytes are not a byte array' };
   if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     return { ok: false, problem: 'byte order mark' };
   }
