@@ -1,0 +1,16 @@
+{
+  "name": "@miljobeslut/mps-release-entrypoints",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "description": "U51-RELEASE-V3-RECONCILIATION-01 (D): the machine-readable production entrypoint composition (deploy/onprem/entrypoints.json, schema u51-entrypoints-1), its consistency rules against the files the release composition binds, its derived hash, and a fail-closed static reachability closure over git objects. Produces evidence only; it is not wired into the U51 proof runner.",
+  "scripts": {
+    "check": "tsx scripts/entrypoints-cli.ts check",
+    "reach": "tsx scripts/entrypoints-cli.ts reach"
+  }
+}
