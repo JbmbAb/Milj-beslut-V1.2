@@ -2,9 +2,10 @@
  * U51-GENERATION-ABSENCE-PROOF-01 -- the static half of the DECLARED_ABSENT proof, run against a COMMIT.
  *
  * Reads the subject tree from the git object database, takes the static census of contract 2d937d63 (5.3) and
- * asks whether the production entrypoint set can be derived. It does NOT boot anything and it NEVER reports PASS:
- * the DECLARED_ABSENT proof needs the boot probe of every derived entrypoint, which cannot run until that set
- * exists. It selects no model or runtime, registers nothing and writes nothing into the subject.
+ * derives the production entrypoint set from the composition-bound deploy/onprem/entrypoints.json using D's
+ * fail-closed consistency rules. It does NOT boot anything and it NEVER reports PASS: the DECLARED_ABSENT proof
+ * still needs a side-effect-safe execution probe of every derived entrypoint. It selects no model or runtime,
+ * registers nothing and writes nothing into the subject.
  *
  * Exit codes follow scripts/devgov/invariant-packs.mjs: 1 = FAIL (runtime registration discovered),
  * 2 = NOT_EXECUTED (the proof could not run to completion). There is no 0 in this version.
@@ -19,7 +20,7 @@ import { spawnSync } from 'node:child_process';
 import {
   LaunchSurfaceObserver,
   StaticCensusAccumulator,
-  assessEntrypointDerivability,
+  deriveEntrypointSet,
   iterateTreeEntries,
   resolveSubject,
 } from '../../packages/mps-u51-generation-absence/src/index';
@@ -49,18 +50,20 @@ if (out && top) {
 }
 
 const subject = resolveSubject(repo, rev);
+const entries = [...iterateTreeEntries(repo, subject.tree_sha)];
 const census = new StaticCensusAccumulator();
 const surfaces = new LaunchSurfaceObserver();
-for (const entry of iterateTreeEntries(repo, subject.tree_sha)) {
+for (const entry of entries) {
   census.add(entry);
   surfaces.add(entry);
 }
 const detail = census.result();
-const derivability = assessEntrypointDerivability(detail);
+const derivability = deriveEntrypointSet(entries);
 
 const registration = detail.census.registration_identifier_files;
 const nonliteral = detail.census.nonliteral_dynamic_imports;
 const result = registration > 0 ? 'FAIL' : 'NOT_EXECUTED';
+const proofBlocker = derivability.status === 'DERIVED' ? 'BOOT_PROBE_NOT_IMPLEMENTED' : derivability.blocker;
 
 const report = {
   proof_unit: 'U51-GENERATION-ABSENCE-PROOF-01',
@@ -87,7 +90,10 @@ const report = {
   observed_launch_surfaces_not_a_derivation: surfaces.result(),
   boot_probe: {
     status: 'NOT_EXECUTED',
-    reason: 'no derived production entrypoint set; a probe over a hand-picked subset is not accepted',
+    reason:
+      derivability.status === 'DERIVED'
+        ? 'the production entrypoint set is derived from the composition, but a side-effect-safe execution probe of every real entrypoint is not implemented in this unit'
+        : 'no derived production entrypoint set; a probe over a hand-picked subset is not accepted',
   },
   generation_evidence: 'NOT_PRODUCED',
   manifest_posture: 'NOT_WRITTEN',
@@ -95,7 +101,7 @@ const report = {
   blockers: [
     ...(registration > 0 ? ['RUNTIME_REGISTRATION_DISCOVERED'] : []),
     ...(nonliteral > 0 ? ['NONLITERAL_DYNAMIC_IMPORTS_PRESENT_OD17_OPEN'] : []),
-    derivability.blocker,
+    proofBlocker,
   ],
 };
 

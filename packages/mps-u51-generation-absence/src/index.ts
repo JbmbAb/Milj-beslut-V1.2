@@ -19,7 +19,9 @@ export {
 export {
   LaunchSurfaceObserver,
   assessEntrypointDerivability,
+  deriveEntrypointSet,
   type EntrypointDerivability,
+  type DerivedEntrypointSet,
   type ObservedLaunchSurfaces,
 } from './entrypointSet.js';
 export { iterateTreeEntries, resolveSubject, type Subject } from './gitTree.js';

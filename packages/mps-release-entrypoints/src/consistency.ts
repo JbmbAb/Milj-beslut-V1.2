@@ -54,7 +54,7 @@ export function checkEntrypointComposition(tree: TreeReader): CompositionCheck {
     return { outcome: 'not_executed', problems: [{ rule: 'schema', message: `${ENTRYPOINTS_FILE_PATH} is not valid JSON` }] };
   }
   const parsed = parseEntrypointsFile(json);
-  if (!parsed.ok) return { outcome: 'not_executed', problems: parsed.problems };
+  if (parsed.ok === false) return { outcome: 'not_executed', problems: parsed.problems };
   const file = parsed.file;
 
   const entryFiles = new Set(file.entries.map((e) => e.entry_file));
@@ -73,9 +73,9 @@ export function checkEntrypointComposition(tree: TreeReader): CompositionCheck {
   const scriptsResult = parsePackageScripts(packageText);
   const dockerResult = parseDockerfileLaunchers(dockerText);
   const smokeResult = parseSmokeEntrypoints(smokeText);
-  if (!scriptsResult.ok) problems.push({ rule: 'cmd-resolves', message: scriptsResult.message });
-  if (!dockerResult.ok) problems.push({ rule: 'cmd-resolves', message: dockerResult.message });
-  if (!smokeResult.ok) problems.push({ rule: 'entry-launched', message: smokeResult.message });
+  if (scriptsResult.ok === false) problems.push({ rule: 'cmd-resolves', message: scriptsResult.message });
+  if (dockerResult.ok === false) problems.push({ rule: 'cmd-resolves', message: dockerResult.message });
+  if (smokeResult.ok === false) problems.push({ rule: 'entry-launched', message: smokeResult.message });
   if (!scriptsResult.ok || !dockerResult.ok || !smokeResult.ok) return { outcome: 'not_executed', problems };
   const scripts = scriptsResult.value;
 
@@ -90,7 +90,7 @@ export function checkEntrypointComposition(tree: TreeReader): CompositionCheck {
   for (const launcher of dockerResult.value) {
     const resolved = resolveArgvToEntryFile(launcher.argv, scripts);
     const where = `Dockerfile line ${launcher.line} (${launcher.instruction})`;
-    if (!resolved.ok) {
+    if (resolved.ok === false) {
       problems.push({ rule: 'cmd-resolves', message: `${where} does not resolve to a file: ${resolved.message}` });
       continue;
     }
@@ -111,7 +111,7 @@ export function checkEntrypointComposition(tree: TreeReader): CompositionCheck {
     launchedBy.push({ id: entry.id, sources: [...new Set(sources)] });
     if (sources.length === 0) problems.push({ rule: 'entry-launched', message: `entry ${entry.id} (${entry.entry_file}) is launched by no Dockerfile CMD, no smoke ENTRYPOINTS item and no package script` });
     const own = resolveArgvToEntryFile(entry.argv, scripts);
-    if (!own.ok) problems.push({ rule: 'argv-resolves', message: `entry ${entry.id}: argv does not resolve to a file: ${own.message}` });
+    if (own.ok === false) problems.push({ rule: 'argv-resolves', message: `entry ${entry.id}: argv does not resolve to a file: ${own.message}` });
     else if (own.value !== entry.entry_file) problems.push({ rule: 'argv-resolves', message: `entry ${entry.id}: argv runs ${own.value}, not ${entry.entry_file}` });
   }
 

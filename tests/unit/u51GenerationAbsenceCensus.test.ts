@@ -14,6 +14,7 @@ import {
   REGISTRATION_IDENTIFIER,
   assessEntrypointDerivability,
   computeStaticCensus,
+  deriveEntrypointSet,
   isDocumentationPath,
   isTestPath,
   iterateTreeEntries,
@@ -26,6 +27,30 @@ const RUNNER = path.join(ROOT, 'scripts', 'ops', 'prove-u51-generation-absence-0
 
 const file = (p: string, text: string) => ({ path: p, bytes: Buffer.from(text, 'utf8') });
 const ID = REGISTRATION_IDENTIFIER;
+
+const syntheticComposition = () => [
+  file(
+    'deploy/onprem/entrypoints.json',
+    JSON.stringify({
+      schema: 'u51-entrypoints-1',
+      entries: [
+        { id: 'web', role: 'web', argv: ['npm', 'start'], entry_file: 'server/index.ts' },
+        { id: 'worker-a', role: 'worker', argv: ['node', '--import', 'tsx', 'server/workers/a-worker.ts'], entry_file: 'server/workers/a-worker.ts' },
+      ],
+      not_production: [
+        { entry_file: 'server/workers/b-worker.ts', reason: 'Synthetic non-production worker used only to exercise U51 composition derivation.' },
+      ],
+    }),
+  ),
+  file('Dockerfile', 'FROM node:22 AS web\nCMD ["npm","start"]\nFROM node:22 AS b\nCMD ["npx","tsx","server/workers/b-worker.ts"]\n'),
+  file('package.json', JSON.stringify({ scripts: { start: 'node --import tsx server/index.ts', 'worker:a': 'node --import tsx server/workers/a-worker.ts' } })),
+  file('deploy/onprem/image-smoke/smoke.mjs', "const ENTRYPOINTS = ['server/index.ts', 'server/workers/a-worker.ts'];\n"),
+  file('server/index.ts', "console.log('start');\n"),
+  file('server/workers/a-worker.ts', 'function main() {}\nmain();\n'),
+  file('server/workers/b-worker.ts', 'function main() {}\nmain();\n'),
+  file('server/workers/bootstrap.ts', 'export function boot(): void {}\n'),
+  file('server/workers/registry.ts', 'export function startAll(): void {}\n'),
+];
 
 describe('path classes follow the contract', () => {
   it('test paths: (^|/)(tests?|__tests__|e2e)/ or .test/.spec', () => {
@@ -196,11 +221,31 @@ describe('entrypoint derivability', () => {
     expect(Object.keys(a)).not.toContain('entrypoints');
   });
 
-  it('composition content is noticed but still not derived here', () => {
+  it('composition content is noticed by the legacy marker check but is not itself a derivation', () => {
     const d = computeStaticCensus([file('scripts/release/w.mjs', 'const composition_manifest_sha256 = 1;')]);
     const a = assessEntrypointDerivability(d);
     expect(a.blocker).toBe('COMPOSITION_DERIVATION_NOT_IMPLEMENTED');
     expect(a.status).toBe('NOT_DERIVABLE');
+  });
+
+  it('derives the exact entrypoint set from the composition-bound entrypoints file and D consistency rules', () => {
+    const d = deriveEntrypointSet(syntheticComposition());
+    expect(d.status).toBe('DERIVED');
+    if (d.status !== 'DERIVED') throw new Error(d.detail);
+    expect(d.derived_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(d.entrypoints.map((e) => [e.id, e.entry_file])).toEqual([
+      ['web', 'server/index.ts'],
+      ['worker-a', 'server/workers/a-worker.ts'],
+    ]);
+  });
+
+  it('fails closed when entrypoints.json exists but the bound composition is inconsistent', () => {
+    const files = syntheticComposition().filter((e) => e.path !== 'server/workers/a-worker.ts');
+    const d = deriveEntrypointSet(files);
+    expect(d.status).toBe('NOT_DERIVABLE');
+    if (d.status === 'DERIVED') throw new Error('unexpected derivation');
+    expect(d.blocker).toBe('COMPOSITION_INCONSISTENT');
+    expect(d.problems?.length).toBeGreaterThan(0);
   });
 
   it('composition mentions in documentation and tests do not count as a composition', () => {
@@ -250,6 +295,23 @@ describe('the runner never reports PASS', () => {
     expect(report.boot_probe.status).toBe('NOT_EXECUTED');
     expect(report.generation_evidence).toBe('NOT_PRODUCED');
     expect(report.manifest_posture).toBe('NOT_WRITTEN');
+  });
+
+  it('derives the composition-bound set and stops only at the unimplemented real boot probe', () => {
+    for (const entry of syntheticComposition()) {
+      const target = path.join(dir, ...entry.path.split('/'));
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, entry.bytes);
+    }
+    git('add', '-A');
+    git('commit', '-q', '-m', 'composition');
+    const r = run('--repo', dir, '--commit', 'HEAD', '--out', path.join(evidence, 'composition.json'));
+    expect(r.status).toBe(2);
+    const report = JSON.parse(r.stdout);
+    expect(report.entrypoint_set.status).toBe('DERIVED');
+    expect(report.entrypoint_set.entrypoints.map((e: any) => e.id)).toEqual(['web', 'worker-a']);
+    expect(report.blockers).toEqual(['BOOT_PROBE_NOT_IMPLEMENTED']);
+    expect(report.boot_probe.reason).toContain('production entrypoint set is derived');
   });
 
   it('a discovered registration is FAIL (exit 1), never silently switched to BOUND', () => {
