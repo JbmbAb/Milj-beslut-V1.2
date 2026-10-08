@@ -524,35 +524,6 @@ export const fetchMunicipalityContext = async (
   return unavailable('Kommunkontext');
 };
 
-export const performSpatialAudit = async (
-  lat: number,
-  lng: number,
-): Promise<{ text: string; sources: GroundingSource[] }> => {
-  const apiResult = await callAiAssistantApi<{ text: string; sources: GroundingSource[] }>('performSpatialAudit', {
-    lat,
-    lng,
-  });
-  if (apiResult?.text) return apiResult;
-
-  if (!hasWindow()) {
-    try {
-      const serverModulePath = '../server/services/spatialAuditService';
-      const { runSpatialAudit } = await import(/* @vite-ignore */ serverModulePath);
-      const localAudit = await runSpatialAudit(lat, lng);
-      return { text: localAudit.text, sources: localAudit.sources };
-    } catch {
-      // fall through to unavailable result
-    }
-  }
-
-  const serverResult = await serverGenerateText(
-    `Kort spatial riskbedomning for koordinat lat ${lat}, lng ${lng}, fokus pa vatten, skyddszoner och geoteknisk screening.`,
-  );
-  if (serverResult) return { text: serverResult, sources: [] };
-
-  return unavailable('Spatial audit');
-};
-
 /**
  * PRODUCT-RUNTIME-ANSWER-BYPASS-01: permanently disabled. This was a freeform general-chat surface
  * that, server-side, always fell through to either VertexOrkester (whose only tool is the LEGACY
