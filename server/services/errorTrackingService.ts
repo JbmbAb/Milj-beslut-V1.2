@@ -60,10 +60,9 @@ async function initSentry(): Promise<boolean> {
   }
 
   try {
-    // Dynamic import — Sentry SDK is an optional peer dependency.
-    // Install with: npm install @sentry/node
-    const sentryModule = '@sentry/node';
-    const Sentry = await import(/* @vite-ignore */ sentryModule).catch(() => null);
+    // @sentry/node is a declared runtime dependency. The literal specifier keeps the import
+    // visible to static analysis; the .catch keeps the local-only fallback when loading fails.
+    const Sentry = await import('@sentry/node').catch(() => null);
     if (Sentry) {
       Sentry.init({ dsn, tracesSampleRate: 0.1 });
       _sentryClient = Sentry;

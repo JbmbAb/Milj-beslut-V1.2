@@ -14,6 +14,14 @@ vi.mock('../../server/logger', () => ({
   },
 }));
 
+const sentry = vi.hoisted(() => ({
+  init: vi.fn(),
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
+}));
+
+vi.mock('@sentry/node', () => sentry);
+
 type ErrorTrackingModule = typeof import('../../server/services/errorTrackingService');
 
 describe('errorTrackingService', () => {
@@ -218,6 +226,24 @@ describe('errorTrackingService', () => {
       // We cannot directly read _errors, but we can verify the newest entries are present
       const errors = getRecentErrors({ limit: 500 });
       expect(errors.length).toBeLessThanOrEqual(500);
+    });
+  });
+
+  describe('Sentry forwarder', () => {
+    const dsn = 'https://public@sentry.example.invalid/1';
+
+    it('initialises @sentry/node and forwards exceptions when SENTRY_DSN is set', async () => {
+      process.env.SENTRY_DSN = dsn;
+      await captureException(new Error('forwarded'));
+      expect(sentry.init).toHaveBeenCalledWith({ dsn, tracesSampleRate: 0.1 });
+      expect(sentry.captureException).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ level: 'error' }));
+      expect(getRecentErrors({ limit: 1 })[0]?.sentToSentry).toBe(true);
+    });
+
+    it('forwards messages through captureMessage when SENTRY_DSN is set', async () => {
+      process.env.SENTRY_DSN = dsn;
+      await captureMessage('forwarded message', 'warning');
+      expect(sentry.captureMessage).toHaveBeenCalledWith('forwarded message', 'warning');
     });
   });
 });
