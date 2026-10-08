@@ -7,11 +7,18 @@
  */
 import { logger } from '../logger';
 import { startLocalizationIdentityProvisioningWorker } from '../services/luExecutionIdentityV3ProvisioningWorker';
-import { assertLuWorkerDurableCas, bootstrapWorkerProcess } from './bootstrap';
+import {
+  assertLuWorkerBootstrapAdmitFlag,
+  assertLuWorkerDurableCas,
+  assertLuWorkerProductReleaseIdentity,
+  bootstrapWorkerProcess,
+} from './bootstrap';
 
 bootstrapWorkerProcess();
 
 async function main(): Promise<void> {
+  // W-U402 (U40-2, K7): MPS_LU_BOOTSTRAP_ADMIT outside an explicit test process refuses the start, before anything else.
+  await assertLuWorkerBootstrapAdmitFlag('lu-identity-v3-worker');
   if (!process.env.LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM) {
     logger.error('lu-identity-v3-worker: LU_EXECUTION_AUTHORITY_PRIVATE_KEY_PEM is not set -- refusing to start.');
     process.exit(1);
@@ -21,6 +28,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   await assertLuWorkerDurableCas('lu-identity-v3-worker');
+  // W-U42: the worker runs only the build its configured product release was issued for.
+  await assertLuWorkerProductReleaseIdentity('lu-identity-v3-worker');
 
   logger.info('lu-identity-v3-worker: Starting LU ExecutionIdentity V3 + lifecycle-bound temporal-authority provisioning worker...');
   const pollMs = Math.max(1000, Number(process.env.LU_IDENTITY_V3_WORKER_POLL_MS || 5000));

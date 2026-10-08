@@ -195,20 +195,21 @@ const isStatusToken = (token: string) =>
  * lines. Update ONLY together with luErrorCodeInventory.reviewed.ts, after reviewing the change.
  */
 const REVIEWED_LIST_PIN = {
-  total: 1099,
+  total: 1109,
   groups: {
     COVERED_BY_PARENT: 23,
     GENERIC_TEXT_EXACT: 25,
-    NOT_A_WIRE_CODE: 171,
+    NOT_A_WIRE_CODE: 172,
     NOT_PRESENTED: 6,
-    OUTSIDE_LU_REACH: 425,
-    RAW_MESSAGE_ONLY: 187,
-    SERVER_INTERNAL: 234,
+    OUTSIDE_LU_REACH: 427,
+    RAW_MESSAGE_ONLY: 193,
+    SERVER_INTERNAL: 235,
     SERVER_TEXT_VERBATIM: 28,
   } as Record<string, number>,
   // W-NO-GOOGLE-02A 2026-10-07: reviewed four local-embedding codes outside LU reach and withdrew stale EMBEDDING_MISSING_VALUES.
+  // U51-D 2026-10-08: reviewed the ten codes that arrive with the merge of rt/u42c (+1 NOT_A_WIRE_CODE, +2 OUTSIDE_LU_REACH, +6 RAW_MESSAGE_ONLY, +1 SERVER_INTERNAL).
   // W-UI1-R2: the digest covers every note plus reviewed middleware/router-level uses.
-  sha256: '0fe4c8d310be8d6f6a44077649a8c6d3772f8a89428fe65d9d6812154d3375cf',
+  sha256: '89ab287883d6f99359518221142b6d59eed075ef186b940276ea57534e91eb75',
 };
 
 function reviewedDigest(): { total: number; groups: Record<string, number>; sha256: string } {

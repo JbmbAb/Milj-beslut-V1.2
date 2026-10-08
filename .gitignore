@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# W-U42: skrivs av bygget (scripts/release/write-build-identity.mjs) ur de filer det
+# levererar; aldrig spårad -- en spårad kopia vore en deklaration, inte en mätning.
+release-identity.json
 *.local
 
 # Editor directories and files

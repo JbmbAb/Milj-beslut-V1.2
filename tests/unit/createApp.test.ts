@@ -49,13 +49,16 @@ describe('GET /health', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.liveness).toBe('up');
     expect(res.body.service).toBe('miljobeslut-secure-backend');
-    expect(typeof res.body.ts).toBe('string');
   });
 
-  it('includes version field', async () => {
+  // W-U42 (owner decision 2026-10-02 row 7, DP-23): /health is MINIMAL -- no release detail (version) and no
+  // timestamp; the running release is served by the authenticated GET /api/release only.
+  it('is minimal: exactly ok, liveness and service -- no version, no timestamp (DP-23)', async () => {
     const app = createApp();
     const res = await request(app).get('/health');
-    expect(typeof res.body.version).toBe('string');
+    expect(res.body).toEqual({ ok: true, liveness: 'up', service: 'miljobeslut-secure-backend' });
+    expect(res.body).not.toHaveProperty('version');
+    expect(res.body).not.toHaveProperty('ts');
   });
 });
 

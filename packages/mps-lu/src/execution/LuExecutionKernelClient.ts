@@ -19,7 +19,7 @@ import {
 } from "../../../mps-runtime/src/kernel/ExecutionKernel.js";
 import { MimersIntegration } from "../../../mps-runtime/src/mimers/index.js";
 import { CapabilityRuntime } from "../../../mps-runtime/src/capability/index.js";
-import { SecurityRuntime } from "../../../mps-runtime/src/security/index.js";
+import { SecurityRuntime, createConfiguredExecutionAttestationSigner } from "../../../mps-runtime/src/security/index.js";
 import { DefaultReplayEngine } from "../../../mps-runtime/src/replay/DefaultReplayEngine.js";
 import type { FrozenExecutionManifestIdentity } from "../../../mps-runtime/src/contracts/freeze/FrozenIdentities.js";
 import {
@@ -393,6 +393,12 @@ async function executeLuAssessment(
         capability_id: capability.artifact_id,
       },
     ],
+    // W-U42 (owner 2026-10-03 (5)): a process configured with its own attestation secret
+    // (MPS_EXECUTION_ATTESTATION_HMAC_SECRET) signs outcome attestations with it, never with the
+    // built-in development secret; an invalid configured secret refuses here (typed, before any
+    // artifact is written). Absent -> SecurityRuntime's development default, which the process
+    // start-up gate allows only in an explicit development/test process.
+    signer: createConfiguredExecutionAttestationSigner(process.env) ?? undefined,
   });
   security.bindPrincipal(LU_EXECUTION_PRINCIPAL_ID, executionIdentityRef);
 

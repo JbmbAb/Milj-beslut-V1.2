@@ -1,6 +1,7 @@
-# Basimagen är pinnad på sitt multi-arch-index (node:22-alpine, Alpine 3.24,
-# publicerad 2026-09-23). Två byggen av samma commit får då samma bas.
-# Byt medvetet: docker buildx imagetools inspect node:22-alpine
+# Basimage-lagren är pinnade på node:22-alpines multi-arch-index (Alpine 3.24,
+# publicerad 2026-09-23). apk-steget nedan är inte versionspinnat, så base-steget
+# är ändå rörligt mellan två byggen av samma commit.
+# Byt digest medvetet: docker buildx imagetools inspect node:22-alpine
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
 
 # Uppdatera och installera curl och openssl för Prisma, plus chromium för ERD-generatorn
@@ -43,11 +44,14 @@ RUN npm prune --omit=dev --legacy-peer-deps --ignore-scripts
 
 # Steg 2: Produktionsbas (gemensam för alla slutliga images)
 FROM base AS production-base
-# Fem @miljobeslut-specifierare (mps-application, mps-capability,
-# mps-knowledge-corpus, mps-knowledge-index, mps-legal-corpus) finns inte som
-# node_modules-länkar och löses bara via tsconfig-paths. tsx letar annars upp
-# tsconfig.json från arbetskatalogen; den fasta sökvägen gör upplösningen
-# oberoende av working_dir.
+# tsconfig.json följer med för tsconfig-paths: fem @miljobeslut-specifierare
+# (mps-application, mps-capability, mps-knowledge-corpus, mps-knowledge-index,
+# mps-legal-corpus) finns inte som node_modules-länkar. Ingen av de fem processerna
+# (web och de fyra LU-arbetarna) når dem; två (mps-knowledge-corpus,
+# mps-legal-corpus) nås bara av ops-skript (scripts/db/legal-corpus-*.ts,
+# scripts/knowledge/run-corpus-expansion.ts) via server/modules/legal/*. tsx letar
+# annars upp tsconfig.json uppåt från arbetskatalogen och hittar /app/tsconfig.json
+# från varje cwd under /app; variabeln pekar bara ut filen uttryckligen.
 ENV NODE_ENV=production \
     TSX_TSCONFIG_PATH=/app/tsconfig.json
 
@@ -55,23 +59,56 @@ ENV NODE_ENV=production \
 # till ../../packages/*, så packages/ måste följa med, och tsconfig.json bär
 # de tsconfig-paths som tsx löser @miljobeslut-importer med. server/ importerar
 # också services/, scripts/ och rotens *.ts (db.server.ts, constants.ts, types.ts).
-# --chown i stället för chown -R: en rekursiv chown kopierar hela node_modules
-# till ett nytt lager.
-RUN chown appuser:appgroup /app
-COPY --from=builder --chown=appuser:appgroup /app/package.json /app/package-lock.json /app/tsconfig.json ./
-COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
-COPY --from=builder --chown=appuser:appgroup /app/packages ./packages
-COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
-COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
-COPY --from=builder --chown=appuser:appgroup /app/server ./server
-COPY --from=builder --chown=appuser:appgroup /app/src ./src
-COPY --from=builder --chown=appuser:appgroup /app/services ./services
-COPY --from=builder --chown=appuser:appgroup /app/scripts ./scripts
-COPY --from=builder --chown=appuser:appgroup /app/app ./app
-COPY --from=builder --chown=appuser:appgroup /app/config ./config
-COPY --from=builder --chown=appuser:appgroup /app/types ./types
-COPY --from=builder --chown=appuser:appgroup /app/stubs ./stubs
-COPY --from=builder --chown=appuser:appgroup /app/*.ts ./
+# Allt levereras root:root (ingen --chown) och /app chownas inte (W-U42C IN-5,
+# ägarbeslut Ä1): processanvändaren appuser kan läsa den levererade runtimen men
+# inte ändra, skapa, döpa om eller ta bort något i den efter startmätningen.
+# package-lock.json tas från byggkontexten (git archive <SHA>: commitens bytes),
+# inte från byggsteget: npm prune --omit=dev skriver om låsfilen (omit-beroenden
+# skrivs tillbaka med andra flaggor), och release-identiteten
+# (ProductReleaseAuthority v3: package.json, package-lock.json, server/index.ts
+# och source_digest) mäts över filerna i imagen vid varje processstart.
+# package.json och tsconfig.json rörs inte av bygget.
+COPY package-lock.json ./
+COPY --from=builder /app/package.json /app/tsconfig.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/services ./services
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/app ./app
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/types ./types
+COPY --from=builder /app/stubs ./stubs
+COPY --from=builder /app/*.ts ./
+
+# Den enda skrivbara katalogen (W-U42C IN-5): webbprocessen skriver uppladdningar,
+# utkast, temp- och ingest-filer under storage/ i sin arbetskatalog
+# (documentUploadService, documentGenerator, sewage.routes, gis.routes,
+# importPathService). Den skapas tom och ägs av appuser; den är data, inte kod,
+# mäts därför inte (DELIVERED_ROOT_EXCLUSIONS i scripts/release/buildIdentityDigest.mjs)
+# och ingen COPY levererar dit.
+RUN mkdir /app/storage && chown appuser:appgroup /app/storage
+
+# Releaseidentiteten (product-release-v3) MÄTS här, efter sista COPY, över
+# exakt den /app imagen levererar -- hela roten utom .git, storage/ och
+# release-identity.json själv: node_modules som bytes, symlänkar med sitt mål,
+# mätkoden i scripts/release/ och de tre V1/V2-filerna med package-lock.json ur
+# kontexten (W-U42C) -- och skrivs till release-identity.json. Samma algoritm som
+# varje process använder vid start (scripts/release/buildIdentityDigest.mjs);
+# en avvikelse vid start är REJECT_PRODUCT_RELEASE_BUILD_MISMATCH. Inte i
+# builder: dess träd har components/ och den låsfil npm prune skrev om, och
+# ingen av dem levereras (W-U42B, R-U402-14). Dockerfile/.dockerignore/
+# deploy/ och .git kopieras inte hit, så commit, träd och kompositionshash
+# lämnas in av deploy/onprem/build-image.sh som byggargument. Argumenten har
+# ingen default: ett bygge utan dem misslyckas i stället för att gissa en
+# identitet. Inget steg efter detta får leverera eller ändra filer i /app.
+ARG SOURCE_COMMIT_SHA
+ARG SOURCE_TREE_SHA
+ARG COMPOSITION_MANIFEST_SHA256
+RUN node scripts/release/write-build-identity.mjs --source-commit "$SOURCE_COMMIT_SHA" --source-tree "$SOURCE_TREE_SHA" --composition-manifest-sha256 "$COMPOSITION_MANIFEST_SHA256"
 
 USER appuser
 
