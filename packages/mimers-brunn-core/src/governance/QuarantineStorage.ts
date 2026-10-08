@@ -47,6 +47,75 @@ export interface QuarantinePutResult {
   readonly hash: string;
 }
 
+export type StreamingQuarantineReasonCode =
+  | 'REJECT_OBJECT_SIZE'
+  | 'REJECT_EMPTY_OBJECT'
+  | 'REJECT_CHECKSUM'
+  | 'REJECT_QUARANTINE_IO'
+  | 'REJECT_QUARANTINE_CLEANUP';
+
+/**
+ * Failure of a streaming quarantine session.
+ *
+ * A session error is never a successful observation. `REJECT_QUARANTINE_IO` means the temp
+ * object was removed and the caller may retry. `REJECT_QUARANTINE_CLEANUP` means removal
+ * failed, so the caller must not treat the attempt as success or as a clean retry.
+ */
+export class StreamingQuarantineError extends Error {
+  readonly reason_code: StreamingQuarantineReasonCode;
+
+  constructor(message: string, reasonCode: StreamingQuarantineReasonCode) {
+    super(message);
+    this.name = 'StreamingQuarantineError';
+    this.reason_code = reasonCode;
+  }
+}
+
+export interface StreamingQuarantinePutResult extends QuarantinePutResult {
+  readonly byte_length: number;
+}
+
+/** Independent chunk witness. Finalize commits only when this matches the bytes on disk. */
+export interface StreamingQuarantineWitness {
+  readonly byte_length: number;
+  readonly content_hash: string;
+}
+
+export interface BeginNetworkObservationRequest {
+  readonly source_id: string;
+  readonly source_url: string;
+  readonly file_name: string;
+  readonly custom_metadata?: Record<string, any>;
+  readonly max_bytes?: number;
+}
+
+/**
+ * One in-progress network observation.
+ *
+ * `write` accepts a single chunk. `finalize` is the only transition that creates a quarantine
+ * observation. `abort` deletes the temp object and creates nothing.
+ */
+export interface StreamingQuarantinePutSession {
+  write(chunk: Uint8Array): Promise<void>;
+  finalize(witness: StreamingQuarantineWitness): Promise<StreamingQuarantinePutResult>;
+  abort(): Promise<void>;
+}
+
+/**
+ * Additive streaming capability. `QuarantineStorage.put` remains the complete-byte contract.
+ */
+export interface StreamingQuarantineStorage extends QuarantineStorage {
+  beginNetworkObservation(
+    request: BeginNetworkObservationRequest,
+  ): Promise<StreamingQuarantinePutSession>;
+}
+
+export function isStreamingQuarantineStorage(
+  storage: QuarantineStorage,
+): storage is StreamingQuarantineStorage {
+  return typeof (storage as StreamingQuarantineStorage).beginNetworkObservation === 'function';
+}
+
 export interface ArchiveImportQuarantinePutRequest {
   readonly source_id: string;
   readonly file_name: string;
@@ -86,7 +155,7 @@ export interface ArchiveImportQuarantineStorage extends QuarantineStorage {
  *   - Bevarar originalet i sin helhet även om verifieringen misslyckas.
  *   - Stöder explicit identitet, status, åtkomst och loggning.
  */
-export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage {
+export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage, StreamingQuarantineStorage {
   private readonly rootPath: string;
 
   constructor(customRootPath?: string) {
@@ -203,6 +272,133 @@ export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage {
     };
   }
 
+  /**
+   * Opens a temp object under `.incoming`. The temp name is not a quarantine id, and `list`
+   * only reads root metadata, so an unfinished temp cannot be observed as a landed object.
+   * Restart does not finalize leftovers. Crash leftovers are not scavenged in this slice.
+   */
+  async beginNetworkObservation(
+    request: BeginNetworkObservationRequest,
+  ): Promise<StreamingQuarantinePutSession> {
+    if (!request.source_url || request.source_url.trim().length === 0) {
+      throw new StreamingQuarantineError(
+        'Network quarantine acquisition requires a non-empty source URL.',
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+    if (!request.source_id?.trim() || !request.file_name?.trim()) {
+      throw new StreamingQuarantineError(
+        'Network quarantine acquisition requires source_id and file_name.',
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+
+    const incoming = path.join(this.rootPath, INCOMING_DIR_NAME);
+    this.ensureDirectoryExists(incoming);
+    const tempPath = path.join(incoming, `${randomUUID()}.partial`);
+    const stream = fs.createWriteStream(tempPath, { flags: 'wx' });
+    stream.on('error', () => {
+      // Write and end paths surface the same error. This listener keeps it from crashing the process.
+    });
+    await new Promise<void>((resolve, reject) => {
+      const fail = (error: Error) => {
+        stream.off('open', succeed);
+        reject(error);
+      };
+      const succeed = () => {
+        stream.off('error', fail);
+        resolve();
+      };
+      stream.once('open', succeed);
+      stream.once('error', fail);
+    });
+
+    return new DiskStreamingQuarantineSession(tempPath, request, stream, (commit) =>
+      this.commitStreamedNetworkObservation(commit),
+    );
+  }
+
+  private async commitStreamedNetworkObservation(input: {
+    readonly tempPath: string;
+    readonly hash: string;
+    readonly byteLength: number;
+    readonly request: BeginNetworkObservationRequest;
+  }): Promise<StreamingQuarantinePutResult> {
+    // A quarantine id is an observation, not a content-addressed blob. Reuse it only when
+    // source, URL, file name, and registry binding all match. Identical bytes under any
+    // other binding become a new observation; the bytes may share an inode via a hard link.
+    const matches = await this.findAllByHash(input.hash);
+    const identical = matches.find((candidate) =>
+      sameStreamedNetworkProvenance(candidate, input.request),
+    );
+    if (identical) {
+      await fs.promises.rm(input.tempPath, { force: false });
+      return {
+        quarantine_id: identical.quarantine_id,
+        file_path: this.getFilePath(identical.quarantine_id),
+        metadata_path: this.getMetadataPath(identical.quarantine_id),
+        is_duplicate: true,
+        hash: input.hash,
+        byte_length: input.byteLength,
+      };
+    }
+
+    const id = randomUUID();
+    const filePath = this.getFilePath(id);
+    const metadataPath = this.getMetadataPath(id);
+    const artifact: NetworkRawSourceArtifact = {
+      quarantine_id: id,
+      source_id: input.request.source_id,
+      source_url: input.request.source_url,
+      file_name: input.request.file_name,
+      retrieved_at: new Date().toISOString(),
+      content_hash: input.hash,
+      status: 'quarantined',
+      custom_metadata: input.request.custom_metadata,
+    };
+
+    // Fail-closed visibility, not one crash-atomic transaction: the canonical bytes and
+    // the metadata are two writes. A crash between them can leave an orphan .bin that
+    // list() does not publish. Scavenging those leftovers is a separate operational closure.
+    try {
+      await this.placeStreamedBytes(input.tempPath, filePath, matches[0]);
+    } catch (error) {
+      throw new StreamingQuarantineError(
+        `REJECT_QUARANTINE_IO: could not finalize streamed quarantine bytes: ${errorMessage(error)}`,
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+
+    try {
+      await fs.promises.writeFile(metadataPath, JSON.stringify(artifact, null, 2), {
+        encoding: 'utf8',
+        flag: 'wx',
+      });
+    } catch (error) {
+      try {
+        await fs.promises.rm(filePath, { force: true });
+      } catch (cleanupError) {
+        throw new StreamingQuarantineError(
+          `streaming quarantine metadata write failed and canonical cleanup failed: ${errorMessage(cleanupError)}; cause: ${errorMessage(error)}`,
+          'REJECT_QUARANTINE_CLEANUP',
+        );
+      }
+      throw new StreamingQuarantineError(
+        `REJECT_QUARANTINE_IO: could not write streamed quarantine metadata: ${errorMessage(error)}`,
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+
+    return {
+      quarantine_id: id,
+      file_path: filePath,
+      metadata_path: metadataPath,
+      is_duplicate: false,
+      hash: input.hash,
+      byte_length: input.byteLength,
+    };
+  }
+
   async get(quarantineId: string): Promise<Uint8Array | null> {
     const filePath = this.getFilePath(quarantineId);
     if (!fs.existsSync(filePath)) {
@@ -267,8 +463,41 @@ export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage {
   }
 
   private async findByHash(hash: string): Promise<RawSourceArtifact | null> {
+    const matches = await this.findAllByHash(hash);
+    return matches[0] ?? null;
+  }
+
+  private async findAllByHash(hash: string): Promise<RawSourceArtifact[]> {
     const all = await this.list();
-    return all.find((a) => a.content_hash === hash) || null;
+    return all.filter((artifact) => artifact.content_hash === hash);
+  }
+
+  /**
+   * Places the streamed bytes at the new observation path.
+   * Same-hash bytes are hardlinked when the filesystem allows it. The temp file is removed
+   * only after that link exists. If linking fails, the temp file itself is renamed into place.
+   */
+  private async placeStreamedBytes(
+    tempPath: string,
+    filePath: string,
+    donor: RawSourceArtifact | undefined,
+  ): Promise<void> {
+    if (donor) {
+      try {
+        await fs.promises.link(this.getFilePath(donor.quarantine_id), filePath);
+      } catch {
+        await fs.promises.rename(tempPath, filePath);
+        return;
+      }
+      try {
+        await fs.promises.rm(tempPath, { force: false });
+      } catch (error) {
+        await fs.promises.rm(filePath, { force: true });
+        throw error;
+      }
+      return;
+    }
+    await fs.promises.rename(tempPath, filePath);
   }
 
   private getFilePath(quarantineId: string): string {
@@ -278,6 +507,223 @@ export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage {
   private getMetadataPath(quarantineId: string): string {
     return path.join(this.rootPath, `${quarantineId}.metadata.json`);
   }
+}
+
+const INCOMING_DIR_NAME = '.incoming';
+
+class DiskStreamingQuarantineSession implements StreamingQuarantinePutSession {
+  private settled = false;
+  private byteLength = 0;
+  private readonly hash = createHash('sha256');
+  private tail: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly tempPath: string,
+    private readonly request: BeginNetworkObservationRequest,
+    private readonly stream: fs.WriteStream,
+    private readonly commit: (input: {
+      readonly tempPath: string;
+      readonly hash: string;
+      readonly byteLength: number;
+      readonly request: BeginNetworkObservationRequest;
+    }) => Promise<StreamingQuarantinePutResult>,
+  ) {}
+
+  async write(chunk: Uint8Array): Promise<void> {
+    if (this.settled) {
+      throw new StreamingQuarantineError(
+        'Streaming quarantine session is closed.',
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+    if (chunk.byteLength === 0) return;
+
+    const next = this.byteLength + chunk.byteLength;
+    if (this.request.max_bytes !== undefined && next > this.request.max_bytes) {
+      await this.fail(
+        new StreamingQuarantineError(
+          `REJECT_OBJECT_SIZE: streamed observation exceeded the ${this.request.max_bytes} byte limit.`,
+          'REJECT_OBJECT_SIZE',
+        ),
+      );
+    }
+
+    this.byteLength = next;
+    this.hash.update(chunk);
+    try {
+      await this.enqueue(chunk);
+    } catch (error) {
+      await this.fail(
+        new StreamingQuarantineError(
+          `REJECT_QUARANTINE_IO: ${errorMessage(error)}`,
+          'REJECT_QUARANTINE_IO',
+        ),
+      );
+    }
+  }
+
+  async finalize(witness: StreamingQuarantineWitness): Promise<StreamingQuarantinePutResult> {
+    if (this.settled) {
+      throw new StreamingQuarantineError(
+        'Streaming quarantine session is already closed.',
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+
+    try {
+      await this.tail;
+      if (this.byteLength === 0) {
+        throw new StreamingQuarantineError(
+          'REJECT_EMPTY_OBJECT: streamed observation contained no bytes.',
+          'REJECT_EMPTY_OBJECT',
+        );
+      }
+
+      const contentHash = this.hash.digest('hex');
+      if (witness.byte_length !== this.byteLength || witness.content_hash !== contentHash) {
+        throw new StreamingQuarantineError(
+          'REJECT_CHECKSUM: streamed witness does not match the quarantine hash.',
+          'REJECT_CHECKSUM',
+        );
+      }
+
+      await this.finishWriter();
+      const diskHash = await hashFileIncremental(this.tempPath);
+      if (diskHash !== contentHash) {
+        throw new StreamingQuarantineError(
+          'REJECT_CHECKSUM: quarantine temp bytes do not match the streamed hash.',
+          'REJECT_CHECKSUM',
+        );
+      }
+
+      const result = await this.commit({
+        tempPath: this.tempPath,
+        hash: contentHash,
+        byteLength: this.byteLength,
+        request: this.request,
+      });
+      this.settled = true;
+      return result;
+    } catch (error) {
+      return this.fail(error);
+    }
+  }
+
+  async abort(): Promise<void> {
+    if (this.settled) return;
+    this.settled = true;
+    await this.cleanupTemp();
+  }
+
+  private enqueue(chunk: Uint8Array): Promise<void> {
+    const run = this.tail.then(() => this.writeChunk(chunk));
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async writeChunk(chunk: Uint8Array): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error | null) => {
+        if (settled) return;
+        settled = true;
+        this.stream.off('error', onError);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onError = (error: Error) => finish(error);
+      this.stream.once('error', onError);
+      this.stream.write(chunk, (error) => finish(error ?? null));
+    });
+  }
+
+  private async finishWriter(): Promise<void> {
+    await this.tail;
+    const fd = this.stream.fd;
+    if (typeof fd === 'number') {
+      await new Promise<void>((resolve, reject) => {
+        fs.fsync(fd, (error) => (error ? reject(error) : resolve()));
+      });
+    }
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error | null) => {
+        if (settled) return;
+        settled = true;
+        this.stream.off('error', onError);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onError = (error: Error) => finish(error);
+      this.stream.once('error', onError);
+      this.stream.end(() => finish(null));
+    });
+  }
+
+  private async fail(error: unknown): Promise<never> {
+    if (!this.settled) {
+      this.settled = true;
+      try {
+        await this.cleanupTemp();
+      } catch (cleanupError) {
+        throw new StreamingQuarantineError(
+          `streaming quarantine failed and temp cleanup failed: ${errorMessage(cleanupError)}; cause: ${errorMessage(error)}`,
+          'REJECT_QUARANTINE_CLEANUP',
+        );
+      }
+    }
+    if (error instanceof StreamingQuarantineError) throw error;
+    throw new StreamingQuarantineError(errorMessage(error), 'REJECT_QUARANTINE_IO');
+  }
+
+  private async cleanupTemp(): Promise<void> {
+    if (!this.stream.destroyed && !this.stream.writableFinished) {
+      await new Promise<void>((resolve) => {
+        this.stream.once('close', () => resolve());
+        this.stream.destroy();
+      });
+    }
+    await fs.promises.rm(this.tempPath, { force: true });
+  }
+}
+
+async function hashFileIncremental(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  const stream = fs.createReadStream(filePath);
+  try {
+    for await (const chunk of stream) {
+      hash.update(chunk);
+    }
+  } catch (error) {
+    stream.destroy();
+    throw error;
+  }
+  return hash.digest('hex');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sameStreamedNetworkProvenance(
+  existing: RawSourceArtifact,
+  request: BeginNetworkObservationRequest,
+): boolean {
+  if (!('source_url' in existing) || typeof existing.source_url !== 'string') return false;
+  return (
+    existing.source_id === request.source_id &&
+    existing.source_url === request.source_url &&
+    existing.file_name === request.file_name &&
+    registryArtifactId(existing.custom_metadata) === registryArtifactId(request.custom_metadata)
+  );
+}
+
+function registryArtifactId(metadata: Record<string, unknown> | undefined): string | undefined {
+  const value = metadata?.registry_artifact_id;
+  return typeof value === 'string' ? value : undefined;
 }
 
 function sameArchiveObservation(

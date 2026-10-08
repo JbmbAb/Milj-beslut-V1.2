@@ -3,6 +3,12 @@ import {
   type DownloadResponse,
   type DownloadTransport,
 } from "./GovernedDownloadContracts";
+import {
+  assertDeclaredContentLength,
+  createStreamingDownloadBody,
+  type StreamingDownloadBody,
+  type StreamingDownloadOpenOptions,
+} from "./StreamingDownloadBody";
 
 /**
  * P2 — the only real network implementation of `DownloadTransport`.
@@ -86,6 +92,7 @@ export class HttpDownloadTransport implements DownloadTransport {
         status: response.status,
         bytes,
         headers: headersToRecord(response.headers),
+        finalUrl: current,
       };
     }
 
@@ -93,6 +100,104 @@ export class HttpDownloadTransport implements DownloadTransport {
       `REJECT_REDIRECT_LIMIT: more than ${this.maxRedirects} redirects starting at '${url}'.`,
       "REJECT_REDIRECT_LIMIT",
     );
+  }
+
+  /**
+   * Same redirect and scope rules as `get`, but the body stays a pull stream.
+   * The caller hashes and stores each chunk. This method does not assemble one.
+   */
+  async open(url: string, options: StreamingDownloadOpenOptions): Promise<StreamingDownloadBody> {
+    let current = url;
+
+    for (let hop = 0; hop <= this.maxRedirects; hop++) {
+      if (!this.isUrlAllowed(current)) {
+        throw new GovernedDownloadError(
+          hop === 0
+            ? `REJECT_URL_SCOPE: '${current}' is outside the approved scope.`
+            : `REJECT_REDIRECT_SCOPE: redirect ${hop} led to '${current}', outside the approved ` +
+              "scope. A redirect off an approved domain leaves the governed path while still " +
+              "appearing to be an approved download.",
+          hop === 0 ? "REJECT_URL_SCOPE" : "REJECT_REDIRECT_SCOPE",
+        );
+      }
+
+      const opened = await this.fetchStreaming(current, options.timeout_ms);
+
+      if (isRedirect(opened.response.status)) {
+        const location = opened.response.headers.get("location");
+        opened.abort();
+        await opened.response.body?.cancel().catch(() => undefined);
+        opened.finish();
+        if (!location) {
+          throw new GovernedDownloadError(
+            `REJECT_REDIRECT: ${opened.response.status} without a Location header from '${current}'.`,
+            "REJECT_REDIRECT",
+          );
+        }
+        current = new URL(location, current).toString();
+        continue;
+      }
+
+      try {
+        const declaredByteLength = assertDeclaredContentLength(
+          opened.response.headers,
+          options.max_bytes,
+          current,
+        );
+        return createStreamingDownloadBody({
+          response: opened.response,
+          finalUrl: current,
+          maxBytes: options.max_bytes,
+          declaredByteLength,
+          abort: opened.abort,
+          idleTimeoutMs: opened.idleTimeoutMs,
+          onFinished: opened.finish,
+        });
+      } catch (error) {
+        opened.abort();
+        await opened.response.body?.cancel().catch(() => undefined);
+        opened.finish();
+        throw error;
+      }
+    }
+
+    throw new GovernedDownloadError(
+      `REJECT_REDIRECT_LIMIT: more than ${this.maxRedirects} redirects starting at '${url}'.`,
+      "REJECT_REDIRECT_LIMIT",
+    );
+  }
+
+  private async fetchStreaming(
+    url: string,
+    timeoutMs: number,
+  ): Promise<{
+    readonly response: Response;
+    readonly finish: () => void;
+    readonly abort: () => void;
+    readonly idleTimeoutMs: number;
+  }> {
+    const controller = new AbortController();
+    // Header/connect deadline only. Cleared when headers arrive so a long body is not
+    // capped by the same timer. Silence during the body is an idle timeout instead.
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const clearConnect = () => clearTimeout(timer);
+    const abort = () => controller.abort();
+    try {
+      const response = await this.fetchImpl(url, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "user-agent": this.userAgent, accept: "*/*" },
+      });
+      clearConnect();
+      return { response, finish: clearConnect, abort, idleTimeoutMs: timeoutMs };
+    } catch (error) {
+      clearConnect();
+      throw new GovernedDownloadError(
+        `REJECT_TRANSPORT: '${url}' failed: ${error instanceof Error ? error.message : String(error)}`,
+        "REJECT_HTTP_STATUS",
+      );
+    }
   }
 
   private async fetchOnce(url: string, timeoutMs: number): Promise<Response> {

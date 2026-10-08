@@ -3,6 +3,12 @@ import {
   type DownloadResponse,
   type DownloadTransport,
 } from "./GovernedDownloadContracts";
+import {
+  assertDeclaredContentLength,
+  createStreamingDownloadBody,
+  type StreamingDownloadBody,
+  type StreamingDownloadOpenOptions,
+} from "./StreamingDownloadBody";
 
 /** Dedicated runtime-only credential port for Lantmäteriet's building ZIP assets. */
 export interface LantmaterietStacByggnaderCredentialProvider {
@@ -55,7 +61,50 @@ export class LantmaterietStacByggnaderAssetTransport implements DownloadTranspor
       status: response.status,
       bytes: await readBounded(response, request.max_bytes, url),
       headers: headersToRecord(response.headers),
+      finalUrl: url,
     };
+  }
+
+  /**
+   * Authenticated asset body as a pull stream. Redirects stay rejected, and the bearer token
+   * is still attached only to the exact building-asset URL.
+   */
+  async open(url: string, request: StreamingDownloadOpenOptions): Promise<StreamingDownloadBody> {
+    assertByggnaderAssetUrl(url);
+    const bearerToken = await this.getBearerToken();
+    const opened = await this.fetchStreaming(url, request.timeout_ms, bearerToken);
+
+    if (isRedirect(opened.response.status)) {
+      opened.abort();
+      await opened.response.body?.cancel().catch(() => undefined);
+      opened.finish();
+      throw new GovernedDownloadError(
+        "REJECT_AUTHENTICATED_REDIRECT: authenticated building asset requests must not follow redirects.",
+        "REJECT_AUTHENTICATED_REDIRECT",
+      );
+    }
+
+    try {
+      const declaredByteLength = assertDeclaredContentLength(
+        opened.response.headers,
+        request.max_bytes,
+        url,
+      );
+      return createStreamingDownloadBody({
+        response: opened.response,
+        finalUrl: url,
+        maxBytes: request.max_bytes,
+        declaredByteLength,
+        abort: opened.abort,
+        idleTimeoutMs: opened.idleTimeoutMs,
+        onFinished: opened.finish,
+      });
+    } catch (error) {
+      opened.abort();
+      await opened.response.body?.cancel().catch(() => undefined);
+      opened.finish();
+      throw error;
+    }
   }
 
   private async getBearerToken(): Promise<string> {
@@ -70,6 +119,42 @@ export class LantmaterietStacByggnaderAssetTransport implements DownloadTranspor
       throw new GovernedDownloadError(
         "REJECT_CREDENTIAL_UNAVAILABLE: Lantmäteriet building-asset credential is unavailable.",
         "REJECT_CREDENTIAL_UNAVAILABLE",
+      );
+    }
+  }
+
+  private async fetchStreaming(
+    url: string,
+    timeoutMs: number,
+    bearerToken: string,
+  ): Promise<{
+    readonly response: Response;
+    readonly finish: () => void;
+    readonly abort: () => void;
+    readonly idleTimeoutMs: number;
+  }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const clearConnect = () => clearTimeout(timer);
+    const abort = () => controller.abort();
+    try {
+      const response = await this.fetchImpl(url, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          "user-agent": this.userAgent,
+          accept: "application/zip",
+          authorization: `Bearer ${bearerToken}`,
+        },
+      });
+      clearConnect();
+      return { response, finish: clearConnect, abort, idleTimeoutMs: timeoutMs };
+    } catch {
+      clearConnect();
+      throw new GovernedDownloadError(
+        "REJECT_AUTH_TRANSPORT: authenticated building asset request failed.",
+        "REJECT_HTTP_STATUS",
       );
     }
   }

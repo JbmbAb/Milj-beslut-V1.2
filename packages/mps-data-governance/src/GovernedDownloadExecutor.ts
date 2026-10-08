@@ -1,12 +1,36 @@
 import { createHash } from "node:crypto";
 
-import type { QuarantineStorage } from "@miljobeslut/mimers-brunn-core";
+import {
+  isStreamingQuarantineStorage,
+  StreamingQuarantineError,
+  type QuarantineStorage,
+  type StreamingQuarantinePutSession,
+  type StreamingQuarantineStorage,
+} from "@miljobeslut/mimers-brunn-core";
 
+import { isDeclaredStrongEtagAuthority } from "./DownloadTargetResolvers";
 import { buildDownloadManifestRef } from "./DownloadManifestIdentity";
 import type { DownloadManifestStore } from "./DownloadManifestStore";
+import {
+  buildPrefetchEvidenceRef,
+  InMemoryPrefetchExecutionEvidenceStore,
+  type PrefetchExecutionEvidence,
+  type PrefetchExecutionEvidenceStore,
+  type PrefetchOutcome,
+} from "./PrefetchExecutionEvidence";
+import {
+  decidePrefetch,
+  isSingleStrongToken,
+  type ConditionalValidatorExchange,
+} from "./PrefetchValidator";
+import { InMemoryValidatorBindingStore, type ValidatorBindingStore } from "./ValidatorBindingStore";
 
 import type { ContentReference } from "../../mps-core/src/types";
-import type { HarvestExecutor, Clock } from "./HarvestOrchestratorContracts";
+import type {
+  Clock,
+  HarvestExecutionOutcome,
+  HarvestExecutor,
+} from "./HarvestOrchestratorContracts";
 import type { HarvestExecutionRequest } from "./HarvestOrchestratorTypes";
 import {
   isUrlAllowedForVerifiedSource,
@@ -21,6 +45,18 @@ import {
   type DownloadManifest,
   type DownloadedObject,
 } from "./GovernedDownloadContracts";
+import {
+  isStreamingDownloadTransport,
+  type StreamingDownloadBody,
+  type StreamingDownloadTransport,
+  type StreamingHeaderResponse,
+} from "./StreamingDownloadBody";
+
+export interface GovernedDownloadWiring {
+  readonly bindingStore?: ValidatorBindingStore;
+  readonly headExchange?: ConditionalValidatorExchange | null;
+  readonly prefetchEvidenceStore?: PrefetchExecutionEvidenceStore;
+}
 
 /**
  * P2 — Governed download pipeline.
@@ -32,6 +68,13 @@ import {
  * It CANNOT promote anything. It holds no CAS repository, no import gate and no signing key —
  * promotion authority is absent by construction rather than by discipline.
  */
+/**
+ * Deadline for response headers, and the maximum silence allowed between body chunks.
+ * It is not a budget for the whole transfer. A body that keeps producing chunks may
+ * run longer than this. A stall of this length aborts that attempt.
+ */
+export const STREAMING_HEADER_AND_IDLE_TIMEOUT_MS = 30_000;
+
 export class GovernedDownloadExecutor implements HarvestExecutor {
   constructor(
     private readonly registry: VerifiedSourceRegistry,
@@ -41,9 +84,10 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
     private readonly manifestStore: DownloadManifestStore,
     private readonly clock: Clock,
     private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
+    private readonly wiring: GovernedDownloadWiring = {},
   ) {}
 
-  async execute(request: HarvestExecutionRequest): Promise<ContentReference> {
+  async execute(request: HarvestExecutionRequest): Promise<HarvestExecutionOutcome> {
     const sourceId = request.dataset_ref.id;
 
     // The registry is the authority. It only yields sources that carried a verified APPROVED
@@ -76,16 +120,19 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
     if (plan.kind === "NO_CHANGES") {
       assertNoChangesEvidence(plan.evidence, sourceId);
 
-      return this.persistManifest({
-        manifest_version: 1,
-        execution_id: request.execution_id,
-        source_id: sourceId,
-        source_content_hash: source.sourceContentHash,
-        registry_artifact_id: source.registryArtifactId,
-        objects: [],
-        no_changes: plan.evidence,
-        generated_at: this.clock.now(),
-      });
+      return {
+        kind: "DOWNLOAD_MANIFEST",
+        ref: await this.persistManifest({
+          manifest_version: 1,
+          execution_id: request.execution_id,
+          source_id: sourceId,
+          source_content_hash: source.sourceContentHash,
+          registry_artifact_id: source.registryArtifactId,
+          objects: [],
+          no_changes: plan.evidence,
+          generated_at: this.clock.now(),
+        }),
+      };
     }
 
     const targets = plan.targets;
@@ -112,24 +159,143 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
       }
     }
 
-    const objects: DownloadedObject[] = [];
-    for (const [index, target] of targets.entries()) {
-      // Politeness applies BETWEEN requests, so it is skipped before the first one.
-      if (index > 0) {
-        await this.applyPoliteness(source.policy);
+    const bindingStore = this.wiring.bindingStore ?? new InMemoryValidatorBindingStore();
+    const evidenceStore = this.wiring.prefetchEvidenceStore ?? new InMemoryPrefetchExecutionEvidenceStore();
+    const outcomes: PrefetchOutcome[] = [];
+    const fetched: DownloadedObject[] = [];
+    let issued = 0;
+    const beforeOutbound = async () => {
+      if (issued > 0) await this.applyPoliteness(source.policy);
+      issued += 1;
+    };
+    const headExchange = this.wiring.headExchange ?? null;
+    const exchange: ConditionalValidatorExchange | null =
+      headExchange === null
+        ? null
+        : {
+            exchange: async (headRequest) => {
+              await beforeOutbound();
+              return headExchange.exchange(headRequest);
+            },
+          };
+
+    for (const target of targets) {
+      const targetIdentity = target.targetIdentity ?? `${target.url}\n${target.file_name}`;
+      const decision = await decidePrefetch(
+        {
+          sourceId: source.sourceId,
+          sourceContentHash: source.sourceContentHash,
+          registryArtifactId: source.registryArtifactId,
+          adapterId: source.adapter,
+          strongEtagAuthority: target.strongEtagAuthority ?? null,
+          locatorIdentity: target.url,
+          targetIdentity,
+          fileName: target.file_name,
+          fileNameDeclared: true,
+          validatorClass: "STRONG_ETAG",
+          method: "HEAD",
+          performLiveExchange: exchange !== null,
+        },
+        bindingStore,
+        exchange,
+        () => this.clock.now(),
+      );
+
+      if (
+        decision.decision === "FETCH" &&
+        (decision.reasonCode === "SCOPE_VIOLATION" || decision.reasonCode === "UPSTREAM_UNAUTHORIZED")
+      ) {
+        throw new GovernedDownloadError(
+          `${decision.reasonCode}: '${target.url}' stopped the harvest before a body request.`,
+          decision.reasonCode,
+        );
       }
-      objects.push(await this.fetchOne(source, target));
+
+      if (decision.decision === "SKIP") {
+        const records = await bindingStore.resolve(source.sourceId, target.url, targetIdentity);
+        const record = records.length === 1 ? records[0] : undefined;
+        if (record === undefined) {
+          throw new GovernedDownloadError(
+            `REJECT_PREFETCH_EVIDENCE: SKIP for '${target.url}' has no single binding to cite.`,
+            "REJECT_PREFETCH_EVIDENCE",
+          );
+        }
+        outcomes.push({
+          outcome: "SKIP",
+          target_identity: targetIdentity,
+          locator_identity: target.url,
+          file_name: target.file_name,
+          method: "HEAD",
+          reason_code: "REMOTE_REPRESENTATION_UNCHANGED",
+          validator_class: "STRONG_ETAG",
+          validator_token: record.validatorToken,
+          final_url: target.url,
+          observed_at: record.observedAt,
+        });
+        continue;
+      }
+
+      const landed = await this.fetchOne(source, target, beforeOutbound);
+      await this.maybeReplaceBinding(bindingStore, source, target, targetIdentity, landed.response);
+      fetched.push(landed.object);
+      outcomes.push({
+        outcome: "FETCH",
+        target_identity: targetIdentity,
+        locator_identity: target.url,
+        file_name: landed.object.file_name,
+        quarantine_id: landed.object.quarantine_id,
+        content_hash: landed.object.content_hash,
+        byte_length: landed.object.byte_length,
+      });
     }
 
-    return this.persistManifest({
-      manifest_version: 1,
+    if (outcomes.length !== targets.length) {
+      throw new GovernedDownloadError(
+        `REJECT_PREFETCH_EVIDENCE: source '${sourceId}' produced ${outcomes.length} outcomes for ` +
+          `${targets.length} targets.`,
+        "REJECT_PREFETCH_EVIDENCE",
+      );
+    }
+
+    const skipped = outcomes.some((outcome) => outcome.outcome === "SKIP");
+    if (!skipped) {
+      return {
+        kind: "DOWNLOAD_MANIFEST",
+        ref: await this.persistManifest({
+          manifest_version: 1,
+          execution_id: request.execution_id,
+          source_id: sourceId,
+          source_content_hash: source.sourceContentHash,
+          registry_artifact_id: source.registryArtifactId,
+          objects: fetched,
+          generated_at: this.clock.now(),
+        }),
+      };
+    }
+
+    const downloadManifestRef =
+      fetched.length === 0
+        ? null
+        : await this.persistManifest({
+            manifest_version: 1,
+            execution_id: request.execution_id,
+            source_id: sourceId,
+            source_content_hash: source.sourceContentHash,
+            registry_artifact_id: source.registryArtifactId,
+            objects: fetched,
+            generated_at: this.clock.now(),
+          });
+
+    const evidence: PrefetchExecutionEvidence = {
+      canonical_version: "pex-canonical-1",
       execution_id: request.execution_id,
       source_id: sourceId,
       source_content_hash: source.sourceContentHash,
       registry_artifact_id: source.registryArtifactId,
-      objects,
-      generated_at: this.clock.now(),
-    });
+      download_manifest_ref: downloadManifestRef,
+      outcomes,
+    };
+    return { kind: "PREFETCH_EVIDENCE", ref: await this.persistEvidence(evidenceStore, evidence) };
   }
 
   /**
@@ -179,6 +345,77 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
     return expected;
   }
 
+  private async persistEvidence(
+    store: PrefetchExecutionEvidenceStore,
+    evidence: PrefetchExecutionEvidence,
+  ): Promise<ContentReference> {
+    const expected = buildPrefetchEvidenceRef(evidence);
+    let persisted: ContentReference;
+    let resolved: PrefetchExecutionEvidence | null;
+    try {
+      persisted = await store.persist(evidence);
+      resolved = await store.resolve(persisted);
+    } catch (error) {
+      throw new GovernedDownloadError(
+        `REJECT_PREFETCH_EVIDENCE: ${error instanceof Error ? error.message : String(error)}`,
+        "REJECT_PREFETCH_EVIDENCE",
+      );
+    }
+    if (
+      persisted.id !== expected.id ||
+      persisted.content_hash.digest !== expected.content_hash.digest ||
+      resolved === null
+    ) {
+      throw new GovernedDownloadError(
+        "REJECT_PREFETCH_EVIDENCE: the persisted prefetch evidence is not resolvable.",
+        "REJECT_PREFETCH_EVIDENCE",
+      );
+    }
+    const resolvedRef = buildPrefetchEvidenceRef(resolved);
+    if (resolvedRef.content_hash.digest !== expected.content_hash.digest) {
+      throw new GovernedDownloadError(
+        "REJECT_PREFETCH_EVIDENCE: resolved prefetch evidence does not recompute to the returned reference.",
+        "REJECT_PREFETCH_EVIDENCE",
+      );
+    }
+    return expected;
+  }
+
+  private async maybeReplaceBinding(
+    store: ValidatorBindingStore,
+    source: NonNullable<ReturnType<VerifiedSourceRegistry["getSource"]>>,
+    target: DownloadTarget,
+    targetIdentity: string,
+    response: StreamingHeaderResponse,
+  ): Promise<void> {
+    const authority = target.strongEtagAuthority ?? null;
+    if (!isDeclaredStrongEtagAuthority(authority)) return;
+    if (
+      authority.sourceId !== source.sourceId ||
+      authority.sourceContentHash !== source.sourceContentHash ||
+      authority.registryArtifactId !== source.registryArtifactId ||
+      authority.adapterId !== source.adapter ||
+      authority.locatorIdentity !== target.url ||
+      authority.targetIdentity !== targetIdentity
+    ) {
+      return;
+    }
+    if (response.finalUrl === undefined || response.finalUrl !== target.url) return;
+    const etag = headerEtag(response.headers);
+    if (etag === null || !isSingleStrongToken(etag)) return;
+    await store.replace({
+      sourceId: source.sourceId,
+      sourceContentHash: source.sourceContentHash,
+      registryArtifactId: source.registryArtifactId,
+      locatorIdentity: target.url,
+      targetIdentity,
+      fileName: target.file_name,
+      validatorClass: "STRONG_ETAG",
+      validatorToken: etag,
+      observedAt: this.clock.now(),
+    });
+  }
+
   /**
    * Fetch with the source's own retry policy.
    *
@@ -188,11 +425,163 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
   private async fetchOne(
     source: NonNullable<ReturnType<VerifiedSourceRegistry["getSource"]>>,
     target: DownloadTarget,
-  ): Promise<DownloadedObject> {
+    beforeOutbound: () => Promise<void>,
+  ): Promise<{ readonly object: DownloadedObject; readonly response: StreamingHeaderResponse }> {
+    if (isStreamingDownloadTransport(this.transport) && isStreamingQuarantineStorage(this.quarantine)) {
+      return this.fetchOneStreaming(source, target, beforeOutbound, this.transport, this.quarantine);
+    }
+    return this.fetchOneBuffered(source, target, beforeOutbound);
+  }
+
+  /**
+   * Stream the body into a temp quarantine object. A failure here is not retried through the
+   * in-memory `get`/`put` path: that path would buffer the object this method exists to avoid.
+   */
+  private async fetchOneStreaming(
+    source: NonNullable<ReturnType<VerifiedSourceRegistry["getSource"]>>,
+    target: DownloadTarget,
+    beforeOutbound: () => Promise<void>,
+    transport: StreamingDownloadTransport,
+    quarantine: StreamingQuarantineStorage,
+  ): Promise<{ readonly object: DownloadedObject; readonly response: StreamingHeaderResponse }> {
     const { retry_policy: retry, max_object_size_bytes: maxBytes } = source.policy;
     const maxAttempts = Math.max(1, retry.max_attempts);
     let lastError: unknown;
 
+    await beforeOutbound();
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let body: StreamingDownloadBody | null = null;
+      let session: StreamingQuarantinePutSession | null = null;
+      try {
+        body = await transport.open(target.url, {
+          timeout_ms: STREAMING_HEADER_AND_IDLE_TIMEOUT_MS,
+          max_bytes: maxBytes,
+        });
+
+        if (body.status < 200 || body.status >= 300) {
+          throw new GovernedDownloadError(
+            `REJECT_HTTP_STATUS: ${body.status} for '${target.url}'.`,
+            "REJECT_HTTP_STATUS",
+          );
+        }
+
+        if (maxBytes !== undefined && body.declaredByteLength !== null && body.declaredByteLength > maxBytes) {
+          throw new GovernedDownloadError(
+            `REJECT_OBJECT_SIZE: '${target.url}' declares ${body.declaredByteLength} bytes, ` +
+              `over the ${maxBytes} byte limit for source '${source.sourceId}'.`,
+            "REJECT_OBJECT_SIZE",
+          );
+        }
+
+        if (body.declaredByteLength === 0) {
+          throw new GovernedDownloadError(
+            `REJECT_EMPTY_OBJECT: '${target.url}' returned no bytes.`,
+            "REJECT_EMPTY_OBJECT",
+          );
+        }
+
+        const observed = createHash("sha256");
+        let total = 0;
+        session = await quarantine.beginNetworkObservation({
+          source_id: source.sourceId,
+          source_url: target.url,
+          file_name: target.file_name,
+          max_bytes: maxBytes,
+          ...(target.source_metadata
+            ? {
+                custom_metadata: {
+                  registry_artifact_id: source.registryArtifactId,
+                  source_metadata: { ...target.source_metadata },
+                },
+              }
+            : { custom_metadata: { registry_artifact_id: source.registryArtifactId } }),
+        });
+
+        for (;;) {
+          const chunk = await body.read();
+          if (chunk === null) break;
+          total += chunk.byteLength;
+          if (maxBytes !== undefined && total > maxBytes) {
+            throw new GovernedDownloadError(
+              `REJECT_OBJECT_SIZE: '${target.url}' returned ${total} bytes, ` +
+                `over the ${maxBytes} byte limit for source '${source.sourceId}'.`,
+              "REJECT_OBJECT_SIZE",
+            );
+          }
+          observed.update(chunk);
+          await session.write(chunk);
+        }
+
+        if (total === 0) {
+          throw new GovernedDownloadError(
+            `REJECT_EMPTY_OBJECT: '${target.url}' returned no bytes.`,
+            "REJECT_EMPTY_OBJECT",
+          );
+        }
+
+        const expected = observed.digest("hex");
+        const landed = await session.finalize({ byte_length: total, content_hash: expected });
+        session = null;
+
+        if (landed.hash !== expected || landed.byte_length !== total) {
+          throw new GovernedDownloadError(
+            `REJECT_CHECKSUM: quarantine stored ${landed.hash} (${landed.byte_length} bytes) but ` +
+              `the streamed bytes hash to ${expected} (${total} bytes) for '${target.url}'.`,
+            "REJECT_CHECKSUM",
+          );
+        }
+
+        return {
+          response: { headers: body.headers, finalUrl: body.finalUrl },
+          object: {
+            quarantine_id: landed.quarantine_id,
+            source_id: source.sourceId,
+            url: target.url,
+            file_name: target.file_name,
+            content_hash: landed.hash,
+            byte_length: landed.byte_length,
+            ...(target.source_metadata ? { source_metadata: { ...target.source_metadata } } : {}),
+            deduplicated: landed.is_duplicate,
+            attempts: attempt,
+          },
+        };
+      } catch (error) {
+        const cleanupFailure = await releaseStreamingAttempt(body, session);
+        if (cleanupFailure) {
+          throw new GovernedDownloadError(
+            `REJECT_QUARANTINE_CLEANUP: temp cleanup failed after acquisition failure: ${cleanupFailure}`,
+            "REJECT_QUARANTINE_CLEANUP",
+          );
+        }
+
+        const governed = governedAcquisitionError(error);
+        lastError = governed ?? error;
+        if (governed && !isRetryable(governed)) {
+          throw governed;
+        }
+        if (attempt < maxAttempts) {
+          await this.sleep(backoffDelayMs(retry.backoff, attempt, source.policy));
+        }
+      }
+    }
+
+    throw new GovernedDownloadError(
+      `REJECT_RETRIES_EXHAUSTED: '${target.url}' failed after ${maxAttempts} attempt(s): ` +
+        `${lastError instanceof Error ? lastError.message : String(lastError)}`,
+      "REJECT_RETRIES_EXHAUSTED",
+    );
+  }
+
+  private async fetchOneBuffered(
+    source: NonNullable<ReturnType<VerifiedSourceRegistry["getSource"]>>,
+    target: DownloadTarget,
+    beforeOutbound: () => Promise<void>,
+  ): Promise<{ readonly object: DownloadedObject; readonly response: StreamingHeaderResponse }> {
+    const { retry_policy: retry, max_object_size_bytes: maxBytes } = source.policy;
+    const maxAttempts = Math.max(1, retry.max_attempts);
+    let lastError: unknown;
+
+    await beforeOutbound();
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const response = await this.transport.get(target.url, {
@@ -258,15 +647,18 @@ export class GovernedDownloadExecutor implements HarvestExecutor {
         }
 
         return {
-          quarantine_id: landed.quarantine_id,
-          source_id: source.sourceId,
-          url: target.url,
-          file_name: target.file_name,
-          content_hash: landed.hash,
-          byte_length: response.bytes.byteLength,
-          ...(target.source_metadata ? { source_metadata: { ...target.source_metadata } } : {}),
-          deduplicated: landed.is_duplicate,
-          attempts: attempt,
+          response,
+          object: {
+            quarantine_id: landed.quarantine_id,
+            source_id: source.sourceId,
+            url: target.url,
+            file_name: target.file_name,
+            content_hash: landed.hash,
+            byte_length: response.bytes.byteLength,
+            ...(target.source_metadata ? { source_metadata: { ...target.source_metadata } } : {}),
+            deduplicated: landed.is_duplicate,
+            attempts: attempt,
+          },
         };
       } catch (error) {
         lastError = error;
@@ -333,8 +725,51 @@ function assertNoChangesEvidence(evidence: NoChangesEvidence, sourceId: string):
   }
 }
 
+function headerEtag(headers: Readonly<Record<string, string>>): string | null {
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === "etag") return value;
+  }
+  return null;
+}
+
 function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function releaseStreamingAttempt(
+  body: StreamingDownloadBody | null,
+  session: StreamingQuarantinePutSession | null,
+): Promise<string | null> {
+  let failure: string | null = null;
+  if (body) {
+    try {
+      await body.cancel();
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (session) {
+    try {
+      await session.abort();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failure = failure === null ? message : `${failure}; ${message}`;
+    }
+  }
+  return failure;
+}
+
+/**
+ * Governance refusals stop the retry loop. A quarantine I/O error whose temp object was removed
+ * stays retryable. Cleanup failure is not: retrying it could hide a leftover temp.
+ */
+function governedAcquisitionError(error: unknown): GovernedDownloadError | null {
+  if (error instanceof GovernedDownloadError) return error;
+  if (error instanceof StreamingQuarantineError) {
+    if (error.reason_code === "REJECT_QUARANTINE_IO") return null;
+    return new GovernedDownloadError(error.message, error.reason_code);
+  }
+  return null;
 }
 
 /** Only transport-level faults are worth another attempt. */

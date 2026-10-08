@@ -10,8 +10,21 @@ export interface Clock {
   now(): string;
 }
 
+export type HarvestExecutionOutcome =
+  | { readonly kind: "DOWNLOAD_MANIFEST"; readonly ref: ContentReference }
+  | { readonly kind: "PREFETCH_EVIDENCE"; readonly ref: ContentReference };
+
 export interface HarvestExecutor {
-  execute(request: HarvestExecutionRequest): Promise<ContentReference>;
+  execute(request: HarvestExecutionRequest): Promise<HarvestExecutionOutcome>;
+}
+
+export function requireDownloadManifestRef(outcome: HarvestExecutionOutcome): ContentReference {
+  if (outcome.kind !== "DOWNLOAD_MANIFEST") {
+    throw new Error(
+      "REJECT_PREFETCH_RESULT: this caller requires a download manifest and received prefetch evidence.",
+    );
+  }
+  return outcome.ref;
 }
 
 export interface VerificationExecutor {

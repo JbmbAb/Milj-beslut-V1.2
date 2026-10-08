@@ -10,9 +10,20 @@ import {
   type SourceAwareTargetResolver,
 } from "./DownloadTargetResolvers";
 import { FileDownloadManifestStore, type DownloadManifestStore } from "./DownloadManifestStore";
+import { FileValidatorBindingStore } from "./FileValidatorBindingStore";
 import { GovernedDownloadError, type DownloadTransport } from "./GovernedDownloadContracts";
 import { GovernedDownloadExecutor } from "./GovernedDownloadExecutor";
+import { HttpConditionalHeadExchange } from "./HttpConditionalHeadExchange";
 import { HttpDownloadTransport } from "./HttpDownloadTransport";
+import {
+  FilePrefetchExecutionEvidenceStore,
+  InMemoryPrefetchExecutionEvidenceStore,
+  type PrefetchExecutionEvidenceStore,
+} from "./PrefetchExecutionEvidence";
+import {
+  InMemoryValidatorBindingStore,
+  type ValidatorBindingStore,
+} from "./ValidatorBindingStore";
 import {
   EnvironmentLantmaterietStacByggnaderCredentialProvider,
   LantmaterietStacByggnaderAssetTransport,
@@ -30,8 +41,7 @@ import {
   type VerifiedSourceRegistry,
 } from "./SourceRegistry";
 
-import type { ContentReference } from "../../mps-core/src/types";
-import type { Clock, HarvestExecutor } from "./HarvestOrchestratorContracts";
+import type { Clock, HarvestExecutionOutcome, HarvestExecutor } from "./HarvestOrchestratorContracts";
 import type { HarvestExecutionRequest } from "./HarvestOrchestratorTypes";
 import { join } from "node:path";
 
@@ -136,6 +146,10 @@ export interface HarvestRuntimeOptions {
    * asset transport for `dl1.lantmateriet.se/byggnadsverk/byggnad_knNNNN.zip`.
    */
   readonly lantmaterietStacByggnaderCredentialProvider?: LantmaterietStacByggnaderCredentialProvider;
+  /** Durable recall. Omitted when a caller injects its own quarantine, so tests do not take the process lease. */
+  readonly validatorBindingStore?: ValidatorBindingStore;
+  readonly validatorBindingRootPath?: string;
+  readonly prefetchEvidenceStore?: PrefetchExecutionEvidenceStore;
 }
 
 export interface ComposedHarvestRuntime {
@@ -173,12 +187,32 @@ export async function composeHarvestRuntime(
       options.downloadManifestRootPath ?? join(quarantineRootPath, "download-manifests"),
     );
 
+  const bindingStore =
+    options.validatorBindingStore ??
+    (options.quarantine === undefined
+      ? await FileValidatorBindingStore.open(
+          options.validatorBindingRootPath ?? join(quarantineRootPath, "validator-bindings"),
+        )
+      : new InMemoryValidatorBindingStore());
+  const prefetchEvidenceStore =
+    options.prefetchEvidenceStore ??
+    (options.quarantine === undefined
+      ? new FilePrefetchExecutionEvidenceStore(join(quarantineRootPath, "prefetch-evidence"))
+      : new InMemoryPrefetchExecutionEvidenceStore());
+
   const executor = new GovernedHarvestRuntime(
     registry,
     options.adapters ?? PRODUCTION_ADAPTER_RESOLVERS,
     quarantine,
     manifestStore,
+    bindingStore,
+    prefetchEvidenceStore,
     options.clock ?? systemClock,
+    {
+      userAgent: options.userAgent,
+      maxRedirects: options.maxRedirects,
+      fetchImpl: options.fetchImpl,
+    },
     (source) => transportPortsForSource(source, options),
   );
 
@@ -242,11 +276,18 @@ class GovernedHarvestRuntime implements HarvestExecutor {
     private readonly adapters: Readonly<Record<string, AdapterResolverFactory>>,
     private readonly quarantine: QuarantineStorage,
     private readonly manifestStore: DownloadManifestStore,
+    private readonly bindingStore: ValidatorBindingStore,
+    private readonly prefetchEvidenceStore: PrefetchExecutionEvidenceStore,
     private readonly clock: Clock,
+    private readonly headOptions: {
+      readonly userAgent?: string;
+      readonly maxRedirects?: number;
+      readonly fetchImpl?: typeof fetch;
+    },
     private readonly transportFactory: (source: VerifiedSourceDefinition) => SourceTransportPorts,
   ) {}
 
-  async execute(request: HarvestExecutionRequest): Promise<ContentReference> {
+  async execute(request: HarvestExecutionRequest): Promise<HarvestExecutionOutcome> {
     const sourceId = request.dataset_ref.id;
 
     // Resolved here as well as inside the executor, because the transport cannot be scoped
@@ -277,6 +318,16 @@ class GovernedHarvestRuntime implements HarvestExecutor {
       resolvers[adapter] = factory(transports.resolver);
     }
 
+    const headExchange =
+      source.adapter === "LM_STAC_BYGGNADER_V1"
+        ? null
+        : new HttpConditionalHeadExchange({
+            isUrlAllowed: (url) => isUrlAllowedForVerifiedSource(source, url),
+            maxRedirects: this.headOptions.maxRedirects,
+            userAgent: this.headOptions.userAgent,
+            fetchImpl: this.headOptions.fetchImpl,
+          });
+
     const executor = new GovernedDownloadExecutor(
       this.registry,
       new DownloadTargetResolverRegistry(this.registry, resolvers),
@@ -284,6 +335,12 @@ class GovernedHarvestRuntime implements HarvestExecutor {
       this.quarantine,
       this.manifestStore,
       this.clock,
+      undefined,
+      {
+        bindingStore: this.bindingStore,
+        headExchange,
+        prefetchEvidenceStore: this.prefetchEvidenceStore,
+      },
     );
 
     return executor.execute(request);

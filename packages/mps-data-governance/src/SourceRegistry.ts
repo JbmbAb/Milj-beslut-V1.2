@@ -59,6 +59,72 @@ export interface SourceChangeDetection {
   readonly strategy: 'ETAG' | 'LAST_MODIFIED' | 'CONTENT_HASH' | 'NONE';
 }
 
+/**
+ * Signed identity of one upstream distribution.
+ *
+ * `kind` names which official identifier the value is. It is an opaque canonical
+ * token, not a platform adapter. `value` is that identifier, exactly.
+ * Observations are compared to this pair. They never create it.
+ */
+export interface DistributionBinding {
+  readonly kind: string;
+  readonly value: string;
+}
+
+const DISTRIBUTION_BINDING_KIND = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const DISTRIBUTION_BINDING_VALUE_MAX = 512;
+
+const SOURCE_REGISTRY_ARTIFACT_KEYS: ReadonlySet<string> = new Set([
+  'artifact_id',
+  'artifact_type',
+  'source_id',
+  'producer',
+  'channel',
+  'adapter',
+  'artifact_types',
+  'collection_frequency',
+  'change_detection',
+  'policy',
+  'geographic_scope',
+  'lifecycle_state',
+  'approval_attestation',
+  'distribution_binding',
+]);
+
+function readDistributionBinding(raw: unknown, sourceId: string): DistributionBinding | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(
+      `Invalid SourceRegistryArtifact '${sourceId}': distribution_binding must be omitted or an object with kind and value.`,
+    );
+  }
+  const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== 'kind' && key !== 'value') {
+      throw new Error(
+        `Invalid SourceRegistryArtifact '${sourceId}': distribution_binding rejects unexpected field '${key}'.`,
+      );
+    }
+  }
+  const { kind, value } = record;
+  if (typeof kind !== 'string' || !DISTRIBUTION_BINDING_KIND.test(kind)) {
+    throw new Error(
+      `Invalid SourceRegistryArtifact '${sourceId}': distribution_binding.kind must be a canonical token.`,
+    );
+  }
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > DISTRIBUTION_BINDING_VALUE_MAX
+    || value !== value.trim()
+  ) {
+    throw new Error(
+      `Invalid SourceRegistryArtifact '${sourceId}': distribution_binding.value must be a non-empty canonical string.`,
+    );
+  }
+  return { kind, value };
+}
+
 export interface SourceRegistryArtifact {
   readonly artifact_id: string;
   readonly artifact_type: 'SOURCE_REGISTRY_ENTRY';
@@ -71,6 +137,11 @@ export interface SourceRegistryArtifact {
   readonly change_detection: SourceChangeDetection;
   readonly policy: SourcePolicy;
   readonly geographic_scope?: string;
+  /**
+   * Signed upstream distribution identity. Absent on historical entries.
+   * Omitted from the content hash when absent, so those approvals keep their digest.
+   */
+  readonly distribution_binding?: DistributionBinding;
   readonly lifecycle_state: 'REGISTERED' | 'APPROVED' | 'REJECTED' | 'QUARANTINED';
   readonly approval_attestation: ArtifactAttestation;
 }
@@ -105,6 +176,8 @@ export interface VerifiedSourceDefinition {
   readonly policy: SourcePolicy;
   readonly registryArtifactId: string;
   readonly sourceContentHash: string;
+  /** Present only when the approved artifact signed a distribution_binding. */
+  readonly distributionBinding?: DistributionBinding;
 }
 
 export interface VerifiedSourceRegistry {
@@ -115,7 +188,8 @@ export interface VerifiedSourceRegistry {
 }
 
 export function calculateSourceRegistryContentHash(artifact: Omit<SourceRegistryArtifact, 'approval_attestation'>): string {
-  const content = {
+  const distributionBinding = readDistributionBinding(artifact.distribution_binding, artifact.source_id);
+  const content: Record<string, unknown> = {
     source_id: artifact.source_id,
     producer: artifact.producer,
     channel: artifact.channel,
@@ -126,6 +200,8 @@ export function calculateSourceRegistryContentHash(artifact: Omit<SourceRegistry
     policy: artifact.policy,
     geographic_scope: artifact.geographic_scope ?? null,
   };
+  // Historical entries have no binding. Inserting null here would change every digest.
+  if (distributionBinding) content.distribution_binding = distributionBinding;
   return createHash('sha256').update(canonicalizeStrict(content), 'utf8').digest('hex');
 }
 
@@ -148,6 +224,7 @@ export async function verifySourceRegistryArtifact(
   signing: VerificationKeyProvider,
 ): Promise<VerifiedSourceDefinition> {
   assertSourceRegistryShape(artifact);
+  const distributionBinding = readDistributionBinding(artifact.distribution_binding, artifact.source_id);
 
   if (artifact.lifecycle_state !== 'APPROVED') {
     throw new Error(
@@ -202,6 +279,7 @@ export async function verifySourceRegistryArtifact(
     policy: artifact.policy,
     registryArtifactId: artifact.artifact_id,
     sourceContentHash,
+    ...(distributionBinding ? { distributionBinding } : {}),
   };
 }
 
@@ -542,6 +620,14 @@ function assertSourceRegistryShape(artifact: SourceRegistryArtifact): void {
   if (!artifact || artifact.artifact_type !== 'SOURCE_REGISTRY_ENTRY') {
     throw new Error('Invalid SourceRegistryArtifact: artifact_type must be SOURCE_REGISTRY_ENTRY.');
   }
+  for (const key of Object.keys(artifact)) {
+    if (!SOURCE_REGISTRY_ARTIFACT_KEYS.has(key)) {
+      throw new Error(
+        `Invalid SourceRegistryArtifact '${artifact.source_id || '?'}': unexpected field '${key}'.`,
+      );
+    }
+  }
+  readDistributionBinding(artifact.distribution_binding, artifact.source_id || '?');
   if (!artifact.source_id || !artifact.producer?.producer_id || !artifact.producer?.name) {
     throw new Error('Invalid SourceRegistryArtifact: source_id and producer identity are required.');
   }

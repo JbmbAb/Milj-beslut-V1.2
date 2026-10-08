@@ -1,10 +1,69 @@
 import {
   GovernedDownloadError,
+  type DownloadTarget,
   type DownloadTargetResolver,
   type DownloadTransport,
   type ResolvedDownloadPlan,
+  type StrongEtagAuthorityBinding,
 } from "./GovernedDownloadContracts";
-import type { VerifiedSourceDefinition, VerifiedSourceRegistry } from "./SourceRegistry";
+import type {
+  DistributionBinding,
+  VerifiedSourceDefinition,
+  VerifiedSourceRegistry,
+} from "./SourceRegistry";
+
+const issuedStrongEtagAuthorities = new WeakSet<object>();
+
+export function resolverBoundaryTargetIdentity(locatorIdentity: string, fileName: string): string {
+  return `${locatorIdentity}\n${fileName}`;
+}
+
+export function isDeclaredStrongEtagAuthority(value: unknown): value is StrongEtagAuthorityBinding {
+  if (typeof value !== "object" || value === null) return false;
+  if (!issuedStrongEtagAuthorities.has(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.sourceId === "string"
+    && typeof record.sourceContentHash === "string"
+    && typeof record.registryArtifactId === "string"
+    && typeof record.adapterId === "string"
+    && typeof record.locatorIdentity === "string"
+    && typeof record.targetIdentity === "string";
+}
+
+function mintStrongEtagAuthority(fields: StrongEtagAuthorityBinding): StrongEtagAuthorityBinding {
+  const token: StrongEtagAuthorityBinding = Object.freeze({ ...fields });
+  issuedStrongEtagAuthorities.add(token);
+  return token;
+}
+
+function resolverDeclaresStrongEtag(resolver: object): boolean {
+  if (!("strongEtagCapabilityDeclaration" in resolver)) return false;
+  return (resolver as { strongEtagCapabilityDeclaration?: unknown }).strongEtagCapabilityDeclaration === "STRONG_ETAG";
+}
+
+function stampResolvedTarget(
+  source: VerifiedSourceDefinition,
+  target: DownloadTarget,
+  declaresStrongEtag: boolean,
+): DownloadTarget {
+  const targetIdentity = resolverBoundaryTargetIdentity(target.url, target.file_name);
+  return {
+    url: target.url,
+    file_name: target.file_name,
+    ...(target.source_metadata ? { source_metadata: { ...target.source_metadata } } : {}),
+    targetIdentity,
+    strongEtagAuthority: declaresStrongEtag
+      ? mintStrongEtagAuthority({
+        sourceId: source.sourceId,
+        sourceContentHash: source.sourceContentHash,
+        registryArtifactId: source.registryArtifactId,
+        adapterId: source.adapter,
+        locatorIdentity: target.url,
+        targetIdentity,
+      })
+      : null,
+  };
+}
 
 /**
  * P2 — adapter-keyed target resolution.
@@ -56,7 +115,42 @@ export class DownloadTargetResolverRegistry implements DownloadTargetResolver {
       );
     }
 
-    return resolver.resolve(source, input.execution_id);
+    const plan = await resolver.resolve(source, input.execution_id);
+    assertObservedDistributionIdentity(source, plan.observedDistributionIdentity);
+    if (plan.kind !== "TARGETS") return plan;
+    const declaresStrongEtag = resolverDeclaresStrongEtag(resolver);
+    return {
+      kind: "TARGETS",
+      targets: plan.targets.map((target) => stampResolvedTarget(source, target, declaresStrongEtag)),
+    };
+  }
+}
+
+/**
+ * The signed binding is the expected distribution id. The resolver reports what
+ * it observed. source_metadata is not read: it cannot mint or replace this check.
+ * A missing observation fails closed the same way a mismatch does, before any
+ * target is handed to the executor.
+ */
+function assertObservedDistributionIdentity(
+  source: VerifiedSourceDefinition,
+  observed: DistributionBinding | undefined,
+): void {
+  const signed = source.distributionBinding;
+  if (!signed) return;
+  if (!observed) {
+    throw new GovernedDownloadError(
+      `REJECT_DISTRIBUTION_IDENTITY: source '${source.sourceId}' has a signed distribution ` +
+        "binding but the resolver reported no observed distribution identity.",
+      "REJECT_DISTRIBUTION_IDENTITY",
+    );
+  }
+  if (observed.kind !== signed.kind || observed.value !== signed.value) {
+    throw new GovernedDownloadError(
+      `REJECT_DISTRIBUTION_IDENTITY: source '${source.sourceId}' observed ` +
+        `'${observed.kind}' / '${observed.value}', signed '${signed.kind}' / '${signed.value}'.`,
+      "REJECT_DISTRIBUTION_IDENTITY",
+    );
   }
 }
 

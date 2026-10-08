@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { requireDownloadManifestRef } from "../src/HarvestOrchestratorContracts";
 import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import {
   DownloadTargetResolverRegistry,
@@ -139,7 +140,7 @@ describe("P2-EMPTY-PLAN-01 — legitimate empty harvest", () => {
     const q = recordingQuarantine();
     const exec = build(planOf({ kind: "NO_CHANGES", evidence: validEvidence }), q.storage);
 
-    const manifestRef = await exec.execute(request);
+    const manifestRef = requireDownloadManifestRef(await exec.execute(request));
 
     expect(manifestRef.content_hash.digest).toHaveLength(64);
     expect(
@@ -150,7 +151,7 @@ describe("P2-EMPTY-PLAN-01 — legitimate empty harvest", () => {
 
   it("the no-change run is auditable — a manifest exists, so 'ran, nothing new' is not 'never ran'", async () => {
     const exec = build(planOf({ kind: "NO_CHANGES", evidence: validEvidence }));
-    const ref = await exec.execute(request);
+    const ref = requireDownloadManifestRef(await exec.execute(request));
 
     expect(ref.id).toContain("exec-quiet-day");
     expect(

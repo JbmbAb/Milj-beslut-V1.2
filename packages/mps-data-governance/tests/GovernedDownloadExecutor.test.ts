@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { requireDownloadManifestRef } from "../src/HarvestOrchestratorContracts";
 import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import { GovernedDownloadError } from "../src/GovernedDownloadContracts";
 import type {
@@ -188,7 +189,7 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
       quarantine: q.storage,
     });
 
-    const manifestRef = await exec.execute(request);
+    const manifestRef = requireDownloadManifestRef(await exec.execute(request));
 
     expect(manifestRef.content_hash.digest).toHaveLength(64);
     expect(q.stored.size).toBe(1);
@@ -209,8 +210,9 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
     // would not have proven anything either.
     //
     // What actually makes promotion impossible is that nothing promotion-capable is ever handed
-    // in. The constructor stores exactly seven collaborators, and none of them can reach canonical
-    // CAS. Function.length is intentionally not used here: JavaScript stops counting at the
+    // in. The constructor's collaborators cannot reach canonical CAS. The optional wiring bag
+    // is recall, a HEAD exchange, and prefetch evidence, not a promotion path.
+    // Function.length is intentionally not used here: JavaScript stops counting at the
     // first default parameter, so the defaulted sleep collaborator makes a six-parameter
     // constructor report an arity of five.
     const exec = build({
@@ -224,9 +226,9 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
     const collaborators = Object.values(exec as unknown as Record<string, unknown>);
     expect(
       collaborators,
-      "registry, resolver, transport, quarantine, clock, sleep — and nothing else. A CAS " +
-      "repository, import gate or signing key would add another stored collaborator.",
-    ).toHaveLength(7);
+      "registry, resolver, transport, quarantine, manifest store, clock, sleep, and the " +
+        "wiring bag. A CAS repository, import gate or signing key would add another stored collaborator.",
+    ).toHaveLength(8);
     for (const collaborator of collaborators) {
       for (const promotionMethod of ["promote", "commit", "sign", "importBatch"]) {
         expect(
@@ -353,8 +355,8 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
         quarantine: q.storage,
       });
 
-    const first = await make().execute(request);
-    const second = await make().execute(request);
+    const first = requireDownloadManifestRef(await make().execute(request));
+    const second = requireDownloadManifestRef(await make().execute(request));
 
     expect(
       second.content_hash.digest,
@@ -375,8 +377,8 @@ describe("P2-DOWNLOAD — governed download pipeline", () => {
         quarantine: q.storage,
       }).execute(request);
 
-    const a = await run(source());
-    const b = await run(source({ sourceContentHash: "c".repeat(64) }));
+    const a = requireDownloadManifestRef(await run(source()));
+    const b = requireDownloadManifestRef(await run(source({ sourceContentHash: "c".repeat(64) })));
 
     expect(
       b.content_hash.digest,

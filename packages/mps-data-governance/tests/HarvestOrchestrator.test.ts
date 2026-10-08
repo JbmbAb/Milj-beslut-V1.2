@@ -60,7 +60,9 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
   beforeEach(() => {
     checkpointDb = new Map();
 
-    mockHarvestExecutor = { execute: vi.fn().mockResolvedValue(manifestRef) };
+    mockHarvestExecutor = {
+      execute: vi.fn().mockResolvedValue({ kind: "DOWNLOAD_MANIFEST", ref: manifestRef }),
+    };
     mockVerificationExecutor = { verify: vi.fn().mockResolvedValue(verificationRef) };
     mockComplianceRunner = { run: vi.fn().mockResolvedValue([{ control_id: 'MB-006', result: 'PASS' }]) };
     mockImportGate = {
@@ -171,7 +173,7 @@ describe('🜃 HarvestOrchestrator & Ingestion State Machine (ORCH-001 / ORCH-00
           updated_at: '2026-08-07T00:00:00Z',
           state: 'COMPLIANCE_CHECK'
         });
-        return manifestRef;
+        return { kind: "DOWNLOAD_MANIFEST", ref: manifestRef };
       });
     }
 

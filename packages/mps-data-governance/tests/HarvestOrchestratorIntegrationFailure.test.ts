@@ -66,7 +66,7 @@ describe("HarvestOrchestrator Integration — Failure Paths", () => {
 
   test("Verification failure leads to QUARANTINED and stops pipeline", async () => {
     const mockHarvestExecutor = {
-      execute: vi.fn(async () => contentRef("manifest")),
+      execute: vi.fn(async () => ({ kind: "DOWNLOAD_MANIFEST" as const, ref: contentRef("manifest") })),
     };
 
     const mockVerificationExecutor = {
@@ -115,7 +115,7 @@ describe("HarvestOrchestrator Integration — Failure Paths", () => {
 
   test("Compliance failure leads to BLOCKED and prevents ImportGate", async () => {
     const mockHarvestExecutor = {
-      execute: vi.fn(async () => contentRef("manifest")),
+      execute: vi.fn(async () => ({ kind: "DOWNLOAD_MANIFEST" as const, ref: contentRef("manifest") })),
     };
 
     const mockVerificationExecutor = {
@@ -173,7 +173,7 @@ describe("HarvestOrchestrator Integration — Failure Paths", () => {
 
   test("ImportGate BLOCK_IMPORT leads to BLOCKED and prevents projection", async () => {
     const mockHarvestExecutor = {
-      execute: vi.fn(async () => contentRef("manifest")),
+      execute: vi.fn(async () => ({ kind: "DOWNLOAD_MANIFEST" as const, ref: contentRef("manifest") })),
     };
 
     const mockVerificationExecutor = {
@@ -233,7 +233,7 @@ describe("HarvestOrchestrator Integration — Failure Paths", () => {
 
   test("Governance rejection modeled as ARCHIVED stops all further execution", async () => {
     const mockHarvestExecutor = {
-      execute: vi.fn(async () => contentRef("manifest")),
+      execute: vi.fn(async () => ({ kind: "DOWNLOAD_MANIFEST" as const, ref: contentRef("manifest") })),
     };
 
     const mockVerificationExecutor = {

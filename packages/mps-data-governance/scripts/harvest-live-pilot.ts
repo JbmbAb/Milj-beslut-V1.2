@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 
 import { composeHarvestRuntime } from "../src/HarvestRuntimeCompositionRoot";
 import { GovernedDownloadError } from "../src/GovernedDownloadContracts";
+import { requireDownloadManifestRef } from "../src/HarvestOrchestratorContracts";
 import type { VerifiedSourceRegistry } from "../src/SourceRegistry";
 import type { DownloadManifest } from "../src/GovernedDownloadContracts";
 import { FileDownloadManifestStore } from "../src/DownloadManifestStore";
@@ -61,7 +62,7 @@ function manifestStoreFor(quarantineRootPath: string): FileDownloadManifestStore
 
 async function runSource(
   sourceId: string,
-  runtime: { executor: { execute(r: HarvestExecutionRequest): Promise<{ id: string; content_hash: { algorithm: string; digest: string } }> }; registry: VerifiedSourceRegistry },
+  runtime: { executor: { execute(r: HarvestExecutionRequest): Promise<{ kind: "DOWNLOAD_MANIFEST" | "PREFETCH_EVIDENCE"; ref: { id: string; content_hash: { algorithm: string; digest: string } } }> }; registry: VerifiedSourceRegistry },
   quarantineRootPath: string,
 ): Promise<SourceEvidence> {
   const source = runtime.registry.getSource(sourceId);
@@ -97,7 +98,7 @@ async function runSource(
 
   let firstRef: { id: string; content_hash: { algorithm: string; digest: string } };
   try {
-    firstRef = await runtime.executor.execute(request);
+    firstRef = requireDownloadManifestRef(await runtime.executor.execute(request));
   } catch (error) {
     evidence.acquisition = "FAILED_CLOSED";
     evidence.status = error instanceof GovernedDownloadError ? "FAILED_CLOSED" : "BLOCKED";
@@ -113,7 +114,7 @@ async function runSource(
 
   let secondRef: { id: string; content_hash: { algorithm: string; digest: string } } | undefined;
   try {
-    secondRef = await runtime.executor.execute(request);
+    secondRef = requireDownloadManifestRef(await runtime.executor.execute(request));
     evidence.second_run =
       "PASS — full unconditional network fetch re-issued (no conditional GET/ETag revalidation in HttpDownloadTransport)";
   } catch (error) {

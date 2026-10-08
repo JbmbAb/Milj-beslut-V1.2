@@ -57,6 +57,7 @@ export class HarvestOrchestrator {
 
     switch (state) {
       case "CREATED":
+      case "HARVESTING":
         return this.runHarvesting(request);
 
       case "HARVESTED":
@@ -124,17 +125,33 @@ export class HarvestOrchestrator {
   // -------------------------------
 
   private async runHarvesting(request: HarvestExecutionRequest): Promise<HarvestExecutionResult> {
-    // Övergå först till HARVESTING (transitional state)
-    await this.saveCheckpoint(request.execution_id, { state: "HARVESTING" });
+    const existing = await this.checkpointStore.load(request.execution_id);
+    if (existing?.state !== "HARVESTING") {
+      await this.saveCheckpoint(request.execution_id, { state: "HARVESTING" });
+    }
 
-    const manifest_ref = await this.harvestExecutor.execute(request);
-
-    await this.saveCheckpoint(request.execution_id, {
-      state: "HARVESTED",
-      manifest_ref,
-    });
-
-    return this.runVerification(request, manifest_ref);
+    const outcome = await this.harvestExecutor.execute(request);
+    if (outcome.kind === "DOWNLOAD_MANIFEST") {
+      await this.saveCheckpoint(request.execution_id, {
+        state: "HARVESTED",
+        manifest_ref: outcome.ref,
+      });
+      return this.runVerification(request, outcome.ref);
+    }
+    if (outcome.kind === "PREFETCH_EVIDENCE") {
+      await this.saveCheckpoint(request.execution_id, {
+        state: "PREFETCH_EVIDENCE_RECORDED",
+        prefetch_evidence_ref: outcome.ref,
+        manifest_ref: undefined,
+      });
+      return {
+        state: "PREFETCH_EVIDENCE_RECORDED",
+        produced_artifacts: [outcome.ref],
+        evidence_refs: [],
+      };
+    }
+    const unreachable: never = outcome;
+    throw new Error(`Unhandled harvest outcome: ${String(unreachable)}`);
   }
 
   // -------------------------------
@@ -336,7 +353,11 @@ export class HarvestOrchestrator {
       execution_id,
       updated_at: this.clock.now(),
       state: next.state!,
-      manifest_ref: next.manifest_ref ?? previous?.manifest_ref,
+      manifest_ref:
+        next.state === "PREFETCH_EVIDENCE_RECORDED"
+          ? undefined
+          : (next.manifest_ref ?? previous?.manifest_ref),
+      prefetch_evidence_ref: next.prefetch_evidence_ref ?? previous?.prefetch_evidence_ref,
       archive_refs: next.archive_refs ?? previous?.archive_refs,
       verification_ref: next.verification_ref ?? previous?.verification_ref,
       approval_ref: next.approval_ref ?? previous?.approval_ref,

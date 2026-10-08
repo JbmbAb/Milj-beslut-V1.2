@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { requireDownloadManifestRef } from "../src/HarvestOrchestratorContracts";
 import type {
   DownloadManifest,
   DownloadTargetResolver,
@@ -108,7 +109,7 @@ describe("P2 download manifest persistence", () => {
   it("persists the exact manifest body in the P2-owned disk store and resolves it by reference", async () => {
     const store = new FileDownloadManifestStore(mkdtempSync(join(tmpdir(), "p2-manifest-store-")));
 
-    const reference = await executor(store).execute(request);
+    const reference = requireDownloadManifestRef(await executor(store).execute(request));
     const resolved = await store.resolve(reference);
 
     expect(resolved).not.toBeNull();

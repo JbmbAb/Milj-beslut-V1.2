@@ -11,6 +11,7 @@ export type HarvestExecutionState =
   | "CREATED"
   | "HARVESTING"
   | "HARVESTED"
+  | "PREFETCH_EVIDENCE_RECORDED"
   | "VERIFYING"
   | "QUARANTINED"
   | "VERIFIED"
@@ -60,6 +61,11 @@ export interface HarvestExecutionCheckpoint {
   readonly updated_at: Timestamp;
 
   readonly manifest_ref?: ContentReference;
+  /**
+   * Set only for a terminal prefetch-evidence run.
+   * A download-manifest citation inside that artifact is not this field.
+   */
+  readonly prefetch_evidence_ref?: ContentReference;
   readonly archive_refs?: readonly ContentReference[];
 
   readonly verification_ref?: ArtifactReference;

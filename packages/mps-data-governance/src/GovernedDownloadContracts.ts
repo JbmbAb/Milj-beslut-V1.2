@@ -1,4 +1,5 @@
 import type { Timestamp } from "../../mps-core/src/types";
+import type { DistributionBinding } from "./SourceRegistry";
 
 /**
  * 🜃 P2 — Governed download pipeline contracts.
@@ -35,12 +36,34 @@ export interface DownloadResponse {
   readonly status: number;
   readonly bytes: Uint8Array;
   readonly headers: Readonly<Record<string, string>>;
+  /** Terminal URL after followed redirects. Absent means the transport did not prove one. */
+  readonly finalUrl?: string;
+}
+
+/**
+ * Identity fields carried by a runtime-issued strong-ETag authority.
+ * Resolver issuance is not this shape. A plain object of these fields is not authority.
+ */
+export interface StrongEtagAuthorityBinding {
+  readonly sourceId: string;
+  readonly sourceContentHash: string;
+  readonly registryArtifactId: string;
+  readonly adapterId: string;
+  readonly locatorIdentity: string;
+  readonly targetIdentity: string;
 }
 
 /** One object requested from a source. Named by the caller; validated against the source. */
 export interface DownloadTarget {
   readonly url: string;
   readonly file_name: string;
+  /**
+   * Set only at the DownloadTargetResolverRegistry boundary.
+   * Canonical locator plus the adapter-declared file name. Not a manifest or CAS identity.
+   */
+  readonly targetIdentity?: string;
+  /** Present only when that same registry-selected resolver declared STRONG_ETAG. Otherwise null. */
+  readonly strongEtagAuthority?: StrongEtagAuthorityBinding | null;
   /**
    * P3-PUH-METADATA-CARRIAGE-01 — verbatim metadata the adapter observed on the source's own
    * response, carried through to quarantine.
@@ -136,8 +159,20 @@ export interface NoChangesEvidence {
  * saying it verified nothing is indistinguishable from a broken one.
  */
 export type ResolvedDownloadPlan =
-  | { readonly kind: "TARGETS"; readonly targets: readonly DownloadTarget[] }
-  | { readonly kind: "NO_CHANGES"; readonly evidence: NoChangesEvidence };
+  | {
+      readonly kind: "TARGETS";
+      readonly targets: readonly DownloadTarget[];
+      /**
+       * Observation of the upstream distribution id. Compared with the signed
+       * binding at the resolver boundary. Not authority, and not source_metadata.
+       */
+      readonly observedDistributionIdentity?: DistributionBinding;
+    }
+  | {
+      readonly kind: "NO_CHANGES";
+      readonly evidence: NoChangesEvidence;
+      readonly observedDistributionIdentity?: DistributionBinding;
+    };
 
 export interface DownloadTargetResolver {
   /**

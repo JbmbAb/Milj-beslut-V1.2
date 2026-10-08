@@ -12,12 +12,14 @@ export class HarvestExecutionStateMachine {
     "ARCHIVED",
     "BLOCKED",
     "READY_FOR_LU",
+    "PREFETCH_EVIDENCE_RECORDED",
   ]);
 
   private static readonly allowedTransitions: Record<HarvestExecutionState, HarvestExecutionState[]> = {
     CREATED: ["HARVESTING"],
-    HARVESTING: ["HARVESTED"],
+    HARVESTING: ["HARVESTED", "PREFETCH_EVIDENCE_RECORDED"],
     HARVESTED: ["VERIFYING"],
+    PREFETCH_EVIDENCE_RECORDED: [],
     VERIFYING: ["VERIFIED", "QUARANTINED"],
     QUARANTINED: [],
 

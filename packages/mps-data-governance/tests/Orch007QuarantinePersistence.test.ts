@@ -45,7 +45,7 @@ describe("🛡️ ORCH-007 — Fysisk Quarantine Persistence", () => {
     );
 
     mockHarvestExecutor = {
-      execute: vi.fn().mockResolvedValue(contentRef("manifest-123"))
+      execute: vi.fn().mockResolvedValue({ kind: "DOWNLOAD_MANIFEST", ref: contentRef("manifest-123") })
     };
 
     // Vi framkallar ett medvetet verifieringsfel för att trigga automatisk karantänssluss (L1-11)

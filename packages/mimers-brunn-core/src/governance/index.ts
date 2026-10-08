@@ -28,6 +28,8 @@ export {
 } from './ProviderInvariant';
 export {
   DiskQuarantineStorage,
+  StreamingQuarantineError,
+  isStreamingQuarantineStorage,
   type RawSourceArtifact,
   type NetworkRawSourceArtifact,
   type ArchiveImportRawSourceArtifact,
@@ -36,6 +38,12 @@ export {
   type ArchiveImportQuarantineStorage,
   type QuarantinePutResult,
   type ArchiveImportQuarantinePutRequest,
+  type StreamingQuarantineReasonCode,
+  type StreamingQuarantinePutResult,
+  type StreamingQuarantineWitness,
+  type BeginNetworkObservationRequest,
+  type StreamingQuarantinePutSession,
+  type StreamingQuarantineStorage,
 } from './QuarantineStorage';
 export {
   QuarantinePromoter,

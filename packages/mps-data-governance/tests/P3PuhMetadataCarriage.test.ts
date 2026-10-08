@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { requireDownloadManifestRef } from "../src/HarvestOrchestratorContracts";
 import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import { PuhRattspraxisTargetResolver } from "../src/PuhRattspraxisResolver";
 import { DownloadTargetResolverRegistry } from "../src/DownloadTargetResolvers";
@@ -257,8 +258,8 @@ describe("P3-PUH-METADATA-CARRIAGE-01", () => {
       });
     };
 
-    const without = await run(false);
-    const with_ = await run(true);
+    const without = requireDownloadManifestRef(await run(false));
+    const with_ = requireDownloadManifestRef(await run(true));
 
     expect(
       with_.content_hash.digest,

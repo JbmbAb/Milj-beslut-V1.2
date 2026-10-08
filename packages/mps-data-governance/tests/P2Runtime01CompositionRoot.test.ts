@@ -25,7 +25,7 @@ import {
   type SourceRegistryArtifact,
 } from "../src/SourceRegistry";
 
-import type { Clock, HarvestExecutor } from "../src/HarvestOrchestratorContracts";
+import { requireDownloadManifestRef, type Clock, type HarvestExecutor } from "../src/HarvestOrchestratorContracts";
 import type { HarvestExecutionRequest } from "../src/HarvestOrchestratorTypes";
 
 /**
@@ -540,7 +540,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
 
     // Type-level: the port is structural, so this assignment IS the conformance proof.
     const asPort: HarvestExecutor = executor;
-    const manifestRef = await asPort.execute(requestFor(SFS_SOURCE));
+    const manifestRef = requireDownloadManifestRef(await asPort.execute(requestFor(SFS_SOURCE)));
 
     expect(manifestRef.content_hash.algorithm).toBe("sha256");
     expect(manifestRef.content_hash.digest).toMatch(/^[0-9a-f]{64}$/);
@@ -565,7 +565,7 @@ describe("P2-RUNTIME-01 — offline production composition root", () => {
         clock: fixedClock,
         fetchImpl: recordingFetch(() => new Response(payload, { status: 200 })).impl,
       });
-      return executor.execute(requestFor(SFS_SOURCE));
+      return requireDownloadManifestRef(await executor.execute(requestFor(SFS_SOURCE)));
     };
 
     expect(

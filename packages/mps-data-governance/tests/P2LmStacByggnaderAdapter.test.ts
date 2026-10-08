@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { DownloadTargetResolverRegistry } from "../src/DownloadTargetResolvers";
 import { GovernedDownloadExecutor } from "../src/GovernedDownloadExecutor";
+import { requireDownloadManifestRef } from "../src/HarvestOrchestratorContracts";
 import type { DownloadTransport, ResolvedDownloadPlan } from "../src/GovernedDownloadContracts";
 import { InMemoryDownloadManifestStore } from "../src/DownloadManifestStore";
 import {
@@ -175,11 +176,11 @@ describe("P2-LM-STAC-BYGGNADER-ADAPTER-01", () => {
       { now: () => "2026-08-20T00:00:00.000Z" },
     );
 
-    const reference = await executor.execute({
+    const reference = requireDownloadManifestRef(await executor.execute({
       dataset_ref: { id: verifiedSource.sourceId, content_hash: { algorithm: "sha256", digest: "0".repeat(64) } },
       execution_id: "lm-stac-adapter-proof",
       requested_at: "2026-08-20T00:00:00.000Z",
-    });
+    }));
     const manifest = await manifestStore.resolve(reference);
 
     expect(manifest?.objects[0].source_metadata?.lm_stac_item_id).toBe("2482");
@@ -214,11 +215,11 @@ describe("P2-LM-STAC-BYGGNADER-ADAPTER-01", () => {
         manifestStore,
         { now: () => "2026-08-20T00:00:00.000Z" },
       );
-      const reference = await executor.execute({
+      const reference = requireDownloadManifestRef(await executor.execute({
         dataset_ref: { id: verifiedSource.sourceId, content_hash: { algorithm: "sha256", digest: "0".repeat(64) } },
         execution_id: "lm-stac-byte-change",
         requested_at: "2026-08-20T00:00:00.000Z",
-      });
+      }));
       return { reference, manifest: await manifestStore.resolve(reference) };
     };
 
