@@ -306,7 +306,7 @@ function extractFirstJsonObject(text: string): string | null {
   return text.slice(start, end + 1);
 }
 
-function unavailable<T>(feature: string): T {
+export function unavailable<T>(feature: string): T {
   throw new Error(`${feature} saknar verifierad AI-källa. Endast BankID får köras som demo/mock.`);
 }
 
