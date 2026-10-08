@@ -26,6 +26,16 @@ export interface ClosureArtifactInput {
   readonly census: Census;
   /** whether the frozen-test-file question is asked: paths of test files found in the union closure (empty = none) */
   readonly test_files_in_union: readonly string[];
+  /** files whose membership in each root's closure is asked about (sorted into the artifact); may be empty */
+  readonly watch_files?: readonly string[];
+}
+
+export interface WatchedFile {
+  readonly file: string;
+  readonly in_union_all: boolean;
+  readonly in_union_value: boolean;
+  readonly roots_all: readonly string[];
+  readonly roots_value: readonly string[];
 }
 
 export interface ClosureArtifact {
@@ -40,6 +50,7 @@ export interface ClosureArtifact {
   readonly unresolved: ClosureResult['unresolved'];
   readonly unresolved_count: number;
   readonly test_files_in_union: readonly string[];
+  readonly watched: readonly WatchedFile[];
   readonly census: Census;
 }
 
@@ -62,6 +73,13 @@ export function buildClosureArtifact(input: ClosureArtifactInput): { artifact: C
     unresolved: input.closure.unresolved,
     unresolved_count: input.closure.unresolved.length,
     test_files_in_union: [...input.test_files_in_union].sort(),
+    watched: [...(input.watch_files ?? [])].sort().map((file) => ({
+      file,
+      in_union_all: input.closure.union_all.includes(file),
+      in_union_value: input.closure.union_value.includes(file),
+      roots_all: input.closure.per_root.filter((r) => r.files_all.includes(file)).map((r) => r.root),
+      roots_value: input.closure.per_root.filter((r) => r.files_value.includes(file)).map((r) => r.root),
+    })),
     census: input.census,
   };
   return { artifact, sha256: sha256CanonicalJson(artifact) };

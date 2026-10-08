@@ -2,7 +2,7 @@
  * Evidence CLI for the entrypoint composition (U51-RELEASE-V3-RECONCILIATION-01, D).
  *
  *   tsx entrypoints-cli.ts check --repo <dir> --treeish <rev> [--out <file>]
- *   tsx entrypoints-cli.ts reach --repo <dir> --treeish <rev> --out <file>
+ *   tsx entrypoints-cli.ts reach --repo <dir> --treeish <rev> --out <file> [--watch <file>]...
  *
  * Both read GIT OBJECTS of <rev> (never the working directory). `check` runs the consistency rules and prints the
  * derived hashes. `reach` runs the check, then the fail-closed closure from exactly the entries[] files and the
@@ -24,6 +24,14 @@ import {
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+function args(name: string): string[] {
+  const out: string[] = [];
+  process.argv.forEach((a, i) => {
+    if (a === `--${name}` && process.argv[i + 1] !== undefined) out.push(process.argv[i + 1]!);
+  });
+  return out;
 }
 
 function main(): number {
@@ -85,6 +93,7 @@ function main(): number {
     closure,
     census,
     test_files_in_union: closure.union_all.filter(isTestPath),
+    watch_files: args('watch'),
   });
   fs.writeFileSync(out, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
   console.log(

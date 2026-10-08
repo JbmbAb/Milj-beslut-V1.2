@@ -7,7 +7,7 @@ import { buildClosureArtifact, censusTree, checkEntrypointComposition, computeCl
 import type { TreeReader } from '../../src/index';
 import { baseFiles } from './fixtures';
 
-function artifactFor(tree: TreeReader, commit: string, treeId: string) {
+function artifactFor(tree: TreeReader, commit: string, treeId: string, watch: readonly string[] = []) {
   const check = checkEntrypointComposition(tree);
   if (check.outcome !== 'consistent') throw new Error('fixture is not consistent');
   const entryFiles = check.file.entries.map((e) => e.entry_file);
@@ -26,6 +26,7 @@ function artifactFor(tree: TreeReader, commit: string, treeId: string) {
     closure,
     census,
     test_files_in_union: closure.union_all.filter(isTestPath),
+    watch_files: watch,
   });
 }
 
@@ -51,6 +52,14 @@ describe('closure artifact: deterministic and bound to the commit and tree', () 
     const base = artifactFor(memoryTreeReader(files()), COMMIT_A, TREE_A);
     const changed = { ...files(), 'server/index.ts': files()['server/index.ts'] + "import './extra';\n", 'server/extra.ts': '' };
     expect(artifactFor(memoryTreeReader(changed), COMMIT_A, TREE_A).sha256).not.toBe(base.sha256);
+  });
+  it('reports, per root, whether a watched file is in the closure', () => {
+    const { artifact } = artifactFor(memoryTreeReader(files()), COMMIT_A, TREE_A, ['server/workers/bootstrap.ts', 'server/app.ts', 'server/not-there.ts']);
+    expect(artifact.watched).toEqual([
+      { file: 'server/app.ts', in_union_all: true, in_union_value: true, roots_all: ['server/index.ts'], roots_value: ['server/index.ts'] },
+      { file: 'server/not-there.ts', in_union_all: false, in_union_value: false, roots_all: [], roots_value: [] },
+      { file: 'server/workers/bootstrap.ts', in_union_all: true, in_union_value: true, roots_all: ['server/workers/a-worker.ts'], roots_value: ['server/workers/a-worker.ts'] },
+    ]);
   });
   it('carries no timestamp, absolute path, machine name or user name', () => {
     const text = JSON.stringify(artifactFor(memoryTreeReader(files()), COMMIT_A, TREE_A).artifact);
