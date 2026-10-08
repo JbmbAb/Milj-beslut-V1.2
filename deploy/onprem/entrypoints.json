@@ -1,0 +1,57 @@
+{
+  "schema": "u51-entrypoints-1",
+  "entries": [
+    {
+      "id": "lu-execution-identity-v3",
+      "role": "worker",
+      "argv": ["node", "--import", "tsx", "server/workers/lu-execution-identity-v3-worker.ts"],
+      "entry_file": "server/workers/lu-execution-identity-v3-worker.ts"
+    },
+    {
+      "id": "lu-geometry-supersession",
+      "role": "worker",
+      "argv": ["node", "--import", "tsx", "server/workers/lu-geometry-supersession-worker.ts"],
+      "entry_file": "server/workers/lu-geometry-supersession-worker.ts"
+    },
+    {
+      "id": "lu-project-context-bootstrap",
+      "role": "worker",
+      "argv": ["node", "--import", "tsx", "server/workers/lu-project-context-bootstrap-worker.ts"],
+      "entry_file": "server/workers/lu-project-context-bootstrap-worker.ts"
+    },
+    {
+      "id": "lu-viewer-capability",
+      "role": "worker",
+      "argv": ["node", "--import", "tsx", "server/workers/lu-viewer-capability-worker.ts"],
+      "entry_file": "server/workers/lu-viewer-capability-worker.ts"
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "argv": ["npm", "start"],
+      "entry_file": "server/index.ts"
+    }
+  ],
+  "not_production": [
+    {
+      "entry_file": "server/workers/domstol-rss-worker.ts",
+      "reason": "Not a production root of the on-prem-release-line profile (owner decision U51-D-PROFILE-1). The Dockerfile build stage domstol-rss-worker has a CMD for it, but the stage is not a root of this profile. The scheduler is started in-process through the web registry, so its service code stays inside the web closure."
+    },
+    {
+      "entry_file": "server/workers/gdpr-maintenance-worker.ts",
+      "reason": "Not a production root of the on-prem-release-line profile (owner decision U51-D-PROFILE-1). The Dockerfile build stage gdpr-worker has a CMD for it, but the stage is not a root of this profile. The maintenance job is reachable in-process through the web registry, so its service code stays inside the web closure."
+    },
+    {
+      "entry_file": "server/workers/municipality-polling-worker.ts",
+      "reason": "Not a production root of the on-prem-release-line profile (owner decision U51-D-PROFILE-1). No Dockerfile stage and no package script launches it. Municipality polling is started in-process through the web registry, so its service code stays inside the web closure."
+    },
+    {
+      "entry_file": "server/workers/run-all.ts",
+      "reason": "Not a production root of the on-prem-release-line profile (owner decision U51-D-PROFILE-1). No Dockerfile stage launches it and the worker:all package script it documents does not exist. It only runs the in-process registry that server/index.ts already starts when allowed."
+    },
+    {
+      "entry_file": "server/workers/search-indexer-worker.ts",
+      "reason": "Not a production root of the on-prem-release-line profile (owner decision U51-D-PROFILE-1). The Dockerfile build stage search-indexer-worker and the worker:search package script launch it, but it is not a root of this profile. The search worker is reachable in-process through the web registry, so its service code stays inside the web closure."
+    }
+  ]
+}
