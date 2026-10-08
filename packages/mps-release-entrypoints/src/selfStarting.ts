@@ -44,7 +44,7 @@ export interface SelfStartingVerdict {
 type Found = { readonly node: ts.Node; readonly kind: string } | null;
 
 const kindName = (node: ts.Node): string => ts.SyntaxKind[node.kind] ?? 'Unknown';
-const exec = (node: ts.Node, kind: string): Found => ({ node, kind });
+const executableForm = (node: ts.Node, kind: string): Found => ({ node, kind });
 
 const ASSIGNMENT_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.EqualsToken,
@@ -110,7 +110,7 @@ function executableInExpression(e: ts.Expression | undefined): Found {
         const f = (ts.isComputedPropertyName(member.name) ? executableInExpression(member.name.expression) : null) ?? executableInExpression(member.initializer);
         if (f) return f;
       } else if (ts.isShorthandPropertyAssignment(member)) {
-        if (member.objectAssignmentInitializer !== undefined) return exec(member, 'shorthand-initializer');
+        if (member.objectAssignmentInitializer !== undefined) return executableForm(member, 'shorthand-initializer');
       } else if (ts.isSpreadAssignment(member)) {
         const f = executableInExpression(member.expression);
         if (f) return f;
@@ -119,33 +119,33 @@ function executableInExpression(e: ts.Expression | undefined): Found {
           const f = executableInExpression(member.name.expression);
           if (f) return f;
         }
-      } else return exec(member, kindName(member));
+      } else return executableForm(member, kindName(member));
     }
     return null;
   }
   if (ts.isClassExpression(e)) return executableInClass(e);
   if (ts.isPrefixUnaryExpression(e)) {
-    if (e.operator === ts.SyntaxKind.PlusPlusToken || e.operator === ts.SyntaxKind.MinusMinusToken) return exec(e, 'update');
+    if (e.operator === ts.SyntaxKind.PlusPlusToken || e.operator === ts.SyntaxKind.MinusMinusToken) return executableForm(e, 'update');
     return executableInExpression(e.operand);
   }
-  if (ts.isPostfixUnaryExpression(e)) return exec(e, 'update');
+  if (ts.isPostfixUnaryExpression(e)) return executableForm(e, 'update');
   if (ts.isTypeOfExpression(e) || ts.isVoidExpression(e)) return executableInExpression(e.expression);
   if (ts.isBinaryExpression(e)) {
-    if (ASSIGNMENT_OPERATORS.has(e.operatorToken.kind)) return exec(e, 'assignment');
+    if (ASSIGNMENT_OPERATORS.has(e.operatorToken.kind)) return executableForm(e, 'assignment');
     return executableInExpression(e.left) ?? executableInExpression(e.right);
   }
   if (ts.isConditionalExpression(e)) return executableInExpression(e.condition) ?? executableInExpression(e.whenTrue) ?? executableInExpression(e.whenFalse);
-  if (ts.isCallExpression(e)) return exec(e, 'call');
-  if (ts.isNewExpression(e)) return exec(e, 'new');
-  if (ts.isAwaitExpression(e)) return exec(e, 'await');
-  if (ts.isTaggedTemplateExpression(e)) return exec(e, 'tagged-template');
-  if (ts.isYieldExpression(e)) return exec(e, 'yield');
-  if (ts.isDeleteExpression(e)) return exec(e, 'delete');
-  return exec(e, kindName(e)); // a shape this analysis does not know: executable
+  if (ts.isCallExpression(e)) return executableForm(e, 'call');
+  if (ts.isNewExpression(e)) return executableForm(e, 'new');
+  if (ts.isAwaitExpression(e)) return executableForm(e, 'await');
+  if (ts.isTaggedTemplateExpression(e)) return executableForm(e, 'tagged-template');
+  if (ts.isYieldExpression(e)) return executableForm(e, 'yield');
+  if (ts.isDeleteExpression(e)) return executableForm(e, 'delete');
+  return executableForm(e, kindName(e)); // a shape this analysis does not know: executable
 }
 
 function executableInClass(cls: ts.ClassLikeDeclaration): Found {
-  if (ts.canHaveDecorators(cls) && (ts.getDecorators(cls)?.length ?? 0) > 0) return exec(cls, 'decorator');
+  if (ts.canHaveDecorators(cls) && (ts.getDecorators(cls)?.length ?? 0) > 0) return executableForm(cls, 'decorator');
   for (const clause of cls.heritageClauses ?? []) {
     for (const type of clause.types) {
       const f = executableInExpression(type.expression);
@@ -153,8 +153,8 @@ function executableInClass(cls: ts.ClassLikeDeclaration): Found {
     }
   }
   for (const member of cls.members) {
-    if (ts.isClassStaticBlockDeclaration(member)) return exec(member, 'static-block');
-    if (ts.canHaveDecorators(member) && (ts.getDecorators(member)?.length ?? 0) > 0) return exec(member, 'decorator');
+    if (ts.isClassStaticBlockDeclaration(member)) return executableForm(member, 'static-block');
+    if (ts.canHaveDecorators(member) && (ts.getDecorators(member)?.length ?? 0) > 0) return executableForm(member, 'decorator');
     if (member.name !== undefined && ts.isComputedPropertyName(member.name)) {
       const f = executableInExpression(member.name.expression);
       if (f) return f;
@@ -198,7 +198,7 @@ function executableInStatement(s: ts.Statement): Found {
   }
   if (ts.isExportAssignment(s)) {
     const f = executableInExpression(s.expression);
-    return f ? exec(s, `export-default-${f.kind}`) : null;
+    return f ? executableForm(s, `export-default-${f.kind}`) : null;
   }
   if (ts.isClassDeclaration(s)) return executableInClass(s);
   if (ts.isVariableStatement(s)) {
@@ -208,8 +208,8 @@ function executableInStatement(s: ts.Statement): Found {
     }
     return null;
   }
-  if (ts.isExpressionStatement(s)) return exec(s, 'expression-statement');
-  return exec(s, kindName(s)); // if / for / while / try / switch / block / labelled / ...: executable
+  if (ts.isExpressionStatement(s)) return executableForm(s, 'expression-statement');
+  return executableForm(s, kindName(s)); // if / for / while / try / switch / block / labelled / ...: executable
 }
 
 export function detectSelfStarting(text: string, fileName = 'file.ts'): SelfStartingVerdict {
