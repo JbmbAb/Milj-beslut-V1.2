@@ -101,25 +101,69 @@ describe('launcher parsing', () => {
   });
 });
 
-describe('self-starting detector (textual, column 0)', () => {
+describe('self-starting detector (AST of the top-level statements)', () => {
   it.each([
     ['a call statement', 'main();\n'],
-    ['a chained call', 'main()\n  .then(() => 1);\n'],
-    ['an awaited call', 'await run();\n'],
+    ['void main()', 'async function main() {}\nvoid main();\n'],
+    ['a promise chain', 'main()\n  .then(() => 1)\n  .catch(() => 2);\n'],
+    ['an awaited call (top-level await)', 'await run();\n'],
+    ['top-level await in an initializer', 'const x = await load();\n'],
     ['a member call', "process.on('SIGINT', f);\n"],
     ['an IIFE', '(async () => { work(); })();\n'],
     ['a start-initialised declaration', 'const handle = startInProcessWorkers();\n'],
-    ['a main-module test', "if (import.meta.url === process.argv[1]) {\n}\n"],
+    ['a new Worker initializer', "const worker = new Worker('./w.js');\n"],
+    ['a bare new', "new Thing();\n"],
+    ['export default of a call', 'export default startSomething();\n'],
+    ['export default of a new', 'export default new Server();\n'],
+    ['a call hidden in an object initializer', 'const o = { a: 1, b: boot() };\n'],
+    ['a call in a template literal', 'const t = `x${f()}`;\n'],
+    ['a call in a computed key', 'const o = { [key()]: 1 };\n'],
+    ['a call in a destructuring default', 'const { a = f() } = o;\n'],
+    ['a tagged template', 'const q = sql`select 1`;\n'],
+    ['an assignment', 'let x = 1;\nx = 2;\n'],
+    ['an increment', 'let i = 0;\ni++;\n'],
+    ['a main-module test', 'if (import.meta.url === process.argv[1]) {\n}\n'],
+    ['a try block', 'try { f(); } catch {}\n'],
+    ['a for loop', 'for (const a of b) {}\n'],
     ['a top-level dynamic import', "await import('./x');\n"],
+    ['a class with a static block', 'class A { static { init(); } }\n'],
+    ['a class with a static initializer call', 'class A { static x = make(); }\n'],
+    ['a class with a decorator', 'function d(c: unknown) {}\n@d class A {}\n'],
+    ['a class whose heritage is a call', 'class A extends mixin(B) {}\n'],
+    ['a class with a computed member name that calls', 'class A { [k()]() {} }\n'],
+    ['an enum with a call initializer', 'enum E { A = f() }\n'],
+    ['a syntax error', 'const = ;;; (\n'],
   ])('flags %s', (_n, text) => {
     expect(detectSelfStarting(text).selfStarting).toBe(true);
   });
   it.each([
-    ['functions and types only', "import { a } from './a';\nexport function f(): void { a(); }\nexport type T = number;\n"],
-    ['calls only inside functions and blocks', "export function f() {\n  main();\n}\nconst x = 1;\n"],
-    ['comments', '// main();\n/* run(); */\n * start();\n'],
+    ['imports, functions, types', "import { a } from './a';\nexport function f(): void { a(); }\nexport type T = number;\ninterface I { x: number }\n"],
+    ['calls only inside function bodies', 'export function f() {\n  main();\n}\nconst x = 1;\n'],
+    ['export default async function', 'export default async function boot() { await run(); }\n'],
+    ['export default class', 'export default class A { run() { go(); } }\n'],
+    ['a plain class with instance members', 'class A { x = make(); run() { go(); } static y = 1; }\n'],
+    ['re-exports and export lists', "export { a } from './a';\nexport * from './b';\nconst c = 1;\nexport { c };\n"],
+    ['constants of inert expressions', "const A = 24 * 60 * 60 * 1000;\nconst B = ['a', 'b'];\nconst C = { x: 1, y: [A], f: () => go() };\nconst D = `v${A}`;\nconst E = A > 1 ? 'a' : 'b';\nconst F = process.env.X;\nconst G = import.meta.url;\n"],
+    ['export default of an inert expression', 'export default { a: 1 };\n'],
+    ['an enum with inert initializers', 'enum E { A = 1, B = 2 }\n'],
+    ['only comments', '// main();\n/* run(); */\n'],
+    ['an empty file', ''],
   ])('does not flag %s', (_n, text) => {
-    expect(detectSelfStarting(text).selfStarting).toBe(false);
+    expect(detectSelfStarting(text).selfStarting, JSON.stringify(detectSelfStarting(text).markers)).toBe(false);
+  });
+  it('flags a file whose only problem is a syntax error (inert statements otherwise)', () => {
+    const v = detectSelfStarting('const x = 1 +;\n');
+    expect(v.markers).toEqual([{ name: 'syntax-error', line: 1 }]);
+  });
+  it('flags an assignment buried in an initializer', () => {
+    expect(detectSelfStarting('let z = 0;\nconst y = (z = 2);\n').markers.map((m) => m.name)).toEqual(['assignment']);
+  });
+  it('flags an expression shape the analysis does not know (JSX element in a .tsx file)', () => {
+    expect(detectSelfStarting('const e = <div />;\n', 'x.tsx').selfStarting).toBe(true);
+  });
+  it('reports what it found and where', () => {
+    expect(detectSelfStarting("import a from 'a';\n\nmain();\n").markers).toEqual([{ name: 'expression-statement', line: 3 }]);
+    expect(detectSelfStarting('export default start();\n').markers).toEqual([{ name: 'export-default-call', line: 1 }]);
   });
 });
 

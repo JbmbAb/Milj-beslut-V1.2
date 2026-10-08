@@ -123,7 +123,7 @@ export function checkEntrypointComposition(tree: TreeReader): CompositionCheck {
       problems.push({ rule: 'self-starting-listed', message: `${f} cannot be read from the tree` });
       continue;
     }
-    const verdict = detectSelfStarting(text);
+    const verdict = detectSelfStarting(text, f);
     const isLibrary = Object.prototype.hasOwnProperty.call(LIBRARY_FILES, f);
     if (isLibrary) {
       if (verdict.selfStarting) problems.push({ rule: 'self-starting-listed', message: `${f} is declared a library but has a top-level start marker (${verdict.markers.map((m) => `${m.name}@${m.line}`).join(', ')})` });

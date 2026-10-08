@@ -33,6 +33,7 @@ export type UnresolvedKind =
   | 'unresolved-relative'
   | 'unresolved-path-alias'
   | 'unresolved-workspace-package'
+  | 'uncertain-exports-condition'
   | 'unsupported-specifier'
   | 'tsconfig-unreadable';
 
@@ -64,6 +65,9 @@ export interface ParsedModule {
   readonly syntaxErrors: number;
 }
 
+const MODULE_INTERNALS = new Set(['_load', '_resolveFilename', '_compile', '_extensions']);
+const VM_RUN_FUNCTIONS = new Set(['runInContext', 'runInNewContext', 'runInThisContext', 'compileFunction']);
+const COMPUTED_KEYS = new Set(['require', 'eval', 'constructor', 'mainModule', 'Function']);
 const CODE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'] as const;
 const RESOLVE_EXTENSIONS = [...CODE_EXTENSIONS, '.json'] as const;
 const SCRIPT_KIND: Record<string, ts.ScriptKind> = {
@@ -102,7 +106,53 @@ export function parseModule(file: string, text: string): ParsedModule {
     node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
   const clip = (s: string): string => (s.length > 120 ? `${s.slice(0, 117)}...` : s).replace(/\s+/g, ' ');
 
+  const flag = (node: ts.Node, text: string): void => {
+    computed.push({ line: lineOf(node), text: clip(text) });
+  };
+  const isNameOnly = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (parent === undefined) return false;
+    return (
+      (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+      (ts.isPropertyAssignment(parent) && parent.name === node) ||
+      ((ts.isPropertySignature(parent) || ts.isPropertyDeclaration(parent) || ts.isMethodDeclaration(parent) || ts.isMethodSignature(parent) || ts.isGetAccessorDeclaration(parent) || ts.isSetAccessorDeclaration(parent) || ts.isEnumMember(parent)) && parent.name === node) ||
+      (ts.isBindingElement(parent) && parent.propertyName === node)
+    );
+  };
+  // Every require-like or computed loading form that is NOT exactly `require(<literal>)` or
+  // `createRequire(import.meta.url)(<literal>)` is reported (blocking). False positives are accepted on purpose.
+  const checkComputedForms = (node: ts.Node): void => {
+    const parent = node.parent;
+    if (ts.isIdentifier(node)) {
+      const calledDirectly = parent !== undefined && ts.isCallExpression(parent) && parent.expression === node;
+      if (node.text === 'require' && !calledDirectly && !isNameOnly(node)) flag(node, parent?.getText(sf) ?? 'require');
+      else if (node.text === 'eval' && !isNameOnly(node)) flag(node, parent?.getText(sf) ?? 'eval');
+      else if (node.text === 'Function' && parent !== undefined && (ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === node) flag(node, parent.getText(sf));
+    } else if (ts.isPropertyAccessExpression(node)) {
+      const name = node.name.text;
+      const calledDirectly = node.parent !== undefined && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      const onModule = ts.isIdentifier(node.expression) && node.expression.text === 'module';
+      if (
+        (name === 'require' && (calledDirectly || onModule)) ||
+        (name === 'constructor' && (calledDirectly || onModule)) ||
+        name === 'mainModule' ||
+        name === 'eval' ||
+        MODULE_INTERNALS.has(name) ||
+        VM_RUN_FUNCTIONS.has(name) ||
+        (name === 'resolve' && ts.isMetaProperty(node.expression))
+      ) {
+        flag(node, node.getText(sf));
+      }
+    } else if (ts.isElementAccessExpression(node)) {
+      const base = ts.isIdentifier(node.expression) ? node.expression.text : '';
+      const key = literalOf(node.argumentExpression);
+      if (['module', 'globalThis', 'global', 'process', 'require'].includes(base) && (key === null || COMPUTED_KEYS.has(key))) flag(node, node.getText(sf));
+      else if (key !== null && COMPUTED_KEYS.has(key)) flag(node, node.getText(sf));
+    }
+  };
+
   const visit = (node: ts.Node): void => {
+    checkComputedForms(node);
     if (ts.isImportDeclaration(node)) {
       const spec = literalOf(node.moduleSpecifier);
       const clause = node.importClause;
@@ -151,6 +201,8 @@ export function parseModule(file: string, text: string): ParsedModule {
     ts.forEachChild(node, visit);
   };
   visit(sf);
+  // the vm module compiles and runs source text: any import of it is a computed loading form
+  for (const e of edges) if (/^(?:node:)?vm$/.test(e.specifier)) computed.push({ line: e.line, text: `import of ${e.specifier}` });
 
   const syntaxErrors = ((sf as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics ?? []).length;
   return { edges, nonliteral, computed, syntaxErrors };
@@ -177,7 +229,7 @@ interface WorkspacePackage {
 }
 
 export interface Resolver {
-  resolve(from: string, specifier: string): Resolution;
+  resolve(from: string, specifier: string, mode?: LoadMode): Resolution;
   readonly configProblem: string | null;
 }
 
@@ -192,40 +244,66 @@ function tryFile(tree: TreeReader, base: string): string | null {
   return null;
 }
 
-function conditionTarget(value: unknown): string | null {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) for (const v of value) { const t = conditionTarget(v); if (t !== null) return t; }
-  if (typeof value === 'object' && value !== null) {
-    const obj = value as Record<string, unknown>;
-    for (const key of ['import', 'node', 'default', 'require', 'types']) if (key in obj) { const t = conditionTarget(obj[key]); if (t !== null) return t; }
-  }
-  return null;
+/** How a file is loaded decides which package-exports conditions are active: require() or import. */
+export type LoadMode = 'import' | 'require';
+
+export function modeOfForm(form: ImportEdge['form']): LoadMode {
+  return form === 'require' || form === 'equals' ? 'require' : 'import';
 }
 
-function resolveWorkspace(tree: TreeReader, pkg: WorkspacePackage, subpath: string): string | null {
+/** Conditions Node.js activates by default: the mode's own, `node` and `default`. `types` is TypeScript-only and never active at run time. */
+const ACTIVE_CONDITIONS: Record<LoadMode, ReadonlySet<string>> = {
+  import: new Set(['import', 'node', 'default']),
+  require: new Set(['require', 'node', 'default']),
+};
+const INACTIVE_KNOWN_CONDITIONS = new Set(['types', 'import', 'require']);
+
+type Target = { readonly kind: 'target'; readonly value: string } | { readonly kind: 'none' } | { readonly kind: 'uncertain' };
+const NONE: Target = { kind: 'none' };
+const UNCERTAIN: Target = { kind: 'uncertain' };
+
+/**
+ * Picks the ONE target a package `exports` value selects for the load mode, in key order like Node.js (first active
+ * condition wins). Uncertain, never guessed: a condition that is neither active nor known to be inactive and comes
+ * BEFORE the selected one (a custom or flag-activated condition could select another target), an array of alternatives,
+ * a value of an unknown type, or no target at all.
+ */
+function conditionTarget(value: unknown, mode: LoadMode): Target {
+  if (typeof value === 'string') return { kind: 'target', value };
+  if (value === null) return NONE; // an explicit null blocks the subpath
+  if (Array.isArray(value)) return value.length === 1 ? conditionTarget(value[0], mode) : UNCERTAIN;
+  if (typeof value === 'object') {
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      if (ACTIVE_CONDITIONS[mode].has(key)) return conditionTarget(inner, mode);
+      const knownInactive = INACTIVE_KNOWN_CONDITIONS.has(key) && !ACTIVE_CONDITIONS[mode].has(key);
+      if (!knownInactive) return UNCERTAIN;
+    }
+    return NONE;
+  }
+  return UNCERTAIN;
+}
+
+function resolveWorkspace(tree: TreeReader, pkg: WorkspacePackage, subpath: string, mode: LoadMode): string | null | 'uncertain' {
   const exportsField = pkg.json.exports;
   const join = (target: string): string => path.posix.normalize(`${pkg.dir}/${target.replace(/^\.\//, '')}`);
+  const fromTarget = (t: Target, wildcard?: string): string | null | 'uncertain' => {
+    if (t.kind === 'uncertain') return 'uncertain';
+    if (t.kind === 'none') return null;
+    return tryFile(tree, join(wildcard === undefined ? t.value : t.value.replace('*', wildcard)));
+  };
   if (exportsField !== undefined) {
-    if (typeof exportsField === 'string' || Array.isArray(exportsField) || !Object.keys(exportsField as object).some((k) => k.startsWith('.'))) {
-      if (subpath !== '') return null;
-      const t = conditionTarget(exportsField);
-      return t === null ? null : tryFile(tree, join(t));
-    }
+    const sugar = typeof exportsField === 'string' || Array.isArray(exportsField) || !Object.keys(exportsField as object).some((k) => k.startsWith('.'));
+    if (sugar) return subpath !== '' ? null : fromTarget(conditionTarget(exportsField, mode));
     const map = exportsField as Record<string, unknown>;
     const key = `.${subpath}`;
-    if (key in map) {
-      const t = conditionTarget(map[key]);
-      return t === null ? null : tryFile(tree, join(t));
-    }
+    if (key in map) return fromTarget(conditionTarget(map[key], mode));
     for (const k of Object.keys(map)) {
       const star = k.indexOf('*');
       if (star < 0) continue;
       const pre = k.slice(0, star);
       const post = k.slice(star + 1);
       if (key.startsWith(pre) && key.endsWith(post) && key.length >= pre.length + post.length) {
-        const t = conditionTarget(map[k]);
-        if (t === null) return null;
-        return tryFile(tree, join(t.replace('*', key.slice(pre.length, key.length - post.length))));
+        return fromTarget(conditionTarget(map[k], mode), key.slice(pre.length, key.length - post.length));
       }
     }
     return null;
@@ -233,7 +311,10 @@ function resolveWorkspace(tree: TreeReader, pkg: WorkspacePackage, subpath: stri
   if (subpath === '') {
     for (const field of ['module', 'main', 'types']) {
       const v = pkg.json[field];
-      if (typeof v === 'string') { const f = tryFile(tree, join(v)); if (f !== null) return f; }
+      if (typeof v === 'string') {
+        const f = tryFile(tree, join(v));
+        if (f !== null) return f;
+      }
     }
     return tryFile(tree, `${pkg.dir}/index`);
   }
@@ -280,7 +361,7 @@ export function createResolver(tree: TreeReader): Resolver {
     }
   }
 
-  const resolve = (from: string, rawSpecifier: string): Resolution => {
+  const resolve = (from: string, rawSpecifier: string, mode: LoadMode = 'import'): Resolution => {
     const specifier = rawSpecifier.split(/[?#]/)[0]!;
     if (specifier === '') return { kind: 'unresolved', why: 'unsupported-specifier' };
     if (specifier.startsWith('node:')) return { kind: 'external', name: specifier };
@@ -319,7 +400,8 @@ export function createResolver(tree: TreeReader): Resolver {
     const subpath = specifier.slice(name.length);
     const pkg = workspace.get(name);
     if (pkg !== undefined) {
-      const found = resolveWorkspace(tree, pkg, subpath);
+      const found = resolveWorkspace(tree, pkg, subpath, mode);
+      if (found === 'uncertain') return { kind: 'unresolved', why: 'uncertain-exports-condition' };
       return found === null ? { kind: 'unresolved', why: 'unresolved-workspace-package' } : { kind: 'file', path: found };
     }
     if (name.startsWith('@miljobeslut/')) return { kind: 'unresolved', why: 'unresolved-workspace-package' };
@@ -404,7 +486,7 @@ export function computeClosure(tree: TreeReader, roots: readonly string[]): Clos
         if (module === null) continue;
         for (const edge of module.edges) {
           if (valueOnly && edge.typeOnly) continue;
-          const r = resolver.resolve(file, edge.specifier);
+          const r = resolver.resolve(file, edge.specifier, modeOfForm(edge.form));
           if (r.kind === 'external') externals.add(r.name);
           else if (r.kind === 'unresolved') note({ kind: r.why, from: file, line: edge.line, specifier: edge.specifier });
           else if (!seen.has(r.path)) {
