@@ -72,8 +72,7 @@ async function fetchText(endpoint: string): Promise<FetchResult> {
 
 async function checkLastkajenSource(): Promise<FetchResult> {
   try {
-    const path = './lastkajenService';
-    const { pingLastkajen } = await import(path);
+    const { pingLastkajen } = await import('./lastkajenService');
     const result = await pingLastkajen();
     return {
       source: result.source,

@@ -108,6 +108,13 @@ describe('openDataSourceService', () => {
     });
   });
 
+  it('loads the Lastkajen ping module instead of the module-missing fallback', async () => {
+    const result = await fetchImmediateOpenSources();
+
+    expect(result.find((row) => row.source === 'lastkajen')).toBeDefined();
+    expect(result.find((row) => row.source === 'Lastkajen API')).toBeUndefined();
+  });
+
   it('uses LOCAL_DB_ROOT to resolve csv path when MUNICIPAL_CONTACTS_CSV_PATH not set', async () => {
     process.env.LOCAL_DB_ROOT = 'C:/data/local';
 
