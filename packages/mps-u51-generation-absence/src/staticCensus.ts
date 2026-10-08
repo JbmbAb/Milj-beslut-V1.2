@@ -21,7 +21,8 @@ import ts from 'typescript';
 export const REGISTRATION_IDENTIFIER = ['register', 'LocalGeneration', 'Runtime'].join('');
 export const PORT_MODULE_PATH = 'server/modules/ai/generation/LocalGenerationPort.ts';
 
-const COMPOSITION_MARKER = 'composition_manifest';
+// Built from parts for the same reason as the registration identifier: this unit must not look like a composition.
+const COMPOSITION_MARKER = ['composition', 'manifest'].join('_');
 
 export interface TreeEntry {
   readonly path: string;
@@ -48,7 +49,7 @@ export interface StaticCensusDetail {
   readonly test_registration_paths: readonly string[];
   readonly documentation_identifier_paths: readonly string[];
   readonly nonliteral_dynamic_import_sites: readonly DynamicImportSite[];
-  readonly composition_manifest_paths: readonly string[];
+  readonly composition_marker_paths: readonly string[];
   readonly code_files_parsed: number;
   readonly files_seen: number;
 }
@@ -145,7 +146,7 @@ export class StaticCensusAccumulator {
       test_registration_paths: sorted(this.testRegistration),
       documentation_identifier_paths: sorted(this.documentation),
       nonliteral_dynamic_import_sites: [...this.sites].sort((a, b) => (a.path === b.path ? a.line - b.line : a.path < b.path ? -1 : 1)),
-      composition_manifest_paths: sorted(this.composition),
+      composition_marker_paths: sorted(this.composition),
       code_files_parsed: this.parsed,
       files_seen: this.seen,
     };

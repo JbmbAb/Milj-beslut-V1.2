@@ -77,7 +77,7 @@ const report = {
     test_registration_paths: detail.test_registration_paths,
     documentation_identifier_paths: detail.documentation_identifier_paths,
     nonliteral_dynamic_import_sites: detail.nonliteral_dynamic_import_sites,
-    composition_manifest_paths: detail.composition_manifest_paths,
+    composition_marker_paths: detail.composition_marker_paths,
     code_files_parsed: detail.code_files_parsed,
     files_seen: detail.files_seen,
   },

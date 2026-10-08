@@ -3,7 +3,7 @@
  * the runner's exit semantics (contract 2d937d63, 5.3). Synthetic trees only; the real tree is censused by the runner.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,13 +92,18 @@ describe('registration identifier (mutation 1: registration_identifier_files > 0
     expect(d.documentation_identifier_paths).toEqual(['NOTES.md', 'docs/architecture/x.md']);
   });
 
-  it('the implementation does not contain the identifier as a literal (it would count itself)', async () => {
-    const { readFileSync } = await import('node:fs');
-    for (const f of ['staticCensus.ts', 'entrypointSet.ts', 'gitTree.ts', 'index.ts']) {
-      const text = readFileSync(path.join(ROOT, 'packages', 'mps-u51-generation-absence', 'src', f), 'utf8');
-      expect(text.includes(ID), f).toBe(false);
-    }
-    expect(readFileSync(RUNNER, 'utf8').includes(ID)).toBe(false);
+  it('this unit does not look like a registration or a composition to its own census', () => {
+    const dir = path.join(ROOT, 'packages', 'mps-u51-generation-absence', 'src');
+    const entries = readdirSync(dir).map((f) => ({
+      path: `packages/mps-u51-generation-absence/src/${f}`,
+      bytes: readFileSync(path.join(dir, f)),
+    }));
+    entries.push({ path: 'scripts/ops/prove-u51-generation-absence-01.ts', bytes: readFileSync(RUNNER) });
+    expect(entries.length).toBe(5);
+    const d = computeStaticCensus(entries);
+    expect(d.census.registration_identifier_files).toBe(0);
+    expect(d.composition_marker_paths).toEqual([]);
+    expect(assessEntrypointDerivability(d).blocker).toBe('RELEASE_COMPOSITION_ABSENT_FROM_SUBJECT_TREE');
   });
 });
 

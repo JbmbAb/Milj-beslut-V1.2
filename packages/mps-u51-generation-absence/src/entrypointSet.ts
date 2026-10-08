@@ -1,6 +1,6 @@
 /**
  * The production entrypoint set of u51-generation-derivation-1 is DERIVED from the release composition
- * (the distinct command/CMD entrypoints of the files bound by `composition_manifest_sha256` of
+ * (the distinct command/CMD entrypoints of the files bound by the composition manifest hash of
  * product-release-v3; contract 5.3). It is never hand-picked and never substituted by a subset.
  *
  * This module therefore does exactly one thing: decide whether the subject tree can give that derivation.
@@ -20,11 +20,11 @@ export type EntrypointDerivability =
       readonly status: 'NOT_DERIVABLE';
       readonly blocker: 'COMPOSITION_DERIVATION_NOT_IMPLEMENTED';
       readonly detail: string;
-      readonly composition_manifest_paths: readonly string[];
+      readonly composition_marker_paths: readonly string[];
     };
 
 export function assessEntrypointDerivability(detail: StaticCensusDetail): EntrypointDerivability {
-  if (detail.composition_manifest_paths.length === 0) {
+  if (detail.composition_marker_paths.length === 0) {
     return {
       status: 'NOT_DERIVABLE',
       blocker: 'RELEASE_COMPOSITION_ABSENT_FROM_SUBJECT_TREE',
@@ -37,7 +37,7 @@ export function assessEntrypointDerivability(detail: StaticCensusDetail): Entryp
     blocker: 'COMPOSITION_DERIVATION_NOT_IMPLEMENTED',
     detail:
       'the subject tree carries composition-manifest content, but deriving the entrypoint set from it is not implemented or verified in this unit',
-    composition_manifest_paths: detail.composition_manifest_paths,
+    composition_marker_paths: detail.composition_marker_paths,
   };
 }
 
