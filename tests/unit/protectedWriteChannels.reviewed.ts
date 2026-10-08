@@ -189,6 +189,7 @@ export const FILE_TYPE_DECISIONS: readonly { readonly key: string; readonly deci
   { key: ".hash", decision: "DATA", justification: "Reference hashes of golden vectors." },
   { key: ".cbor", decision: "DATA", justification: "CBOR reference vectors." },
   { key: ".bin", decision: "DATA", justification: "Binary golden fixture of the artifact store tests." },
+  { key: ".traineddata", decision: "DATA", justification: "Tesseract language model data; loaded by the local OCR executable, never executed as repository code." },
   { key: ".lock", decision: "DATA", justification: "Python dependency lock (uv.lock): versions and hashes." },
   { key: ".gitignore", decision: "DATA", justification: "Git ignore patterns." },
   { key: ".gitattributes", decision: "DATA", justification: "Git attributes (line endings, diff and merge settings)." },
@@ -1349,6 +1350,28 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "A package-local RED-phase test harness dynamically imports its fixed neighboring implementation path in order to verify that the canonical manifest contract is not silently absent. It is located in a test tree and is not reached from a product, deployment or operator path.",
     sites: [
       "DYNAMIC PROCESS import() | import(/* @vite-ignore */ pathToFileURL(IMPLEMENTATION).href)",
+    ],
+  },
+  {
+    file: "packages/mps-local-ocr/src/processRunner.ts",
+    policy: "DYNAMIC_REVIEWED",
+    contentSha256: "eb737b81287b487931421a15c2d65ba93a583f601341441e53fe29ff0a9c4cfb",
+    reachability: "Called only by the local Mimer OCR adapter to invoke its configured Tesseract and Poppler executables; the adapter is reached through the document text-projection composition root and its focused tests.",
+    reviewedOn: "2026-10-09",
+    reviewedBy: "LU-FINAL-CLOSE-01 integration review",
+    justification:
+      "The runner calls its injected local executable with a caller-supplied argument array, fixed shell:false, hidden window and piped stdio. The adapter validates executable provenance and interprets non-zero, timeout and output-limit outcomes as OCR failure; this process utility has no database client or SQL path. Any change to the process contract requires re-review through the content pin.",
+    sites: [
+      "UNRESOLVABLE PROCESS nodeSpawn | nodeSpawn(command, [...args], { cwd: options.cwd, shell: PROCESS_SPAWN_OPTIONS.shell, windowsHide: PROCESS_SPAWN_OPTIONS.windowsHide, stdio: PROCESS_SPAWN_OPTIONS.stdio, })",
+    ],
+  },
+  {
+    file: "packages/mps-local-ocr/tests/support.ts",
+    policy: "TEST_HARNESS",
+    justification:
+      "Package-local OCR test support starts a fixed Node child only to emulate local executable output for tests. It is in a test tree and is not reached by product, deployment or operator code; any non-test reacher fails the TEST_HARNESS reachability check.",
+    sites: [
+      "DYNAMIC PROCESS spawn | spawn(process.execPath, [\"-e\", script], { shell: false, windowsHide: true, stdio: [\"ignore\", \"pipe\", \"pipe\"], })",
     ],
   },
 ];

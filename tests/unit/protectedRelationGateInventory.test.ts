@@ -68,9 +68,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // ---------------------------------------------------------------------------------------------
 
 const LOCKS = {
-  reviewedEntries: 78,
-  reviewedSites: 171,
-  reviewedSha256: 'fd8ac0324aa8299f3087822f90b1993e95ca3ef34d90bfff6667204f65a8e7d7',
+  reviewedEntries: 80,
+  reviewedSites: 173,
+  reviewedSha256: '244ee077a7899c38f82e8aca140db21f9c552cb3abeb6c46a1700e3f58ffdc70',
   historicalFiles: 10,
   historicalSha256: 'a1ac41e6db406040b8cd6226c3701534a8bedd97ebc03add995f44661c29a19c',
   gateImplementationSha256: '8e4c1728b341ad514847e9cb4e2e9f4046607f95d059c9a87c119ac505ce98bd',
@@ -84,7 +84,7 @@ const LOCKS = {
   // U30F3 (verifier L-1): the closed list of gate doors a reviewed marker may name
   markerDoorsSha256: '806f99ebb2450096d501ba639356a17768d989e541c3a630c98d7ca04bab32a6',
   // U30F4 (B5): the file types decided to be data
-  fileTypeDecisionsSha256: '490bbe38db7f2569773f3de5140e8135271c9bce57a5bbfd4e1578ed2819aa40',
+  fileTypeDecisionsSha256: '5cd151ba9de22dd24fe6c609010972ca1bcc3bf68e8cde01a16eab5bea5948a2',
   // U30F5 (D-7): the open owner decisions (BLOCKERARE, failed by their own test)
   openDecisionsSha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
   // U30F6 (F5-3): the reviewed launches that resolve to no repository file (and their category arguments)
