@@ -77,6 +77,18 @@ function writeAllowed(target: unknown): boolean {
   return resolved === temp || resolved.startsWith(temp + path.sep);
 }
 
+function isEnvFile(target: unknown): boolean {
+  const raw = asPath(target);
+  if (raw === undefined) return false;
+  const base = path.basename(path.resolve(String(raw)));
+  return base === '.env' || base.startsWith('.env.');
+}
+
+function refuseEnvFile(): never {
+  state.refused_writes += 1;
+  throw blocked(WRITE_BLOCK, 'boot probe refused an env file read');
+}
+
 function isWriteFlag(flag: unknown): boolean {
   const text = String(flag ?? 'r');
   return text.includes('w') || text.includes('a') || text.includes('+');
@@ -168,6 +180,23 @@ function installHooks(): void {
   fs.promises.truncate = guardWrite(fs.promises.truncate);
   fs.promises.open = guardWrite(fs.promises.open, 1);
   state.hooks.push('fs.write');
+
+  const originalExists = fs.existsSync;
+  fs.existsSync = function existsGuarded(target: Parameters<typeof originalExists>[0]) {
+    if (isEnvFile(target)) return false;
+    return originalExists.call(fs, target);
+  } as typeof fs.existsSync;
+  const originalReadFile = fs.readFileSync;
+  fs.readFileSync = function readGuarded(target: Parameters<typeof originalReadFile>[0], ...rest: never[]) {
+    if (isEnvFile(target)) refuseEnvFile();
+    return originalReadFile.call(fs, target, ...rest);
+  } as typeof fs.readFileSync;
+  const originalPromiseRead = fs.promises.readFile;
+  fs.promises.readFile = async function readGuarded(target: Parameters<typeof originalPromiseRead>[0], options?: unknown) {
+    if (isEnvFile(target)) refuseEnvFile();
+    return originalPromiseRead.call(fs.promises, target, options as never);
+  } as typeof fs.promises.readFile;
+  state.hooks.push('fs.env');
 
   const originalLookup = dns.lookup;
   dns.lookup = function lookupGuarded(hostname: string, options?: unknown, callback?: unknown) {

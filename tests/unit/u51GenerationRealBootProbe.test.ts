@@ -182,11 +182,13 @@ function fixtureSource(registerPortUrl?: string): string {
   return `${register}import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 const mode = process.env.U51_FIXTURE_MODE ?? 'exit';
 if (mode === 'connect') net.connect(Number(process.env.U51_FIXTURE_PORT), '127.0.0.1');
 if (mode === 'listen') net.createServer().listen(0, '127.0.0.1');
 if (mode === 'spawn') spawnSync(process.execPath, ['-e', 'require("fs").writeFileSync(process.env.U51_SPAWN_MARKER, "ran")']);
 if (mode === 'profile') process.env.NODE_ENV = 'development';
+if (process.env.U51_ENV_LEAK === '1') process.env.NODE_ENV = 'development';
 process.exit(0);
 `;
 }
@@ -326,6 +328,21 @@ describe('boot probe process boundary', () => {
     expect(markerExists).toBe(false);
     expect(run.attempts.every((attempt) => (attempt.report?.isolation.spawn_attempts ?? 0) >= 1)).toBe(true);
     expect(run.attempts.every((attempt) => attempt.observation?.isolation_ok === false)).toBe(true);
+  }, 120_000);
+
+  it('does not load subject .env files into the child', async () => {
+    const dir = repo();
+    commitComposition(dir, fixtureSource());
+    writeFileSync(path.join(dir, '.env'), 'U51_ENV_LEAK=1\n');
+    writeFileSync(path.join(dir, '.env.local'), 'U51_ENV_LEAK=1\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', 'env']);
+    const commit = git(dir, ['rev-parse', 'HEAD']);
+    const run = await runBootProbe({ repo: dir, commit, timeoutMs: 60_000 });
+    expect(run.attempts.every((attempt) => attempt.observation?.node_env === 'production')).toBe(true);
+    expect(run.attempts.every((attempt) => attempt.observation?.isolation_ok === true)).toBe(true);
+    expect(run.attempts.every((attempt) => attempt.report?.isolation.hooks.includes('fs.env'))).toBe(true);
+    expect(run.attempts.every((attempt) => attempt.observation?.generate_attempt.code === LOCAL_GENERATION_BLOCKER)).toBe(true);
   }, 120_000);
 
   it('a development profile reported by the entry is not sealed as production', async () => {

@@ -3,7 +3,7 @@
  * No IO. The registration identifier is intentionally absent from this file.
  */
 
-export const REQUIRED_ISOLATION_HOOKS = ['socket.connect', 'server.listen', 'process.spawn', 'fs.write', 'dns.external'] as const;
+export const REQUIRED_ISOLATION_HOOKS = ['socket.connect', 'server.listen', 'process.spawn', 'fs.write', 'fs.env', 'dns.external'] as const;
 
 export type IsolationHook = (typeof REQUIRED_ISOLATION_HOOKS)[number];
 

@@ -162,7 +162,7 @@ function spawnEntry(input: {
     let timedOut = false;
     let settled = false;
     const child = spawn(process.execPath, ['--import', pathToFileURL(TSX_LOADER).href, '--import', pathToFileURL(PRELOAD).href, entryPath], {
-      cwd: input.probeHome,
+      cwd: path.resolve(input.repo),
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
