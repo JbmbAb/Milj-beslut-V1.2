@@ -170,7 +170,7 @@ describe('backupService', () => {
       const manifest = await runBackup('admin-s3-off');
       await settle();
       expect(manifest.status).toBe('SUCCESS');
-      expect(manifest.uploadedTo ?? '').toBe('');
+      expect(manifest).not.toHaveProperty('uploadedTo');
     });
 
     it('S3 configured but SDK unavailable still produces a local SUCCESS backup', async () => {
@@ -187,8 +187,9 @@ describe('backupService', () => {
       const { runBackup, getBackup } = await import('../../server/services/backupService');
       const manifest = await runBackup('admin-s3-no-claim');
       await settle();
-      expect(manifest.uploadedTo ?? '').toBe('');
-      expect(getBackup(manifest.id)?.uploadedTo ?? '').not.toMatch(/^s3:\/\//);
+      // The property must be absent: an empty string would still be a (blank) upload claim in the manifest.
+      expect(manifest).not.toHaveProperty('uploadedTo');
+      expect(getBackup(manifest.id)).not.toHaveProperty('uploadedTo');
     });
 
     it('loads the S3 SDK through a literal specifier only', async () => {

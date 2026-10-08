@@ -174,7 +174,8 @@ export async function runBackup(actingUserId: string): Promise<BackupManifest> {
   const s3Bucket = process.env.BACKUP_S3_BUCKET;
   if (s3Bucket) {
     void uploadToS3(manifest, filePath, s3Bucket).then((s3Key) => {
-      manifest.uploadedTo = s3Key;
+      // An unavailable SDK or a failed upload yields '' and must leave `uploadedTo` absent, never an empty claim.
+      if (s3Key) manifest.uploadedTo = s3Key;
     });
   }
 
