@@ -125,7 +125,7 @@ export const TEST_SOURCES = {
 /** Paths the walk does not enter. Generated, vendored, or other checkouts of this repository. */
 export const PATH_EXCLUSIONS: readonly { readonly pattern: string; readonly justification: string }[] = [
   { pattern: String.raw`(^|/)node_modules/`, justification: "Third-party packages (npm); not repository code." },
-  { pattern: String.raw`^\.git/`, justification: "Git's object store; holds no code that runs." },
+  { pattern: String.raw`^\.git(?:/|$)`, justification: "Git administrative metadata (directory in a checkout, file in a worktree); holds no code that runs." },
   { pattern: String.raw`^\.claude/worktrees/`, justification: "Other agents' checkouts of this repository; each is scanned in its own checkout." },
   { pattern: String.raw`^\.worktrees/`, justification: "Other checkouts of this repository; each is scanned in its own checkout." },
   { pattern: String.raw`^packages/[^/]+/dist/`, justification: "Build output of packages/*/src (gitignored); the source is scanned." },
@@ -1307,6 +1307,48 @@ export const REVIEWED_CHANNELS: readonly ReviewedChannels[] = [
       "A6 reviewed process site: spawn receives pythonPath only after configuration resolves an absolute python/python.exe path to its real path. The transport passes shell:false, the worker reports sys.executable realpath and Node rejects a mismatch. The spawned program is therefore the governed configured interpreter, not a PATH-selected command; no database tool or SQL is launched here.",
     sites: [
       "DYNAMIC PROCESS spawn | spawn(pythonPath, [WORKER_SCRIPT], { env: { ...environment }, cwd: repositoryRoot(), stdio: [\"pipe\", \"pipe\", \"pipe\"], windowsHide: true, shell: false, })",
+    ],
+  },
+  {
+    file: "packages/mps-u51-generation-absence/src/bootProbe/harness.ts",
+    policy: "DYNAMIC_REVIEWED",
+    contentSha256: "b2ed83a69cae021adc3ea20d517063537851b5fbff89fdf68d15e474a2d9e8f4",
+    reachability: "U51's isolated boot-probe harness invokes the selected production entry only while verifying the frozen U51 proof candidate; it is reached through the generation-absence package's test and verification paths, not an admission or deployment path.",
+    reviewedOn: "2026-10-08",
+    reviewedBy: "LU-FINAL-CLOSE-01 integration review",
+    justification:
+      "The sole child process is the current Node executable with the repository-held tsx loader and isolation preload, followed by an entry path derived from the frozen manifest's production entry list. The harness fixes cwd to the candidate repository, supplies its isolated environment and captures stdio. It does not launch a database client or admit an authority action; any source change re-opens this review through the content pin.",
+    sites: [
+      "DYNAMIC PROCESS spawn | spawn(process.execPath, ['--import', pathToFileURL(TSX_LOADER).href, '--import', pathToFileURL(PRELOAD).href, entryPath], { cwd: path.resolve(input.repo), env, stdio: ['ignore', 'pipe', 'pipe'], wind…",
+    ],
+  },
+  {
+    file: "packages/mps-u51-generation-absence/src/bootProbe/preload.ts",
+    policy: "DYNAMIC_REVIEWED",
+    contentSha256: "6e3fdf7ae3405ae7ac3525491dfba833df4d9b5822bb75b7755f914b0fc880f9",
+    reachability: "Loaded only by the U51 boot-probe harness as Node's explicit --import isolation preload before a selected production entry is evaluated; it is not an admission, authority or deployment entrypoint.",
+    reviewedOn: "2026-10-08",
+    reviewedBy: "LU-FINAL-CLOSE-01 integration review",
+    justification:
+      "The type query identifies Node's child_process module and the remaining sites replace its process methods with local wrappers that increment the observation counter and throw a refusal. This is a fail-closed interposition layer: it creates no child process and any future change is forced through re-review by the content pin. Its only purpose is to prevent an isolated boot probe from escaping its declared boundary.",
+    sites: [
+      "DYNAMIC PROCESS import child_process | import('node:child_process')",
+      "DYNAMIC PROCESS child_process cp | cp.spawn",
+      "DYNAMIC PROCESS child_process cp | cp.spawnSync",
+      "DYNAMIC PROCESS child_process cp | cp.exec",
+      "DYNAMIC PROCESS child_process cp | cp.execSync",
+      "DYNAMIC PROCESS child_process cp | cp.execFile",
+      "DYNAMIC PROCESS child_process cp | cp.execFileSync",
+      "DYNAMIC PROCESS child_process cp | cp.fork",
+    ],
+  },
+  {
+    file: "packages/mps-u51-manifest/tests/u51CanonicalManifest.red.test.ts",
+    policy: "TEST_HARNESS",
+    justification:
+      "A package-local RED-phase test harness dynamically imports its fixed neighboring implementation path in order to verify that the canonical manifest contract is not silently absent. It is located in a test tree and is not reached from a product, deployment or operator path.",
+    sites: [
+      "DYNAMIC PROCESS import() | import(/* @vite-ignore */ pathToFileURL(IMPLEMENTATION).href)",
     ],
   },
 ];
