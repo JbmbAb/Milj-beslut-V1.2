@@ -79,6 +79,12 @@ export function checkEntrypointComposition(tree: TreeReader): CompositionCheck {
   if (!scriptsResult.ok || !dockerResult.ok || !smokeResult.ok) return { outcome: 'not_executed', problems };
   const scripts = scriptsResult.value;
 
+  // A compose file bound by the composition (under deploy/onprem/) would start processes through `command:` lines this
+  // checker does not read; fail closed rather than ignore it. (None exists on the release line today.)
+  for (const f of tree.listUnder('deploy/onprem')) {
+    if (/compose[^/]*\.ya?ml$/i.test(f)) problems.push({ rule: 'cmd-resolves', message: `${f} is a compose file bound by the composition; its command lines are not checked here, so the composition cannot be established` });
+  }
+
   // (1) every Dockerfile launcher resolves to a listed file
   const dockerTargets: Array<{ file: string; where: string }> = [];
   for (const launcher of dockerResult.value) {

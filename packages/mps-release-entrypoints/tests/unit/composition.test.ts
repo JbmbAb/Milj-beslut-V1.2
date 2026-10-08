@@ -146,6 +146,11 @@ describe('composition consistency: any mismatch is not_executed, never a partial
     expect(rulesOf(checkEntrypointComposition(baseTree({ Dockerfile: null })))).toContain('cmd-resolves');
   });
 
+  it('rule cmd-resolves: a compose file bound under deploy/onprem cannot be ignored', () => {
+    expect(rulesOf(checkEntrypointComposition(baseTree({ 'deploy/onprem/docker-compose.lu.yml': 'services: {}
+' })))).toEqual(['cmd-resolves']);
+  });
+
   it('rule entry-launched: an entry that no bound source starts', () => {
     const files = baseFiles();
     const withoutLaunchers = baseTree({

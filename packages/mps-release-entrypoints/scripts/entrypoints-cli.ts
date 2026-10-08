@@ -40,7 +40,9 @@ function main(): number {
     if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${String(r.stderr)}`);
     return r.stdout;
   };
-  const commit = Buffer.from(git(['rev-parse', '--verify', `${treeish}^{commit}`])).toString('utf8').trim();
+  // A commit names itself; a bare tree object (a scratch tree for a negative control) has no commit.
+  const objectType = Buffer.from(git(['cat-file', '-t', treeish])).toString('utf8').trim();
+  const commit = objectType === 'commit' ? Buffer.from(git(['rev-parse', '--verify', `${treeish}^{commit}`])).toString('utf8').trim() : 'tree-object-only';
   const tree = Buffer.from(git(['rev-parse', '--verify', `${treeish}^{tree}`])).toString('utf8').trim();
   const reader = gitTreeReader(git, tree);
 
