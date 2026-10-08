@@ -89,7 +89,7 @@ async function runProof(proof: IsolatedMimersProof) {
     console.log(`  replayed_outcome_ref: ${replay.replayed_outcome_ref.artifact_id}`);
     console.log(`  equivalence_proof: ${replay.equivalence_proof.value}\n`);
     results.coldVerifySucceededUnderHostileEnv =
-      replay.replayed_outcome_ref.artifact_id === `outcome-attempt-${result.manifest_id}-1`;
+      replay.replayed_outcome_ref.artifact_id === `outcome-v2-attempt-${result.manifest_id}-1`;
   } catch (error) {
     console.log(`  UNEXPECTED FAIL: ${error instanceof Error ? error.message : String(error)}\n`);
     results.coldVerifySucceededUnderHostileEnv = false;

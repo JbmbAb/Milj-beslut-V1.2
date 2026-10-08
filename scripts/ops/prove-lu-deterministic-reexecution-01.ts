@@ -55,11 +55,23 @@ function evidence(siteId: string): SpatialEvidenceArtifact {
 }
 
 async function main() {
+  // Bootstrap admission is deliberately test-only. This proof uses an isolated filesystem CAS,
+  // so declare that explicit test context for the duration rather than bypassing the gate.
+  const previous = {
+    nodeEnv: process.env.NODE_ENV,
+    appEnv: process.env.APP_ENV,
+    bootstrapAdmit: process.env.MPS_LU_BOOTSTRAP_ADMIT,
+  };
+  process.env.NODE_ENV = 'test';
+  process.env.APP_ENV = 'test';
   const proof = await createIsolatedMimersProof();
   try {
     await runProof(proof);
   } finally {
     await proof.cleanup();
+    if (previous.nodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous.nodeEnv;
+    if (previous.appEnv === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = previous.appEnv;
+    if (previous.bootstrapAdmit === undefined) delete process.env.MPS_LU_BOOTSTRAP_ADMIT; else process.env.MPS_LU_BOOTSTRAP_ADMIT = previous.bootstrapAdmit;
   }
 }
 
