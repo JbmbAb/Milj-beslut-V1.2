@@ -297,6 +297,7 @@ export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage, St
     this.ensureDirectoryExists(incoming);
     const tempPath = path.join(incoming, `${randomUUID()}.partial`);
     const stream = fs.createWriteStream(tempPath, { flags: 'wx' });
+    let fileDescriptor: number | undefined;
     stream.on('error', () => {
       // Write and end paths surface the same error. This listener keeps it from crashing the process.
     });
@@ -305,7 +306,8 @@ export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage, St
         stream.off('open', succeed);
         reject(error);
       };
-      const succeed = () => {
+      const succeed = (fd: number) => {
+        fileDescriptor = fd;
         stream.off('error', fail);
         resolve();
       };
@@ -313,7 +315,15 @@ export class DiskQuarantineStorage implements ArchiveImportQuarantineStorage, St
       stream.once('error', fail);
     });
 
-    return new DiskStreamingQuarantineSession(tempPath, request, stream, (commit) =>
+    if (fileDescriptor === undefined) {
+      stream.destroy();
+      throw new StreamingQuarantineError(
+        'Streaming quarantine writer opened without a file descriptor.',
+        'REJECT_QUARANTINE_IO',
+      );
+    }
+
+    return new DiskStreamingQuarantineSession(tempPath, request, stream, fileDescriptor, (commit) =>
       this.commitStreamedNetworkObservation(commit),
     );
   }
@@ -521,6 +531,7 @@ class DiskStreamingQuarantineSession implements StreamingQuarantinePutSession {
     private readonly tempPath: string,
     private readonly request: BeginNetworkObservationRequest,
     private readonly stream: fs.WriteStream,
+    private readonly fileDescriptor: number,
     private readonly commit: (input: {
       readonly tempPath: string;
       readonly hash: string;
@@ -642,12 +653,9 @@ class DiskStreamingQuarantineSession implements StreamingQuarantinePutSession {
 
   private async finishWriter(): Promise<void> {
     await this.tail;
-    const fd = this.stream.fd;
-    if (typeof fd === 'number') {
-      await new Promise<void>((resolve, reject) => {
-        fs.fsync(fd, (error) => (error ? reject(error) : resolve()));
-      });
-    }
+    await new Promise<void>((resolve, reject) => {
+      fs.fsync(this.fileDescriptor, (error) => (error ? reject(error) : resolve()));
+    });
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       const finish = (error?: Error | null) => {
