@@ -8,3 +8,4 @@
 *.json text eol=lf
 *.mjs text eol=lf
 backup_pre_migration.sql filter=lfs diff=lfs merge=lfs -text
+packages/mps-local-ocr/tessdata/*.traineddata binary

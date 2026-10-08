@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@miljobeslut/mps-text-projection": ["../mps-text-projection/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

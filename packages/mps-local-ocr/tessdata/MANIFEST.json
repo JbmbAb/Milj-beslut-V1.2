@@ -1,0 +1,13 @@
+{
+  "swe": {
+    "lang": "swe",
+    "source": "https://github.com/tesseract-ocr/tessdata/raw/4.1.0/swe.traineddata",
+    "version": "tessdata-4.1.0",
+    "gitTag": "4.1.0",
+    "gitTagObject": "5bc87aa08bbfb9488664e5dc95c696be2a81962d",
+    "sha256": "24e2dd15cc0088d211c5f1bd49971e600317f201502deadbc417f0ffd6c9a6f8",
+    "byteLength": 13627152,
+    "destination": "packages/mps-local-ocr/tessdata/swe.traineddata",
+    "runtimeLookup": "The packaged swe.traineddata file is SHA-256 checked on every OCR call and copied into that call's tessdata directory. eng.traineddata is copied from the local Tesseract tessdata directory (beside tesseract.exe, or TESSDATA_PREFIX) and identified by its SHA-256. Program Files is not modified."
+  }
+}

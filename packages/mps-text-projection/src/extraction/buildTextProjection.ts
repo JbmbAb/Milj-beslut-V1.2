@@ -6,6 +6,7 @@ import type {
   ExtractionStep,
 } from "../types/ExtractionProvenance.js";
 import {
+  isOcrExtractionMethod,
   methodToExtractorKind,
   toExtractionStatus,
 } from "../types/ExtractionProvenance.js";
@@ -49,8 +50,7 @@ function pickPrimary(steps: readonly ExtractionStep[]): {
     (s) =>
       s.succeeded &&
       s.char_count > 0 &&
-      s.method !== "ocr_gemini" &&
-      s.method !== "ocr_external",
+      !isOcrExtractionMethod(s.method),
   );
   if (nonOcr) return { method: nonOcr.method, version: nonOcr.version };
 
@@ -74,7 +74,7 @@ export function buildExtractionProvenance(
   const primary = pickPrimary(frozenSteps);
   const ocrStep = frozenSteps.find(
     (s) =>
-      (s.method === "ocr_gemini" || s.method === "ocr_external") &&
+      isOcrExtractionMethod(s.method) &&
       s.succeeded &&
       s.char_count > 0,
   );

@@ -11,6 +11,7 @@ export type ExtractionMethod =
   | "json"
   | "ocr_gemini"
   | "ocr_external"
+  | "ocr_tesseract"
   | "preextracted"
   | "none";
 
@@ -57,6 +58,7 @@ export function methodToExtractorKind(method: ExtractionMethod): ExtractorKind {
       return "pdf-parse";
     case "ocr_gemini":
     case "ocr_external":
+    case "ocr_tesseract":
       return "ocr";
     case "preextracted":
       return "preextracted";
@@ -68,6 +70,26 @@ export function methodToExtractorKind(method: ExtractionMethod): ExtractorKind {
       return "json";
     case "none":
       return "none";
+    default: {
+      const _exhaustive: never = method;
+      return _exhaustive;
+    }
+  }
+}
+
+export function isOcrExtractionMethod(method: ExtractionMethod): boolean {
+  switch (method) {
+    case "ocr_gemini":
+    case "ocr_external":
+    case "ocr_tesseract":
+      return true;
+    case "pdf_parse":
+    case "plain_text":
+    case "html":
+    case "json":
+    case "preextracted":
+    case "none":
+      return false;
     default: {
       const _exhaustive: never = method;
       return _exhaustive;

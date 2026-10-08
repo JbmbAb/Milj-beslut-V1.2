@@ -67,6 +67,7 @@ tmp-mimers/
 !public/manifest.json
 !tests/fixtures/**/*.json
 !packages/mps-compliance/tests/golden/**/*.json
+!packages/mps-local-ocr/tessdata/MANIFEST.json
 !packages/mps-runtime/src/verification/performance/baselines/**/*.json
 !docs/ops/benchmarks/**/*.json
 !docs/architecture/admit-v1/**/*.json

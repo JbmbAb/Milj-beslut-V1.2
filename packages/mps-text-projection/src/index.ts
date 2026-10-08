@@ -11,6 +11,7 @@ export type {
 } from "./types/ExtractionProvenance.js";
 
 export {
+  isOcrExtractionMethod,
   methodToExtractorKind,
   toExtractionStatus,
 } from "./types/ExtractionProvenance.js";
