@@ -31,3 +31,23 @@ export {
   type FailureName,
   type StageId,
 } from './vocabulary';
+export { buildProofEvidence, evidenceDocument, evidenceIsSelfConsistent, type ProofEvidence, type ProofEvidenceIdentity } from './proofEvidence';
+export {
+  AdapterUnavailable,
+  proveU51CanonicalManifest,
+  type ControllerIdentity,
+  type PolicyAuthentication,
+  type ProverInput,
+  type ProverPorts,
+  type ProverResult,
+  type ProverState,
+  type SubjectObservation,
+} from './runner/prover';
+export { PROBES, runNegativeProbes, deviationFrom, type Probe, type ProbeOutcome, type ProbeReport } from './runner/probes';
+export { isInside, refuseInsideSubject, realpathLoose } from './runner/paths';
+export { EVIDENCE_FILES, runProverCli, type CliDeps, type CliOutcome } from './runner/cli';
+export { gitBlobSha1, gitToplevel, readBlobAtTree, subjectObservation } from './adapters/gitObjects';
+export { controllerIdentity } from './adapters/controller';
+export { scanDependencyManifests, filesetDigest, type DependencyScanFacts, type DependencyScanPolicy } from './adapters/dependencyScan';
+export { deriveGenerationStaticFacts, type GenerationStaticFacts } from './adapters/generationStatic';
+export { extractMigrationFacts, extractPrismaFacts, extractRuntimeFacts, stripSqlComments } from './adapters/schemaFacts';
