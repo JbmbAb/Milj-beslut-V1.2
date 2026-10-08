@@ -118,15 +118,39 @@ describe('registration identifier (mutation 1: registration_identifier_files > 0
   });
 
   it('this unit does not look like a registration or a composition to its own census', () => {
-    const dir = path.join(ROOT, 'packages', 'mps-u51-generation-absence', 'src');
-    const entries = readdirSync(dir).map((f) => ({
-      path: `packages/mps-u51-generation-absence/src/${f}`,
-      bytes: readFileSync(path.join(dir, f)),
-    }));
+    const readTree = (dir: string, prefix: string): { path: string; bytes: Buffer }[] => {
+      const found: { path: string; bytes: Buffer }[] = [];
+      for (const name of readdirSync(dir, { withFileTypes: true })) {
+        const rel = `${prefix}/${name.name}`;
+        if (name.isDirectory()) found.push(...readTree(path.join(dir, name.name), rel));
+        else found.push({ path: rel, bytes: readFileSync(path.join(dir, name.name)) });
+      }
+      return found;
+    };
+    const entries = readTree(path.join(ROOT, 'packages', 'mps-u51-generation-absence', 'src'), 'packages/mps-u51-generation-absence/src');
     entries.push({ path: 'scripts/ops/prove-u51-generation-absence-01.ts', bytes: readFileSync(RUNNER) });
-    expect(entries.length).toBe(5);
+    entries.push({
+      path: 'scripts/ops/prove-u51-generation-real-boot-01.ts',
+      bytes: readFileSync(path.join(ROOT, 'scripts', 'ops', 'prove-u51-generation-real-boot-01.ts')),
+    });
+    expect(entries.map((entry) => entry.path).sort()).toEqual([
+      'packages/mps-u51-generation-absence/src/bootProbe/exactCheckout.ts',
+      'packages/mps-u51-generation-absence/src/bootProbe/harness.ts',
+      'packages/mps-u51-generation-absence/src/bootProbe/preload.ts',
+      'packages/mps-u51-generation-absence/src/bootProbe/productionGates.ts',
+      'packages/mps-u51-generation-absence/src/bootProbe/prove.ts',
+      'packages/mps-u51-generation-absence/src/bootProbe/seal.ts',
+      'packages/mps-u51-generation-absence/src/bootProbe/types.ts',
+      'packages/mps-u51-generation-absence/src/entrypointSet.ts',
+      'packages/mps-u51-generation-absence/src/gitTree.ts',
+      'packages/mps-u51-generation-absence/src/index.ts',
+      'packages/mps-u51-generation-absence/src/staticCensus.ts',
+      'scripts/ops/prove-u51-generation-absence-01.ts',
+      'scripts/ops/prove-u51-generation-real-boot-01.ts',
+    ]);
     const d = computeStaticCensus(entries);
     expect(d.census.registration_identifier_files).toBe(0);
+    expect(d.census.nonliteral_dynamic_imports).toBe(0);
     expect(d.composition_marker_paths).toEqual([]);
     expect(assessEntrypointDerivability(d).blocker).toBe('RELEASE_COMPOSITION_ABSENT_FROM_SUBJECT_TREE');
   });
