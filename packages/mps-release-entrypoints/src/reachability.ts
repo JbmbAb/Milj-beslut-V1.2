@@ -106,6 +106,28 @@ export function parseModule(file: string, text: string): ParsedModule {
     node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
   const clip = (s: string): string => (s.length > 120 ? `${s.slice(0, 117)}...` : s).replace(/\s+/g, ' ');
 
+  const isSafeStoredRequireFactory = (node: ts.CallExpression): boolean => {
+    if (!ts.isIdentifier(node.expression) || node.expression.text !== 'createRequire') return false;
+    if (node.arguments.length !== 1 || node.arguments[0]!.getText(sf) !== 'import.meta.url') return false;
+    const declaration = node.parent;
+    if (!ts.isVariableDeclaration(declaration) || declaration.initializer !== node) return false;
+    if (!ts.isIdentifier(declaration.name) || declaration.name.text !== 'require') return false;
+    const declarationList = declaration.parent;
+    if (!ts.isVariableDeclarationList(declarationList) || (declarationList.flags & ts.NodeFlags.Const) === 0) return false;
+    const statement = declarationList.parent;
+    return ts.isVariableStatement(statement) && statement.parent === sf;
+  };
+  const isSafeStoredRequireName = (node: ts.Identifier): boolean => {
+    const declaration = node.parent;
+    return (
+      ts.isVariableDeclaration(declaration) &&
+      declaration.name === node &&
+      declaration.initializer !== undefined &&
+      ts.isCallExpression(declaration.initializer) &&
+      isSafeStoredRequireFactory(declaration.initializer)
+    );
+  };
+
   const flag = (node: ts.Node, text: string): void => {
     computed.push({ line: lineOf(node), text: clip(text) });
   };
@@ -125,7 +147,7 @@ export function parseModule(file: string, text: string): ParsedModule {
     const parent = node.parent;
     if (ts.isIdentifier(node)) {
       const calledDirectly = parent !== undefined && ts.isCallExpression(parent) && parent.expression === node;
-      if (node.text === 'require' && !calledDirectly && !isNameOnly(node)) flag(node, parent?.getText(sf) ?? 'require');
+      if (node.text === 'require' && !calledDirectly && !isNameOnly(node) && !isSafeStoredRequireName(node)) flag(node, parent?.getText(sf) ?? 'require');
       else if (node.text === 'eval' && !isNameOnly(node)) flag(node, parent?.getText(sf) ?? 'eval');
       else if (node.text === 'Function' && parent !== undefined && (ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === node) flag(node, parent.getText(sf));
     } else if (ts.isPropertyAccessExpression(node)) {
@@ -186,6 +208,7 @@ export function parseModule(file: string, text: string): ParsedModule {
         callee.arguments.length === 1 &&
         callee.arguments[0]!.getText(sf) === 'import.meta.url';
       if (direct) handledCreateRequire.add(callee);
+      if (isSafeStoredRequireFactory(node)) handledCreateRequire.add(node);
       const isRequire = direct || (ts.isIdentifier(callee) && callee.text === 'require');
       if (isImport || isRequire) {
         const spec = literalOf(node.arguments[0]);

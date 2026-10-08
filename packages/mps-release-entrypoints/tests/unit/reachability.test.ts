@@ -77,6 +77,23 @@ describe('createRequire(import.meta.url)(literal) is a require relative to the f
     expect(r.union_all).toEqual(['root.ts', 'x.ts']);
     expect(r.external_packages).toEqual(['node:module', 'pg']);
   });
+
+  it('accepts the owner-decided B3 form: a top-level const named require from createRequire(import.meta.url)', () => {
+    const r = computeClosure(tree({
+      'root.ts': "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\ntry { require('@aws-sdk/client-s3'); } catch {}",
+    }), ['root.ts']);
+    expect(r.unresolved).toEqual([]);
+    expect(r.external_packages).toEqual(['@aws-sdk/client-s3', 'node:module']);
+  });
+
+  it.each([
+    ['mutable binding', "import { createRequire } from 'node:module';\nlet require = createRequire(import.meta.url);\nrequire('pg');"],
+    ['nested binding', "import { createRequire } from 'node:module';\nfunction f() { const require = createRequire(import.meta.url); return require('pg'); }"],
+    ['wrong binding name', "import { createRequire } from 'node:module';\nconst r = createRequire(import.meta.url);\nr('pg');"],
+  ])('keeps %s fail-closed', (_name, code) => {
+    const r = computeClosure(tree({ 'root.ts': code }), ['root.ts']);
+    expect(r.unresolved.length).toBeGreaterThan(0);
+  });
 });
 
 describe('D-R1 blocker 1: import-vs-require condition context in package exports', () => {
