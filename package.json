@@ -37,6 +37,7 @@
     "import:sgu-risk-layers": "tsx scripts/import/import-sgu-risk-layers.ts",
     "harvest:governed": "tsx packages/mps-data-governance/scripts/harvest-live-pilot.ts",
     "dataportal:discover": "tsx packages/mps-data-governance/scripts/dataportal-discovery.ts",
+    "lantmateriet:catalog-census": "tsx packages/mps-data-governance/scripts/lantmateriet-catalog-census.ts",
     "admit:validate-layers": "node scripts/import/admit-v1-layer-validation.mjs",
     "graph:build": "tsx scripts/graph/build-knowledge-graph.ts",
     "search:health": "tsx scripts/search-health.ts",
