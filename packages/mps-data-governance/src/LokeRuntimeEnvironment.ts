@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 
@@ -17,12 +18,15 @@ type LokeLantmaterietEnvironmentName = (typeof LOKE_LANTMATERIET_ENVIRONMENT_NAM
 export interface LokeRuntimeEnvironmentLoadResult {
   /** Paths are safe configuration provenance; parsed values are never returned or logged. */
   readonly loadedFiles: readonly string[];
+  /** Existing public verification keyring, if this runtime needed the conventional local binding. */
+  readonly trustedKeyringPath: string | null;
 }
 
 export interface LoadLokeRuntimeEnvironmentOptions {
   readonly cwd?: string;
   readonly primaryWorktreeRoot?: string | null;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly mimersHome?: string;
 }
 
 /**
@@ -60,7 +64,30 @@ export function loadLokeRuntimeEnvironment(
     }
   }
 
-  return { loadedFiles };
+  const trustedKeyringPath = bindExistingSourceRegistryKeyring(
+    environment,
+    options.mimersHome ?? resolve(homedir(), ".mimers"),
+  );
+  return { loadedFiles, trustedKeyringPath };
+}
+
+/**
+ * Loke receives verification capability only. This binds the already-managed public keyring;
+ * it never reads a signing key, writes a keyring, or substitutes any other authority's key.
+ */
+function bindExistingSourceRegistryKeyring(environment: NodeJS.ProcessEnv, mimersHome: string): string | null {
+  if (environment.SOURCE_REGISTRY_TRUSTED_KEYS_FILE?.trim()) return null;
+  if (
+    environment.SOURCE_REGISTRY_SIGNING_KEY_ID?.trim() &&
+    environment.SOURCE_REGISTRY_SIGNING_PUBLIC_KEY_PEM?.trim()
+  ) {
+    return null;
+  }
+
+  const keyringPath = resolve(mimersHome, "governance", "source-registry-trusted-keys.json");
+  if (!existsSync(keyringPath)) return null;
+  environment.SOURCE_REGISTRY_TRUSTED_KEYS_FILE = keyringPath;
+  return keyringPath;
 }
 
 function primaryWorktreeRoot(cwd: string): string | null {
