@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CesiumAdapter } from './cesium/CesiumAdapter';
 import { loadCesiumL0L1FixtureScene } from './cesium/fixtures/l0L1Scene';
+import { mapfrontStateLabelSv } from './cesium/loadingState';
 import {
   CESIUM_EVIDENCE_LAYERS,
   type CesiumEvidenceLayerKey,
   type CesiumEvidenceMeta,
   type CesiumEvidenceMode,
 } from './cesium/types';
+import { useCesiumViewportProperties } from './cesium/useCesiumViewportProperties';
 
 export type { CesiumEvidenceMode };
 
@@ -51,8 +53,10 @@ interface CesiumMapViewProps {
   propertyGeometry: any;
   propertyCoordinates: [number, number] | null;
   onEvidenceClick?: (properties: any) => void;
-  /** Exploration mode only (ignored in productMode) -- UI can toggle; default fixture. */
+  /** Exploration mode only (ignored in productMode) -- UI can toggle; default LIVE (fixture must be explicit). */
   evidenceMode?: CesiumEvidenceMode;
+  /** Exploration mode: viewport-bounded property presentation (never national dump). */
+  enableViewportPropertyLoading?: boolean;
   onEvidenceModeChange?: (mode: CesiumEvidenceMode) => void;
   /**
    * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. When true, the next LEFT_CLICK picks a WGS84
@@ -96,8 +100,9 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
   propertyGeometry,
   propertyCoordinates,
   onEvidenceClick,
-  evidenceMode: evidenceModeProp = 'fixture',
+  evidenceMode: evidenceModeProp = 'live',
   onEvidenceModeChange,
+  enableViewportPropertyLoading = true,
   pickingLocation = false,
   onLocationPick,
   draftLocationPoint = null,
@@ -128,6 +133,22 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     protected_area: true,
     natura2000: true,
     water_protection_area: true,
+  });
+  const [selectedPropertyIdentity, setSelectedPropertyIdentity] = useState<string | null>(null);
+  const [foundationStatus, setFoundationStatus] = useState<string | null>(null);
+
+  const viewportEnabled = !productMode && enableViewportPropertyLoading;
+  const {
+    viewportState,
+    viewportError,
+    viewportCount,
+    truncated,
+    onViewportRequest,
+    onViewportRejected,
+  } = useCesiumViewportProperties({
+    enabled: viewportEnabled,
+    adapterRef,
+    source: mode,
   });
 
   useEffect(() => {
@@ -164,6 +185,15 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
     onProductEvidenceRetryRef.current = onProductEvidenceRetry;
   }, [onProductEvidenceRetry]);
 
+  const onViewportRequestRef = useRef(onViewportRequest);
+  useEffect(() => {
+    onViewportRequestRef.current = onViewportRequest;
+  }, [onViewportRequest]);
+  const onViewportRejectedRef = useRef(onViewportRejected);
+  useEffect(() => {
+    onViewportRejectedRef.current = onViewportRejected;
+  }, [onViewportRejected]);
+
   // Primitive deps: callers commonly pass a fresh [lat, lng] array per render.
   const propertyLat = propertyCoordinates ? propertyCoordinates[0] : null;
   const propertyLng = propertyCoordinates ? propertyCoordinates[1] : null;
@@ -176,6 +206,12 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       onFeatureClick: (props) => {
         onEvidenceClickRef.current?.(props);
       },
+      onPropertySelect: (identity) => {
+        setSelectedPropertyIdentity(identity);
+      },
+      enableViewportLoading: viewportEnabled,
+      onViewportRequest: (request) => onViewportRequestRef.current(request),
+      onViewportRejected: (reason) => onViewportRejectedRef.current(reason),
     });
 
     adapterRef.current = adapter;
@@ -184,6 +220,8 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
       adapter.destroy();
       adapterRef.current = null;
     };
+    // viewportEnabled is fixed for productMode lifetime of this mount pattern
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -536,6 +574,95 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
             Evidensobjekt: <span className="text-slate-300 font-bold">{evidenceCount}</span>
           </p>
         )}
+
+        {enableViewportPropertyLoading && (
+          <div
+            data-testid="cesium-viewport-state"
+            className="rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-[10px] text-slate-400"
+          >
+            <div>
+              Viewport:{' '}
+              <span className="font-bold text-slate-200">{mapfrontStateLabelSv(viewportState)}</span>
+              {viewportCount !== null ? ` · ${viewportCount} fastigheter` : ''}
+              {truncated ? ' · trunkerad' : ''}
+            </div>
+            {viewportError ? (
+              <div data-testid="cesium-viewport-error" className="text-rose-300 mt-1">
+                {viewportError.messageSv}
+              </div>
+            ) : null}
+            {selectedPropertyIdentity ? (
+              <div className="mt-1 truncate">
+                Vald:{' '}
+                <span className="font-mono text-cyan-200">{selectedPropertyIdentity}</span>
+                <button
+                  type="button"
+                  data-testid="cesium-zoom-selected-property"
+                  className="ml-2 underline text-slate-300"
+                  onClick={() => void adapterRef.current?.zoomToSelectedProperty()}
+                >
+                  Zooma
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            data-testid="cesium-toggle-orthophoto"
+            className="text-[10px] font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg px-2 py-1.5 text-left"
+            onClick={() => {
+              void (async () => {
+                const a = adapterRef.current;
+                if (!a) return;
+                const next = foundationStatus !== 'orthophoto';
+                await a.setImagery('orthophoto', next);
+                setFoundationStatus(next ? 'orthophoto' : null);
+              })();
+            }}
+          >
+            Ortofoto (lokal fixture)
+          </button>
+          <button
+            type="button"
+            data-testid="cesium-toggle-terrain"
+            className="text-[10px] font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg px-2 py-1.5 text-left"
+            onClick={() => {
+              void (async () => {
+                const a = adapterRef.current;
+                if (!a) return;
+                const next = foundationStatus !== 'terrain';
+                await a.setTerrain(next ? 'local_fixture' : 'off');
+                setFoundationStatus(next ? 'terrain' : null);
+              })();
+            }}
+          >
+            Terräng (ellipsoid/fixture)
+          </button>
+          <button
+            type="button"
+            data-testid="cesium-toggle-buildings"
+            className="text-[10px] font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg px-2 py-1.5 text-left"
+            onClick={() => {
+              void (async () => {
+                const a = adapterRef.current;
+                if (!a) return;
+                if (foundationStatus === 'buildings') {
+                  await a.unloadBuildingsTileset();
+                  setFoundationStatus(null);
+                  return;
+                }
+                const state = await a.loadBuildingsTileset();
+                setFoundationStatus(state.status === 'ready' || state.status === 'error' ? 'buildings' : null);
+                if (state.status === 'ready') await a.flyToBuildings();
+              })();
+            }}
+          >
+            Byggnader 3D Tiles (lokal fixture)
+          </button>
+        </div>
       </div>
       )}
 

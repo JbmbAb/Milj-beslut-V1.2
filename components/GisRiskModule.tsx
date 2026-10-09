@@ -139,7 +139,7 @@ const GisRiskModule: React.FC<GisRiskModuleProps> = ({ permits = [] }) => {
   const [fileError, setFileError] = useState('');
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('2d');
   const [selectedEvidence, setSelectedEvidence] = useState<any | null>(null);
-  const [cesiumEvidenceMode, setCesiumEvidenceMode] = useState<CesiumEvidenceMode>('fixture');
+  const [cesiumEvidenceMode, setCesiumEvidenceMode] = useState<CesiumEvidenceMode>('live');
 
   const featureCount = useMemo(() => {
     if (!uploadedData?.features || !Array.isArray(uploadedData.features)) return 0;

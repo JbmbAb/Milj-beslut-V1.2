@@ -7,6 +7,8 @@ export const LOGICAL_TO_ADMIT_LAYER: Record<string, string> = {
   water: 'lu.water_wells',
   ebh: 'lu.ebh',
   protected_area: 'lu.protected_area',
+  natura2000: 'lu.natura2000',
+  water_protection_area: 'lu.water_protection_area',
 };
 
 export function admitLayerIdForLogical(layerId: string | undefined | null): string | null {

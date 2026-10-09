@@ -71,7 +71,9 @@
     "mimers:nfs-lab": "docker compose -f scripts/mimers/nfs-lab/docker-compose.yml up -d nfs && docker compose -f scripts/mimers/nfs-lab/docker-compose.yml run --rm proof",
     "mimers:audit-bundle": "tsx scripts/mimers/build-audit-bundle.ts",
     "mimers:sovereign": "npm run mimers:accept && npm run mimers:verify && npm run mimers:cold-start && npm run mimers:ops-proof && npm run mimers:backup-restore && npm run mimers:durability-matrix",
-    "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts"
+    "mimers:migrate-cas": "tsx scripts/mimers/migrate-artifact-store-to-cas.ts",
+    "prove:cesium-mapfront": "tsx scripts/ops/prove-cesium-mapfront-foundation-01.ts",
+    "prove:cesium-browser-webgl": "tsx scripts/ops/prove-cesium-browser-webgl-01.ts"
   },
   "dependencies": {
     "@google-cloud/billing-budgets": "^6.1.2",

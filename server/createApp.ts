@@ -17,6 +17,7 @@ import coreRouter from './coreApi.express';
 import gisRouter from './routes/gis.routes';
 import geodataRouter from './routes/geodata.routes';
 import geoRouter from './routes/geo.routes';
+import mapPresentationRouter from './routes/mapPresentation.routes';
 import legalRouter from './routes/legal.routes';
 import legalRetrievalRouter from './routes/legalRetrieval.routes';
 import legalAnswerRouter from './routes/legalAnswer.routes';
@@ -192,6 +193,7 @@ export function createApp() {
   app.use(gisRouter);
   app.use(geodataRouter);
   app.use(geoRouter);
+  app.use(mapPresentationRouter);
   app.use(localizationRouter);
   app.use(legalRouter);
   app.use(legalRetrievalRouter);

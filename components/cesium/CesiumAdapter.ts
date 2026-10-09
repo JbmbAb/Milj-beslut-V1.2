@@ -1,72 +1,115 @@
-import { Viewer, Cartesian3, Cartographic, GeoJsonDataSource, Color, ScreenSpaceEventHandler, ScreenSpaceEventType, Entity, HeadingPitchRange, Math as CesiumMath } from 'cesium';
+import {
+  Viewer,
+  Cartesian3,
+  Cartographic,
+  GeoJsonDataSource,
+  Color,
+  ScreenSpaceEventHandler,
+  ScreenSpaceEventType,
+  Entity,
+  Math as CesiumMath,
+  EllipsoidTerrainProvider,
+  Ion,
+} from 'cesium';
+import {
+  flyToLngLat,
+  flyToPropertyDataSource,
+  flyToSwedenOverview,
+  setSwedenOverviewInstant,
+} from './cameraHelpers';
+import {
+  attachLocalImagery,
+  detachImagery,
+  LOCAL_ORTHOPHOTO_FIXTURE,
+  LOCAL_TOPOGRAPHIC_FIXTURE,
+  setImageryOpacity,
+  setImageryVisibility,
+  type ImagerySeamHandle,
+  type ImagerySeamKind,
+  type LocalImageryDataset,
+} from './imageryProviderSeam';
+import { highlightPropertyEntity, resolvePropertyIdentity } from './propertySelection';
+import { applyTerrainSeam, disableTerrain, type TerrainSeamMode, type TerrainSeamState } from './terrainProviderSeam';
+import {
+  LOCAL_BUILDINGS_TILESET_FIXTURE,
+  TilesetClient,
+  type TilesetClientState,
+  type TilesetProvenance,
+} from './tilesetClient';
+import { ViewportController, type ViewportRequest } from './viewportController';
 
-// Ensure Cesium knows where to locate assets locally
+// Ensure Cesium knows where to locate assets locally (no Ion/CDN required).
 if (typeof window !== 'undefined') {
   (window as any).CESIUM_BASE_URL = '/cesium/';
+  // Local-first: never rely on Cesium ion defaults for mandatory boot.
+  Ion.defaultAccessToken = '';
 }
 
 export interface CesiumAdapterConfig {
   container: HTMLDivElement;
   onFeatureClick?: (properties: any) => void;
+  onPropertySelect?: (identity: string, properties: Record<string, unknown>) => void;
+  onViewportRequest?: (request: ViewportRequest) => void | Promise<void>;
+  onViewportRejected?: (reason: string) => void;
+  enableViewportLoading?: boolean;
 }
 
 const DRAFT_LOCATION_MARKER_ID = 'localization-draft-marker';
 const CURRENT_LOCATION_MARKER_ID = 'localization-current-marker';
-// DEMO M2a: the governed search radius around the control point (a RADIUS, not object positions).
 const SEARCH_RADIUS_RING_ID = 'localization-search-radius-ring';
 
 export class CesiumAdapter {
   /**
-   * LU-CESIUM-PROPERTY-GEOMETRY-LIFECYCLE-01. Real, reproduced-in-browser cause: React (in dev,
-   * StrictMode's intentional double-invoke; in production, any re-render that changes an effect
-   * dependency identity -- e.g. CesiumMapView's now-fixed unstable onFeatureClick closure) can
-   * destroy() this adapter while an async setPropertyGeometry()/setEvidenceLayers() call it
-   * started is still awaiting GeoJsonDataSource.load(). Cesium's own Viewer.destroy() tears down
-   * the viewer's internal dataSources collection; the stale call then resumes and throws
-   * "Cannot read properties of undefined (reading 'dataSources')" trying to write into it.
-   *
-   * This flag is checked after every await in those methods, immediately before touching
-   * `this.viewer` again: a load that finishes after this adapter was destroyed is discarded
-   * silently (not an error -- a newer adapter, or nothing, now owns the container), never used to
-   * mutate a torn-down viewer.
+   * LU-CESIUM-PROPERTY-GEOMETRY-LIFECYCLE-01. Guard against destroy() racing in-flight
+   * GeoJsonDataSource.load() / tileset loads.
    */
   private destroyed = false;
   private viewer: Viewer;
   private propertyDataSource: GeoJsonDataSource | null = null;
+  private viewportPropertyDataSource: GeoJsonDataSource | null = null;
   private evidenceDataSource: GeoJsonDataSource | null = null;
   private clickHandler: ScreenSpaceEventHandler | null = null;
   private onFeatureClick: ((properties: any) => void) | undefined;
-  /**
-   * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. When set, LEFT_CLICK picks a WGS84 lat/lng off
-   * the globe ellipsoid instead of picking an evidence feature entity -- an exclusive mode, not a
-   * second independent handler, so a click during location-picking can never also fire a feature
-   * click underneath it.
-   */
+  private onPropertySelect: ((identity: string, properties: Record<string, unknown>) => void) | undefined;
   private onLocationPick: ((lat: number, lng: number) => void) | null = null;
+  private selectedPropertyIdentity: string | null = null;
+  private tilesetClient: TilesetClient;
+  private viewportController: ViewportController | null = null;
+  private imageryHandles: Partial<Record<ImagerySeamKind, ImagerySeamHandle>> = {};
+  private terrainState: TerrainSeamState | null = null;
 
   constructor(config: CesiumAdapterConfig) {
-    // Instantiate Cesium Viewer with clean, focused options (no default heavy widgets)
+    // Local-first boot: no Ion/Google/Bing/OSM-remote mandatory base layer.
     this.viewer = new Viewer(config.container, {
       animation: false,
       timeline: false,
       fullscreenButton: false,
       geocoder: false,
       homeButton: false,
-      infoBox: false, // We use our own sidebar/evidence panel
+      infoBox: false,
       sceneModePicker: false,
       selectionIndicator: true,
       navigationHelpButton: false,
       baseLayerPicker: false,
-      terrainProvider: undefined, // flat ellipsoid terrain for minimal L0/L1
+      baseLayer: false,
+      terrainProvider: new EllipsoidTerrainProvider(),
+      // Credit container kept so local attribution can render without remote widgets.
     });
 
-    // Configure camera for Sweden view default
-    this.viewer.camera.setView({
-      destination: Cartesian3.fromDegrees(15.0, 62.0, 1500000.0), // Sweden overview
-    });
+    setSwedenOverviewInstant(this.viewer);
 
     this.onFeatureClick = config.onFeatureClick;
+    this.onPropertySelect = config.onPropertySelect;
+    this.tilesetClient = new TilesetClient(this.viewer);
     this.setupClickHandler();
+
+    if (config.enableViewportLoading && config.onViewportRequest) {
+      this.viewportController = new ViewportController(this.viewer, {
+        onRequest: config.onViewportRequest,
+        onRejected: config.onViewportRejected,
+      });
+      this.viewportController.start();
+    }
   }
 
   private setupClickHandler(): void {
@@ -74,7 +117,7 @@ export class CesiumAdapter {
     this.clickHandler.setInputAction((click: { position: any }) => {
       if (this.onLocationPick) {
         const cartesian = this.viewer.camera.pickEllipsoid(click.position, this.viewer.scene.globe.ellipsoid);
-        if (!cartesian) return; // click missed the globe (e.g. clicked the sky)
+        if (!cartesian) return;
         const cartographic = Cartographic.fromCartesian(cartesian);
         const lat = CesiumMath.toDegrees(cartographic.latitude);
         const lng = CesiumMath.toDegrees(cartographic.longitude);
@@ -82,27 +125,25 @@ export class CesiumAdapter {
         return;
       }
 
-      if (!this.onFeatureClick) return;
       const pickedObject = this.viewer.scene.pick(click.position);
       if (pickedObject && pickedObject.id instanceof Entity) {
         const entity = pickedObject.id;
-        // Check if there are GeoJSON properties on this entity
         if (entity.properties) {
           const props: Record<string, any> = {};
           entity.properties.propertyNames.forEach((name) => {
             props[name] = entity.properties[name]?.getValue();
           });
-          this.onFeatureClick(props);
+          const identity = resolvePropertyIdentity(props, entity.id);
+          if (identity && (props.sourceKey || props.feature_ref || props.designation)) {
+            this.selectProperty(identity);
+            this.onPropertySelect?.(identity, props);
+          }
+          this.onFeatureClick?.(props);
         }
       }
     }, ScreenSpaceEventType.LEFT_CLICK);
   }
 
-  /**
-   * PRODUCT-LU-CESIUM-LOCALIZATION-DRAWING-01. Enters/exits point-picking mode. While active,
-   * LEFT_CLICK never reaches feature-click handling (see setupClickHandler) -- a user placing a
-   * localization point cannot simultaneously select an evidence feature by accident.
-   */
   public enableLocationPicking(onPick: (lat: number, lng: number) => void): void {
     if (this.destroyed) return;
     this.onLocationPick = onPick;
@@ -130,7 +171,6 @@ export class CesiumAdapter {
     });
   }
 
-  /** The unconfirmed, not-yet-saved point the user just clicked. */
   public setDraftLocationPoint(lat: number, lng: number): void {
     this.setLocationMarker(DRAFT_LOCATION_MARKER_ID, lat, lng, Color.YELLOW, 'Utkast: ny lokalisering');
   }
@@ -140,18 +180,10 @@ export class CesiumAdapter {
     this.viewer.entities.removeById(DRAFT_LOCATION_MARKER_ID);
   }
 
-  /** The persisted, current LocalizationGeometry point. label lets the caller say how it was made. */
   public setCurrentLocationPoint(lat: number, lng: number, label = 'Aktuell lokalisering'): void {
     this.setLocationMarker(CURRENT_LOCATION_MARKER_ID, lat, lng, Color.LIME, label);
   }
 
-  /**
-   * DEMO M2a: draws the governed SEARCH RADIUS (existence-within-distance query) as a ring around
-   * the control point. It is derived only from the point and the evidence's distance_meters; it
-   * shows where the check looked, never where any object is (the governed evidence carries no
-   * object geometry). Flat ellipsoid terrain, so a height-0 outline is visible. White, so it is never
-   * confused with the cyan property boundary.
-   */
   public setSearchRadiusRing(lat: number, lng: number, radiusMeters: number): void {
     if (this.destroyed) return;
     this.viewer.entities.removeById(SEARCH_RADIUS_RING_ID);
@@ -181,10 +213,6 @@ export class CesiumAdapter {
     this.viewer.entities.removeById(CURRENT_LOCATION_MARKER_ID);
   }
 
-  /**
-   * Set and zoom smoothly to the property polygon geometry (WGS84 GeoJSON).
-   * If geojson is missing, but fallbackCoordinates is provided, renders a beautiful fallback 3D sphere.
-   */
   public async setPropertyGeometry(geojson: any, fallbackCoordinates?: [number, number] | null): Promise<void> {
     if (this.destroyed) return;
     if (this.propertyDataSource) {
@@ -192,19 +220,16 @@ export class CesiumAdapter {
       this.propertyDataSource = null;
     }
 
-    // Clear any previous fallback marker
     this.viewer.entities.removeById('property-fallback-marker');
 
     if (!geojson) {
       if (fallbackCoordinates) {
         const [lat, lng] = fallbackCoordinates;
-
-        // Render a beautiful fallback 3D Sphere at the center coordinates
         this.viewer.entities.add({
           id: 'property-fallback-marker',
-          position: Cartesian3.fromDegrees(lng, lat, 10.0), // 10m above ellipsoid
+          position: Cartesian3.fromDegrees(lng, lat, 10.0),
           ellipsoid: {
-            radii: new Cartesian3(15.0, 15.0, 15.0) as any, // 15m radius
+            radii: new Cartesian3(15.0, 15.0, 15.0) as any,
             material: Color.GOLD.withAlpha(0.6) as any,
             outline: true as any,
             outlineColor: Color.DARKRED as any,
@@ -213,19 +238,9 @@ export class CesiumAdapter {
           properties: {
             title: 'Centroid Sfär',
             description: 'Fastigheten saknar tillgänglig polygon-geometri. Visar ungefärlig centroidsfär.',
-          } as any
+          } as any,
         });
-
-        // Flight transition: fly to center with a 45 degree tilt looking North
-        this.viewer.camera.flyTo({
-          destination: Cartesian3.fromDegrees(lng, lat - 0.004, 350.0), // Zoom in close from south
-          orientation: {
-            heading: CesiumMath.toRadians(0.0), // Look North
-            pitch: CesiumMath.toRadians(-45.0), // 45 degrees tilt
-            roll: 0.0,
-          },
-          duration: 3.0,
-        });
+        flyToLngLat(this.viewer, lng, lat, 350, 3.0);
       }
       return;
     }
@@ -236,31 +251,70 @@ export class CesiumAdapter {
         fill: Color.CYAN.withAlpha(0.2),
         strokeWidth: 3,
       });
-      if (this.destroyed) return; // this adapter was torn down while the load was in flight
+      if (this.destroyed) return;
 
       this.propertyDataSource = loaded;
       await this.viewer.dataSources.add(this.propertyDataSource);
-      if (this.destroyed) return; // destroyed during the add() await too -- nothing left to fly to
+      if (this.destroyed) return;
 
-      // Smooth 3-second camera flight with a 45 degree tilt from the south looking North
-      const hpr = new HeadingPitchRange(
-        CesiumMath.toRadians(0.0), // heading: look North
-        CesiumMath.toRadians(-45.0), // pitch: look down at 45 degrees
-        0.0 // auto-calculate range
-      );
-
-      this.viewer.flyTo(this.propertyDataSource, {
-        duration: 3.0,
-        offset: hpr,
-      });
+      flyToPropertyDataSource(this.viewer, this.propertyDataSource, 3.0);
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load property geometry:', err);
+      throw err;
     }
   }
 
   /**
-   * Clears all evidence entities (used for empty live responses and mode switches).
+   * Viewport-bounded property features from the presentation API (never a national dump).
+   * Replaces previous viewport layer entities; keeps primary property geometry intact.
    */
+  public async setViewportPropertyFeatures(geojson: any): Promise<number> {
+    if (this.destroyed) return 0;
+    if (this.viewportPropertyDataSource) {
+      this.viewer.dataSources.remove(this.viewportPropertyDataSource);
+      this.viewportPropertyDataSource = null;
+    }
+    const features = geojson?.features;
+    if (!Array.isArray(features) || features.length === 0) {
+      return 0;
+    }
+    try {
+      const loaded = await GeoJsonDataSource.load(geojson, {
+        stroke: Color.CYAN.withAlpha(0.7),
+        fill: Color.CYAN.withAlpha(0.12),
+        strokeWidth: 2,
+      });
+      if (this.destroyed) return 0;
+      this.viewportPropertyDataSource = loaded;
+      await this.viewer.dataSources.add(this.viewportPropertyDataSource);
+      if (this.destroyed) return 0;
+      if (this.selectedPropertyIdentity) {
+        highlightPropertyEntity(this.viewportPropertyDataSource, this.selectedPropertyIdentity);
+      }
+      return features.length;
+    } catch (err) {
+      console.error('[CesiumAdapter] Failed to load viewport property features:', err);
+      throw err;
+    }
+  }
+
+  public selectProperty(identity: string | null): void {
+    if (this.destroyed) return;
+    this.selectedPropertyIdentity = identity;
+    highlightPropertyEntity(this.viewportPropertyDataSource, identity);
+    highlightPropertyEntity(this.propertyDataSource, identity);
+  }
+
+  public async zoomToSelectedProperty(): Promise<void> {
+    if (this.destroyed || !this.selectedPropertyIdentity) return;
+    const source = this.viewportPropertyDataSource ?? this.propertyDataSource;
+    if (!source) return;
+    const entity = highlightPropertyEntity(source, this.selectedPropertyIdentity);
+    if (entity) {
+      await this.viewer.flyTo(entity, { duration: 1.5 });
+    }
+  }
+
   public clearEvidenceLayers(): void {
     if (this.destroyed) return;
     if (this.evidenceDataSource) {
@@ -269,10 +323,6 @@ export class CesiumAdapter {
     }
   }
 
-  /**
-   * Loads and displays SpatialEvidence GeoJSON (WGS84) as 2.5D volumes.
-   * Returns feature count after load (0 = empty observation set).
-   */
   public async setEvidenceLayers(geojson: any): Promise<number> {
     if (this.destroyed) return 0;
     this.clearEvidenceLayers();
@@ -284,7 +334,7 @@ export class CesiumAdapter {
 
     try {
       const loaded = await GeoJsonDataSource.load(geojson);
-      if (this.destroyed) return 0; // this adapter was torn down while the load was in flight
+      if (this.destroyed) return 0;
       this.evidenceDataSource = loaded;
 
       const entities = this.evidenceDataSource.entities.values;
@@ -300,12 +350,9 @@ export class CesiumAdapter {
           baseColor = Color.GREEN;
           extrudeHeight = 45.0;
         } else if (layerId === 'natura2000') {
-          // LU-FINDING-MAP-DRILLDOWN-V1: matches CESIUM_EVIDENCE_LAYERS' '#a855f7' swatch --
-          // previously fell through to the default blue, indistinguishable from water.
           baseColor = Color.fromCssColorString('#a855f7');
           extrudeHeight = 45.0;
         } else if (layerId === 'water_protection_area') {
-          // Matches CESIUM_EVIDENCE_LAYERS' '#f59e0b' swatch.
           baseColor = Color.fromCssColorString('#f59e0b');
           extrudeHeight = 25.0;
         }
@@ -334,7 +381,7 @@ export class CesiumAdapter {
       });
 
       await this.viewer.dataSources.add(this.evidenceDataSource);
-      if (this.destroyed) return 0; // destroyed during the add() await
+      if (this.destroyed) return 0;
       return features.length;
     } catch (err) {
       console.error('[CesiumAdapter] Failed to load evidence GeoJSON:', err);
@@ -343,9 +390,6 @@ export class CesiumAdapter {
     }
   }
 
-  /**
-   * Dynamically toggles individual evidence layers on/off.
-   */
   public setLayerVisibility(visibility: Record<string, boolean>): void {
     if (this.destroyed || !this.evidenceDataSource) return;
     const entities = this.evidenceDataSource.entities.values;
@@ -357,26 +401,93 @@ export class CesiumAdapter {
     });
   }
 
-  // DEMO M2b: LU-FINDING-MAP-DRILLDOWN-V1's focusEvidenceByArtifactId() was removed -- it had no
-  // caller. "Finding -> Visa på karta" needs governed object geometry first, which is a frozen-
-  // semantics owner decision (SpatialResultSemantics: today only EXISTENCE_WITHIN_DISTANCE with
-  // geometry:null is admitted). Re-add a focus method together with that decision.
-
-  /** Reset camera to Sweden overview (L0 home). */
   public resetCameraOverview(): void {
     if (this.destroyed) return;
-    this.viewer.camera.flyTo({
-      destination: Cartesian3.fromDegrees(15.0, 62.0, 1500000.0),
-      duration: 1.6,
-    });
+    flyToSwedenOverview(this.viewer, 1.6);
   }
 
-  /**
-   * Cleans up all Cesium viewer instances and handlers to prevent memory leaks.
-   */
+  public requestViewportNow(): void {
+    this.viewportController?.requestNow();
+  }
+
+  public isViewportCurrent(generation: number): boolean {
+    return this.viewportController?.isCurrent(generation) ?? false;
+  }
+
+  public async setImagery(kind: ImagerySeamKind, enabled: boolean, dataset?: LocalImageryDataset): Promise<void> {
+    if (this.destroyed) return;
+    const existing = this.imageryHandles[kind];
+    if (!enabled) {
+      detachImagery(this.viewer, existing ?? null);
+      delete this.imageryHandles[kind];
+      return;
+    }
+    if (existing) {
+      setImageryVisibility(existing, true);
+      return;
+    }
+    const ds = dataset ?? (kind === 'orthophoto' ? LOCAL_ORTHOPHOTO_FIXTURE : LOCAL_TOPOGRAPHIC_FIXTURE);
+    this.imageryHandles[kind] = await attachLocalImagery(this.viewer, ds, 0.85);
+  }
+
+  public setImageryOpacity(kind: ImagerySeamKind, opacity: number): void {
+    setImageryOpacity(this.imageryHandles[kind] ?? null, opacity);
+  }
+
+  public async setTerrain(mode: TerrainSeamMode | 'off'): Promise<TerrainSeamState> {
+    if (this.destroyed) {
+      throw new Error('CesiumAdapter destroyed');
+    }
+    if (mode === 'off') {
+      this.terrainState = disableTerrain(this.viewer);
+      return this.terrainState;
+    }
+    this.terrainState = await applyTerrainSeam(this.viewer, mode);
+    return this.terrainState;
+  }
+
+  public getTerrainState(): TerrainSeamState | null {
+    return this.terrainState;
+  }
+
+  public async loadBuildingsTileset(provenance: TilesetProvenance = LOCAL_BUILDINGS_TILESET_FIXTURE): Promise<TilesetClientState> {
+    if (this.destroyed) {
+      return { status: 'error', provenance, message: 'destroyed' };
+    }
+    return this.tilesetClient.load(provenance);
+  }
+
+  public async unloadBuildingsTileset(): Promise<void> {
+    await this.tilesetClient.unload();
+  }
+
+  public setBuildingsVisible(visible: boolean): void {
+    this.tilesetClient.setVisible(visible);
+  }
+
+  public async flyToBuildings(): Promise<void> {
+    await this.tilesetClient.flyTo();
+  }
+
+  public getTilesetState(): TilesetClientState {
+    return this.tilesetClient.getState();
+  }
+
+  /** Expose canvas for WebGL proof harnesses (never mock the viewer). */
+  public getCanvas(): HTMLCanvasElement {
+    return this.viewer.scene.canvas;
+  }
+
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.viewportController?.destroy();
+    this.viewportController = null;
+    this.tilesetClient.destroy();
+    for (const kind of Object.keys(this.imageryHandles) as ImagerySeamKind[]) {
+      detachImagery(this.viewer, this.imageryHandles[kind] ?? null);
+    }
+    this.imageryHandles = {};
     if (this.clickHandler) {
       this.clickHandler.destroy();
     }

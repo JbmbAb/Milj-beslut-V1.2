@@ -16,7 +16,7 @@ if (!fs.existsSync(srcDir)) {
 // Ensure target directory exists
 fs.mkdirSync(destDir, { recursive: true });
 
-// Subdirectories we need to serve locally
+// Subdirectories we need to serve locally (offline / local-first boot)
 const subDirs = ['Assets', 'Widgets', 'Workers', 'ThirdParty'];
 
 subDirs.forEach((sub) => {
@@ -31,5 +31,14 @@ subDirs.forEach((sub) => {
     console.warn(`WARNING: Source folder not found: ${src}`);
   }
 });
+
+// Standalone Viewer script for local proof harnesses (no Ion/CDN).
+for (const file of ['Cesium.js', 'Cesium.js.map', 'index.js', 'index.cjs']) {
+  const src = path.join(srcDir, file);
+  if (fs.existsSync(src)) {
+    console.log(`Copying "${file}"...`);
+    fs.copyFileSync(src, path.join(destDir, file));
+  }
+}
 
 console.log('Cesium assets successfully copied to public/cesium!');
