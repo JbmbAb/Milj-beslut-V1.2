@@ -230,4 +230,51 @@ describe("P2-LM-STAC-BYGGNADER-ADAPTER-01", () => {
     expect(changed.manifest?.objects[0].content_hash).not.toBe(initial.manifest?.objects[0].content_hash);
     expect(changed.manifest?.objects[0].source_metadata?.lm_stac_item_id).toBe("2482");
   });
+
+  it.each([401, 403])("rejects an authenticated asset HTTP %i before quarantine", async (status) => {
+    const registered = source();
+    const verifiedSource = {
+      ...registered,
+      policy: {
+        ...registered.policy,
+        retry_policy: { ...registered.policy.retry_policy, max_attempts: 1 },
+      },
+    };
+    const registry = fixtureRegistry(verifiedSource);
+    const first = `${COLLECTION}?limit=100`;
+    let assetRequests = 0;
+    let quarantineWrites = 0;
+    const executor = new GovernedDownloadExecutor(
+      registry,
+      new DownloadTargetResolverRegistry(registry, {
+        LM_STAC_BYGGNADER_V1: new LantmaterietStacByggnaderTargetResolver(
+          listingTransport({ [first]: listing([item("2482")]) }),
+        ),
+      }),
+      {
+        async get(url) {
+          if (url === `${ASSET_ORIGIN}/byggnad_kn2482.zip`) assetRequests++;
+          return { status, bytes: new Uint8Array(), headers: {} };
+        },
+      },
+      {
+        async put() {
+          quarantineWrites++;
+          throw new Error("quarantine must not receive a rejected authenticated response");
+        },
+        async get() { return null; }, async getMetadata() { return null; },
+        async updateStatus() {}, async list() { return []; },
+      } as never,
+      new InMemoryDownloadManifestStore(),
+    );
+
+    await expect(executor.execute({
+      dataset_ref: { id: verifiedSource.sourceId, content_hash: { algorithm: "sha256", digest: "0".repeat(64) } },
+      execution_id: `lm-stac-auth-status-${status}`,
+      requested_at: "2026-10-09T12:00:00.000Z",
+    })).rejects.toThrow(`REJECT_HTTP_STATUS: ${status}`);
+
+    expect(assetRequests).toBe(1);
+    expect(quarantineWrites).toBe(0);
+  });
 });
