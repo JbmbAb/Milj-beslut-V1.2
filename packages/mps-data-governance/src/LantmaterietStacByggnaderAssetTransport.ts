@@ -10,10 +10,22 @@ import {
   type StreamingDownloadOpenOptions,
 } from "./StreamingDownloadBody";
 
-/** Dedicated runtime-only credential port for Lantmäteriet's building ZIP assets. */
+/** Runtime-only credential port for a source-scoped Lantmäteriet STAC asset transport. */
 export interface LantmaterietStacByggnaderCredentialProvider {
   getBearerToken(): Promise<string>;
 }
+
+export type LantmaterietStacAuthenticationMethod =
+  | "PREISSUED_BEARER"
+  | "OAUTH2_CLIENT_CREDENTIALS";
+
+export const LANTMATERIET_STAC_TOKEN_URL = "https://api.lantmateriet.se/token";
+export const LANTMATERIET_API_MANAGER_TOKEN_URL = "https://apimanager.lantmateriet.se/oauth2/token";
+
+const LANTMATERIET_TOKEN_ENDPOINTS = new Set([
+  LANTMATERIET_STAC_TOKEN_URL,
+  LANTMATERIET_API_MANAGER_TOKEN_URL,
+]);
 
 export interface LantmaterietStacByggnaderAssetTransportOptions {
   readonly credentialProvider: LantmaterietStacByggnaderCredentialProvider;
@@ -185,23 +197,102 @@ export class LantmaterietStacByggnaderAssetTransport implements DownloadTranspor
 }
 
 /**
- * Reads only a short-lived bearer value from runtime configuration. It never persists,
- * serializes, or logs the value. OAuth client-credential exchange is intentionally outside
- * this transport; production composition must inject a dedicated provider for that flow.
+ * Resolves the existing, documented Lantmäteriet runtime contracts without moving a secret
+ * between environment variables. It accepts an explicitly pre-issued bearer or obtains a
+ * short-lived bearer through the official OAuth2 client-credentials endpoint. The caller still
+ * decides the source and host to which the returned bearer can be sent.
  */
-export class EnvironmentLantmaterietStacByggnaderCredentialProvider
+export class EnvironmentLantmaterietStacCredentialProvider
   implements LantmaterietStacByggnaderCredentialProvider {
+  private cachedToken: { readonly value: string; readonly expiresAt: number } | null = null;
+
   constructor(
     private readonly environment: Readonly<Record<string, string | undefined>> = process.env,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch,
+    private readonly now: () => number = () => Date.now(),
   ) {}
 
   async getBearerToken(): Promise<string> {
-    const token = this.environment.LANTMATERIET_STAC_BYGGNADER_BEARER_TOKEN;
-    if (!token?.trim()) {
-      throw new Error("Lantmäteriet building asset bearer token is not configured");
+    const directToken = firstNonEmpty(
+      this.environment.LANTMATERIET_STAC_BYGGNADER_BEARER_TOKEN,
+      this.environment.LANTMATERIET_ACCESS_TOKEN,
+    );
+    if (directToken) {
+      return directToken;
     }
+
+    const consumerKey = this.environment.LANTMATERIET_CONSUMER_KEY?.trim();
+    const consumerSecret = this.environment.LANTMATERIET_CONSUMER_SECRET?.trim();
+    if (!consumerKey || !consumerSecret) {
+      throw new Error("Lantmateriet STAC credential is not configured");
+    }
+
+    if (this.cachedToken && this.cachedToken.expiresAt > this.now()) {
+      return this.cachedToken.value;
+    }
+
+    const response = await this.fetchImpl(resolveLantmaterietTokenUrl(this.environment), {
+      method: "POST",
+      redirect: "error",
+      headers: {
+        authorization: `Basic ${Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64")}`,
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: "grant_type=client_credentials",
+    });
+    if (!response.ok) {
+      // Deliberately omit upstream body: it can contain credential or account details.
+      throw new Error(`Lantmateriet OAuth token request failed with HTTP ${response.status}`);
+    }
+
+    const body = await response.json() as { readonly access_token?: unknown; readonly expires_in?: unknown };
+    if (typeof body.access_token !== "string" || !body.access_token.trim()) {
+      throw new Error("Lantmateriet OAuth response did not contain an access token");
+    }
+    const expiresInSeconds = typeof body.expires_in === "number" && Number.isFinite(body.expires_in)
+      ? Math.max(0, body.expires_in - 60)
+      : 0;
+    const token = body.access_token.trim();
+    this.cachedToken = { value: token, expiresAt: this.now() + expiresInSeconds * 1_000 };
     return token;
   }
+
+  authenticationMethod(): LantmaterietStacAuthenticationMethod {
+    if (firstNonEmpty(
+      this.environment.LANTMATERIET_STAC_BYGGNADER_BEARER_TOKEN,
+      this.environment.LANTMATERIET_ACCESS_TOKEN,
+    )) {
+      return "PREISSUED_BEARER";
+    }
+    if (
+      this.environment.LANTMATERIET_CONSUMER_KEY?.trim() &&
+      this.environment.LANTMATERIET_CONSUMER_SECRET?.trim()
+    ) {
+      return "OAUTH2_CLIENT_CREDENTIALS";
+    }
+    throw new Error("Lantmateriet STAC authentication method is not configured");
+  }
+}
+
+/** Backwards-compatible name for callers that explicitly request the building provider. */
+export class EnvironmentLantmaterietStacByggnaderCredentialProvider
+  extends EnvironmentLantmaterietStacCredentialProvider {}
+
+function firstNonEmpty(...values: Array<string | undefined>): string | null {
+  for (const value of values) {
+    if (value?.trim()) return value.trim();
+  }
+  return null;
+}
+
+function resolveLantmaterietTokenUrl(environment: Readonly<Record<string, string | undefined>>): string {
+  const configured = environment.LANTMATERIET_TOKEN_URL?.trim();
+  const tokenUrl = configured || LANTMATERIET_STAC_TOKEN_URL;
+  if (!LANTMATERIET_TOKEN_ENDPOINTS.has(tokenUrl)) {
+    throw new Error("Lantmateriet OAuth token endpoint is outside the approved scope");
+  }
+  return tokenUrl;
 }
 
 export function assertByggnaderAssetUrl(url: string): void {

@@ -179,4 +179,28 @@ describe("P2-LM-STAC-RUNTIME-COMPOSITION-01", () => {
     await expect(executor.execute(request())).rejects.toThrow("REJECT_AUTH_ASSET_SCOPE");
     expect(credentialCalls).toBe(0);
   });
+
+  it("does not let a valid credential authorize an unapproved source", async () => {
+    const { path, signing } = await signedRegistryFile();
+    let credentialCalls = 0;
+    const { executor } = await composeHarvestRuntime({
+      registryPath: path,
+      signing,
+      quarantine: new MemoryQuarantine(),
+      downloadManifestStore: new InMemoryDownloadManifestStore(),
+      lantmaterietStacByggnaderCredentialProvider: {
+        async getBearerToken() { credentialCalls++; return "test-authorized-token"; },
+      },
+    });
+
+    await expect(executor.execute({
+      ...request(),
+      dataset_ref: {
+        id: "unapproved-lantmateriet-source",
+        content_hash: { algorithm: "sha256", digest: "0".repeat(64) },
+      },
+    })).rejects.toThrow("REJECT_SOURCE");
+
+    expect(credentialCalls).toBe(0);
+  });
 });

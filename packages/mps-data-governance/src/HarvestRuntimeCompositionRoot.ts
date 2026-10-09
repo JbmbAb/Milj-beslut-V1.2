@@ -25,7 +25,7 @@ import {
   type ValidatorBindingStore,
 } from "./ValidatorBindingStore";
 import {
-  EnvironmentLantmaterietStacByggnaderCredentialProvider,
+  EnvironmentLantmaterietStacCredentialProvider,
   LantmaterietStacByggnaderAssetTransport,
   type LantmaterietStacByggnaderCredentialProvider,
 } from "./LantmaterietStacByggnaderAssetTransport";
@@ -267,7 +267,7 @@ function transportPortsForSource(
   const assetTransport = new LantmaterietStacByggnaderAssetTransport({
     credentialProvider:
       options.lantmaterietStacByggnaderCredentialProvider ??
-      new EnvironmentLantmaterietStacByggnaderCredentialProvider(),
+      new EnvironmentLantmaterietStacCredentialProvider(),
     userAgent: options.userAgent,
     fetchImpl: options.fetchImpl,
   });

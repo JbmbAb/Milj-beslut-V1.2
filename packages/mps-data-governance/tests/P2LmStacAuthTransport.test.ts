@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EnvironmentLantmaterietStacCredentialProvider,
   EnvironmentLantmaterietStacByggnaderCredentialProvider,
+  LANTMATERIET_STAC_TOKEN_URL,
   LantmaterietStacByggnaderAssetTransport,
   assertByggnaderAssetUrl,
 } from "../src/LantmaterietStacByggnaderAssetTransport";
@@ -111,6 +113,57 @@ describe("P2-LM-STAC-AUTH-TRANSPORT-01", () => {
     await expect(transport.get(ASSET_URL, { timeout_ms: 1_000 })).rejects.toThrow(
       /REJECT_CREDENTIAL_UNAVAILABLE/,
     );
+  });
+
+  it("uses the existing general pre-issued bearer contract when the legacy source variable is absent", async () => {
+    const provider = new EnvironmentLantmaterietStacCredentialProvider({
+      LANTMATERIET_ACCESS_TOKEN: TEST_TOKEN,
+    });
+
+    await expect(provider.getBearerToken()).resolves.toBe(TEST_TOKEN);
+    expect(provider.authenticationMethod()).toBe("PREISSUED_BEARER");
+  });
+
+  it("obtains and caches a bearer through the official OAuth2 client-credentials endpoint", async () => {
+    const calls: Array<{ readonly url: string; readonly init: RequestInit | undefined }> = [];
+    const provider = new EnvironmentLantmaterietStacCredentialProvider(
+      {
+        LANTMATERIET_CONSUMER_KEY: "test-consumer-key",
+        LANTMATERIET_CONSUMER_SECRET: "test-consumer-secret",
+      },
+      (async (url: string | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify({ access_token: TEST_TOKEN, expires_in: 3_600 }), { status: 200 });
+      }) as typeof fetch,
+      () => 1_000,
+    );
+
+    await expect(provider.getBearerToken()).resolves.toBe(TEST_TOKEN);
+    await expect(provider.getBearerToken()).resolves.toBe(TEST_TOKEN);
+
+    expect(provider.authenticationMethod()).toBe("OAUTH2_CLIENT_CREDENTIALS");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(LANTMATERIET_STAC_TOKEN_URL);
+    expect(new Headers(calls[0].init?.headers).get("authorization")).toMatch(/^Basic /);
+    expect(new Headers(calls[0].init?.headers).get("authorization")).not.toContain(TEST_TOKEN);
+  });
+
+  it("rejects an OAuth token endpoint outside the official Lantmäteriet scope before network I/O", async () => {
+    let calls = 0;
+    const provider = new EnvironmentLantmaterietStacCredentialProvider(
+      {
+        LANTMATERIET_CONSUMER_KEY: "test-consumer-key",
+        LANTMATERIET_CONSUMER_SECRET: "test-consumer-secret",
+        LANTMATERIET_TOKEN_URL: "https://elsewhere.example.invalid/token",
+      },
+      (async () => {
+        calls++;
+        return new Response("unexpected", { status: 200 });
+      }) as typeof fetch,
+    );
+
+    await expect(provider.getBearerToken()).rejects.toThrow(/outside the approved scope/);
+    expect(calls).toBe(0);
   });
 
   it("enforces the configured object-size bound while streaming authenticated asset bytes", async () => {
