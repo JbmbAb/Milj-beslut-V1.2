@@ -36,9 +36,10 @@ export interface StreamingDownloadTransport {
 }
 
 export function isStreamingDownloadTransport(
-  transport: { open?: unknown },
+  transport: unknown,
 ): transport is StreamingDownloadTransport {
-  return typeof transport.open === "function";
+  return typeof transport === "object" && transport !== null &&
+    typeof (transport as { open?: unknown }).open === "function";
 }
 
 export function declaredContentLength(headers: Headers): number | null {

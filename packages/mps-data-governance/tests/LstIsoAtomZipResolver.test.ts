@@ -175,7 +175,7 @@ describe("L-V1-LST-ISO-ATOM-ZIP-01", () => {
       "ext-dokument.lansstyrelsen.se",
     ]);
     expect(LST_DALARNA_PG304_VATTENSKYDD_PROPOSAL.adapter).toBe("LST_ISO_ATOM_ZIP_V1");
-    expect(PRODUCTION_ADAPTER_RESOLVERS).not.toHaveProperty("LST_ISO_ATOM_ZIP_V1");
+    expect(PRODUCTION_ADAPTER_RESOLVERS).toHaveProperty("LST_ISO_ATOM_ZIP_V1");
     expect(PRODUCTION_ADAPTER_RESOLVERS).not.toHaveProperty("LST_ATOM_ZIP_V1");
 
     const national = JSON.parse(readFileSync(

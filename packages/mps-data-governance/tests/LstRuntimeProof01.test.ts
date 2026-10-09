@@ -29,8 +29,8 @@ import {
 /**
  * L-V1-LST-RUNTIME-PROOF-01
  *
- * Isolated fixture proof against the admitted registry entry. No live upstream,
- * no production adapter registration, no CAS promotion.
+ * Isolated fixture proof against the admitted registry entry and the production-authorized
+ * adapter composition. No live upstream or CAS promotion.
  */
 
 const ADMISSION_COMMIT = "dcec9ebf2989afc2650a9c1e882cdf273c92355c";
@@ -179,14 +179,15 @@ function requestFor(source: VerifiedSourceDefinition, executionId: string) {
 }
 
 describe("L-V1-LST-RUNTIME-PROOF-01", () => {
-  it("keeps the V1 adapter out of production composition and refuses it there", async () => {
+  it("registers the admitted V1 adapter in production composition", async () => {
     expect(ADMISSION_COMMIT).toHaveLength(40);
     expect(Object.keys(PRODUCTION_ADAPTER_RESOLVERS).sort()).toEqual([
       "LM_STAC_BYGGNADER_V1",
+      "LST_ISO_ATOM_ZIP_V1",
       "PUH_RATTSPRAXIS_V1",
       "SINGLE_ENDPOINT_V1",
     ]);
-    expect(PRODUCTION_ADAPTER_RESOLVERS).not.toHaveProperty("LST_ISO_ATOM_ZIP_V1");
+    expect(PRODUCTION_ADAPTER_RESOLVERS).toHaveProperty("LST_ISO_ATOM_ZIP_V1");
 
     const calls: string[] = [];
     const { registryPath, signing, source } = await admittedSource();
@@ -202,9 +203,9 @@ describe("L-V1-LST-RUNTIME-PROOF-01", () => {
       }) as typeof fetch,
     });
 
-    await expect(runtime.executor.execute(requestFor(source, "exec-production-adapter-absent")))
-      .rejects.toMatchObject({ reason_code: "REJECT_ADAPTER" });
-    expect(calls).toEqual([]);
+    await expect(runtime.executor.execute(requestFor(source, "exec-production-adapter-present")))
+      .rejects.toThrow("PRODUCTION_COMPOSITION_MUST_NOT_FETCH");
+    expect(calls).toEqual([LST_DALARNA_PG304_ISO_URL]);
     expect(runtime.registry.sources.map((entry) => entry.sourceId)).toEqual([SOURCE_ID]);
   });
 

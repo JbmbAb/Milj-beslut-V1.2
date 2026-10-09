@@ -33,6 +33,7 @@ import {
   LantmaterietStacByggnaderTargetResolver,
   isByggnaderCollectionUrl,
 } from "./LantmaterietStacByggnaderResolver";
+import { LstIsoAtomZipTargetResolver } from "./LstIsoAtomZipResolver";
 import { PuhRattspraxisTargetResolver } from "./PuhRattspraxisResolver";
 import {
   isUrlAllowedForVerifiedSource,
@@ -105,6 +106,7 @@ export const PRODUCTION_ADAPTER_RESOLVERS: Readonly<Record<string, AdapterResolv
     PUH_RATTSPRAXIS_V1: (transport: DownloadTransport) => new PuhRattspraxisTargetResolver(transport),
     SINGLE_ENDPOINT_V1: () => new SingleEndpointTargetResolver(),
     LM_STAC_BYGGNADER_V1: (transport: DownloadTransport) => new LantmaterietStacByggnaderTargetResolver(transport),
+    LST_ISO_ATOM_ZIP_V1: (transport: DownloadTransport) => new LstIsoAtomZipTargetResolver(transport),
   });
 
 interface SourceTransportPorts {
@@ -157,6 +159,11 @@ export interface ComposedHarvestRuntime {
   readonly executor: HarvestExecutor;
   /** The verified registry this runtime was composed against — approved sources only. */
   readonly registry: VerifiedSourceRegistry;
+  /**
+   * Releases process-owned durable validator-binding resources. Callers that inject their own
+   * store retain its lifecycle; composition never closes caller-owned dependencies.
+   */
+  close(): Promise<void>;
 }
 
 /** IMPORT-TIME-001 — timestamps enter the system here, never from inside a governed component. */
@@ -187,12 +194,12 @@ export async function composeHarvestRuntime(
       options.downloadManifestRootPath ?? join(quarantineRootPath, "download-manifests"),
     );
 
-  const bindingStore =
-    options.validatorBindingStore ??
+  let ownedBindingStore: FileValidatorBindingStore | undefined;
+  const bindingStore = options.validatorBindingStore ??
     (options.quarantine === undefined
-      ? await FileValidatorBindingStore.open(
+      ? (ownedBindingStore = await FileValidatorBindingStore.open(
           options.validatorBindingRootPath ?? join(quarantineRootPath, "validator-bindings"),
-        )
+        ))
       : new InMemoryValidatorBindingStore());
   const prefetchEvidenceStore =
     options.prefetchEvidenceStore ??
@@ -216,7 +223,13 @@ export async function composeHarvestRuntime(
     (source) => transportPortsForSource(source, options),
   );
 
-  return { executor, registry };
+  return {
+    executor,
+    registry,
+    async close(): Promise<void> {
+      await ownedBindingStore?.close();
+    },
+  };
 }
 
 /**

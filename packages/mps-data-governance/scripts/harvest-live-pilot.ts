@@ -213,56 +213,62 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const quarantineRootPath = process.env.HARVEST_QUARANTINE_ROOT ?? `${process.cwd()}/.quarantine`;
 
-  const { executor, registry } = await composeHarvestRuntime({ quarantineRootPath });
+  const runtime = await composeHarvestRuntime({ quarantineRootPath });
+  const { executor, registry } = runtime;
 
-  if (args.includes("--list")) {
-    console.log(`Verified APPROVED sources (${registry.sources.length}):\n`);
-    for (const s of registry.sources) {
-      console.log(`  ${s.sourceId}  [${s.adapter}]  ${s.allowedDomains.join(", ")}`);
+  try {
+
+    if (args.includes("--list")) {
+      console.log(`Verified APPROVED sources (${registry.sources.length}):\n`);
+      for (const s of registry.sources) {
+        console.log(`  ${s.sourceId}  [${s.adapter}]  ${s.allowedDomains.join(", ")}`);
+      }
+      return;
     }
-    return;
-  }
 
-  const targets = args.includes("--all")
-    ? registry.sources.map((s) => s.sourceId)
-    : args.filter((a) => !a.startsWith("--"));
+    const targets = args.includes("--all")
+      ? registry.sources.map((s) => s.sourceId)
+      : args.filter((a) => !a.startsWith("--"));
 
-  if (targets.length === 0) {
-    console.error("Usage: harvest-live-pilot.ts <source_id> [source_id...] | --all | --list");
-    process.exitCode = 1;
-    return;
-  }
+    if (targets.length === 0) {
+      console.error("Usage: harvest-live-pilot.ts <source_id> [source_id...] | --all | --list");
+      process.exitCode = 1;
+      return;
+    }
 
-  const results: SourceEvidence[] = [];
+    const results: SourceEvidence[] = [];
   // Sequential, not parallel: a source failure must not touch an unrelated source's already
   // persisted quarantine/manifest state, and per-source rate-limit policy is per-source, not
   // global — running sources one at a time is the simplest way to keep that true without
   // building a scheduler this unit was told not to build.
-  for (const sourceId of targets) {
-    const evidence = await runSource(sourceId, { executor, registry }, quarantineRootPath);
-    results.push(evidence);
-    printEvidence(evidence);
+    for (const sourceId of targets) {
+      const evidence = await runSource(sourceId, { executor, registry }, quarantineRootPath);
+      results.push(evidence);
+      printEvidence(evidence);
+    }
+
+    const proven = results.filter((r) => r.status === "PROVEN").length;
+    const partial = results.filter((r) => r.status === "PARTIAL").length;
+    const blocked = results.filter((r) => r.status === "BLOCKED").length;
+    const failedClosed = results.filter((r) => r.status === "FAILED_CLOSED").length;
+    const totalBytes = results.reduce((sum, r) => sum + (r.bytes ?? 0), 0);
+    const uniqueHashes = new Set(results.map((r) => r.sha256).filter(Boolean));
+
+    console.log("\n\n=== P2-HARVEST-LIVE-01 SUMMARY ===");
+    console.log(`approved sources attempted: ${results.length}`);
+    console.log(`sources proven: ${proven}`);
+    console.log(`sources partial: ${partial}`);
+    console.log(`sources blocked: ${blocked}`);
+    console.log(`sources failed_closed: ${failedClosed}`);
+    console.log(`objects captured: ${results.filter((r) => r.quarantine_object).length}`);
+    console.log(`unique sha-256: ${uniqueHashes.size}`);
+    console.log(`total bytes: ${totalBytes}`);
+    console.log(`manifest count: ${results.filter((r) => r.download_manifest).length}`);
+
+    if (failedClosed > 0 || partial > 0) process.exitCode = 1;
+  } finally {
+    await runtime.close();
   }
-
-  const proven = results.filter((r) => r.status === "PROVEN").length;
-  const partial = results.filter((r) => r.status === "PARTIAL").length;
-  const blocked = results.filter((r) => r.status === "BLOCKED").length;
-  const failedClosed = results.filter((r) => r.status === "FAILED_CLOSED").length;
-  const totalBytes = results.reduce((sum, r) => sum + (r.bytes ?? 0), 0);
-  const uniqueHashes = new Set(results.map((r) => r.sha256).filter(Boolean));
-
-  console.log("\n\n=== P2-HARVEST-LIVE-01 SUMMARY ===");
-  console.log(`approved sources attempted: ${results.length}`);
-  console.log(`sources proven: ${proven}`);
-  console.log(`sources partial: ${partial}`);
-  console.log(`sources blocked: ${blocked}`);
-  console.log(`sources failed_closed: ${failedClosed}`);
-  console.log(`objects captured: ${results.filter((r) => r.quarantine_object).length}`);
-  console.log(`unique sha-256: ${uniqueHashes.size}`);
-  console.log(`total bytes: ${totalBytes}`);
-  console.log(`manifest count: ${results.filter((r) => r.download_manifest).length}`);
-
-  if (failedClosed > 0 || partial > 0) process.exitCode = 1;
 }
 
 main().catch((error) => {
