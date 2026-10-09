@@ -4,6 +4,9 @@
  * Correctness is semantic (monotone generation ownership), not abort/timing dependent.
  * Only the currently owned generation may clear/replace/append viewport datasources
  * or report a committed presentation count.
+ *
+ * F-001-R2: a stale/destroyed generation may only detach the exact resource it owns.
+ * Shared/global clear after a lost attach race is forbidden.
  */
 
 export type ViewportPropertyCommitResult = {
@@ -15,13 +18,24 @@ export type ViewportPropertyCommitDeps<TLoaded> = {
   readonly generation: number;
   readonly isCurrent: (generation: number) => boolean;
   readonly isDestroyed: () => boolean;
-  /** Remove the currently displayed viewport datasource (must be a no-op if none). */
+  /**
+   * Remove the currently displayed viewport datasource.
+   * May ONLY be called while this generation still owns the viewport (pre-attach).
+   */
   readonly clearViewportLayer: () => void;
   /** Async parse/load — may outlive ownership; must not mutate the scene. */
   readonly loadGeoJson: (geojson: unknown) => Promise<TLoaded>;
-  /** Attach a previously loaded datasource to the scene. */
+  /**
+   * Attach a previously loaded datasource to the scene.
+   * The `loaded` instance is the ownership handle for this generation.
+   */
   readonly attachLoaded: (loaded: TLoaded) => void | Promise<void>;
-  /** Drop a loaded-but-never-attached datasource. */
+  /**
+   * Identity-scoped detach of exactly `owned`.
+   * Must never clear/remove a different generation's displayed datasource.
+   */
+  readonly detachOwned: (owned: TLoaded) => void;
+  /** Drop a loaded-but-never-needed datasource (not displayed / already detached). */
   readonly discardLoaded: (loaded: TLoaded) => void;
 };
 
@@ -35,7 +49,7 @@ function canCommit(
 
 /**
  * Commit a viewport FeatureCollection under generation ownership.
- * Stale generations never clear, never attach, never claim commit.
+ * Stale generations never clear shared display state; they may only detach their own resource.
  */
 export async function commitViewportPropertyFeatures<TLoaded>(
   geojson: unknown,
@@ -47,7 +61,7 @@ export async function commitViewportPropertyFeatures<TLoaded>(
     return { committed: false, count: 0 };
   }
 
-  // Clear is a mutation — only the current owner may do it.
+  // Shared clear is allowed only while this generation is still the current owner.
   deps.clearViewportLayer();
 
   if (!canCommit(generation, isCurrent, isDestroyed)) {
@@ -76,11 +90,12 @@ export async function commitViewportPropertyFeatures<TLoaded>(
     return { committed: false, count: 0 };
   }
 
+  // Attach may await; ownership can change inside the await.
   await Promise.resolve(deps.attachLoaded(loaded));
 
   if (!canCommit(generation, isCurrent, isDestroyed)) {
-    // Lost ownership during attach — roll back mutation.
-    deps.clearViewportLayer();
+    // F-001-R2: remove ONLY the resource this generation attached — never shared clear.
+    deps.detachOwned(loaded);
     deps.discardLoaded(loaded);
     return { committed: false, count: 0 };
   }

@@ -296,10 +296,26 @@ export class CesiumAdapter {
           strokeWidth: 2,
         }),
       attachLoaded: async (loaded) => {
+        // Ownership handle === `loaded`. Install only while still current; a mid-await
+        // ownership loss is rolled back via detachOwned(loaded), never shared clear.
+        if (!this.isViewportCurrent(generation) || this.destroyed) {
+          return;
+        }
         this.viewportPropertyDataSource = loaded;
         await this.viewer.dataSources.add(loaded);
         if (this.selectedPropertyIdentity && this.isViewportCurrent(generation) && !this.destroyed) {
           highlightPropertyEntity(loaded, this.selectedPropertyIdentity);
+        }
+      },
+      detachOwned: (owned) => {
+        // Identity-scoped: remove exactly this datasource. Never clear a newer display.
+        try {
+          this.viewer.dataSources.remove(owned);
+        } catch {
+          // Already removed / never added.
+        }
+        if (this.viewportPropertyDataSource === owned) {
+          this.viewportPropertyDataSource = null;
         }
       },
       discardLoaded: (loaded) => {
@@ -308,7 +324,7 @@ export class CesiumAdapter {
             (loaded as { destroy: () => void }).destroy();
           }
         } catch {
-          // Best-effort discard of never-attached datasource.
+          // Best-effort discard of never-attached / already-detached datasource.
         }
       },
     });
