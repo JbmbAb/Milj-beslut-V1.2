@@ -1,0 +1,43 @@
+{
+  "asset": {
+    "version": "1.0",
+    "tilesetVersion": "mimer-fixture-buildings-v1"
+  },
+  "properties": {
+    "dataset_id": "cesium.fixture.buildings.3dtiles.v1",
+    "governance_status": "FIXTURE_OBSERVATION"
+  },
+  "geometricError": 500,
+  "root": {
+    "boundingVolume": {
+      "region": [
+        0.253,
+        1.067,
+        0.255,
+        1.069,
+        0,
+        80
+      ]
+    },
+    "geometricError": 0,
+    "refine": "ADD",
+    "transform": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+    ]
+  }
+}

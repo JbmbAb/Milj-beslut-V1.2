@@ -1,0 +1,1 @@
+# Cesium deterministic fixtures\n\nFIXTURE ONLY — not national governed data.\n
