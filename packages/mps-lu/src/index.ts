@@ -69,5 +69,8 @@ export * from "./execution/LuCanonicalServiceIdentity";
 // LU Runtime v1 Freeze (ADR-30)
 export * from "./runtime/LuRuntimeFreeze";
 
+// Canonical project-context READ (no mint/bootstrap/PostGIS)
+export * from "./context/index";
+
 // API
 export * from "./api/LUBackendOrchestrator";

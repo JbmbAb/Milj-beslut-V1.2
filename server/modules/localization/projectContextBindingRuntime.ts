@@ -2,14 +2,11 @@ import type { ArtifactReference } from "@miljobeslut/mps-compliance/src/artifact
 import type { VerificationKeyProvider } from "@miljobeslut/mimers-brunn-core";
 import type { ArtifactRepositoryPort } from "@miljobeslut/mps-runtime";
 import {
+  CanonicalProjectContextReader,
   PROJECT_CONTEXT_BINDING_ARTIFACT_TYPE,
-  PROJECT_CONTEXT_BINDING_SUPERSESSION_ARTIFACT_TYPE,
-  resolveCurrentProjectContextBindingHead,
   type LocalizationAssessmentArtifact,
   type ProjectContextBindingArtifact,
   type ProjectContextBindingArtifactV2,
-  type ProjectContextBindingSupersessionArtifact,
-  type ProjectContextBindingSupersessionArtifactV2,
   validateProjectContextBindingAnyVersion,
 } from "@miljobeslut/mps-lu";
 
@@ -18,9 +15,10 @@ import {
  *  (it only reads payload.project_id and ref identity, present identically on both), so mixed
  *  V1/V2 history resolves correctly with no further change. */
 export type AnyProjectContextBindingArtifact = ProjectContextBindingArtifact | ProjectContextBindingArtifactV2;
-type AnyProjectContextBindingSupersessionArtifact = ProjectContextBindingSupersessionArtifact | ProjectContextBindingSupersessionArtifactV2;
 import type { ProjectContextBindingIndex } from "../../repositories/projectContextBindingRepository";
-import { verifyProjectContextBindingArtifactAuthority, verifyProjectContextBindingSupersessionAuthority } from "./projectContextBindingAuthority";
+import { verifyProjectContextBindingArtifactAuthority } from "./projectContextBindingAuthority";
+import { createProjectContextBindingAuthorityPort } from "./projectContextBindingAuthorityPortAdapter";
+import { asProjectContextBindingIndexPort } from "./projectContextBindingIndexPortAdapter";
 
 export class ProjectContextBindingProvider {
   constructor(
@@ -68,43 +66,18 @@ export class ProjectContextBindingProvider {
     return verified;
   }
 
-  /** Resolves the verified graph head; lookup projection only supplies candidate refs. */
+  /**
+   * Resolves the verified graph head via the shared package reader
+   * (ONE canonical current-binding implementation).
+   */
   async resolveCurrent(projectId: string): Promise<AnyProjectContextBindingArtifact> {
-    try {
-      if (!this.index.listBindingRefs || !this.index.listSupersessionRefs) {
-        throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE");
-      }
-      const [bindingRefs, supersessionRefs] = await Promise.all([
-        this.index.listBindingRefs(projectId),
-        this.index.listSupersessionRefs(projectId),
-      ]);
-      const bindings = await Promise.all(bindingRefs.map(async (reference) => {
-        const binding = validateProjectContextBindingAnyVersion(
-          await this.artifactRepository.resolve<AnyProjectContextBindingArtifact>(reference),
-        );
-        await verifyProjectContextBindingArtifactAuthority({
-          artifact: binding,
-          issuerRef: binding.payload.authority_ref,
-          artifactRepository: this.artifactRepository,
-          verification: this.verification,
-        });
-        return binding;
-      }));
-      const supersessions = await Promise.all(supersessionRefs.map(async (reference) => {
-        const relation = await this.artifactRepository.resolve<AnyProjectContextBindingSupersessionArtifact>({
-          artifact_id: reference.artifact_id,
-          artifact_type: PROJECT_CONTEXT_BINDING_SUPERSESSION_ARTIFACT_TYPE,
-        });
-        await verifyProjectContextBindingSupersessionAuthority({
-          artifact: relation,
-          artifactRepository: this.artifactRepository,
-        });
-        return relation;
-      }));
-      return resolveCurrentProjectContextBindingHead({ projectId, bindings, supersessions });
-    } catch {
-      throw new Error("REJECT_PROJECT_CONTEXT_BINDING_CURRENT_UNAVAILABLE");
-    }
+    const reader = new CanonicalProjectContextReader({
+      artifactRepository: this.artifactRepository,
+      bindingIndex: asProjectContextBindingIndexPort(this.index),
+      authority: createProjectContextBindingAuthorityPort(),
+      verification: this.verification,
+    });
+    return reader.resolveCurrentBinding(projectId);
   }
 }
 
