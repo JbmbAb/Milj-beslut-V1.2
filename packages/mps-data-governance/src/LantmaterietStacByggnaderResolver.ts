@@ -46,6 +46,8 @@ export class LantmaterietStacByggnaderTargetResolver implements SourceAwareTarge
     private readonly listingTransport: DownloadTransport,
     private readonly pageSize: number = LANTMATERIET_STAC_BYGGNADER_PAGE_SIZE,
     private readonly maxPages: number = LANTMATERIET_STAC_BYGGNADER_MAX_PAGES,
+    /** Operational probe only: limits a run to initial, ordered STAC targets. */
+    private readonly maxTargets: number = Number.POSITIVE_INFINITY,
   ) {}
 
   async resolve(source: VerifiedSourceDefinition): Promise<ResolvedDownloadPlan> {
@@ -106,6 +108,7 @@ export class LantmaterietStacByggnaderTargetResolver implements SourceAwareTarge
         }
         seenItems.set(itemId, fingerprint);
         targets.push(target);
+        if (targets.length >= this.maxTargets) return { kind: "TARGETS", targets };
       }
 
       const next = nextPageUrl(listing.links, currentUrl);

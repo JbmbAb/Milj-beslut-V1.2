@@ -103,6 +103,26 @@ describe("P2-LM-STAC-BYGGNADER-ADAPTER-01", () => {
     });
   });
 
+  it("supports one bounded initial target for the governed live probe without changing default enumeration", async () => {
+    const first = `${COLLECTION}?limit=100`;
+    const next = `${COLLECTION}?limit=100&token=next%3Abyggnader%3A2482`;
+    const transport = listingTransport({
+      [first]: listing([item("2482"), item("0128")], next),
+      [next]: listing([item("0188")]),
+    });
+
+    const targets = targetsOf(await new LantmaterietStacByggnaderTargetResolver(
+      transport,
+      100,
+      10,
+      1,
+    ).resolve(source()));
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0].source_metadata?.lm_stac_item_id).toBe("2482");
+    expect(transport.seen).toEqual([first]);
+  });
+
   it("rejects a wrong collection before listing it", async () => {
     const transport = listingTransport({});
     await expect(new LantmaterietStacByggnaderTargetResolver(transport).resolve(

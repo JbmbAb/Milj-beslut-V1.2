@@ -26,6 +26,14 @@ import type { VerifiedSourceRegistry } from "../src/SourceRegistry";
 import type { DownloadManifest } from "../src/GovernedDownloadContracts";
 import { FileDownloadManifestStore } from "../src/DownloadManifestStore";
 import type { HarvestExecutionRequest } from "../src/HarvestOrchestratorTypes";
+import { loadLokeRuntimeEnvironment } from "../src/LokeRuntimeEnvironment";
+import { EnvironmentLantmaterietStacCredentialProvider } from "../src/LantmaterietStacByggnaderAssetTransport";
+import {
+  LANTMATERIET_STAC_BYGGNADER_MAX_PAGES,
+  LANTMATERIET_STAC_BYGGNADER_PAGE_SIZE,
+  LantmaterietStacByggnaderTargetResolver,
+} from "../src/LantmaterietStacByggnaderResolver";
+import { PRODUCTION_ADAPTER_RESOLVERS } from "../src/HarvestRuntimeCompositionRoot";
 
 interface SourceEvidence {
   source_id: string;
@@ -211,9 +219,40 @@ function printEvidence(e: SourceEvidence): void {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const quarantineRootPath = process.env.HARVEST_QUARANTINE_ROOT ?? `${process.cwd()}/.quarantine`;
+  const environment = loadLokeRuntimeEnvironment();
 
-  const runtime = await composeHarvestRuntime({ quarantineRootPath });
+  if (args.includes("--lm-auth-probe")) {
+    const credentialProvider = new EnvironmentLantmaterietStacCredentialProvider();
+    try {
+      console.log("LM CREDENTIAL CONTRACT RESOLVED: YES");
+      console.log(`AUTH METHOD: ${credentialProvider.authenticationMethod()}`);
+      console.log(`SOURCE: ${environment.loadedFiles.length > 0 ? "LOCAL_ENV_BOOTSTRAP" : "RUNTIME_ENV"}`);
+    } catch {
+      console.log("LM CREDENTIAL CONTRACT RESOLVED: NO");
+      console.log("AUTH METHOD: CREDENTIAL_UNAVAILABLE");
+      console.log("SOURCE: NONE");
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const quarantineRootPath = process.env.HARVEST_QUARANTINE_ROOT ?? `${process.cwd()}/.quarantine`;
+  const maxTargets = parseSingleByggnaderProbeTargetLimit(args);
+
+  const runtime = await composeHarvestRuntime({
+    quarantineRootPath,
+    adapters: maxTargets === null
+      ? undefined
+      : {
+        ...PRODUCTION_ADAPTER_RESOLVERS,
+        LM_STAC_BYGGNADER_V1: (transport) => new LantmaterietStacByggnaderTargetResolver(
+          transport,
+          LANTMATERIET_STAC_BYGGNADER_PAGE_SIZE,
+          LANTMATERIET_STAC_BYGGNADER_MAX_PAGES,
+          maxTargets,
+        ),
+      },
+  });
   const { executor, registry } = runtime;
 
   try {
@@ -269,6 +308,23 @@ async function main(): Promise<void> {
   } finally {
     await runtime.close();
   }
+}
+
+/**
+ * A deliberately narrow operational proof mode. It cannot be combined with another source or
+ * `--all`, and never changes the default full-source resolver behaviour.
+ */
+function parseSingleByggnaderProbeTargetLimit(args: readonly string[]): 1 | null {
+  const limitArguments = args.filter((arg) => arg.startsWith("--max-targets="));
+  if (limitArguments.length === 0) return null;
+  if (limitArguments.length !== 1 || limitArguments[0] !== "--max-targets=1") {
+    throw new Error("REJECT_BOUNDED_PROBE: only --max-targets=1 is supported.");
+  }
+  const sourceIds = args.filter((arg) => !arg.startsWith("--"));
+  if (args.includes("--all") || sourceIds.length !== 1 || sourceIds[0] !== "lantmateriet-stac-byggnader") {
+    throw new Error("REJECT_BOUNDED_PROBE: the bounded target mode is limited to lantmateriet-stac-byggnader.");
+  }
+  return 1;
 }
 
 main().catch((error) => {
