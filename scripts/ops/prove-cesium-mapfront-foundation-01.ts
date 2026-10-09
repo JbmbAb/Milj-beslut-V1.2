@@ -35,6 +35,8 @@ for (const rel of [
   'public/cesium/fixtures/imagery/orthophoto/0/0/0.png',
   'public/cesium/fixtures/imagery/topographic/0/0/0.png',
   'public/cesium/fixtures/tilesets/buildings/tileset.json',
+  'public/cesium/fixtures/tilesets/buildings/building.glb',
+  'public/cesium/fixtures/terrain/layer.json',
   'public/cesium-proof/index.html',
 ]) {
   const ok = existsSync(join(root, rel));
@@ -85,8 +87,21 @@ async function main(): Promise<void> {
   const tileset = JSON.parse(
     readFileSync(join(root, 'public/cesium/fixtures/tilesets/buildings/tileset.json'), 'utf8'),
   );
-  assert(tileset?.asset?.version === '1.0', 'tileset asset.version');
+  assert(tileset?.asset?.version === '1.1', 'tileset asset.version must be 1.1 for glTF content');
   assert(tileset?.root?.boundingVolume?.region, 'tileset root region');
+  assert(typeof tileset?.root?.content?.uri === 'string', 'tileset root must declare renderable content.uri');
+  assert(tileset.root.content.uri === 'building.glb', 'tileset content.uri must point at local glb');
+  assert(
+    existsSync(join(root, 'public/cesium/fixtures/tilesets/buildings', tileset.root.content.uri)),
+    'tileset content file must exist on disk',
+  );
+
+  console.log('\n=== CESIUM-TERRAIN FIXTURE SEAM ===');
+  const terrainLayer = JSON.parse(
+    readFileSync(join(root, 'public/cesium/fixtures/terrain/layer.json'), 'utf8'),
+  );
+  assert(terrainLayer?.mimer?.client_provider === 'CustomHeightmapTerrainProvider', 'terrain fixture provider');
+  assert(terrainLayer?.mimer?.governance_status === 'FIXTURE_OBSERVATION', 'terrain fixture governance');
 
   if (failures.length) {
     console.error('\nPROOF FAILED:');

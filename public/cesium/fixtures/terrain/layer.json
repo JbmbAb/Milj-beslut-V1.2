@@ -1,0 +1,28 @@
+{
+  "tilejson": "2.1.0",
+  "name": "mimer-cesium-fixture-terrain-v1",
+  "format": "heightmap-1.0",
+  "schema": "mimer-local-fixture",
+  "tiles": [
+    "{z}/{x}/{y}.terrain"
+  ],
+  "projection": "EPSG:4326",
+  "bounds": [
+    14.4,
+    61.05,
+    14.7,
+    61.25
+  ],
+  "minzoom": 0,
+  "maxzoom": 0,
+  "attribution": "Mimer deterministic terrain fixture (not national governed DEM)",
+  "extensions": [
+    "mimer.custom_heightmap_client"
+  ],
+  "mimer": {
+    "governance_status": "FIXTURE_OBSERVATION",
+    "dataset_id": "cesium.fixture.terrain.custom-heightmap.v1",
+    "client_provider": "CustomHeightmapTerrainProvider",
+    "note": "layer.json documents the governed CesiumTerrainProvider.fromUrl seam; local_fixture mode uses CustomHeightmapTerrainProvider in-process."
+  }
+}

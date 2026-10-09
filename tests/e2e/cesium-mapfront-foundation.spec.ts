@@ -40,10 +40,15 @@ test.describe('Cesium mapfront foundation WebGL', () => {
           return;
         }
         const mime =
-          ({ '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' } as Record<
-            string,
-            string
-          >)[extname(filePath)] || 'application/octet-stream';
+          ({
+            '.html': 'text/html',
+            '.js': 'application/javascript',
+            '.css': 'text/css',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.glb': 'model/gltf-binary',
+            '.gltf': 'model/gltf+json',
+          } as Record<string, string>)[extname(filePath)] || 'application/octet-stream';
         res.writeHead(200, { 'content-type': mime });
         res.end(readFileSync(filePath));
       });
@@ -74,6 +79,9 @@ test.describe('Cesium mapfront foundation WebGL', () => {
     expect(proof.checks.webgl).toBeTruthy();
     expect(proof.checks.viewer_boot).toBeTruthy();
     expect(proof.checks.local_workers).toBeTruthy();
+    expect(proof.checks.tileset_client).toBeTruthy();
+    expect(proof.checks.tileset_content_ready).toBeTruthy();
+    expect(proof.checks.terrain_fixture_provider).toBeTruthy();
 
     await context.close();
     if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));

@@ -29,7 +29,13 @@ import {
   type LocalImageryDataset,
 } from './imageryProviderSeam';
 import { highlightPropertyEntity, resolvePropertyIdentity } from './propertySelection';
-import { applyTerrainSeam, disableTerrain, type TerrainSeamMode, type TerrainSeamState } from './terrainProviderSeam';
+import {
+  applyTerrainSeam,
+  disableTerrain,
+  type GovernedTerrainConfig,
+  type TerrainSeamMode,
+  type TerrainSeamState,
+} from './terrainProviderSeam';
 import {
   LOCAL_BUILDINGS_TILESET_FIXTURE,
   TilesetClient,
@@ -37,6 +43,7 @@ import {
   type TilesetProvenance,
 } from './tilesetClient';
 import { ViewportController, type ViewportRequest } from './viewportController';
+import { commitViewportPropertyFeatures } from './viewportPropertyCommit';
 
 // Ensure Cesium knows where to locate assets locally (no Ion/CDN required).
 if (typeof window !== 'undefined') {
@@ -267,35 +274,49 @@ export class CesiumAdapter {
   /**
    * Viewport-bounded property features from the presentation API (never a national dump).
    * Replaces previous viewport layer entities; keeps primary property geometry intact.
+   *
+   * `generation` is mandatory: a stale generation must never clear/replace/append the
+   * viewport datasource after a newer generation became current (abort is not sufficient).
    */
-  public async setViewportPropertyFeatures(geojson: any): Promise<number> {
-    if (this.destroyed) return 0;
-    if (this.viewportPropertyDataSource) {
-      this.viewer.dataSources.remove(this.viewportPropertyDataSource);
-      this.viewportPropertyDataSource = null;
-    }
-    const features = geojson?.features;
-    if (!Array.isArray(features) || features.length === 0) {
+  public async setViewportPropertyFeatures(geojson: any, generation: number): Promise<number> {
+    const result = await commitViewportPropertyFeatures<GeoJsonDataSource>(geojson, {
+      generation,
+      isCurrent: (g) => this.isViewportCurrent(g),
+      isDestroyed: () => this.destroyed,
+      clearViewportLayer: () => {
+        if (this.viewportPropertyDataSource) {
+          this.viewer.dataSources.remove(this.viewportPropertyDataSource);
+          this.viewportPropertyDataSource = null;
+        }
+      },
+      loadGeoJson: (payload) =>
+        GeoJsonDataSource.load(payload as any, {
+          stroke: Color.CYAN.withAlpha(0.7),
+          fill: Color.CYAN.withAlpha(0.12),
+          strokeWidth: 2,
+        }),
+      attachLoaded: async (loaded) => {
+        this.viewportPropertyDataSource = loaded;
+        await this.viewer.dataSources.add(loaded);
+        if (this.selectedPropertyIdentity && this.isViewportCurrent(generation) && !this.destroyed) {
+          highlightPropertyEntity(loaded, this.selectedPropertyIdentity);
+        }
+      },
+      discardLoaded: (loaded) => {
+        try {
+          if (typeof (loaded as { destroy?: () => void }).destroy === 'function') {
+            (loaded as { destroy: () => void }).destroy();
+          }
+        } catch {
+          // Best-effort discard of never-attached datasource.
+        }
+      },
+    });
+
+    if (!result.committed) {
       return 0;
     }
-    try {
-      const loaded = await GeoJsonDataSource.load(geojson, {
-        stroke: Color.CYAN.withAlpha(0.7),
-        fill: Color.CYAN.withAlpha(0.12),
-        strokeWidth: 2,
-      });
-      if (this.destroyed) return 0;
-      this.viewportPropertyDataSource = loaded;
-      await this.viewer.dataSources.add(this.viewportPropertyDataSource);
-      if (this.destroyed) return 0;
-      if (this.selectedPropertyIdentity) {
-        highlightPropertyEntity(this.viewportPropertyDataSource, this.selectedPropertyIdentity);
-      }
-      return features.length;
-    } catch (err) {
-      console.error('[CesiumAdapter] Failed to load viewport property features:', err);
-      throw err;
-    }
+    return result.count;
   }
 
   public selectProperty(identity: string | null): void {
@@ -414,6 +435,11 @@ export class CesiumAdapter {
     return this.viewportController?.isCurrent(generation) ?? false;
   }
 
+  /** True after destroy(); stale async work must not mutate presentation. */
+  public isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
   public async setImagery(kind: ImagerySeamKind, enabled: boolean, dataset?: LocalImageryDataset): Promise<void> {
     if (this.destroyed) return;
     const existing = this.imageryHandles[kind];
@@ -434,7 +460,10 @@ export class CesiumAdapter {
     setImageryOpacity(this.imageryHandles[kind] ?? null, opacity);
   }
 
-  public async setTerrain(mode: TerrainSeamMode | 'off'): Promise<TerrainSeamState> {
+  public async setTerrain(
+    mode: TerrainSeamMode | 'off',
+    governed?: GovernedTerrainConfig,
+  ): Promise<TerrainSeamState> {
     if (this.destroyed) {
       throw new Error('CesiumAdapter destroyed');
     }
@@ -442,7 +471,7 @@ export class CesiumAdapter {
       this.terrainState = disableTerrain(this.viewer);
       return this.terrainState;
     }
-    this.terrainState = await applyTerrainSeam(this.viewer, mode);
+    this.terrainState = await applyTerrainSeam(this.viewer, mode, governed);
     return this.terrainState;
   }
 

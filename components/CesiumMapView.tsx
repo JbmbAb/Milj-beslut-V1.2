@@ -639,7 +639,7 @@ const CesiumMapView: React.FC<CesiumMapViewProps> = ({
               })();
             }}
           >
-            Terräng (ellipsoid/fixture)
+            Terräng (lokal heightmap-fixture)
           </button>
           <button
             type="button"

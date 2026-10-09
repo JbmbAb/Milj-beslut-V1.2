@@ -23,6 +23,11 @@
       function render() {
         document.getElementById('report').textContent = JSON.stringify(window.__CESIUM_PROOF__, null, 2);
       }
+      function fail(err) {
+        window.__CESIUM_PROOF__.status = 'error';
+        window.__CESIUM_PROOF__.error = String(err && err.message || err);
+        render();
+      }
       (async function main() {
         try {
           window.CESIUM_BASE_URL = '/cesium/';
@@ -50,32 +55,71 @@
           viewer.imageryLayers.addImageryProvider(imagery);
           set('imagery_fixture', true);
 
-          let tilesetOk = false;
-          try {
-            const tileset = await Cesium.Cesium3DTileset.fromUrl('/cesium/fixtures/tilesets/buildings/tileset.json');
-            viewer.scene.primitives.add(tileset);
-            await viewer.flyTo(tileset);
-            viewer.scene.primitives.remove(tileset);
-            tileset.destroy();
-            tilesetOk = true;
-          } catch (e) {
-            // Empty-content tileset may fail content fetch; load of tileset.json still proves client path.
-            tilesetOk = String(e && e.message || e).length >= 0;
-            set('tileset_note', String(e && e.message || e));
+          // F-003: real local terrain provider path (CustomHeightmap), not ellipsoid-labelled-as-fixture.
+          const width = 16;
+          const height = 16;
+          viewer.terrainProvider = new Cesium.CustomHeightmapTerrainProvider({
+            width: width,
+            height: height,
+            callback: function () {
+              return new Float32Array(width * height);
+            },
+          });
+          set('terrain_fixture_provider', !(viewer.terrainProvider instanceof Cesium.EllipsoidTerrainProvider));
+          set('terrain_provider_kind', viewer.terrainProvider.constructor && viewer.terrainProvider.constructor.name);
+
+          // F-002: fail-closed tileset proof — must load renderable glTF content.
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(
+            '/cesium/fixtures/tilesets/buildings/tileset.json',
+            { maximumScreenSpaceError: 1, cullWithChildrenBounds: false },
+          );
+          if (!tileset.root || !tileset.root._contentHeader || !tileset.root._contentHeader.uri) {
+            throw new Error('tileset root missing content.uri in header');
           }
-          set('tileset_client', tilesetOk);
+          set('tileset_content_uri', tileset.root._contentHeader.uri);
+          viewer.scene.primitives.add(tileset);
+          viewer.camera.viewBoundingSphere(
+            tileset.boundingSphere,
+            new Cesium.HeadingPitchRange(0, -0.5, tileset.boundingSphere.radius * 2),
+          );
+          const deadline = Date.now() + 30000;
+          while (Date.now() < deadline) {
+            viewer.scene.render();
+            if (tileset.root.contentFailed) {
+              throw new Error('tileset content failed to load');
+            }
+            if (tileset.root.contentReady && tileset.root.contentAvailable) {
+              break;
+            }
+            await new Promise(function (r) { setTimeout(r, 50); });
+          }
+          if (!(tileset.root.contentReady && tileset.root.contentAvailable)) {
+            throw new Error('tileset content did not become ready/available');
+          }
+          await viewer.flyTo(tileset);
+          set('tileset_content_ready', true);
+          set('tileset_content_available', true);
+          set('tileset_client', true);
+          viewer.scene.primitives.remove(tileset);
+          tileset.destroy();
+          set('tileset_unload', true);
 
           const workerProbe = await fetch('/cesium/Workers/transferTypedArrayTest.js', { method: 'HEAD' });
           set('local_workers', workerProbe.ok);
+
+          if (!window.__CESIUM_PROOF__.checks.tileset_client) {
+            throw new Error('tileset_client check missing');
+          }
+          if (!window.__CESIUM_PROOF__.checks.terrain_fixture_provider) {
+            throw new Error('terrain fixture provider must be non-ellipsoid');
+          }
 
           window.__CESIUM_PROOF__.status = 'ready';
           window.__CESIUM_PROOF__.viewer = true;
           render();
           window.__CESIUM_PROOF_VIEWER__ = viewer;
         } catch (err) {
-          window.__CESIUM_PROOF__.status = 'error';
-          window.__CESIUM_PROOF__.error = String(err && err.message || err);
-          render();
+          fail(err);
         }
       })();
     </script>

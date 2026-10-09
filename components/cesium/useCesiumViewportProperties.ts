@@ -7,6 +7,9 @@ import type { ViewportRequest } from './viewportController';
 /**
  * Viewport-driven property presentation loading (latest wins, abort stale).
  * Exploration / foundation mode only — productMode LU evidence stays workspace-owned.
+ *
+ * React presentation state (loading/error/count/empty) is generation-owned:
+ * only the current generation may commit UI state, independent of AbortController success.
  */
 export function useCesiumViewportProperties(input: {
   readonly enabled: boolean;
@@ -27,6 +30,22 @@ export function useCesiumViewportProperties(input: {
   const [unavailable, setUnavailable] = useState(false);
   const sourceRef = useRef(input.source);
   sourceRef.current = input.source;
+  const mountedRef = useRef(true);
+  const activeGenerationRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const ownsUi = (generation: number, adapter: CesiumAdapter | null): boolean =>
+    mountedRef.current &&
+    adapter !== null &&
+    !adapter.isDestroyed() &&
+    adapter.isViewportCurrent(generation) &&
+    activeGenerationRef.current === generation;
 
   const onViewportRejected = (reason: string) => {
     if (reason === 'viewport_too_large') {
@@ -52,9 +71,12 @@ export function useCesiumViewportProperties(input: {
     if (!input.enabled) return;
     const adapter = input.adapterRef.current;
     if (!adapter) return;
+
+    activeGenerationRef.current = request.generation;
     setLoading(true);
     setError(null);
     setUnavailable(false);
+
     try {
       const collection = await fetchViewportPresentation({
         bbox: request.bbox,
@@ -63,19 +85,25 @@ export function useCesiumViewportProperties(input: {
         signal: request.signal,
         source: sourceRef.current,
       });
-      if (!adapter.isViewportCurrent(request.generation)) return;
-      const n = await adapter.setViewportPropertyFeatures(collection);
-      if (!adapter.isViewportCurrent(request.generation)) return;
+
+      if (!ownsUi(request.generation, adapter)) return;
+
+      const n = await adapter.setViewportPropertyFeatures(collection, request.generation);
+
+      if (!ownsUi(request.generation, adapter)) return;
+
       setCount(n);
       setTruncated(Boolean(collection.meta?.truncated));
+      setError(null);
     } catch (err) {
-      if (request.signal.aborted) return;
-      if (!adapter.isViewportCurrent(request.generation)) return;
+      if (!ownsUi(request.generation, adapter)) return;
       const message = err instanceof Error ? err.message : 'Viewport-presentation misslyckades';
       setError({ code: 'viewport_fetch_failed', messageSv: message, retryable: true });
       setCount(0);
     } finally {
-      if (!request.signal.aborted) setLoading(false);
+      if (ownsUi(request.generation, input.adapterRef.current)) {
+        setLoading(false);
+      }
     }
   };
 

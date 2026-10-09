@@ -82,7 +82,7 @@ export const MAPFRONT_LAYER_REGISTRY: readonly MapfrontLayerRegistration[] = [
     admit_layer_id: null,
     client_status: 'READY',
     defaultVisible: false,
-    notes: 'Ellipsoid fallback + local governed provider seam.',
+    notes: 'Ellipsoid fallback + CustomHeightmap local_fixture + CesiumTerrainProvider.fromUrl governed seam.',
   },
   {
     layer_id: 'orthophoto',

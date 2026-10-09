@@ -212,10 +212,12 @@ describe('DEMO M2a item 4 / M2b: CesiumMapView in product mode', () => {
     expect(hasPolygonBoundary(null)).toBe(false);
   });
 
-  it('outside product mode the existing exploration UI is unchanged (fixture toggle still present)', async () => {
+  it('outside product mode fixture toggle is present but LIVE is default (no silent fixture auto-load)', async () => {
     loadFixture.mockResolvedValue({ property: null, center: { lat: 59.87, lng: 17.74 }, evidence: GOVERNED, scene_id: 's', srid: 4326, governance_status: 'FIXTURE_OBSERVATION' });
     render(<CesiumMapView {...baseProps} productMode={false} />);
     expect(await screen.findByTestId('cesium-mode-fixture')).toBeInTheDocument();
-    await waitFor(() => expect(loadFixture).toHaveBeenCalled());
+    expect(await screen.findByTestId('cesium-mode-live')).toBeInTheDocument();
+    // Default production behavior is LIVE; fixture must be explicit — never auto-load.
+    await waitFor(() => expect(loadFixture).not.toHaveBeenCalled());
   });
 });

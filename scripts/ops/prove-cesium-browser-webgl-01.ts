@@ -21,6 +21,9 @@ const MIME: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.wasm': 'application/wasm',
   '.svg': 'image/svg+xml',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.terrain': 'application/octet-stream',
 };
 
 function contentType(filePath: string): string {
@@ -105,10 +108,15 @@ async function main(): Promise<void> {
   if (!proof.checks?.viewer_boot) throw new Error('viewer boot failed');
   if (!proof.checks?.local_workers) throw new Error('local workers missing');
   if (!proof.checks?.imagery_fixture) throw new Error('imagery fixture failed');
-  // Allow tileset soft-pass when empty content; client path must still run.
   if (!proof.checks?.tileset_client) throw new Error('tileset client failed');
+  if (!proof.checks?.tileset_content_ready) throw new Error('tileset renderable content not ready (fail-closed)');
+  if (!proof.checks?.tileset_content_available) throw new Error('tileset content not available');
+  if (!proof.checks?.terrain_fixture_provider) throw new Error('terrain fixture must use non-ellipsoid provider');
 
   const severe = consoleErrors.filter((e) => !/ImageryProvider|tile/i.test(e));
+  if (severe.length) {
+    throw new Error(`Unexpected browser console errors: ${severe.join(' | ')}`);
+  }
   console.log(`console_errors=${consoleErrors.length} severe=${severe.length}`);
   console.log('CESIUM-BROWSER-WEBGL-PROOF PASS (offline local assets)');
 }
