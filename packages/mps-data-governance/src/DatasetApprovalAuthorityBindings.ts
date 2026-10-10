@@ -24,10 +24,11 @@ import { createDatasetApprovalEd25519Signer } from "./DatasetApprovalEd25519Sign
 import { FileCheckpointStore } from "./FileCheckpointStore";
 import { FileDatasetApprovalStore } from "./FileDatasetApprovalStore";
 import {
-  resolveAuthenticatedGovernanceReviewer,
-  resolveSoleConfiguredGovernanceReviewer,
-  loadGovernanceReviewerRegistry,
-} from "./GovernanceReviewerIdentityResolver";
+  authorizeDatasetApprovalGovernanceReviewer,
+  type AuthenticatedPrincipalPort,
+  type GovernanceReviewerIdentityAuthorityPort,
+} from "./GovernanceReviewerIdentityAuthority";
+import { loadGovernanceReviewerRegistry } from "./GovernanceReviewerIdentityResolver";
 import {
   resolveGovernedDataRoots,
   requireMasterArchiveRootForDatasetApproval,
@@ -136,11 +137,14 @@ export function probeDatasetApprovalAuthorityActivation(
   let governance_reviewer_identity: "RESOLVED" | "BLOCKED" = "BLOCKED";
   let governance_reviewer_identity_ref: string | null = null;
   try {
-    const registry = loadGovernanceReviewerRegistry(env);
-    governance_reviewer_identity = "RESOLVED";
-    governance_reviewer_identity_ref = registry.length === 1
-      ? registry[0]!.identity_ref.id
-      : `${registry.length}_registered_require_auth_selection`;
+    // Registry is authorization-only. Presence of grants does not resolve identity.
+    loadGovernanceReviewerRegistry(env);
+    blockers.push(
+      "BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: DatasetApproval grant registry is authorization-only; " +
+        "operational readiness still requires a wired AuthenticatedPrincipalPort and " +
+        "GovernanceReviewerIdentityAuthorityPort resolving a verified HumanIdentityArtifact " +
+        "(not provisioned in this activation probe).",
+    );
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
@@ -168,7 +172,8 @@ export function probeDatasetApprovalAuthorityActivation(
 
   return {
     existing_dataset_approval_compatible_signer: dataset_approval_signer === "RESOLVED" ? "YES" : "NO",
-    existing_governance_reviewer_identity: governance_reviewer_identity === "RESOLVED" ? "YES" : "NO",
+    // Probe never marks reviewer identity YES: grants ≠ verified canonical human + auth binding.
+    existing_governance_reviewer_identity: "NO",
     existing_trust_anchor_authorizing_dataset_approval: trust_root === "RESOLVED" ? "YES" : "NO",
     signer_authority_inventory: inventory,
     governance_reviewer_identity,
@@ -365,31 +370,40 @@ export async function runIsolatedDatasetApprovalAuthorityDryRun(input: {
 
 /**
  * Production composition. Fails closed when reviewer / signer / trust / master root
- * are not operationally provisioned. Never accepts caller-selected signer or trust root.
+ * are not operationally provisioned.
+ *
+ * Reviewer identity comes only from:
+ *   AuthenticatedPrincipalPort (runtime authentication)
+ *   → GovernanceReviewerIdentityAuthorityPort (canonical human identity)
+ *   → DatasetApproval reviewer grant registry (authorization only)
+ *
+ * Callers must not supply authenticatedReviewerIdentityRef / actor_ref / trust root / signer.
  */
-export function composeDatasetApprovalAuthorityFromEnv(input: {
+export async function composeDatasetApprovalAuthorityFromEnv(input: {
   readonly env?: NodeJS.ProcessEnv;
   readonly serializer?: CanonicalArtifactSerializer;
   readonly hashEngine?: CanonicalHashEngine;
   readonly identityStrategy?: ArtifactIdentityStrategy;
   readonly manifests: HarvestManifestAuthorityPort;
-  readonly authenticatedReviewerIdentityRef: ContentReference;
-}): {
+  readonly identityAuthority: GovernanceReviewerIdentityAuthorityPort;
+  readonly authenticatedPrincipal: AuthenticatedPrincipalPort;
+}): Promise<{
   readonly controller: DatasetApprovalController;
   readonly authority: DatasetApprovalAuthority;
   readonly trustRoot: DatasetApprovalTrustRoot;
   readonly signer: DatasetApprovalSigner;
   readonly masterRoot: string;
-} {
+}> {
   const env = input.env ?? process.env;
   const serializer = input.serializer ?? defaultSerializer;
   const hashEngine = input.hashEngine ?? defaultHash;
   const identityStrategy = input.identityStrategy ?? defaultStrategy;
 
-  const reviewer = resolveAuthenticatedGovernanceReviewer(
-    input.authenticatedReviewerIdentityRef,
+  const reviewer = await authorizeDatasetApprovalGovernanceReviewer({
+    identityAuthority: input.identityAuthority,
+    authenticatedPrincipal: input.authenticatedPrincipal,
     env,
-  );
+  });
   const trustRoot = loadDatasetApprovalTrustRootFromEnv(env);
   const signer = loadDatasetApprovalSignerFromEnv(env, trustRoot);
   const trust = createDatasetApprovalTrustPort(trustRoot);
@@ -414,6 +428,3 @@ export function composeDatasetApprovalAuthorityFromEnv(input: {
     masterRoot,
   };
 }
-
-/** Exposed for activation tests that need the sole-reviewer dry-run path. */
-export { resolveSoleConfiguredGovernanceReviewer };

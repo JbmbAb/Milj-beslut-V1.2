@@ -2,7 +2,6 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ContentReference } from "../../mps-core/src/types";
-import type { AuthenticatedGovernanceReviewer } from "./DatasetApprovalController";
 
 export class GovernanceReviewerIdentityError extends Error {
   constructor(message: string) {
@@ -11,6 +10,14 @@ export class GovernanceReviewerIdentityError extends Error {
   }
 }
 
+/**
+ * AUTHORIZATION grant only.
+ *
+ * Declares that a canonical human identity_ref is permitted to act as
+ * GOVERNANCE_REVIEWER for DatasetApproval. It does not prove the identity
+ * exists, is human, or is the authenticated principal — those are identity
+ * and authentication responsibilities.
+ */
 export interface GovernanceReviewerRegistryEntry {
   readonly identity_ref: ContentReference;
   readonly role: "GOVERNANCE_REVIEWER";
@@ -21,22 +28,17 @@ interface ReviewerRegistryFile {
 }
 
 /**
- * Resolves a real GOVERNANCE_REVIEWER ActorReference from the configured registry.
- *
- * Registry sources (first match wins):
+ * Grant registry sources (authorization only):
  * 1. DATASET_APPROVAL_REVIEWER_REGISTRY_FILE
  * 2. ${MIMERS_ROOT}/governance/dataset-approval-reviewers.json
- * 3. ${MIMERS_ROOT}/governance-reviewer-grants/*.json (each file one entry or {reviewers:[]})
- *
- * Does not mint identities. Does not accept caller-supplied actor_ref as authority.
- * An empty / missing registry is an operational governance gap, not a test failure to patch.
+ * 3. ${MIMERS_ROOT}/governance-reviewer-grants/*.json
  */
 export function resolveGovernanceReviewerRegistryPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   const explicit = env.DATASET_APPROVAL_REVIEWER_REGISTRY_FILE?.trim();
   if (explicit) return resolve(explicit);
-  const mimersRoot = (env.MIMERS_ROOT?.trim() || join(homedir(), ".mimers"));
+  const mimersRoot = env.MIMERS_ROOT?.trim() || join(homedir(), ".mimers");
   const conventional = join(mimersRoot, "governance", "dataset-approval-reviewers.json");
   if (existsSync(conventional)) return conventional;
   return null;
@@ -50,7 +52,7 @@ export function loadGovernanceReviewerRegistry(
   if (registryPath) {
     if (!existsSync(registryPath)) {
       throw new GovernanceReviewerIdentityError(
-        `BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: registry file '${registryPath}' does not exist`,
+        `BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: grant registry file '${registryPath}' does not exist`,
       );
     }
     entries.push(...parseRegistryFile(readFileSync(registryPath, "utf8"), registryPath));
@@ -68,56 +70,25 @@ export function loadGovernanceReviewerRegistry(
   const unique = dedupeByIdentity(entries);
   if (unique.length === 0) {
     throw new GovernanceReviewerIdentityError(
-      "BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: no real GOVERNANCE_REVIEWER identity is registered. " +
-        "Human/config action required: create " +
-        "`$MIMERS_ROOT/governance/dataset-approval-reviewers.json` (or set " +
-        "DATASET_APPROVAL_REVIEWER_REGISTRY_FILE) with at least one entry " +
-        "`{ \"reviewers\": [{ \"identity_ref\": { \"id\", \"content_hash\": { \"algorithm\", \"digest\" } }, " +
-        "\"role\": \"GOVERNANCE_REVIEWER\" }] }` bound to a real resolvable human identity. " +
-        "Do not use synthetic test actors (e.g. reviewer-1).",
+      "BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: no DatasetApproval GOVERNANCE_REVIEWER grants registered. " +
+        "Human/config action required: register a grant for an existing canonical HumanIdentityArtifact " +
+        "in `$MIMERS_ROOT/governance/dataset-approval-reviewers.json` (or DATASET_APPROVAL_REVIEWER_REGISTRY_FILE). " +
+        "The registry is authorization-only and does not mint identity.",
     );
   }
   return unique;
 }
 
-export function resolveAuthenticatedGovernanceReviewer(
-  authenticatedIdentityRef: ContentReference,
-  env: NodeJS.ProcessEnv = process.env,
-): AuthenticatedGovernanceReviewer {
-  if (!authenticatedIdentityRef?.id?.trim() || !authenticatedIdentityRef.content_hash?.digest) {
-    throw new GovernanceReviewerIdentityError(
-      "BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: authenticated identity_ref is incomplete",
-    );
-  }
-  const registry = loadGovernanceReviewerRegistry(env);
-  const match = registry.find((entry) => sameIdentity(entry.identity_ref, authenticatedIdentityRef));
-  if (!match) {
-    throw new GovernanceReviewerIdentityError(
-      `REJECT_UNKNOWN_GOVERNANCE_REVIEWER_IDENTITY: '${authenticatedIdentityRef.id}' is not ` +
-        "registered as GOVERNANCE_REVIEWER for DatasetApproval",
-    );
-  }
-  if (match.role !== "GOVERNANCE_REVIEWER") {
-    throw new GovernanceReviewerIdentityError("REJECT_DATASET_APPROVAL_REVIEWER_ROLE");
-  }
-  return { actor_ref: match };
-}
-
 /**
- * Dry-run helper: when exactly one registered reviewer exists, return it.
- * Multiple reviewers require an authenticated principal selection — not auto-picked.
+ * AUTHORIZATION lookup only. Does not authenticate and does not verify canonical identity.
+ * Prefer authorizeDatasetApprovalGovernanceReviewer() for the complete authority path.
  */
-export function resolveSoleConfiguredGovernanceReviewer(
+export function findDatasetApprovalReviewerGrant(
+  identityRef: ContentReference,
   env: NodeJS.ProcessEnv = process.env,
-): AuthenticatedGovernanceReviewer {
+): GovernanceReviewerRegistryEntry | null {
   const registry = loadGovernanceReviewerRegistry(env);
-  if (registry.length !== 1) {
-    throw new GovernanceReviewerIdentityError(
-      `BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: expected exactly one registered reviewer for ` +
-        `dry-run resolution, found ${registry.length}. Authenticate a specific registered reviewer.`,
-    );
-  }
-  return { actor_ref: registry[0]! };
+  return registry.find((entry) => sameIdentity(entry.identity_ref, identityRef)) ?? null;
 }
 
 function parseRegistryFile(text: string, path: string): GovernanceReviewerRegistryEntry[] {
@@ -125,17 +96,17 @@ function parseRegistryFile(text: string, path: string): GovernanceReviewerRegist
   const rawList = Array.isArray((parsed as ReviewerRegistryFile).reviewers)
     ? (parsed as ReviewerRegistryFile).reviewers!
     : [parsed];
-  return rawList.map((raw, index) => validateEntry(raw, `${path}[${index}]`));
+  return rawList.map((raw, index) => validateGrantEntry(raw, `${path}[${index}]`));
 }
 
-function validateEntry(raw: unknown, label: string): GovernanceReviewerRegistryEntry {
+function validateGrantEntry(raw: unknown, label: string): GovernanceReviewerRegistryEntry {
   const entry = raw as Partial<GovernanceReviewerRegistryEntry>;
   const id = entry.identity_ref?.id?.trim();
   const digest = entry.identity_ref?.content_hash?.digest?.trim();
   const algorithm = entry.identity_ref?.content_hash?.algorithm?.trim();
   if (!id || !digest || !algorithm) {
     throw new GovernanceReviewerIdentityError(
-      `BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: ${label} missing resolvable identity_ref`,
+      `BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: ${label} missing grant identity_ref`,
     );
   }
   if (entry.role !== "GOVERNANCE_REVIEWER") {
@@ -143,19 +114,13 @@ function validateEntry(raw: unknown, label: string): GovernanceReviewerRegistryE
       `REJECT_DATASET_APPROVAL_REVIEWER_ROLE: ${label} role must be GOVERNANCE_REVIEWER`,
     );
   }
-  if (id === "reviewer-1" || id.startsWith("test-") || id.startsWith("fake-")) {
-    throw new GovernanceReviewerIdentityError(
-      `BLOCKED_BY_GOVERNANCE_REVIEWER_IDENTITY: ${label} uses a synthetic test identity id '${id}'`,
-    );
-  }
-  const actor: GovernanceReviewerRegistryEntry = {
+  return {
     identity_ref: {
       id,
       content_hash: { algorithm, digest },
     },
     role: "GOVERNANCE_REVIEWER",
   };
-  return actor;
 }
 
 function sameIdentity(a: ContentReference, b: ContentReference): boolean {

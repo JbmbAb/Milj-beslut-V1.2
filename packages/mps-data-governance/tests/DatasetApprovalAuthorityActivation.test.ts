@@ -31,7 +31,6 @@ import {
 } from "../src/DatasetApprovalTrustRoot";
 import {
   loadGovernanceReviewerRegistry,
-  resolveAuthenticatedGovernanceReviewer,
   GovernanceReviewerIdentityError,
 } from "../src/GovernanceReviewerIdentityResolver";
 import {
@@ -95,7 +94,7 @@ describe("DatasetApprovalAuthorityActivation bindings", () => {
     }
   });
 
-  it("resolves a realistic reviewer from registry and rejects unknown / wrong role / synthetic ids", () => {
+  it("treats reviewer registry as authorization grants only (role structurally required)", () => {
     const root = tempDir("da-reviewer-");
     const registryPath = join(root, "reviewers.json");
     const identity = {
@@ -112,15 +111,7 @@ describe("DatasetApprovalAuthorityActivation bindings", () => {
     const env = { DATASET_APPROVAL_REVIEWER_REGISTRY_FILE: registryPath } as NodeJS.ProcessEnv;
     const registry = loadGovernanceReviewerRegistry(env);
     expect(registry).toHaveLength(1);
-    expect(resolveAuthenticatedGovernanceReviewer(identity, env).actor_ref.role).toBe(
-      "GOVERNANCE_REVIEWER",
-    );
-    expect(() =>
-      resolveAuthenticatedGovernanceReviewer(
-        { id: "unknown-human", content_hash: { algorithm: "sha256", digest: "e".repeat(64) } },
-        env,
-      ),
-    ).toThrow(/REJECT_UNKNOWN_GOVERNANCE_REVIEWER_IDENTITY/);
+    expect(registry[0]!.role).toBe("GOVERNANCE_REVIEWER");
 
     writeFileSync(
       registryPath,
@@ -130,20 +121,9 @@ describe("DatasetApprovalAuthorityActivation bindings", () => {
       "utf8",
     );
     expect(() => loadGovernanceReviewerRegistry(env)).toThrow(/REJECT_DATASET_APPROVAL_REVIEWER_ROLE/);
-
-    writeFileSync(
-      registryPath,
-      JSON.stringify({
-        reviewers: [
-          {
-            identity_ref: { id: "reviewer-1", content_hash: { algorithm: "sha256", digest: "f".repeat(64) } },
-            role: "GOVERNANCE_REVIEWER",
-          },
-        ],
-      }),
-      "utf8",
+    expect(() => loadGovernanceReviewerRegistry({} as NodeJS.ProcessEnv)).toThrow(
+      GovernanceReviewerIdentityError,
     );
-    expect(() => loadGovernanceReviewerRegistry(env)).toThrow(GovernanceReviewerIdentityError);
   });
 
   it("loads DatasetApproval signer/trust only for DATASET_APPROVAL domain and rejects foreign env reuse", () => {
