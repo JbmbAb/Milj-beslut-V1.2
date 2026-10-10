@@ -2,17 +2,15 @@ import 'dotenv/config';
 import path from 'path';
 
 /**
- * Mimers Brunn Policy Constants
- * 
- * Centralizing paths to ensure all scripts follow the Master Archive structure.
+ * Legacy GEO archive path constants (historical source archive tooling).
+ *
+ * MASTER_ARCHIVE_ROOT / GEO_MASTER_ARCHIVE are NOT DatasetApproval / governed Master
+ * authority. Governed Master uses GOVERNED_MASTER_ROOT exclusively (see
+ * GovernedDataRootResolver). This H: default remains for legacy GEO scripts only.
  */
 
-// Root for the Master Archive — reads from .env first, falls back to canonical H:-drive path.
-// Set MASTER_ARCHIVE_ROOT in your .env to override (e.g. for CI or alternative mounts).
-//
-// This is the only place the archive root may be resolved. GEO_MASTER_ARCHIVE is
-// accepted as an alias because the ops/sanitation scripts were written against
-// that name; both must resolve to one root, or consumers silently diverge.
+// Legacy GEO archive root — env first, then historical H: path for old GEO tooling.
+// GEO_MASTER_ARCHIVE is an alias for the same legacy root.
 export const MASTER_ARCHIVE_ROOT =
   process.env.MASTER_ARCHIVE_ROOT ??
   process.env.GEO_MASTER_ARCHIVE ??

@@ -1,6 +1,12 @@
 import path from 'node:path';
 import type { DurabilityMode, SigningKeyProvider } from '@miljobeslut/mimers-brunn-core';
 import {
+  CasRootRequiredError,
+  LedgerRootContractError,
+  resolveDurableCasRoot,
+  resolveMimersBackendRootFromCasRoot,
+} from '../../packages/mps-runtime/src/mimers/DurableCasRoot.js';
+import {
   createPersistentMimersBackend,
   type PersistentMimersBackend,
 } from './createPersistentMimersBackend';
@@ -26,36 +32,66 @@ export function isMimersRequired(env: NodeJS.ProcessEnv = process.env): boolean 
 }
 
 /**
- * Resolve Mimers backend from env (ADR-042 dual-write opt-in).
+ * Resolve Mimers persistent backend from env.
  *
- * - `MIMERS_ROOT` set → create persistent backend under that root.
- * - else `fallbackRoot` → use that (smoke/tests).
- * - else → `null` (evolve stays FileArtifactStore-only V3),
- *   unless `MIMERS_REQUIRED` → throw.
+ * Production authority:
+ * - `CAS_ROOT` = exact physical CAS directory (basename must be `cas`)
+ * - ledger = sibling `<parent>/ledger` derived only from that CAS_ROOT
+ * - `MIMERS_ROOT` is NOT used for CAS location (runtime/config/secrets only)
+ *
+ * Test/smoke may still pass `fallbackCasRoot` explicitly.
  */
 export async function resolveMimersBackendFromEnv(
   options: {
     readonly env?: NodeJS.ProcessEnv;
+    /** Explicit CAS directory for smoke/tests (exact CAS path, basename `cas`). */
+    readonly fallbackCasRoot?: string;
+    /** @deprecated Use fallbackCasRoot. Ignored when CAS_ROOT / fallbackCasRoot present. */
     readonly fallbackRoot?: string;
     readonly signing?: SigningKeyProvider;
   } = {},
 ): Promise<PersistentMimersBackend | null> {
   const env = options.env ?? process.env;
-  const rootRaw = env.MIMERS_ROOT?.trim() || options.fallbackRoot;
-  if (!rootRaw) {
+  const casRaw = env.CAS_ROOT?.trim() || options.fallbackCasRoot?.trim() || null;
+
+  if (!casRaw) {
+    // Legacy smoke: fallbackRoot was a Mimers backend parent containing /cas.
+    // Only honour when explicitly provided AND CAS_ROOT is unset — still fail closed
+    // under MIMERS_REQUIRED without inventing MIMERS_ROOT→CAS authority.
+    if (options.fallbackRoot?.trim()) {
+      const rootDir = path.resolve(options.fallbackRoot.trim());
+      const durabilityMode = parseMimersDurabilityMode(env.MIMERS_DURABILITY_MODE);
+      return createPersistentMimersBackend(rootDir, {
+        durabilityMode,
+        signing: options.signing,
+      });
+    }
     if (isMimersRequired(env)) {
-      throw new Error(
-        'MIMERS_REQUIRED is set but MIMERS_ROOT is missing (and no fallbackRoot was provided)',
+      throw new CasRootRequiredError(
+        'persistent Mimers backend',
+        'MIMERS_REQUIRED is set but CAS_ROOT is missing (and no fallbackCasRoot was provided)',
       );
     }
     return null;
   }
 
-  const rootDir = path.resolve(rootRaw);
+  const casRoot = env.CAS_ROOT?.trim()
+    ? resolveDurableCasRoot(env, 'persistent Mimers backend')
+    : path.resolve(casRaw);
+
+  let rootDir: string;
+  try {
+    rootDir = resolveMimersBackendRootFromCasRoot(casRoot);
+  } catch (error) {
+    if (error instanceof LedgerRootContractError) throw error;
+    throw error;
+  }
+
   const durabilityMode = parseMimersDurabilityMode(env.MIMERS_DURABILITY_MODE);
   return createPersistentMimersBackend(rootDir, {
     durabilityMode,
     signing: options.signing,
+    expectedCasRoot: casRoot,
   });
 }
 
@@ -63,6 +99,7 @@ export async function resolveMimersBackendFromEnv(
 export async function requireMimersBackendFromEnv(
   options: {
     readonly env?: NodeJS.ProcessEnv;
+    readonly fallbackCasRoot?: string;
     readonly fallbackRoot?: string;
     readonly signing?: SigningKeyProvider;
   } = {},

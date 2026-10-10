@@ -25,12 +25,9 @@ import {
   type VerifiedSourceDefinition,
 } from '../../../packages/mps-data-governance/src/SourceRegistry';
 import { DiskQuarantineStorage } from '@miljobeslut/mimers-brunn-core';
-import { MASTER_ARCHIVE_ROOT } from '../config/mimersBrunn';
 
-// Skördemotorn får inte ha en egen arkivrot. Den tidigare lokala fallbacken
-// (C:\miljöbeslut\storage\geo_master_archive) var en andra rot som ingen annan
-// konsument läste: 524 filer och 17 myndighetskataloger hamnade utanför
-// masterarkivet. Roten upplöses nu på ett enda ställe, i config/mimersBrunn.
+// Raw harvest writes only to QUARANTINE_ROOT (explicit). Legacy MASTER_ARCHIVE_ROOT
+// is GEO archive tooling only and must not synthesize a sibling .quarantine.
 
 function calculateHash(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
@@ -93,7 +90,6 @@ export async function executeHarvestForSource(
     };
   }
 
-  const execute = options.execute ?? false;
   const adapter = createAdapterForSource(sourceDef);
 
   if (!adapter) {
@@ -130,9 +126,32 @@ export async function executeHarvestForSource(
 
   console.log(`\n🜂 [RUN: ${runId}] Inleder skörd för källa: ${sourceDef.authority.name} (${sourceId})`);
 
-  // Etablera karantänlagring för denna exekvering (Isolerat från CAS)
-  const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve(MASTER_ARCHIVE_ROOT, '..', '.quarantine');
-  const quarantineStorage = new DiskQuarantineStorage(quarantineRoot);
+  // Raw acquisition quarantine only (QUARANTINE_ROOT). Distinct from DatasetApproval staging under
+  // GOVERNED_MASTER_ROOT/National_Archive/_quarantine. No sibling-.quarantine / H: fallback.
+  const execute = options.execute ?? false;
+  let quarantineRoot: string | null = process.env.QUARANTINE_ROOT?.trim()
+    ? path.resolve(process.env.QUARANTINE_ROOT.trim())
+    : null;
+  if (execute && !quarantineRoot) {
+    return {
+      harvest_run_id: runId,
+      source_id: sourceId,
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      adapter_version: sourceDef.adapter,
+      documents_found: 0,
+      documents_new: 0,
+      documents_changed: 0,
+      status: 'failed',
+      error_message:
+        'BLOCKED_BY_RUNTIME_ROOT_CONFIGURATION: QUARANTINE_ROOT is required for harvest execute ' +
+        '(raw acquisition quarantine). Legacy MASTER_ARCHIVE_ROOT sibling .quarantine fallback is removed.',
+    };
+  }
+  // Dry-run may proceed without writing; quarantine storage only constructed when executing.
+  const quarantineStorage = quarantineRoot
+    ? new DiskQuarantineStorage(quarantineRoot)
+    : null;
 
   let documentsFound = 0;
   let documentsNew = 0;
@@ -163,7 +182,7 @@ export async function executeHarvestForSource(
       
       // Steg 3: QUARANTINE (Spara fysiskt isolerat i karantän enligt L1-11)
       const bytes = new TextEncoder().encode(doc.content);
-      const qResult = await quarantineStorage.put(
+      const qResult = await quarantineStorage!.put(
         sourceId,
         cand.sourceUrl,
         doc.name,
@@ -201,10 +220,10 @@ export async function executeHarvestForSource(
 
     if (execute) {
       // Skriv HarvestRunArtifact till det isolerade karantänsarkivets runs/
-      const runsDir = path.join(quarantineRoot, 'runs');
+      const runsDir = path.join(quarantineRoot!, 'runs');
       fs.mkdirSync(runsDir, { recursive: true });
       fs.writeFileSync(path.join(runsDir, `harvest_run_${runId}.json`), JSON.stringify({ ...runArtifact, quarantined_ids: quarantinedIds }, null, 2), 'utf8');
-      console.log(`   ✅ HarvestRunArtifact sparat under .quarantine/runs/. Status: completed`);
+      console.log(`   ✅ HarvestRunArtifact sparat under QUARANTINE_ROOT/runs/. Status: completed`);
     }
 
     return runArtifact;

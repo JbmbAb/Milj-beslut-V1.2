@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { GovernanceRuntime } from "../../packages/mps-governance-runtime/src/GovernanceRuntime.js";
@@ -18,9 +18,10 @@ import { requireAuth } from "../security/auth";
 import { rateLimitByUser } from "../security/rateLimit";
 import { getGovernanceSigningProvider } from "../security/governanceSigningKey";
 import {
-  MimersRootRequiredError,
-  resolveDurableMimersRoot,
-} from "../../packages/mps-runtime/src/mimers/DurableMimersRoot.js";
+  CasRootRequiredError,
+  resolveDurableCasRoot,
+  resolveMimersBackendRootFromCasRoot,
+} from "../../packages/mps-runtime/src/mimers/DurableCasRoot.js";
 
 export const governanceRouter = Router();
 
@@ -33,23 +34,23 @@ const canonicalPipeline = new DefaultCanonicalPipeline();
 await canonicalPipeline.initHasher();
 
 /**
- * U30-A (PRES-19): the governance CAS is the ONE durable Mimers root, resolved through the shared
- * contract -- never a `.data/mimers` fallback of its own. Opened lazily on first use (not at
- * module load, so importing the app has no storage side effect); a missing MIMERS_ROOT fails the
- * request closed with MIMERS_ROOT_REQUIRED (503). The web process's boot gate
- * (`assertMimersCasReady`) already refuses to start without the same root.
+ * Governance CAS is the production CAS_ROOT (exact physical directory).
+ * MIMERS_ROOT is runtime/config/secrets only and must not locate CAS.
+ * Opened lazily on first use; missing CAS_ROOT fails closed with CAS_ROOT_REQUIRED (503).
  * MIMERS_DURABILITY_MODE handling is unchanged (owner decision DP-12 open).
  */
-type GovernanceStorage = { readonly syncReader: SyncMimersReader; readonly cas: FileCASRepository };
+type GovernanceStorage = { readonly syncReader: SyncMimersReader; readonly cas: FileCASRepository; readonly casRoot: string };
 let governanceStorage: Promise<GovernanceStorage> | null = null;
 function getGovernanceStorage(): Promise<GovernanceStorage> {
   if (!governanceStorage) {
     governanceStorage = (async () => {
-      const mimersRoot = resolveDurableMimersRoot(process.env, "governance routes");
+      const casRoot = resolveDurableCasRoot(process.env, "governance routes");
+      const backendRoot = resolveMimersBackendRootFromCasRoot(casRoot);
       const durabilityMode = process.env.MIMERS_DURABILITY_MODE || "best-effort";
-      const cas = new FileCASRepository(path.join(mimersRoot, "cas"), { durabilityMode: durabilityMode as any });
+      const cas = new FileCASRepository(casRoot, { durabilityMode: durabilityMode as any });
       await cas.initialize();
-      return { syncReader: new SyncMimersReader(mimersRoot), cas };
+      // SyncMimersReader expects backend parent with `<parent>/cas/...` (CAS_ROOT basename must be cas).
+      return { syncReader: new SyncMimersReader(backendRoot), cas, casRoot };
     })();
     governanceStorage.catch(() => {
       governanceStorage = null;
@@ -60,11 +61,32 @@ function getGovernanceStorage(): Promise<GovernanceStorage> {
 
 /** 503 for a missing/unready durable CAS root (server configuration), otherwise `fallback`. */
 function storageErrorStatus(error: unknown, fallback: number): number {
-  return error instanceof MimersRootRequiredError ? 503 : fallback;
+  return error instanceof CasRootRequiredError ? 503 : fallback;
 }
 
-const quarantineRoot = process.env.QUARANTINE_ROOT || path.resolve(".quarantine");
-const quarantineStorage = new DiskQuarantineStorage(quarantineRoot);
+/**
+ * Raw acquisition quarantine only. DatasetApproval staging is under
+ * GOVERNED_MASTER_ROOT/National_Archive/_quarantine â€” never this root.
+ * Missing QUARANTINE_ROOT fails closed on promote/mutate paths that use DiskQuarantineStorage.
+ */
+function requireRawQuarantineRoot(): string {
+  const raw = process.env.QUARANTINE_ROOT?.trim();
+  if (!raw) {
+    throw new Error(
+      "BLOCKED_BY_RUNTIME_ROOT_CONFIGURATION: QUARANTINE_ROOT is required for raw acquisition quarantine " +
+        "(no silent sibling/.quarantine or cwd/.quarantine fallback)",
+    );
+  }
+  return path.resolve(raw);
+}
+
+let quarantineStorage: DiskQuarantineStorage | null = null;
+function getQuarantineStorage(): DiskQuarantineStorage {
+  if (!quarantineStorage) {
+    quarantineStorage = new DiskQuarantineStorage(requireRawQuarantineRoot());
+  }
+  return quarantineStorage;
+}
 
 // Constructed lazily (not at module load) because QuarantinePromoter now requires the
 // governance signing key (ADR-042 Level 2), which is separate env config from everything
@@ -75,7 +97,7 @@ let promoterInstance: QuarantinePromoter | null = null;
 async function getPromoter(): Promise<QuarantinePromoter> {
   if (!promoterInstance) {
     const { cas } = await getGovernanceStorage();
-    promoterInstance = new QuarantinePromoter(quarantineStorage, cas, getGovernanceSigningProvider());
+    promoterInstance = new QuarantinePromoter(getQuarantineStorage(), cas, getGovernanceSigningProvider());
   }
   return promoterInstance;
 }
@@ -213,7 +235,7 @@ governanceRouter.post("/session/:sessionId/terminate", requireAuth, rateLimitByU
 // List all quarantine candidates
 governanceRouter.get("/quarantine/candidates", requireAuth, rateLimitByUser(30, 60_000), requireAdminMiddleware, async (req, res) => {
   try {
-    const list = await quarantineStorage.list();
+    const list = await getQuarantineStorage().list();
     res.json({ ok: true, items: list });
   } catch (error) {
     res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -221,7 +243,7 @@ governanceRouter.get("/quarantine/candidates", requireAuth, rateLimitByUser(30, 
 });
 
 /**
- * SECURITY CONTAINMENT (2026-08-10) — see
+ * SECURITY CONTAINMENT (2026-08-10) â€” see
  * docs/architecture/GAP-REPORT-harvest-governance-2026-08-10.md, "URGENT ADDENDUM".
  *
  * Until 2026-08-10 this route had no authentication and read `approvedBy`
@@ -230,7 +252,7 @@ governanceRouter.get("/quarantine/candidates", requireAuth, rateLimitByUser(30, 
  * as the approver. `requireAuth` + an ADMIN role check close that write path;
  * the approver identity is derived from the authenticated principal, not client input.
  *
- * LEVEL 2 — CRYPTOGRAPHIC PROMOTION AUTHORITY (2026-08-11) — see the same file,
+ * LEVEL 2 â€” CRYPTOGRAPHIC PROMOTION AUTHORITY (2026-08-11) â€” see the same file,
  * "SPEC TIGHTENED". `QuarantinePromoter.promote()` no longer accepts "who approved" as a
  * plain string. This route now builds a `PromotionAttestationPredicate` server-side, after
  * the ADMIN check, binding the exact operation (action, quarantine artifact id, its current
@@ -238,10 +260,10 @@ governanceRouter.get("/quarantine/candidates", requireAuth, rateLimitByUser(30, 
  * server's governance Ed25519 key (`server/security/governanceSigningKey.ts`, separate from
  * `JWT_ACCESS_SECRET`). The client never sends or influences the attestation.
  * `QuarantinePromoter.promote()` independently re-verifies the signature and every binding
- * field (steps 1-7) before any CAS write — so the trust boundary is the promoter itself, not
+ * field (steps 1-7) before any CAS write â€” so the trust boundary is the promoter itself, not
  * this route; a direct in-process call to `promote()` without a valid, correctly-bound
  * attestation fails the same way. This still does not implement per-reviewer individual
- * signing keys/non-repudiation (Level 3, `mps-governance` `ActorArtifact`/`TrustAnchor` —
+ * signing keys/non-repudiation (Level 3, `mps-governance` `ActorArtifact`/`TrustAnchor` â€”
  * separate architecture-convergence track, not started) or key rotation (documented
  * contract, not implemented).
  */
@@ -258,7 +280,7 @@ governanceRouter.post("/quarantine/:id/promote", requireAuth, rateLimitByUser(10
   try {
     if (!requireAdmin(req, res)) return;
     // Express types req.params values as `string | string[]` in this project's config, but a
-    // named `:id` segment is always a single string at runtime — pre-existing typing quirk,
+    // named `:id` segment is always a single string at runtime â€” pre-existing typing quirk,
     // not something this change introduces (the same pattern is already used untyped below in
     // the reject handler). Cast locally rather than widen every downstream signature.
     const id = req.params.id as string;
@@ -267,13 +289,13 @@ governanceRouter.post("/quarantine/:id/promote", requireAuth, rateLimitByUser(10
       return res.status(400).json({ ok: false, error: "Missing governanceRelease" });
     }
 
-    const meta = await quarantineStorage.getMetadata(id);
+    const meta = await getQuarantineStorage().getMetadata(id);
     if (!meta) {
       return res.status(404).json({ ok: false, error: `Quarantine artifact '${id}' not found` });
     }
 
     // Approver identity, action, and content hash are all derived server-side and bound into
-    // the signed predicate — never taken from the request body. See LEVEL 2 note above.
+    // the signed predicate â€” never taken from the request body. See LEVEL 2 note above.
     const signingProvider = getGovernanceSigningProvider();
     const predicate: PromotionAttestationPredicate = {
       action: PROMOTION_ACTION,
@@ -289,7 +311,7 @@ governanceRouter.post("/quarantine/:id/promote", requireAuth, rateLimitByUser(10
       subjectDigest: `sha256:${meta.content_hash}`,
       predicateType: PROMOTION_ATTESTATION_PREDICATE_TYPE,
       // PromotionAttestationPredicate is a specific, closed shape (no index signature) so it's
-      // not structurally a Record<string, unknown> — createArtifactAttestation's predicate
+      // not structurally a Record<string, unknown> â€” createArtifactAttestation's predicate
       // param is intentionally broad since it's shared across attestation kinds; the closed
       // shape is what buys us type safety when *building* the predicate above.
       predicate: predicate as unknown as Record<string, unknown>,
@@ -309,7 +331,7 @@ governanceRouter.post("/quarantine/:id/reject", requireAuth, rateLimitByUser(20,
     if (!requireAdmin(req, res)) return;
     const { id } = req.params;
     const { errors } = req.body;
-    await quarantineStorage.updateStatus(id, "rejected", errors || []);
+    await getQuarantineStorage().updateStatus(id, "rejected", errors || []);
     res.json({ ok: true });
   } catch (error) {
     res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -319,7 +341,7 @@ governanceRouter.post("/quarantine/:id/reject", requireAuth, rateLimitByUser(20,
 // High-level statistics on quarantine, CAS, and sessions
 governanceRouter.get("/stats", requireAuth, rateLimitByUser(30, 60_000), requireAdminMiddleware, async (req, res) => {
   try {
-    const list = await quarantineStorage.list();
+    const list = await getQuarantineStorage().list();
     const stats = {
       quarantined: list.filter(item => item.status === "quarantined").length,
       validated: list.filter(item => item.status === "validated").length,

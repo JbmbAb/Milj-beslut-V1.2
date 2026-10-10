@@ -22,9 +22,11 @@ import {
   type ArtifactResolverPort,
 } from "./ArtifactResolver.js";
 import {
-  MimersRootRequiredError,
+  CasRootRequiredError,
+  resolveDurableCasRoot,
+} from "./DurableCasRoot.js";
+import {
   isMimersTestEnvironment,
-  resolveDurableMimersRoot,
 } from "./DurableMimersRoot.js";
 
 export const MIMERS_INTEGRATION_VERSION = "1.0.0" as const;
@@ -42,7 +44,7 @@ export type MimersIntegrationOptions = {
 };
 
 let cachedMimersCas: FileCASRepository | null = null;
-let cachedMimersRoot: string | null = null;
+let cachedCasRoot: string | null = null;
 let cachedMimersBackend: MimersByteStorageBackend | null = null;
 let cachedMemoryMimers: MimersIntegration | null = null;
 
@@ -68,12 +70,12 @@ export class MimersIntegration {
   /**
    * Create the sole platform artifact stack.
    *
-   * U30-A fail-closed (no silent fallbacks):
+   * Fail-closed (no silent fallbacks):
    * - in-memory CAS ONLY in an explicit test environment (`NODE_ENV=test` / `VITEST`), and only
    *   when neither `MIMERS_REQUIRED` nor `forceMimers` asks for the durable store;
    * - `LU_MPS_CAS=memory` outside a test environment is a configuration error, never honoured;
-   * - otherwise the durable root from `resolveDurableMimersRoot` (PRES-19); a missing
-   *   `MIMERS_ROOT` throws `MIMERS_ROOT_REQUIRED` -- there is no `.data/mimers` fallback.
+   * - otherwise durable CAS from `CAS_ROOT` exactly (not `MIMERS_ROOT/cas`).
+   *   `MIMERS_ROOT` remains runtime/config/secrets only and does not locate CAS.
    * `MIMERS_DURABILITY_MODE` handling is unchanged (owner decision DP-12 is open).
    */
   static async create(
@@ -103,18 +105,18 @@ export class MimersIntegration {
       return cachedMemoryMimers;
     }
 
-    if (!env.MIMERS_ROOT?.trim()) {
-      throw new MimersRootRequiredError(
+    if (!env.CAS_ROOT?.trim()) {
+      throw new CasRootRequiredError(
         "ExecutionKernel CAS",
         required
-          ? "MIMERS_REQUIRED set but MIMERS_ROOT missing for ExecutionKernel CAS"
+          ? "MIMERS_REQUIRED set but CAS_ROOT missing for ExecutionKernel CAS"
           : undefined,
       );
     }
-    const root = resolveDurableMimersRoot(env, "ExecutionKernel CAS");
+    const casRoot = resolveDurableCasRoot(env, "ExecutionKernel CAS");
 
     return MimersIntegration.createMimersBacked(
-      root,
+      casRoot,
       env.MIMERS_DURABILITY_MODE,
       required,
     );
@@ -147,7 +149,7 @@ export class MimersIntegration {
   }
 
   private static async createMimersBacked(
-    rootDir: string,
+    casRoot: string,
     durabilityRaw: string | undefined,
     required: boolean,
   ): Promise<MimersIntegration> {
@@ -159,24 +161,24 @@ export class MimersIntegration {
         : "best-effort";
 
     try {
-      if (!cachedMimersCas || cachedMimersRoot !== rootDir) {
-        const cas = new FileCASRepository(path.join(rootDir, "cas"), {
+      if (!cachedMimersCas || cachedCasRoot !== casRoot) {
+        const cas = new FileCASRepository(casRoot, {
           durabilityMode,
         });
         await cas.initialize();
         cachedMimersCas = cas;
-        cachedMimersRoot = rootDir;
-        const indexDir = path.join(rootDir, "cas", "artifact-id-index");
+        cachedCasRoot = casRoot;
+        const indexDir = path.join(casRoot, "artifact-id-index");
         cachedMimersBackend = new MimersByteStorageBackend(cas, indexDir);
       }
     } catch (err) {
       cachedMimersCas = null;
-      cachedMimersRoot = null;
+      cachedCasRoot = null;
       cachedMimersBackend = null;
       const detail = err instanceof Error ? err.message : String(err);
       if (required) {
         throw new Error(
-          `MIMERS_REQUIRED: Mimers CAS failed to initialize under '${rootDir}': ${detail}`,
+          `MIMERS_REQUIRED: Mimers CAS failed to initialize under CAS_ROOT '${casRoot}': ${detail}`,
         );
       }
       throw err;
@@ -184,6 +186,11 @@ export class MimersIntegration {
 
     const repo = new CasBackedArtifactRepository(cachedMimersBackend!);
     return new MimersIntegration(repo, repo.resolver, cachedMimersBackend);
+  }
+
+  /** Exact physical CAS root used by the cached durable integration (tests / composition proofs). */
+  static getCachedCasRootForTests(): string | null {
+    return cachedCasRoot;
   }
 }
 
@@ -195,6 +202,6 @@ export function getCachedMimersBackendForTests(): MimersByteStorageBackend | nul
 /** Test helper to clear Mimers CAS singleton between suites. */
 export function resetMimersCasCacheForTests(): void {
   cachedMimersCas = null;
-  cachedMimersRoot = null;
+  cachedCasRoot = null;
   cachedMimersBackend = null;
 }

@@ -205,7 +205,7 @@ describe("DatasetApprovalAuthorityActivation bindings", () => {
 
     const separated = resolveGovernedDataRoots({
       MIMERS_ROOT: mimers,
-      MASTER_ARCHIVE_ROOT: master,
+      GOVERNED_MASTER_ROOT: master,
       CAS_ROOT: cas,
       QUARANTINE_ROOT: quarantine,
     } as NodeJS.ProcessEnv);
@@ -215,7 +215,7 @@ describe("DatasetApprovalAuthorityActivation bindings", () => {
     expect(separated.quarantineVisible).toBe(true);
     expect(separated.mimersRootPurpose).toBe("runtime_config_secrets");
     expect(requireMasterArchiveRootForDatasetApproval({
-      MASTER_ARCHIVE_ROOT: master,
+      GOVERNED_MASTER_ROOT: master,
       CAS_ROOT: cas,
       QUARANTINE_ROOT: quarantine,
       MIMERS_ROOT: mimers,

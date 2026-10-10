@@ -1,14 +1,9 @@
 // tests/unit/governanceRoutesDurableCasRoot.test.ts
 //
-// U30-A: server/routes/governance.routes.ts used to open its own FileCASRepository at module
-// load on `process.env.MIMERS_ROOT || path.resolve(".data/mimers")` -- a silent cwd-relative
-// CAS, independent of MIMERS_REQUIRED. It must now resolve the ONE durable root through the
-// shared contract (resolveDurableMimersRoot, PRES-19), lazily, and fail closed with a stated
-// cause when MIMERS_ROOT is missing. Nothing touches the filesystem here: the CAS, quarantine
-// storage and canonical pipeline are mocked at the module boundary, and the constructor
-// arguments are recorded so the chosen root is observable.
+// Governance routes open FileCASRepository from CAS_ROOT (exact physical directory).
+// MIMERS_ROOT must not locate CAS. Missing CAS_ROOT fails closed with CAS_ROOT_REQUIRED.
 
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
@@ -78,8 +73,10 @@ async function loadApp() {
   return app;
 }
 
-describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
-  const savedRoot = process.env.MIMERS_ROOT;
+describe('governance.routes durable CAS root (CAS_ROOT)', () => {
+  const savedCas = process.env.CAS_ROOT;
+  const savedMimers = process.env.MIMERS_ROOT;
+  const savedQuarantine = process.env.QUARANTINE_ROOT;
 
   beforeEach(() => {
     mocks.casConstructed.length = 0;
@@ -88,11 +85,16 @@ describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
   });
 
   afterEach(() => {
-    if (savedRoot === undefined) delete process.env.MIMERS_ROOT;
-    else process.env.MIMERS_ROOT = savedRoot;
+    if (savedCas === undefined) delete process.env.CAS_ROOT;
+    else process.env.CAS_ROOT = savedCas;
+    if (savedMimers === undefined) delete process.env.MIMERS_ROOT;
+    else process.env.MIMERS_ROOT = savedMimers;
+    if (savedQuarantine === undefined) delete process.env.QUARANTINE_ROOT;
+    else process.env.QUARANTINE_ROOT = savedQuarantine;
   });
 
-  it('never opens a CAS under a .data/mimers fallback when MIMERS_ROOT is missing', async () => {
+  it('never opens a CAS under a .data/mimers fallback when CAS_ROOT is missing', async () => {
+    delete process.env.CAS_ROOT;
     delete process.env.MIMERS_ROOT;
     const app = await loadApp();
 
@@ -102,23 +104,29 @@ describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
     expect(mocks.casConstructed).toEqual([]);
     expect(res.status).toBe(503);
     expect(res.body.ok).toBe(false);
-    expect(String(res.body.error)).toMatch(/^MIMERS_ROOT_REQUIRED: /);
+    expect(String(res.body.error)).toMatch(/^CAS_ROOT_REQUIRED: /);
     expect(mocks.getBytes).not.toHaveBeenCalled();
   });
 
   it('opens no CAS at module load: importing the router has no storage side effect', async () => {
-    process.env.MIMERS_ROOT = mkdtempSync(path.join(tmpdir(), 'mimers-durable-root-under-test-'));
+    const parent = mkdtempSync(path.join(tmpdir(), 'gov-cas-'));
+    const cas = path.join(parent, 'cas');
+    mkdirSync(cas);
+    process.env.CAS_ROOT = cas;
     await loadApp();
 
     expect(mocks.casConstructed).toEqual([]);
     expect(mocks.initialize).not.toHaveBeenCalled();
   });
 
-  it('opens the durable root from MIMERS_ROOT on first use, once', async () => {
-    // Since ADV-1 rest the root must be an existing absolute directory (it is only stat'ed here; the
-    // CAS itself is mocked, so nothing is written into it).
-    const root = mkdtempSync(path.join(tmpdir(), 'mimers-durable-root-under-test-'));
-    process.env.MIMERS_ROOT = root;
+  it('opens the durable root from CAS_ROOT on first use, once (not MIMERS_ROOT/cas)', async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'gov-cas-'));
+    const cas = path.join(parent, 'cas');
+    mkdirSync(cas);
+    const mimers = path.join(parent, 'mimers');
+    mkdirSync(mimers);
+    process.env.CAS_ROOT = cas;
+    process.env.MIMERS_ROOT = mimers;
     const app = await loadApp();
 
     const first = await request(app).get('/api/governance/cas/artifact/sha256:abc').set('Authorization', adminHeader());
@@ -126,13 +134,13 @@ describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(mocks.casConstructed).toEqual([path.join(path.resolve(root), 'cas')]);
+    expect(mocks.casConstructed).toEqual([path.resolve(cas)]);
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
     expect(mocks.getBytes).toHaveBeenCalledWith('sha256:abc', { verifyHash: true });
   });
 
-  it('a missing root also fails session/start closed (503) instead of using a fallback reader', async () => {
-    delete process.env.MIMERS_ROOT;
+  it('a missing CAS_ROOT also fails session/start closed (503)', async () => {
+    delete process.env.CAS_ROOT;
     const app = await loadApp();
 
     const res = await request(app)
@@ -141,7 +149,7 @@ describe('governance.routes durable CAS root (U30-A, PRES-19)', () => {
       .send({ capability: { artifact_id: 'cap-1' } });
 
     expect(res.status).toBe(503);
-    expect(String(res.body.error)).toMatch(/^MIMERS_ROOT_REQUIRED: /);
+    expect(String(res.body.error)).toMatch(/^CAS_ROOT_REQUIRED: /);
     expect(mocks.casConstructed).toEqual([]);
   });
 });

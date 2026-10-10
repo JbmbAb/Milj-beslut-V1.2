@@ -31,7 +31,7 @@ import {
 import { loadGovernanceReviewerRegistry } from "./GovernanceReviewerIdentityResolver";
 import {
   resolveGovernedDataRoots,
-  requireMasterArchiveRootForDatasetApproval,
+  requireGovernedMasterRootForDatasetApproval,
   type GovernedDataRootResolution,
 } from "./GovernedDataRootResolver";
 import { loadDatasetApprovalSignerFromEnv } from "./DatasetApprovalSigningAuthority";
@@ -408,7 +408,7 @@ export async function composeDatasetApprovalAuthorityFromEnv(input: {
   const signer = loadDatasetApprovalSignerFromEnv(env, trustRoot);
   const trust = createDatasetApprovalTrustPort(trustRoot);
   const verifier = createDatasetApprovalSignatureVerifier(trustRoot);
-  const masterRoot = requireMasterArchiveRootForDatasetApproval(env);
+  const masterRoot = requireGovernedMasterRootForDatasetApproval(env);
   const checkpoints = new FileCheckpointStore(masterRoot, serializer, hashEngine, verifier);
   const authority = new DatasetApprovalAuthority(
     serializer,

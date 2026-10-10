@@ -16,6 +16,8 @@ export type PersistentMimersBackend = {
 
 /**
  * Create a durable Mimers backend under `<rootDir>/cas` + `<rootDir>/ledger`.
+ * Production callers should derive `rootDir` from `CAS_ROOT` where basename(CAS_ROOT)==="cas"
+ * so the CAS physical path equals `CAS_ROOT` exactly (no MIMERS_ROOT fallback).
  * Call once at process start; EventLog reload verifies the hash chain + Merkle checkpoints.
  */
 export async function createPersistentMimersBackend(
@@ -29,10 +31,21 @@ export async function createPersistentMimersBackend(
     readonly enableMerkleCheckpoints?: boolean;
     /** Signer for segment checkpoints (falls back to `signing` when set). */
     readonly checkpointSigning?: SigningKeyProvider;
+    /** When set, must normalize-equal `<rootDir>/cas` (CAS_ROOT coherence). */
+    readonly expectedCasRoot?: string;
   } = {},
 ): Promise<PersistentMimersBackend> {
   const durabilityMode = options.durabilityMode ?? 'best-effort';
-  const cas = new FileCASRepository(path.join(rootDir, 'cas'), { durabilityMode });
+  const casPath = path.resolve(rootDir, 'cas');
+  if (options.expectedCasRoot) {
+    const expected = path.resolve(options.expectedCasRoot);
+    if (casPath.toLowerCase() !== expected.toLowerCase()) {
+      throw new Error(
+        `CAS_ROOT_INCOHERENT: expected CAS physical root '${expected}' but backend would open '${casPath}'`,
+      );
+    }
+  }
+  const cas = new FileCASRepository(casPath, { durabilityMode });
   await cas.initialize();
   const eventLog = new FileEventLog(path.join(rootDir, 'ledger'), {
     durabilityMode,

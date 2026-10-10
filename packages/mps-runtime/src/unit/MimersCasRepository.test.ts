@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, promises as fs } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -26,9 +26,15 @@ describe("Mimers CAS artifact repository", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  function casRootPath(): string {
+    const cas = path.join(root, "cas");
+    mkdirSync(cas, { recursive: true });
+    return cas;
+  }
+
   function mimersEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     return {
-      MIMERS_ROOT: root,
+      CAS_ROOT: casRootPath(),
       MIMERS_DURABILITY_MODE: "none",
       NODE_ENV: "development",
       ...extra,
@@ -77,8 +83,9 @@ describe("Mimers CAS artifact repository", () => {
   it("rebuilds id→hash index from CAS after index loss", async () => {
     const content_hash = sha256ContentHash({ n: 1 });
     const artifact_id = "rebuild-me";
+    const env = mimersEnv();
     const repo = (await createKernelArtifactRepository({
-      env: mimersEnv(),
+      env,
       forceMimers: true,
     })) as CasBackedArtifactRepository;
 
@@ -88,7 +95,7 @@ describe("Mimers CAS artifact repository", () => {
       body: { n: 1 },
     });
 
-    const indexDir = path.join(root, "cas", "artifact-id-index");
+    const indexDir = path.join(String(env.CAS_ROOT), "artifact-id-index");
     await fs.rm(indexDir, { recursive: true, force: true });
 
     const backend = getCachedMimersBackendForTests()!;
@@ -105,7 +112,7 @@ describe("Mimers CAS artifact repository", () => {
     expect(restored.body).toEqual({ n: 1 });
   });
 
-  it("MIMERS_REQUIRED=1 is fail-closed when MIMERS_ROOT missing", async () => {
+  it("MIMERS_REQUIRED=1 is fail-closed when CAS_ROOT missing", async () => {
     await expect(
       createKernelArtifactRepository({
         env: {
@@ -114,31 +121,32 @@ describe("Mimers CAS artifact repository", () => {
         } as NodeJS.ProcessEnv,
         forceMimers: true,
       }),
-    ).rejects.toThrow(/MIMERS_REQUIRED.*MIMERS_ROOT/);
+    ).rejects.toThrow(/CAS_ROOT/);
 
     await expect(
       assertMimersCasReady({
         MIMERS_REQUIRED: "1",
+        NODE_ENV: "development",
       } as NodeJS.ProcessEnv),
-    ).rejects.toThrow(/MIMERS_REQUIRED/);
+    ).rejects.toThrow(/CAS_ROOT/);
   });
 
   it("MIMERS_REQUIRED=1 fails closed when CAS cannot initialize", async () => {
-    // A valid durable root whose cas/ is a FILE, so mkdir/init for cas/ fails closed. (A root that is
-    // itself a file is refused earlier, by resolveDurableMimersRoot -- see DurableMimersRoot.test.ts.)
-    const validRoot = path.join(root, "root-with-blocked-cas");
-    await fs.mkdir(validRoot);
-    await fs.writeFile(path.join(validRoot, "cas"), "block");
+    // CAS_ROOT points at a FILE so FileCASRepository initialize fails closed.
+    const blockedCas = path.join(root, "blocked-cas-file");
+    await fs.writeFile(blockedCas, "block");
 
     await expect(
       createKernelArtifactRepository({
-        env: mimersEnv({
+        env: {
           MIMERS_REQUIRED: "1",
-          MIMERS_ROOT: validRoot,
-        }),
+          NODE_ENV: "development",
+          CAS_ROOT: blockedCas,
+          MIMERS_DURABILITY_MODE: "none",
+        } as NodeJS.ProcessEnv,
         forceMimers: true,
       }),
-    ).rejects.toThrow(/MIMERS_REQUIRED.*failed to initialize/);
+    ).rejects.toThrow(/CAS_ROOT|failed to initialize|not a directory/);
   });
 
   it("content-addressed put is deterministic for identical envelopes", async () => {

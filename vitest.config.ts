@@ -180,6 +180,13 @@ export default defineConfig({
               __dirname,
               'packages/mps-text-projection/src/index.ts',
             ),
+            // GOVERNED-STORAGE-ROOT-CONTRACT-REPAIR-01: governance/harvest/CAS binding tests
+            // under tests/unit and packages/.../unit need these resolvable here.
+            '@miljobeslut/mimers-brunn-core': path.resolve(
+              __dirname,
+              'packages/mimers-brunn-core/src/index.ts',
+            ),
+            '@miljobeslut/mps-runtime': path.resolve(__dirname, 'packages/mps-runtime/src/index.ts'),
           },
         },
         test: {

@@ -185,7 +185,7 @@ describe("DatasetApproval authenticated-principal production binding", () => {
         DATASET_APPROVAL_SIGNING_PRIVATE_KEY_PEM: key.privateKeyPem,
         DATASET_APPROVAL_SIGNING_PUBLIC_KEY_PEM: key.publicKeyPem,
         DATASET_APPROVAL_REVIEWER_REGISTRY_FILE: grants,
-        MASTER_ARCHIVE_ROOT: master,
+        GOVERNED_MASTER_ROOT: master,
         CAS_ROOT: cas,
         QUARANTINE_ROOT: quarantine,
       } as NodeJS.ProcessEnv,
